@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 mod array;
 mod bools;
+mod byte;
 mod usizes;
 mod vecs;
 

@@ -17,8 +17,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "cabac"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51ef03c425e29da23a26dc17bf34a2bfa170391d8076cfa0cca7850cc22a2cf8"
+source = "git+https://github.com/droundy/cabac#7f5304582fa3d5dc5516b8db75c5fa7634cb7f3c"
 dependencies = [
  "bytemuck",
  "byteorder",
