@@ -20,20 +20,9 @@ impl Encode for bool {
     }
 }
 
-#[cfg(test)]
-macro_rules! assert_size {
-    ($v:expr, $size:literal) => {
-        let v = $v;
-        let bytes = crate::encode(&v);
-        println!("bytes are {bytes:?}");
-        let decoded = crate::decode(&bytes);
-        assert_eq!(decoded, Some(v));
-        assert_eq!(bytes.len(), $size);
-    };
-}
-
 #[test]
-fn bools_size() {
+fn size() {
+    use crate::assert_size;
     assert_size!(true, 1);
     assert_size!(false, 0);
     assert_size!([false; 128], 0);

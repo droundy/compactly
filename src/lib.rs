@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 mod array;
 mod bools;
+mod usizes;
 
 pub trait Encode: Sized {
     type Context: Default;
@@ -34,3 +35,17 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
     let mut reader = VP8Reader::new(&mut bytes).unwrap();
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
+
+#[cfg(test)]
+macro_rules! assert_size {
+    ($v:expr, $size:literal) => {
+        let v = $v;
+        let bytes = crate::encode(&v);
+        println!("bytes are {bytes:?}");
+        let decoded = crate::decode(&bytes);
+        assert_eq!(decoded, Some(v), "decoded value is incorrect");
+        assert_eq!(bytes.len(), $size, "unexpected size");
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_size;
