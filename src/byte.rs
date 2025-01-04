@@ -69,4 +69,11 @@ fn size() {
     assert_size!(*b"\x01", 2);
     assert_size!(*b"\x01\x01", 3);
     assert_size!(*b"\x01\x01\x01\x01", 4);
+    assert_size!(*b"\x01\x01\x01\x01\x01", 4);
+    assert_size!(*b"\x01\x01\x01\x01\x01\x01", 4);
+    assert_size!(*b"\x01\x02\x03\x04", 4);
+    assert_size!(*b"\x01\x02\x03\x04\x05", 5);
+    assert_size!(*b"\x01\x02\x03\x04\x05\x06", 6);
+    assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07", 6);
+    assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 7);
 }
