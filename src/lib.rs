@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 mod array;
 mod bools;
 mod usizes;
+mod vecs;
 
 pub trait Encode: Sized {
     type Context: Default;
@@ -38,7 +39,7 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
 
 #[cfg(test)]
 macro_rules! assert_size {
-    ($v:expr, $size:literal) => {
+    ($v:expr, $size:expr) => {
         let v = $v;
         let bytes = crate::encode(&v);
         println!("bytes are {bytes:?}");
