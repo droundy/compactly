@@ -94,4 +94,10 @@ fn size() {
         println!("Trying with {sz}");
         assert_size!(sz, 3);
     }
+    assert_size!([0_usize; 128], 2);
+    assert_size!([1_usize; 19], 2);
+    assert_size!(
+        [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        2
+    );
 }
