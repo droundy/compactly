@@ -65,4 +65,8 @@ fn size() {
     assert_size!(*b"hello hello, hello hello, hello hello, hello hello", 26);
     assert_size!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 6);
     assert_size!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 7);
+    assert_size!(*b"\0", 0);
+    assert_size!(*b"\x01", 2);
+    assert_size!(*b"\x01\x01", 3);
+    assert_size!(*b"\x01\x01\x01\x01", 4);
 }
