@@ -3,6 +3,16 @@ name = "compactly"
 version = "0.1.0"
 edition = "2021"
 
+[workspace.dependencies]
+cabac =  { git = "https://github.com/droundy/cabac" }
+
 [dependencies]
 
-cabac =  { git = "https://github.com/droundy/cabac" }
+cabac.workspace = true
+compactly-derive = { path = "compactly-derive" }
+
+[workspace]
+
+members = [
+    "compactly-derive"
+]
