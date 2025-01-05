@@ -85,7 +85,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         use compactly::Encode;
 
         #[derive(Default)]
-        struct DerivedContext {
+        pub struct DerivedContext {
             discriminant: <usize as Encode>::Context,
             #(#context,)*
         }
@@ -125,7 +125,7 @@ fn zero_size() {
                 use compactly::Encode;
 
                 #[derive(Default)]
-                struct DerivedContext {
+                pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
                 }
 
@@ -174,7 +174,7 @@ fn tuple_struct() {
                 use compactly::Encode;
 
                 #[derive(Default)]
-                struct DerivedContext {
+                pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
                     __binding_0 : <usize as Encode>::Context,
                 }
