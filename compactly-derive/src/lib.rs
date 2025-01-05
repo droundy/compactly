@@ -29,16 +29,30 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 let ty = &binding.ast().ty;
                 let name = &binding.binding;
                 quote! {
-                    #name: <#ty as compactly::Encode>::Context,
+                    #name: <#ty as Encode>::Context,
                 }
             })
         })
         .collect::<Vec<_>>();
 
-    let encode = s.each(|binding| {
+    let encode_fields = s.each(|binding| {
         let binding = &binding.binding;
         quote! {
             #binding.encode(writer, &mut ctx.#binding)?;
+        }
+    });
+    let get_discriminant = |variant: &VariantInfo| -> usize {
+        s.variants()
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.ast().ident == variant.ast().ident)
+            .map(|x| x.0)
+            .expect("bug: invalid variant")
+    };
+    let encode_discriminant = s.each_variant(|variant| {
+        let discriminant = get_discriminant(variant);
+        quote! {
+            #discriminant.encode(writer, &mut ctx.discriminant)?;
         }
     });
 
@@ -48,22 +62,24 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
 
     s.gen_impl(quote! {
         extern crate compactly;
+        use compactly::Encode;
 
         #[derive(Default)]
         struct DerivedContext {
-            distriminant: <usize as compactly::Encode>::Context,
+            discriminant: <usize as Encode>::Context,
             #(#context,)*
         }
 
 
-        gen impl compactly::Encode for @Self {
+        gen impl Encode for @Self {
             type Context = DerivedContext;
             fn encode<W: std::io::Write>(
                 &self,
                 writer: &mut cabac::vp8::VP8Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
-                match self { #encode }
+                match self { #encode_discriminant }
+                match self { #encode_fields }
                 Ok(())
             }
             fn decode<R: std::io::Read>(
@@ -85,19 +101,25 @@ fn zero_size() {
         expands to {
             const _: () = {
                 extern crate compactly;
+                use compactly::Encode;
 
                 #[derive(Default)]
                 struct DerivedContext {
-                    distriminant : <usize as compactly::Encode>::Context,
+                    discriminant : <usize as Encode>::Context,
                 }
 
-                impl compactly::Encode for A {
+                impl Encode for A {
                     type Context = DerivedContext;
                     fn encode<W: std::io::Write>(
                             &self,
                             writer: &mut cabac::vp8::VP8Writer<W>,
                             ctx: &mut Self::Context,
                         ) -> Result<(), std::io::Error> {
+                            match self {
+                                A => {
+                                    0usize.encode(writer, &mut ctx.discriminant)?;
+                                }
+                            }
                             match self {
                                 A => {}
                             }
@@ -124,14 +146,15 @@ fn tuple_struct() {
         expands to {
             const _: () = {
                 extern crate compactly;
+                use compactly::Encode;
 
                 #[derive(Default)]
                 struct DerivedContext {
-                    distriminant : <usize as compactly::Encode>::Context,
-                    __binding_0 : <usize as compactly::Encode>::Context,
+                    discriminant : <usize as Encode>::Context,
+                    __binding_0 : <usize as Encode>::Context,
                 }
 
-                impl compactly::Encode for A {
+                impl Encode for A {
                     type Context = DerivedContext;
                     fn encode<W: std::io::Write>(
                             &self,
@@ -149,7 +172,7 @@ fn tuple_struct() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let value = <usize as compactly::Encode>::decode(reader, &mut ctx.__binding_0)?;
+                        let value = <usize as Encode>::decode(reader, &mut ctx.__binding_0)?;
                         Ok(Self(value))
                     }
                 }
