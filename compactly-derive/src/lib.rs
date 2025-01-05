@@ -19,8 +19,6 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             Span::call_site(),
         )
     }
-    let context_types = s.variants().iter().map(context_type).collect::<Vec<_>>();
-    let context_fields = s.variants().iter().map(context_field).collect::<Vec<_>>();
     let context = s
         .variants()
         .iter()
@@ -29,7 +27,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 let ty = &binding.ast().ty;
                 let name = &binding.binding;
                 quote! {
-                    #name: <#ty as Encode>::Context,
+                    #name: <#ty as Encode>::Context
                 }
             })
         })
@@ -56,9 +54,31 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         }
     });
 
-    s.bind_with(|_| synstructure::BindStyle::RefMut);
-
-    let decode = quote! { Ok(Self) };
+    let decode_variants = s
+        .variants()
+        .iter()
+        .enumerate()
+        .map(|(i, variant)| {
+            let decoding = variant
+                .bindings()
+                .iter()
+                .map(|binding| {
+                    let ty = &binding.ast().ty;
+                    quote! {
+                        <#ty as Encode>::decode(reader, &mut ctx.#binding)?
+                    }
+                })
+                .collect::<Vec<_>>();
+            variant.construct(|_, i| decoding[i].clone())
+        })
+        .collect::<Vec<_>>();
+    let discriminants = 0..s.variants().len();
+    let decode = quote! {
+        Ok(match discriminant {
+            #(#discriminants => #decode_variants,)*
+            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+        })
+    };
 
     s.gen_impl(quote! {
         extern crate compactly;
@@ -86,6 +106,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 reader: &mut cabac::vp8::VP8Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
+                let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
         }
@@ -129,7 +150,11 @@ fn zero_size() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        Ok(Self)
+                        let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
+                        Ok(match discriminant {
+                            0usize => A,
+                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+                        })
                     }
                 }
             };
@@ -162,8 +187,15 @@ fn tuple_struct() {
                             ctx: &mut Self::Context,
                         ) -> Result<(), std::io::Error> {
                         match self {
-                            A(__binding_0) => {
-                                __binding_0.encode(writer, &mut ctx.__binding_0)?;
+                            A (ref __binding_0, ) => {
+                                0usize.encode(writer, &mut ctx.discriminant)?;
+                            }
+                        }
+                        match self {
+                            A (ref __binding_0, ) => {
+                                {
+                                    __binding_0.encode(writer, &mut ctx.__binding_0)?;
+                                }
                             }
                         }
                         Ok(())
@@ -172,8 +204,11 @@ fn tuple_struct() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let value = <usize as Encode>::decode(reader, &mut ctx.__binding_0)?;
-                        Ok(Self(value))
+                        let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match discriminant {
+                            0usize => A (<usize as Encode>::decode(reader, &mut ctx.__binding_0)?,),
+                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+                        })
                     }
                 }
             };
