@@ -2,6 +2,8 @@ use cabac::traits::CabacWriter;
 use cabac::vp8::{VP8Reader, VP8Writer};
 use std::io::{Read, Write};
 
+pub use compactly_derive::Encode;
+
 mod array;
 mod bools;
 mod byte;
