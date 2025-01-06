@@ -104,3 +104,27 @@ fn bigger_enum() {
     assert_size!(A::D, 1);
     assert_size!(A::J, 2);
 }
+
+#[test]
+fn not_really_enum() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum A {
+        // A { age: usize },
+        B { big: bool },
+    };
+
+    // assert_size!(A::A { age: 51 }, 1);
+    assert_size!(A::B { big: false }, 1);
+}
+
+#[test]
+fn fancy_enum() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum A {
+        // A { age: usize },
+        B { big: bool },
+    };
+
+    // assert_size!(A::A { age: 51 }, 1);
+    assert_size!(A::B { big: false }, 1);
+}
