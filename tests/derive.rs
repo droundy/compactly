@@ -121,10 +121,10 @@ fn not_really_enum() {
 fn fancy_enum() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub enum A {
-        // A { age: usize },
+        A { age: usize },
         B { big: bool },
     };
 
-    // assert_size!(A::A { age: 51 }, 1);
+    assert_size!(A::A { age: 51 }, 1);
     assert_size!(A::B { big: false }, 1);
 }
