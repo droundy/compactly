@@ -42,3 +42,30 @@ fn zero_size() {
     assert_size!([Tuple; 4], 2);
     assert_size!([Tuple; 1024], 3);
 }
+
+#[test]
+fn record() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub struct Tuple {
+        size: usize,
+        happy: bool,
+        age: usize,
+    };
+
+    assert_size!(
+        Tuple {
+            size: 0,
+            happy: false,
+            age: 51
+        },
+        2
+    );
+    assert_size!(
+        Tuple {
+            size: 1024,
+            happy: true,
+            age: 51
+        },
+        5
+    );
+}
