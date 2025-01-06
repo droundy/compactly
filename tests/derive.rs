@@ -69,3 +69,38 @@ fn record() {
         5
     );
 }
+
+#[test]
+fn simple_enum() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum A {
+        A,
+        B,
+        C,
+        D,
+    };
+
+    assert_size!(A::A, 1);
+    assert_size!(A::D, 1);
+}
+
+#[test]
+fn bigger_enum() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum A {
+        A,
+        B,
+        C,
+        D,
+        E,
+        F,
+        G,
+        H,
+        I,
+        J,
+    };
+
+    assert_size!(A::A, 1);
+    assert_size!(A::D, 1);
+    assert_size!(A::J, 2);
+}
