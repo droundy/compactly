@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 
 use proc_macro2::{Ident, Span};
 use quote::quote;
+use syn::TraitBound;
 use synstructure::{decl_derive, VariantInfo};
 
 decl_derive!([Encode, attributes(compactly_hash)] => derive_compactly);
@@ -32,6 +33,16 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             ident
         }
     });
+
+    let encode_trait = syn::parse_str::<TraitBound>("Encode").unwrap();
+    let (_impl_generics, _ty_generics, where_clause) = s.ast().generics.split_for_impl();
+    let mut where_clause = where_clause.cloned();
+    s.add_trait_bounds(
+        &encode_trait,
+        &mut where_clause,
+        synstructure::AddBounds::Generics,
+    );
+
     let context = s
         .variants()
         .iter()

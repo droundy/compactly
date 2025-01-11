@@ -10,6 +10,7 @@ proc-macro = true
 synstructure = "0.13.1"
 quote = "1.0.38"
 proc-macro2 = "1.0.92"
+syn = "2.0.96"
 
 [dev-dependencies]
 compactly = { path = ".." }
