@@ -256,7 +256,7 @@ fn normal_struct() {
                 #[derive(Default)]
                 pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
-                    age : <usize as Encode>::Context,
+                    age: <usize as Encode>::Context,
                     dead: <bool as Encode>::Context,
                 }
 
@@ -312,39 +312,66 @@ fn an_enum() {
             enum A {
                 A { age: usize },
                 B { big: bool },
-            };
+            }
         }
         expands to {
             const _: () = {
-                extern crate compactly;
-                use compactly::Encode;
-
-                #[derive(Default)]
-                pub struct DerivedContext {
-                    discriminant : <usize as Encode>::Context,
-                    __binding_0 : <usize as Encode>::Context,
-                }
-
-                impl Encode for A {
-                    type Context = DerivedContext;
-                    fn encode<W: std::io::Write>(
-                            &self,
-                            writer: &mut cabac::vp8::VP8Writer<W>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<(), std::io::Error> {
-                        match self {
-                            _ => unimplemented!()
+            extern crate compactly;
+            use compactly::Encode;
+            # [
+                derive (
+                    Default)
+                ]
+            pub struct DerivedContext {
+                discriminant: <usize as Encode>::Context, age: <usize as Encode>::Context, big: <bool as Encode>::Context, }
+            impl Encode for A {
+                type Context = DerivedContext;
+                fn encode<W : std::io::Write> (
+                    & self, writer: &mut cabac::vp8::VP8Writer<W>, ctx: &mut Self::Context,)
+                -> Result<(), std::io::Error> {
+                    match self {
+                        A::A { age: ref age, } => {
+                            0usize.encode(writer, &mut ctx.discriminant)?;
                         }
-                        Ok(())
+                        A::B { big: ref big, } => {
+                            1usize.encode(writer, &mut ctx.discriminant)?;
+                        }
                     }
-                    fn decode<R: std::io::Read>(
-                            reader: &mut cabac::vp8::VP8Reader<R>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<Self, std::io::Error> {
-                        let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match discriminant {
-                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
-                        })
+                    match self {
+                        A::A { age: ref age, } => {
+                            {
+                                age.encode(writer, &mut ctx.age)?;
+                            }
+                        }
+                        A::B { big: ref big, } => {
+                            {
+                                big.encode(writer, &mut ctx.big)?;
+                            }
+                        }
+                    }
+                    Ok (())
+                }
+                fn decode<R: std::io::Read> (
+                    reader: &mut cabac::vp8::VP8Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                    Ok (
+                        match discriminant {
+                            0usize => A::A {
+                                age: Encode::decode(
+                                    reader, &mut ctx.age)
+                                ?,
+                            },
+                            1usize => A::B {
+                                big: Encode::decode(
+                                    reader, &mut ctx.big)
+                                ?,
+                            },
+                            _ => return Err (
+                                std::io::Error::other ("This discriminant should be impossible"))
+                            }
+                        )
                     }
                 }
             };
