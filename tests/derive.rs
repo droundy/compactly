@@ -128,3 +128,13 @@ fn fancy_enum() {
     assert_size!(A::A { age: 51 }, 2);
     assert_size!(A::B { big: false }, 1);
 }
+
+#[test]
+fn simplest_generics() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    struct A<T> {
+        value: T,
+    }
+
+    assert_size!(A { value: 51_usize }, 2);
+}

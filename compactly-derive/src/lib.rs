@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use proc_macro2::{Ident, Span};
 use quote::quote;
-use syn::TraitBound;
+use syn::{GenericParam, TraitBound};
 use synstructure::{decl_derive, VariantInfo};
 
 decl_derive!([Encode, attributes(compactly_hash)] => derive_compactly);
@@ -43,6 +43,29 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         synstructure::AddBounds::Generics,
     );
 
+    let context_types = s
+        .ast()
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| {
+            if let GenericParam::Type(ty) = param {
+                Some(ty.ident.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let context_generics = if context_types.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#context_types: Encode),*> }
+    };
+    let context_generics_without_bound = if context_types.is_empty() {
+        quote! {}
+    } else {
+        quote! { <#(#context_types),*> }
+    };
     let context = s
         .variants()
         .iter()
@@ -112,11 +135,11 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         extern crate compactly;
         use compactly::Encode;
 
-        pub struct DerivedContext {
+        pub struct DerivedContext #context_generics {
             discriminant: <usize as Encode>::Context,
             #(#context,)*
         }
-        impl Default for DerivedContext {
+        impl #context_generics Default for DerivedContext #context_generics_without_bound {
             fn default() -> Self {
                 Self {
                     discriminant: Default::default(),
@@ -128,7 +151,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
 
         gen impl Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
-            type Context = DerivedContext;
+            type Context = DerivedContext #context_generics_without_bound;
             fn encode<W: std::io::Write>(
                 &self,
                 writer: &mut cabac::vp8::VP8Writer<W>,
@@ -446,7 +469,7 @@ fn generics() {
                     }
                 }
 
-                impl<T: Encode> Encode for A<T> {
+                impl<T> Encode for A<T> where T: Encode {
                     #![allow(unused_variables,non_shorthand_field_patterns)]
                     type Context = DerivedContext<T>;
                     fn encode<W: std::io::Write>(
