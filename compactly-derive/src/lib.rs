@@ -13,19 +13,14 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
     s.binding_name(|field, i| {
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
-                for i in 0..100 {
+                for i in 0..10_000 {
                     let ident = Ident::new(&format!("{name}_{i}"), Span::call_site());
                     if !bound_names.contains(&ident) {
                         bound_names.insert(ident.clone());
                         return ident;
                     }
                 }
-                let ident = Ident::new(
-                    &format!("{}_x", bound_names.last().unwrap()),
-                    Span::call_site(),
-                );
-                bound_names.insert(ident.clone());
-                ident
+                panic!("compactly does not currently support types with more than 10k identical field names");
             } else {
                 bound_names.insert(name.clone());
                 name.clone()
@@ -359,14 +354,10 @@ fn an_enum() {
                     Ok (
                         match discriminant {
                             0usize => A::A {
-                                age: Encode::decode(
-                                    reader, &mut ctx.age)
-                                ?,
+                                age: Encode::decode(reader, &mut ctx.age)?,
                             },
                             1usize => A::B {
-                                big: Encode::decode(
-                                    reader, &mut ctx.big)
-                                ?,
+                                big: Encode::decode(reader, &mut ctx.big)?,
                             },
                             _ => return Err (
                                 std::io::Error::other ("This discriminant should be impossible"))
