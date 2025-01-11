@@ -1,8 +1,4 @@
 use crate::Encode;
-use cabac::{
-    traits::{CabacReader, CabacWriter},
-    vp8::VP8Context,
-};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
