@@ -1,5 +1,7 @@
 #![recursion_limit = "128"]
 
+use std::collections::{BTreeSet, HashSet};
+
 use proc_macro2::{Ident, Span};
 use quote::quote;
 use synstructure::{decl_derive, VariantInfo};
@@ -7,15 +9,37 @@ use synstructure::{decl_derive, VariantInfo};
 decl_derive!([Encode, attributes(compactly_hash)] => derive_compactly);
 
 fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
+    let mut bound_names = BTreeSet::new();
+    s.binding_name(|field, i| {
+        if let Some(name) = &field.ident {
+            if bound_names.contains(name) {
+                for i in 0..100 {
+                    let ident = Ident::new(&format!("{name}_{i}"), Span::call_site());
+                    if !bound_names.contains(&ident) {
+                        bound_names.insert(ident.clone());
+                        return ident;
+                    }
+                }
+                let ident = Ident::new(
+                    &format!("{}_x", bound_names.last().unwrap()),
+                    Span::call_site(),
+                );
+                bound_names.insert(ident.clone());
+                ident
+            } else {
+                bound_names.insert(name.clone());
+                name.clone()
+            }
+        } else {
+            let ident = Ident::new(&format!("__binding_{i}"), Span::call_site());
+            assert!(!bound_names.contains(&ident));
+            bound_names.insert(ident.clone());
+            ident
+        }
+    });
     fn context_type(variant: &VariantInfo) -> Ident {
         proc_macro2::Ident::new(
             &format!("{}Context", variant.ast().ident),
-            Span::call_site(),
-        )
-    }
-    fn context_field(variant: &VariantInfo) -> Ident {
-        proc_macro2::Ident::new(
-            &format!("{}_context", variant.ast().ident),
             Span::call_site(),
         )
     }
@@ -63,9 +87,8 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 .bindings()
                 .iter()
                 .map(|binding| {
-                    let ty = &binding.ast().ty;
                     quote! {
-                        <#ty as Encode>::decode(reader, &mut ctx.#binding)?
+                        Encode::decode(reader, &mut ctx.#binding)?
                     }
                 })
                 .collect::<Vec<_>>();
@@ -106,7 +129,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 reader: &mut cabac::vp8::VP8Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
+                let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
         }
@@ -150,7 +173,7 @@ fn zero_size() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
+                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
                         Ok(match discriminant {
                             0usize => A,
                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
@@ -204,9 +227,122 @@ fn tuple_struct() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
+                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match discriminant {
+                            0usize => A (Encode::decode(reader, &mut ctx.__binding_0)?,),
+                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+                        })
+                    }
+                }
+            };
+        }
+    }
+}
+
+#[test]
+fn normal_struct() {
+    synstructure::test_derive! {
+        derive_compactly {
+            struct A {
+                age: usize,
+                dead: bool,
+            }
+        }
+        expands to {
+            const _: () = {
+                extern crate compactly;
+                use compactly::Encode;
+
+                #[derive(Default)]
+                pub struct DerivedContext {
+                    discriminant : <usize as Encode>::Context,
+                    age : <usize as Encode>::Context,
+                    dead: <bool as Encode>::Context,
+                }
+
+                impl Encode for A {
+                    type Context = DerivedContext;
+                    fn encode<W: std::io::Write>(
+                            &self,
+                            writer: &mut cabac::vp8::VP8Writer<W>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<(), std::io::Error> {
+                        match self {
+                            A {
+                                age: ref age, dead: ref dead,
+                            } => {
+                                0usize.encode(writer, &mut ctx.discriminant)?;
+                            }
+                        }
+                        match self {
+                            A {age: ref age, dead: ref dead,} => {
+                                {
+                                    age.encode(writer, &mut ctx.age)?;
+                                }
+                                {
+                                    dead.encode(writer, &mut ctx.dead)?;
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+                    fn decode<R: std::io::Read>(
+                            reader: &mut cabac::vp8::VP8Reader<R>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<Self, std::io::Error> {
+                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match discriminant {
+                            0usize => A {
+                                age: Encode::decode(reader, &mut ctx.age)?,
+                                dead: Encode::decode(reader, &mut ctx.dead)?,
+                            },
+                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+                        })
+                    }
+                }
+            };
+        }
+    }
+}
+
+#[test]
+fn an_enum() {
+    synstructure::test_derive! {
+        derive_compactly {
+            enum A {
+                A { age: usize },
+                B { big: bool },
+            };
+        }
+        expands to {
+            const _: () = {
+                extern crate compactly;
+                use compactly::Encode;
+
+                #[derive(Default)]
+                pub struct DerivedContext {
+                    discriminant : <usize as Encode>::Context,
+                    __binding_0 : <usize as Encode>::Context,
+                }
+
+                impl Encode for A {
+                    type Context = DerivedContext;
+                    fn encode<W: std::io::Write>(
+                            &self,
+                            writer: &mut cabac::vp8::VP8Writer<W>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<(), std::io::Error> {
+                        match self {
+                            _ => unimplemented!()
+                        }
+                        Ok(())
+                    }
+                    fn decode<R: std::io::Read>(
+                            reader: &mut cabac::vp8::VP8Reader<R>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<Self, std::io::Error> {
                         let discriminant = <usize as Encode>::decode(reader, &mut ctx.discriminant)?;
                         Ok (match discriminant {
-                            0usize => A (<usize as Encode>::decode(reader, &mut ctx.__binding_0)?,),
                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
                         })
                     }
