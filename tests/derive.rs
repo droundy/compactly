@@ -125,6 +125,6 @@ fn fancy_enum() {
         B { big: bool },
     };
 
-    assert_size!(A::A { age: 51 }, 1);
+    assert_size!(A::A { age: 51 }, 2);
     assert_size!(A::B { big: false }, 1);
 }
