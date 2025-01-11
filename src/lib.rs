@@ -47,7 +47,6 @@ macro_rules! assert_size {
     ($v:expr, $size:expr) => {
         let v = $v;
         let bytes = crate::encode(&v);
-        println!("bytes are {bytes:?}");
         let decoded = crate::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
         assert_eq!(bytes.len(), $size, "unexpected size");
