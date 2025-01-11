@@ -45,6 +45,11 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             })
         })
         .collect::<Vec<_>>();
+    let bindings = s
+        .variants()
+        .iter()
+        .flat_map(|variant| variant.bindings().iter().map(|binding| &binding.binding))
+        .collect::<Vec<_>>();
 
     let encode_fields = s.each(|binding| {
         let binding = &binding.binding;
@@ -96,10 +101,17 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         extern crate compactly;
         use compactly::Encode;
 
-        #[derive(Default)]
         pub struct DerivedContext {
             discriminant: <usize as Encode>::Context,
             #(#context,)*
+        }
+        impl Default for DerivedContext {
+            fn default() -> Self {
+                Self {
+                    discriminant: Default::default(),
+                    #(#bindings: Default::default(),)*
+                }
+            }
         }
 
 
@@ -137,9 +149,15 @@ fn zero_size() {
                 extern crate compactly;
                 use compactly::Encode;
 
-                #[derive(Default)]
                 pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
+                }
+                impl Default for DerivedContext {
+                    fn default() -> Self {
+                        Self {
+                            discriminant: Default::default(),
+                        }
+                    }
                 }
 
                 impl Encode for A {
@@ -187,10 +205,17 @@ fn tuple_struct() {
                 extern crate compactly;
                 use compactly::Encode;
 
-                #[derive(Default)]
                 pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
                     __binding_0 : <usize as Encode>::Context,
+                }
+                impl Default for DerivedContext {
+                    fn default() -> Self {
+                        Self {
+                            discriminant: Default::default(),
+                            __binding_0: Default::default(),
+                        }
+                    }
                 }
 
                 impl Encode for A {
@@ -245,11 +270,19 @@ fn normal_struct() {
                 extern crate compactly;
                 use compactly::Encode;
 
-                #[derive(Default)]
                 pub struct DerivedContext {
                     discriminant : <usize as Encode>::Context,
                     age: <usize as Encode>::Context,
                     dead: <bool as Encode>::Context,
+                }
+                impl Default for DerivedContext {
+                    fn default() -> Self {
+                        Self {
+                            discriminant: Default::default(),
+                            age: Default::default(),
+                            dead: Default::default(),
+                        }
+                    }
                 }
 
                 impl Encode for A {
@@ -311,12 +344,20 @@ fn an_enum() {
             const _: () = {
             extern crate compactly;
             use compactly::Encode;
-            # [
-                derive (
-                    Default)
-                ]
             pub struct DerivedContext {
-                discriminant: <usize as Encode>::Context, age: <usize as Encode>::Context, big: <bool as Encode>::Context, }
+                discriminant: <usize as Encode>::Context,
+                age: <usize as Encode>::Context,
+                big: <bool as Encode>::Context,
+            }
+            impl Default for DerivedContext {
+                fn default() -> Self {
+                    Self {
+                        discriminant: Default::default(),
+                        age: Default::default(),
+                        big: Default::default(),
+                    }
+                }
+            }
             impl Encode for A {
                 #![allow(unused_variables,non_shorthand_field_patterns)]
                 type Context = DerivedContext;
@@ -362,6 +403,73 @@ fn an_enum() {
                                 std::io::Error::other ("This discriminant should be impossible"))
                             }
                         )
+                    }
+                }
+            };
+        }
+    }
+}
+#[test]
+fn generics() {
+    synstructure::test_derive! {
+        derive_compactly {
+            struct A<T> {
+                value: T,
+            }
+        }
+        expands to {
+            const _: () = {
+                extern crate compactly;
+                use compactly::Encode;
+
+                pub struct DerivedContext<T: Encode> {
+                    discriminant : <usize as Encode>::Context,
+                    value: <T as Encode>::Context,
+                }
+                impl<T: Encode> Default for DerivedContext<T> {
+                    fn default() -> Self {
+                        Self {
+                            discriminant: Default::default(),
+                            value: Default::default(),
+                        }
+                    }
+                }
+
+                impl<T: Encode> Encode for A<T> {
+                    #![allow(unused_variables,non_shorthand_field_patterns)]
+                    type Context = DerivedContext<T>;
+                    fn encode<W: std::io::Write>(
+                            &self,
+                            writer: &mut cabac::vp8::VP8Writer<W>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<(), std::io::Error> {
+                        match self {
+                            A {
+                                value: ref value,
+                            } => {
+                                0usize.encode(writer, &mut ctx.discriminant)?;
+                            }
+                        }
+                        match self {
+                            A {value: ref value,} => {
+                                {
+                                    value.encode(writer, &mut ctx.value)?;
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+                    fn decode<R: std::io::Read>(
+                            reader: &mut cabac::vp8::VP8Reader<R>,
+                            ctx: &mut Self::Context,
+                        ) -> Result<Self, std::io::Error> {
+                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match discriminant {
+                            0usize => A {
+                                value: Encode::decode(reader, &mut ctx.value)?,
+                            },
+                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+                        })
                     }
                 }
             };
