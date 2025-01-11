@@ -50,7 +50,7 @@ fn record() {
         size: usize,
         happy: bool,
         age: usize,
-    };
+    }
 
     assert_size!(
         Tuple {
@@ -78,7 +78,7 @@ fn simple_enum() {
         B,
         C,
         D,
-    };
+    }
 
     assert_size!(A::A, 1);
     assert_size!(A::D, 1);
@@ -98,7 +98,7 @@ fn bigger_enum() {
         H,
         I,
         J,
-    };
+    }
 
     assert_size!(A::A, 1);
     assert_size!(A::D, 1);
@@ -106,15 +106,15 @@ fn bigger_enum() {
 }
 
 #[test]
-fn not_really_enum() {
+fn weird_enum() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub enum A {
-        // A { age: usize },
-        B { big: bool },
-    };
+        A { age: usize },
+        B { age: bool },
+    }
 
-    // assert_size!(A::A { age: 51 }, 1);
-    assert_size!(A::B { big: false }, 1);
+    assert_size!(A::A { age: 51 }, 2);
+    assert_size!(A::B { age: false }, 1);
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn fancy_enum() {
     pub enum A {
         A { age: usize },
         B { big: bool },
-    };
+    }
 
     assert_size!(A::A { age: 51 }, 2);
     assert_size!(A::B { big: false }, 1);

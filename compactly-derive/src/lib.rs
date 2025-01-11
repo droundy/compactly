@@ -1,6 +1,6 @@
 #![recursion_limit = "128"]
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use proc_macro2::{Ident, Span};
 use quote::quote;
@@ -32,12 +32,6 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             ident
         }
     });
-    fn context_type(variant: &VariantInfo) -> Ident {
-        proc_macro2::Ident::new(
-            &format!("{}Context", variant.ast().ident),
-            Span::call_site(),
-        )
-    }
     let context = s
         .variants()
         .iter()
@@ -77,7 +71,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         .variants()
         .iter()
         .enumerate()
-        .map(|(i, variant)| {
+        .map(|(_, variant)| {
             let decoding = variant
                 .bindings()
                 .iter()
@@ -110,6 +104,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
 
 
         gen impl Encode for @Self {
+            #![allow(unused_variables,non_shorthand_field_patterns)]
             type Context = DerivedContext;
             fn encode<W: std::io::Write>(
                 &self,
@@ -148,6 +143,7 @@ fn zero_size() {
                 }
 
                 impl Encode for A {
+                    #![allow(unused_variables,non_shorthand_field_patterns)]
                     type Context = DerivedContext;
                     fn encode<W: std::io::Write>(
                             &self,
@@ -198,6 +194,7 @@ fn tuple_struct() {
                 }
 
                 impl Encode for A {
+                    #![allow(unused_variables,non_shorthand_field_patterns)]
                     type Context = DerivedContext;
                     fn encode<W: std::io::Write>(
                             &self,
@@ -256,6 +253,7 @@ fn normal_struct() {
                 }
 
                 impl Encode for A {
+                    #![allow(unused_variables,non_shorthand_field_patterns)]
                     type Context = DerivedContext;
                     fn encode<W: std::io::Write>(
                             &self,
@@ -320,6 +318,7 @@ fn an_enum() {
             pub struct DerivedContext {
                 discriminant: <usize as Encode>::Context, age: <usize as Encode>::Context, big: <bool as Encode>::Context, }
             impl Encode for A {
+                #![allow(unused_variables,non_shorthand_field_patterns)]
                 type Context = DerivedContext;
                 fn encode<W : std::io::Write> (
                     & self, writer: &mut cabac::vp8::VP8Writer<W>, ctx: &mut Self::Context,)
