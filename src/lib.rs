@@ -7,6 +7,7 @@ pub use compactly_derive::Encode;
 mod array;
 mod bools;
 mod byte;
+mod ints;
 mod maps;
 mod sets;
 mod usizes;
