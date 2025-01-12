@@ -10,8 +10,11 @@ mod byte;
 mod ints;
 mod maps;
 mod sets;
+mod urange;
 mod usizes;
 mod vecs;
+
+pub use urange::URange;
 
 pub trait Encode: Sized {
     type Context: Default;
