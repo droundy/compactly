@@ -132,20 +132,28 @@ fn size_u32() {
 #[test]
 fn size_u16() {
     use crate::assert_size;
-    for sz in 0..16768_u16 {
+    for sz in 0..1_u16 {
+        println!("Trying with {sz}");
+        assert_size!(sz, 0);
+    }
+    for sz in 1..128_u16 {
+        println!("Trying with {sz}");
+        assert_size!(sz, 1);
+    }
+    for sz in 128..32768_u16 {
         println!("Trying with {sz}");
         assert_size!(sz, 2);
     }
     for sz in [u16::MAX] {
         println!("Trying with {sz}");
-        assert_size!(sz, 5);
+        assert_size!(sz, 3);
     }
-    assert_size!([0_u16; 128], 29);
-    assert_size!([u16::MAX; 128], 30);
-    assert_size!([1_u16; 2], 5);
-    assert_size!([1_u16; 19], 18);
+    assert_size!([0_u16; 128], 13);
+    assert_size!([u16::MAX; 128], 16);
+    assert_size!([1_u16; 2], 3);
+    assert_size!([1_u16; 19], 10);
     assert_size!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        21
+        11
     );
 }
