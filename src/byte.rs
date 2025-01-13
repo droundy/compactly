@@ -5,10 +5,10 @@ use cabac::{
 };
 use std::io::{Read, Write};
 
-pub struct ByteContext([VP8Context; 512]);
+pub struct ByteContext([VP8Context; 256]);
 impl Default for ByteContext {
     fn default() -> Self {
-        ByteContext([VP8Context::new(); 512])
+        ByteContext([VP8Context::new(); 256])
     }
 }
 
@@ -19,15 +19,16 @@ impl Encode for u8 {
         writer: &mut cabac::vp8::VP8Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        let mut sofar = 0;
+        let mut filled_up = 0;
+        let mut accumulated_value = 0;
+        println!("encoding {self}");
         for i in 0..8 {
-            let ctx = &mut ctx.0[sofar];
+            let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = (*self >> (7 - i)) & 1 == 1;
             writer.put(bit, ctx)?;
-            sofar += 1 << i;
-            if bit {
-                sofar = sofar + (1 << (7 - i));
-            }
+            filled_up += 1 << i;
+            accumulated_value = 2 * accumulated_value + bit as usize;
+            println!("{i} ==> filled_up: {filled_up}, accumulated_value: {accumulated_value}");
         }
         Ok(())
     }
@@ -35,24 +36,22 @@ impl Encode for u8 {
         reader: &mut cabac::vp8::VP8Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let mut sofar = 0;
-        let mut value = 0;
+        let mut filled_up = 0;
+        let mut accumulated_value = 0;
         for i in 0..8 {
-            let ctx = &mut ctx.0[sofar];
+            let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = reader.get(ctx)?;
-            sofar += 1 << i;
-            if bit {
-                sofar = sofar + (1 << (7 - i));
-                value |= 1 << (7 - i);
-            }
+            filled_up += 1 << i;
+            accumulated_value = 2 * accumulated_value + bit as usize;
         }
-        Ok(value)
+        Ok(accumulated_value as u8)
     }
 }
 
 #[test]
 fn size() {
     use crate::assert_size;
+    assert_size!(u8::MAX, 2);
     assert_size!(0_u8, 0);
     for b in 3_u8..=255 {
         println!("Byte {b}");
