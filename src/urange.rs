@@ -1,3 +1,5 @@
+use crate::Encode;
+
 pub struct URange<const N: usize>(usize);
 
 impl<const N: usize> From<URange<N>> for usize {
@@ -15,4 +17,9 @@ impl<const N: usize> TryFrom<usize> for URange<N> {
             Err(())
         }
     }
+}
+
+pub struct URangeContext<const N: usize> {
+    values: [<bool as Encode>::Context; N],
+    bits: [<bool as Encode>::Context; N],
 }
