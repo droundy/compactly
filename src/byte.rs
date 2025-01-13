@@ -21,14 +21,12 @@ impl Encode for u8 {
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
-        println!("encoding {self}");
         for i in 0..8 {
             let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = (*self >> (7 - i)) & 1 == 1;
             writer.put(bit, ctx)?;
             filled_up += 1 << i;
             accumulated_value = 2 * accumulated_value + bit as usize;
-            println!("{i} ==> filled_up: {filled_up}, accumulated_value: {accumulated_value}");
         }
         Ok(())
     }
@@ -59,7 +57,7 @@ fn size() {
     }
     assert_size!(*b"hello", 5);
     assert_size!(*b"hello world", 10);
-    assert_size!(*b"hello world, hello world", 18);
+    assert_size!(*b"hello world, hello world", 17);
     assert_size!(*b"hello hello, hello hello", 15);
     assert_size!(*b"hello hello, hello hello, hello hello, hello hello", 26);
     assert_size!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 6);

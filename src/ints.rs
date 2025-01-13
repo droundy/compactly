@@ -129,6 +129,7 @@ fn size_u32() {
         21
     );
 }
+
 #[test]
 fn size_u16() {
     use crate::assert_size;
