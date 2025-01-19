@@ -10,6 +10,7 @@ mod byte;
 mod ints;
 mod maps;
 mod sets;
+mod tuples;
 mod urange;
 mod usizes;
 mod vecs;
