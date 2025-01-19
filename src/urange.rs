@@ -83,16 +83,16 @@ impl<const N: usize> Encode for URange<N> {
 
 #[test]
 fn size() {
-    use crate::assert_size;
-    assert_size!(URange::<3>::try_from(0).unwrap(), 0);
-    assert_size!(URange::<3>::try_from(1).unwrap(), 1);
-    assert_size!(URange::<3>::try_from(2).unwrap(), 1);
+    use crate::assert_bits;
+    assert_bits!(URange::<3>::try_from(0).unwrap(), 2);
+    assert_bits!(URange::<3>::try_from(1).unwrap(), 2);
+    assert_bits!(URange::<3>::try_from(2).unwrap(), 2);
 
-    assert_size!(URange::<128>::try_from(0).unwrap(), 0);
-    assert_size!(URange::<128>::try_from(1).unwrap(), 1);
-    assert_size!(URange::<128>::try_from(127).unwrap(), 1);
+    assert_bits!(URange::<128>::try_from(0).unwrap(), 7);
+    assert_bits!(URange::<128>::try_from(1).unwrap(), 7);
+    assert_bits!(URange::<128>::try_from(127).unwrap(), 7);
 
-    assert_size!(URange::<256>::try_from(0).unwrap(), 0);
-    assert_size!(URange::<256>::try_from(1).unwrap(), 2);
-    assert_size!(URange::<256>::try_from(255).unwrap(), 2);
+    assert_bits!(URange::<256>::try_from(0).unwrap(), 8);
+    assert_bits!(URange::<256>::try_from(1).unwrap(), 8);
+    assert_bits!(URange::<256>::try_from(255).unwrap(), 8);
 }

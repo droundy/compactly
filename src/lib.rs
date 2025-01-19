@@ -59,3 +59,25 @@ macro_rules! assert_size {
 }
 #[cfg(test)]
 pub(crate) use assert_size;
+
+#[cfg(test)]
+macro_rules! assert_bits {
+    ($v:expr, $size:expr) => {
+        let v = (
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+        );
+        let bytes = crate::encode(&v);
+        let decoded = crate::decode(&bytes);
+        assert_eq!(decoded, Some(v), "decoded value is incorrect");
+        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_bits;
