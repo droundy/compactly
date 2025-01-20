@@ -54,18 +54,25 @@ impl<const N: usize> Encode for URange<N> {
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
-        let nbits = (N + 1).ilog2();
-        for i in 0..nbits {
-            if filled_up + accumulated_value > N {
-                break;
-            }
+        println!("N={N} and value {}", self.0);
+        let mut value_considered = 1;
+        let mut i = 1;
+        while accumulated_value + value_considered < N {
             let ctx = &mut ctx.bits[filled_up + accumulated_value];
-            let bit = (self.0 >> (nbits - i - 1)) & 1 == 1;
-            println!("bit is {bit:?}");
+            let bit = self.0 & value_considered != 0;
+            // println!(
+            //     "{}: bit {i} is {bit:?} with context {}",
+            //     self.0,
+            //     filled_up + accumulated_value
+            // );
             writer.put(bit, ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-            println!("E {i} ==> {filled_up} -> {accumulated_value}");
+            filled_up += i;
+            if bit {
+                accumulated_value += value_considered;
+            }
+            // println!("E {i} ==> {filled_up} -> {accumulated_value}");
+            value_considered *= 2;
+            i += 1;
         }
         Ok(())
     }
@@ -75,17 +82,18 @@ impl<const N: usize> Encode for URange<N> {
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
-        let nbits = (N + 1).ilog2();
-        for i in 0..nbits {
-            if 2 * accumulated_value + 1 > N {
-                accumulated_value *= 2;
-                break;
-            }
+        let mut value_considered = 1;
+        let mut i = 1;
+        while accumulated_value + value_considered < N {
             let ctx = &mut ctx.bits[filled_up + accumulated_value];
             let bit = reader.get(ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-            println!("D {i} ==> {filled_up} -> {accumulated_value}");
+            filled_up += i;
+            if bit {
+                accumulated_value += value_considered;
+            }
+            // println!("D {i} ==> {filled_up} -> {accumulated_value}");
+            value_considered *= 2;
+            i += 1;
         }
         Ok(Self(accumulated_value))
     }
@@ -94,8 +102,30 @@ impl<const N: usize> Encode for URange<N> {
 #[test]
 fn size() {
     use crate::assert_bits;
+    fn test_urange<const N: usize>() {
+        for i in 0..N {
+            let v = URange::<N>::new(i);
+            let encoded = crate::encode(&v);
+            let decoded = crate::decode::<URange<N>>(&encoded).unwrap();
+            assert_eq!(decoded, v);
+        }
+    }
+    test_urange::<1>();
+    test_urange::<2>();
+    test_urange::<3>();
+    test_urange::<4>();
+    test_urange::<5>();
+    test_urange::<6>();
+    test_urange::<7>();
+    test_urange::<8>();
+    test_urange::<9>();
+    test_urange::<10>();
+    test_urange::<255>();
+    test_urange::<256>();
+    test_urange::<257>();
+
     assert_bits!(URange::<3>::try_from(0).unwrap(), 2);
-    assert_bits!(URange::<3>::try_from(1).unwrap(), 2);
+    assert_bits!(URange::<3>::try_from(1).unwrap(), 1);
     assert_bits!(URange::<3>::try_from(2).unwrap(), 2);
 
     assert_bits!(URange::<128>::try_from(0).unwrap(), 7);
@@ -105,4 +135,10 @@ fn size() {
     assert_bits!(URange::<256>::try_from(0).unwrap(), 8);
     assert_bits!(URange::<256>::try_from(1).unwrap(), 8);
     assert_bits!(URange::<256>::try_from(255).unwrap(), 8);
+
+    assert_bits!(URange::<3>::new(2), 2);
+    assert_bits!(URange::<4>::new(3), 2);
+    println!("Looking at 4 as max in urange");
+    assert_bits!(URange::<5>::new(4), 3);
+    assert_bits!(URange::<10>::new(9), 4);
 }

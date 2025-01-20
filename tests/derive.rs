@@ -25,9 +25,9 @@ fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize);
 
-    assert_bits!(Tuple(0), 2);
-    assert_bits!(Tuple(1), 3);
-    assert_bits!(Tuple(2), 5);
+    assert_bits!(Tuple(0), 1);
+    assert_bits!(Tuple(1), 2);
+    assert_bits!(Tuple(2), 4);
 }
 
 #[test]
@@ -35,10 +35,10 @@ fn pair_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize, bool);
 
-    assert_bits!(Tuple(0, false), 3);
-    assert_bits!(Tuple(1, true), 4);
-    assert_bits!(Tuple(2, false), 6);
-    assert_bits!(Tuple(2048, false), 26);
+    assert_bits!(Tuple(0, false), 2);
+    assert_bits!(Tuple(1, true), 3);
+    assert_bits!(Tuple(2, false), 5);
+    assert_bits!(Tuple(2048, false), 25);
 }
 
 #[test]
@@ -46,9 +46,9 @@ fn zero_size() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple;
 
-    assert_bits!(Tuple, 1);
-    assert_bits!([Tuple; 4], 2);
-    assert_bits!([Tuple; 1024], 16);
+    assert_bits!(Tuple, 0);
+    assert_bits!([Tuple; 4], 0);
+    assert_bits!([Tuple; 1024], 0);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn record() {
             happy: false,
             age: 51
         },
-        15
+        14
     );
     assert_bits!(
         Tuple {
@@ -74,7 +74,7 @@ fn record() {
             happy: true,
             age: 51
         },
-        36
+        35
     );
 }
 
@@ -108,9 +108,10 @@ fn bigger_enum() {
         J,
     }
 
-    assert_bits!(A::A, 3);
+    assert_bits!(A::A, 4);
     assert_bits!(A::D, 3);
-    assert_bits!(A::J, 3);
+    assert_bits!(compactly::URange::<10>::new(9), 4);
+    assert_bits!(A::J, 4);
 }
 
 #[test]
@@ -144,5 +145,5 @@ fn simplest_generics() {
         value: T,
     }
 
-    assert_bits!(A { value: 51_usize }, 13);
+    assert_bits!(A { value: 51_usize }, 12);
 }
