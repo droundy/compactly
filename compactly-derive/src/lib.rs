@@ -91,6 +91,8 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             #binding.encode(writer, &mut ctx.#binding)?;
         }
     });
+    let num_variants = s.variants().len();
+    let discriminant_type = quote! { compactly::URange<#num_variants> };
     let get_discriminant = |variant: &VariantInfo| -> usize {
         s.variants()
             .iter()
@@ -102,7 +104,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            #discriminant.encode(writer, &mut ctx.discriminant)?;
+            compactly::URange::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant)?;
         }
     });
 
@@ -125,7 +127,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         .collect::<Vec<_>>();
     let discriminants = 0..s.variants().len();
     let decode = quote! {
-        Ok(match discriminant {
+        Ok(match usize::from(discriminant) {
             #(#discriminants => #decode_variants,)*
             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
         })
@@ -136,7 +138,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         use compactly::Encode;
 
         pub struct DerivedContext #context_generics {
-            discriminant: <usize as Encode>::Context,
+            discriminant: <#discriminant_type as Encode>::Context,
             #(#context,)*
         }
         impl #context_generics Default for DerivedContext #context_generics_without_bound {
@@ -165,7 +167,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 reader: &mut cabac::vp8::VP8Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                let discriminant: #discriminant_type = Encode::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
         }
@@ -184,7 +186,7 @@ fn zero_size() {
                 use compactly::Encode;
 
                 pub struct DerivedContext {
-                    discriminant : <usize as Encode>::Context,
+                    discriminant : <compactly::URange<1usize> as Encode>::Context,
                 }
                 impl Default for DerivedContext {
                     fn default() -> Self {
@@ -204,7 +206,7 @@ fn zero_size() {
                         ) -> Result<(), std::io::Error> {
                             match self {
                                 A => {
-                                    0usize.encode(writer, &mut ctx.discriminant)?;
+                                    compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
                                 }
                             }
                             match self {
@@ -216,8 +218,8 @@ fn zero_size() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok(match discriminant {
+                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok(match usize::from(discriminant) {
                             0usize => A,
                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
                         })
@@ -240,7 +242,7 @@ fn tuple_struct() {
                 use compactly::Encode;
 
                 pub struct DerivedContext {
-                    discriminant : <usize as Encode>::Context,
+                    discriminant : <compactly::URange<1usize> as Encode>::Context,
                     __binding_0 : <usize as Encode>::Context,
                 }
                 impl Default for DerivedContext {
@@ -262,7 +264,7 @@ fn tuple_struct() {
                         ) -> Result<(), std::io::Error> {
                         match self {
                             A (ref __binding_0, ) => {
-                                0usize.encode(writer, &mut ctx.discriminant)?;
+                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
                             }
                         }
                         match self {
@@ -278,8 +280,8 @@ fn tuple_struct() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match discriminant {
+                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match usize::from(discriminant) {
                             0usize => A (Encode::decode(reader, &mut ctx.__binding_0)?,),
                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
                         })
@@ -305,7 +307,7 @@ fn normal_struct() {
                 use compactly::Encode;
 
                 pub struct DerivedContext {
-                    discriminant : <usize as Encode>::Context,
+                    discriminant : <compactly::URange<1usize> as Encode>::Context,
                     age: <usize as Encode>::Context,
                     dead: <bool as Encode>::Context,
                 }
@@ -331,7 +333,7 @@ fn normal_struct() {
                             A {
                                 age: ref age, dead: ref dead,
                             } => {
-                                0usize.encode(writer, &mut ctx.discriminant)?;
+                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
                             }
                         }
                         match self {
@@ -350,8 +352,8 @@ fn normal_struct() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match discriminant {
+                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match usize::from(discriminant) {
                             0usize => A {
                                 age: Encode::decode(reader, &mut ctx.age)?,
                                 dead: Encode::decode(reader, &mut ctx.dead)?,
@@ -379,7 +381,7 @@ fn an_enum() {
             extern crate compactly;
             use compactly::Encode;
             pub struct DerivedContext {
-                discriminant: <usize as Encode>::Context,
+                discriminant: <compactly::URange<2usize> as Encode>::Context,
                 age: <usize as Encode>::Context,
                 big: <bool as Encode>::Context,
             }
@@ -400,10 +402,10 @@ fn an_enum() {
                 -> Result<(), std::io::Error> {
                     match self {
                         A::A { age: ref age, } => {
-                            0usize.encode(writer, &mut ctx.discriminant)?;
+                            compactly::URange::<2usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
                         }
                         A::B { big: ref big, } => {
-                            1usize.encode(writer, &mut ctx.discriminant)?;
+                            compactly::URange::<2usize>::new(1usize).encode(writer, &mut ctx.discriminant)?;
                         }
                     }
                     match self {
@@ -424,9 +426,9 @@ fn an_enum() {
                     reader: &mut cabac::vp8::VP8Reader<R>,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
+                    let discriminant: compactly::URange<2usize> = Encode::decode(reader, &mut ctx.discriminant)?;
                     Ok (
-                        match discriminant {
+                        match usize::from(discriminant) {
                             0usize => A::A {
                                 age: Encode::decode(reader, &mut ctx.age)?,
                             },
@@ -457,7 +459,7 @@ fn generics() {
                 use compactly::Encode;
 
                 pub struct DerivedContext<T: Encode> {
-                    discriminant : <usize as Encode>::Context,
+                    discriminant : <compactly::URange<1usize> as Encode>::Context,
                     value: <T as Encode>::Context,
                 }
                 impl<T: Encode> Default for DerivedContext<T> {
@@ -481,7 +483,7 @@ fn generics() {
                             A {
                                 value: ref value,
                             } => {
-                                0usize.encode(writer, &mut ctx.discriminant)?;
+                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
                             }
                         }
                         match self {
@@ -497,8 +499,8 @@ fn generics() {
                             reader: &mut cabac::vp8::VP8Reader<R>,
                             ctx: &mut Self::Context,
                         ) -> Result<Self, std::io::Error> {
-                        let discriminant = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match discriminant {
+                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+                        Ok (match usize::from(discriminant) {
                             0usize => A {
                                 value: Encode::decode(reader, &mut ctx.value)?,
                             },

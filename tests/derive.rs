@@ -1,25 +1,33 @@
 #[cfg(test)]
-macro_rules! assert_size {
+macro_rules! assert_bits {
     ($v:expr, $size:expr) => {
-        let v = $v;
+        let v = (
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+        );
         let bytes = compactly::encode(&v);
-        println!("bytes are {bytes:?}");
         let decoded = compactly::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
-        assert_eq!(bytes.len(), $size, "unexpected size");
+        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
     };
 }
 #[cfg(test)]
-pub(crate) use assert_size;
+pub(crate) use assert_bits;
 
 #[test]
 fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize);
 
-    assert_size!(Tuple(0), 1);
-    assert_size!(Tuple(1), 1);
-    assert_size!(Tuple(2), 1);
+    assert_bits!(Tuple(0), 2);
+    assert_bits!(Tuple(1), 3);
+    assert_bits!(Tuple(2), 5);
 }
 
 #[test]
@@ -27,10 +35,10 @@ fn pair_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize, bool);
 
-    assert_size!(Tuple(0, false), 1);
-    assert_size!(Tuple(1, true), 1);
-    assert_size!(Tuple(2, false), 1);
-    assert_size!(Tuple(2048, false), 4);
+    assert_bits!(Tuple(0, false), 3);
+    assert_bits!(Tuple(1, true), 4);
+    assert_bits!(Tuple(2, false), 6);
+    assert_bits!(Tuple(2048, false), 26);
 }
 
 #[test]
@@ -38,9 +46,9 @@ fn zero_size() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple;
 
-    assert_size!(Tuple, 1);
-    assert_size!([Tuple; 4], 2);
-    assert_size!([Tuple; 1024], 3);
+    assert_bits!(Tuple, 1);
+    assert_bits!([Tuple; 4], 2);
+    assert_bits!([Tuple; 1024], 16);
 }
 
 #[test]
@@ -52,21 +60,21 @@ fn record() {
         age: usize,
     }
 
-    assert_size!(
+    assert_bits!(
         Tuple {
             size: 0,
             happy: false,
             age: 51
         },
-        2
+        15
     );
-    assert_size!(
+    assert_bits!(
         Tuple {
             size: 1024,
             happy: true,
             age: 51
         },
-        5
+        36
     );
 }
 
@@ -80,8 +88,8 @@ fn simple_enum() {
         D,
     }
 
-    assert_size!(A::A, 1);
-    assert_size!(A::D, 1);
+    assert_bits!(A::A, 2);
+    assert_bits!(A::D, 2);
 }
 
 #[test]
@@ -100,9 +108,9 @@ fn bigger_enum() {
         J,
     }
 
-    assert_size!(A::A, 1);
-    assert_size!(A::D, 1);
-    assert_size!(A::J, 2);
+    assert_bits!(A::A, 3);
+    assert_bits!(A::D, 3);
+    assert_bits!(A::J, 3);
 }
 
 #[test]
@@ -113,8 +121,8 @@ fn weird_enum() {
         B { age: bool },
     }
 
-    assert_size!(A::A { age: 51 }, 2);
-    assert_size!(A::B { age: false }, 1);
+    assert_bits!(A::A { age: 51 }, 13);
+    assert_bits!(A::B { age: false }, 2);
 }
 
 #[test]
@@ -125,8 +133,8 @@ fn fancy_enum() {
         B { big: bool },
     }
 
-    assert_size!(A::A { age: 51 }, 2);
-    assert_size!(A::B { big: false }, 1);
+    assert_bits!(A::A { age: 51 }, 13);
+    assert_bits!(A::B { big: false }, 2);
 }
 
 #[test]
@@ -136,5 +144,5 @@ fn simplest_generics() {
         value: T,
     }
 
-    assert_size!(A { value: 51_usize }, 2);
+    assert_bits!(A { value: 51_usize }, 13);
 }

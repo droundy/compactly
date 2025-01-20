@@ -1,5 +1,22 @@
 use crate::Encode;
 
+impl Encode for () {
+    type Context = ();
+    fn encode<W: std::io::Write>(
+        &self,
+        _writer: &mut cabac::vp8::VP8Writer<W>,
+        _ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+    fn decode<R: std::io::Read>(
+        _reader: &mut cabac::vp8::VP8Reader<R>,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(())
+    }
+}
+
 impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     type Context = (T1::Context, T2::Context);
 

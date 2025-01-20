@@ -5,6 +5,16 @@ use std::io::{Read, Write};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct URange<const N: usize>(usize);
 
+impl<const N: usize> URange<N> {
+    pub const fn new(value: usize) -> Self {
+        if value < N {
+            URange(value)
+        } else {
+            panic!("Invalid value in compactly::URange")
+        }
+    }
+}
+
 impl<const N: usize> From<URange<N>> for usize {
     fn from(value: URange<N>) -> Self {
         value.0
