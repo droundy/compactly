@@ -9,6 +9,7 @@ mod bools;
 mod byte;
 mod ints;
 mod maps;
+mod option;
 mod sets;
 mod tuples;
 mod urange;
@@ -45,6 +46,19 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
     let mut reader = VP8Reader::new(&mut bytes).unwrap();
     T::decode(&mut reader, &mut T::Context::default()).ok()
+}
+
+pub struct Compact<T>(T);
+impl<T> std::ops::Deref for Compact<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T> std::ops::DerefMut for Compact<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[cfg(test)]

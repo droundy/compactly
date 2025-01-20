@@ -1,4 +1,4 @@
-use crate::Encode;
+use crate::{Compact, Encode};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
@@ -99,3 +99,19 @@ fn btreeset() {
     assert_size!(BTreeSet::from([true]), 1);
     assert_size!(BTreeSet::from([false, true]), 2);
 }
+
+pub struct CompactU64Set {
+    first: <Option<u64> as Encode>::Context,
+    diff: <usize as Encode>::Context,
+}
+
+// impl Encode for Compact<BTreeSet<u64>> {
+//     type Context = CompactU64Set;
+//     fn encode<W: Write>(
+//         &self,
+//         writer: &mut cabac::vp8::VP8Writer<W>,
+//         ctx: &mut Self::Context,
+//     ) -> Result<(), std::io::Error> {
+//         let mut iter = self.0.iter();
+//     }
+// }
