@@ -70,6 +70,7 @@ macro_rules! impl_uint {
     ($t:ident, $context:ident, $bits:literal) => {
         #[derive(Default)]
         pub struct $context {
+            leading_zero: [<bool as Encode>::Context; $bits],
             context: [<bool as Encode>::Context; $bits],
         }
 
@@ -80,10 +81,15 @@ macro_rules! impl_uint {
                 writer: &mut cabac::vp8::VP8Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
-                let mut v = *self;
-                for i in 0..$bits {
-                    (v & 1 == 1).encode(writer, &mut ctx.context[i])?;
-                    v >>= 1;
+                let mut am_leading = true;
+                for i in (0..$bits).rev() {
+                    let bit = (*self & (1 << i)) != 0;
+                    if am_leading {
+                        bit.encode(writer, &mut ctx.leading_zero[i])?;
+                        am_leading = !bit;
+                    } else {
+                        bit.encode(writer, &mut ctx.context[i])?;
+                    }
                 }
                 Ok(())
             }
@@ -92,8 +98,16 @@ macro_rules! impl_uint {
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let mut v = 0;
-                for i in 0..$bits {
-                    if bool::decode(reader, &mut ctx.context[i])? {
+                let mut am_leading = true;
+                for i in (0..$bits).rev() {
+                    let bit = if am_leading {
+                        let bit = bool::decode(reader, &mut ctx.leading_zero[i])?;
+                        am_leading = !bit;
+                        bit
+                    } else {
+                        bool::decode(reader, &mut ctx.context[i])?
+                    };
+                    if bit {
                         v |= 1 << i;
                     }
                 }
@@ -107,54 +121,54 @@ impl_uint!(u16, U16Context, 16);
 
 #[test]
 fn size_u32() {
-    use crate::assert_size;
+    use crate::assert_bits;
     for sz in 0..32768_u32 {
         println!("Trying with {sz}");
-        assert_size!(sz, 2);
+        assert_bits!(sz, 32);
     }
-    for sz in 32768_u32..1_000_000 {
+    for sz in 999_990_u32..1_000_000 {
         println!("Trying with {sz}");
-        assert_size!(sz, 3);
+        assert_bits!(sz, 32);
     }
     for sz in [u32::MAX] {
         println!("Trying with {sz}");
-        assert_size!(sz, 5);
+        assert_bits!(sz, 32);
     }
-    assert_size!([0_u32; 128], 29);
-    assert_size!([u32::MAX; 128], 30);
-    assert_size!([1_u32; 2], 5);
-    assert_size!([1_u32; 19], 18);
-    assert_size!(
+    assert_bits!([0_u32; 128], 251);
+    assert_bits!([u32::MAX; 128], 231);
+    assert_bits!([1_u32; 2], 51);
+    assert_bits!([1_u32; 19], 142);
+    assert_bits!(
         [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        21
+        162
     );
 }
 
 #[test]
 fn size_u16() {
-    use crate::assert_size;
+    use crate::assert_bits;
     for sz in 0..1_u16 {
         println!("Trying with {sz}");
-        assert_size!(sz, 0);
+        assert_bits!(sz, 16);
     }
     for sz in 1..128_u16 {
         println!("Trying with {sz}");
-        assert_size!(sz, 1);
+        assert_bits!(sz, 16);
     }
     for sz in 128..32768_u16 {
         println!("Trying with {sz}");
-        assert_size!(sz, 2);
+        assert_bits!(sz, 16);
     }
     for sz in [u16::MAX] {
         println!("Trying with {sz}");
-        assert_size!(sz, 3);
+        assert_bits!(sz, 16);
     }
-    assert_size!([0_u16; 128], 13);
-    assert_size!([u16::MAX; 128], 16);
-    assert_size!([1_u16; 2], 3);
-    assert_size!([1_u16; 19], 10);
-    assert_size!(
+    assert_bits!([0_u16; 128], 126);
+    assert_bits!([u16::MAX; 128], 115);
+    assert_bits!([1_u16; 2], 26);
+    assert_bits!([1_u16; 19], 71);
+    assert_bits!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        11
+        83
     );
 }
