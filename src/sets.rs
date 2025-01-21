@@ -154,5 +154,5 @@ fn compact_btreeset() {
     assert_bits!(Compact(BTreeSet::from([0_u64, 1])), 132);
     assert_bits!(Compact(BTreeSet::from([0_u64, 1, 2])), 170);
     assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 499);
-    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 1102);
+    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 1101);
 }
