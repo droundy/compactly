@@ -83,35 +83,76 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
     }
 }
 
+#[derive(Default)]
+pub struct CompactU64Set {
+    size: <usize as Encode>::Context,
+    first: <u64 as Encode>::Context,
+    diff: <u64 as Encode>::Context,
+}
+
+impl Encode for Compact<BTreeSet<u64>> {
+    type Context = CompactU64Set;
+    fn encode<W: Write>(
+        &self,
+        writer: &mut cabac::vp8::VP8Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        self.len().encode(writer, &mut ctx.size)?;
+        let mut iter = self.0.iter().copied();
+        if let Some(mut prev) = iter.next() {
+            prev.encode(writer, &mut ctx.first)?;
+            for v in iter {
+                let diff = v - prev;
+                diff.encode(writer, &mut ctx.diff)?;
+                prev = v;
+            }
+        }
+        Ok(())
+    }
+    fn decode<R: Read>(
+        reader: &mut cabac::vp8::VP8Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let mut out = BTreeSet::new();
+        let len = usize::decode(reader, &mut ctx.size)?;
+        if len > 0 {
+            let mut prev = u64::decode(reader, &mut ctx.first)?;
+            out.insert(prev);
+            for _ in 1..len {
+                let diff = u64::decode(reader, &mut ctx.diff)?;
+                prev += diff;
+                out.insert(prev);
+            }
+        }
+        Ok(Compact(out))
+    }
+}
+
 #[test]
 fn btreeset() {
-    use crate::assert_size;
-    assert_size!(BTreeSet::<usize>::new(), 1);
-    assert_size!(BTreeSet::from([0_usize]), 1);
-    assert_size!(BTreeSet::from([1_usize]), 1);
-    assert_size!(BTreeSet::from([5_usize]), 2);
-    assert_size!(BTreeSet::from([0_usize, 1]), 2);
-    assert_size!(BTreeSet::from([0_usize, 1, 2]), 3);
-    assert_size!(BTreeSet::from_iter(0_usize..70), 64);
-    assert_size!(BTreeSet::from_iter(0_usize..1024), 1272);
-    assert_size!(BTreeSet::from_iter(0_usize..1_000_000), 1_392_024);
-    assert_size!(BTreeSet::from([false]), 1);
-    assert_size!(BTreeSet::from([true]), 1);
-    assert_size!(BTreeSet::from([false, true]), 2);
+    use crate::assert_bits;
+    assert_bits!(BTreeSet::<usize>::new(), 1);
+    assert_bits!(BTreeSet::from([0_usize]), 3);
+    assert_bits!(BTreeSet::from([1_usize]), 4);
+    assert_bits!(BTreeSet::from([5_usize]), 8);
+    assert_bits!(BTreeSet::from([0_usize, 1]), 8);
+    assert_bits!(BTreeSet::from([0_usize, 1, 2]), 12);
+    assert_bits!(BTreeSet::from_iter(0_usize..70), 503);
+    assert_bits!(BTreeSet::from_iter(0_usize..1024), 10168);
+    assert_bits!(BTreeSet::from([false]), 3);
+    assert_bits!(BTreeSet::from([true]), 3);
+    assert_bits!(BTreeSet::from([false, true]), 7);
 }
 
-pub struct CompactU64Set {
-    first: <Option<u64> as Encode>::Context,
-    diff: <usize as Encode>::Context,
+#[test]
+fn compact_btreeset() {
+    use crate::assert_bits;
+    assert_bits!(Compact(BTreeSet::<u64>::new()), 1);
+    assert_bits!(Compact(BTreeSet::from([0_u64])), 66);
+    assert_bits!(Compact(BTreeSet::from([1_u64])), 66);
+    assert_bits!(Compact(BTreeSet::from([5_u64])), 66);
+    assert_bits!(Compact(BTreeSet::from([0_u64, 1])), 132);
+    assert_bits!(Compact(BTreeSet::from([0_u64, 1, 2])), 170);
+    assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 499);
+    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 1102);
 }
-
-// impl Encode for Compact<BTreeSet<u64>> {
-//     type Context = CompactU64Set;
-//     fn encode<W: Write>(
-//         &self,
-//         writer: &mut cabac::vp8::VP8Writer<W>,
-//         ctx: &mut Self::Context,
-//     ) -> Result<(), std::io::Error> {
-//         let mut iter = self.0.iter();
-//     }
-// }
