@@ -87,7 +87,7 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
 pub struct CompactU64Set {
     size: <usize as Encode>::Context,
     first: <u64 as Encode>::Context,
-    diff: <u64 as Encode>::Context,
+    diff: <Compact<u64> as Encode>::Context,
 }
 
 impl Encode for Compact<BTreeSet<u64>> {
@@ -102,7 +102,7 @@ impl Encode for Compact<BTreeSet<u64>> {
         if let Some(mut prev) = iter.next() {
             prev.encode(writer, &mut ctx.first)?;
             for v in iter {
-                let diff = v - prev;
+                let diff = Compact(v - prev);
                 diff.encode(writer, &mut ctx.diff)?;
                 prev = v;
             }
@@ -119,7 +119,7 @@ impl Encode for Compact<BTreeSet<u64>> {
             let mut prev = u64::decode(reader, &mut ctx.first)?;
             out.insert(prev);
             for _ in 1..len {
-                let diff = u64::decode(reader, &mut ctx.diff)?;
+                let Compact(diff) = Compact::<u64>::decode(reader, &mut ctx.diff)?;
                 prev += diff;
                 out.insert(prev);
             }
@@ -151,8 +151,9 @@ fn compact_btreeset() {
     assert_bits!(Compact(BTreeSet::from([0_u64])), 66);
     assert_bits!(Compact(BTreeSet::from([1_u64])), 66);
     assert_bits!(Compact(BTreeSet::from([5_u64])), 66);
-    assert_bits!(Compact(BTreeSet::from([0_u64, 1])), 132);
-    assert_bits!(Compact(BTreeSet::from([0_u64, 1, 2])), 170);
-    assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 499);
-    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 1101);
+    assert_bits!(Compact(BTreeSet::from([0_u64, 1])), 74);
+    assert_bits!(Compact(BTreeSet::from([0_u64, 1, 2])), 78);
+    assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 115);
+    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 172);
+    assert_bits!(Compact(BTreeSet::from_iter(1_000_000_u64..1_001_024)), 172);
 }
