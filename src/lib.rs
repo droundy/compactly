@@ -48,7 +48,7 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct Compact<T>(T);
 impl<T> std::ops::Deref for Compact<T> {
     type Target = T;

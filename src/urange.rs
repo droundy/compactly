@@ -54,7 +54,7 @@ impl<const N: usize> Encode for URange<N> {
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
-        println!("N={N} and value {}", self.0);
+        // println!("N={N} and value {}", self.0);
         let mut value_considered = 1;
         let mut i = 1;
         while accumulated_value + value_considered < N {
