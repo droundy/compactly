@@ -5,16 +5,21 @@ use cabac::{
 };
 use std::io::{Read, Write};
 
-#[derive(Default)]
 pub struct UsizeContext {
     is_zero: VP8Context,
-    /// FIXME when Default is implemented for larger arrays, make this just be a
-    /// 64-element array.
-    less_significant: [BitContext; 32],
-    more_significant: [BitContext; 32],
+    bits: [BitContext; 64],
 }
 
-#[derive(Default)]
+impl Default for UsizeContext {
+    fn default() -> Self {
+        Self {
+            is_zero: Default::default(),
+            bits: [Default::default(); 64],
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
 struct BitContext {
     done_with_one: VP8Context,
     value: VP8Context,
@@ -32,20 +37,12 @@ impl Encode for usize {
         if value == 0 {
             return Ok(());
         }
-        for i in 0..32 {
-            writer.put(value == 1, &mut ctx.less_significant[i].done_with_one)?;
+        for i in 0..64 {
+            writer.put(value == 1, &mut ctx.bits[i].done_with_one)?;
             if value == 1 {
                 return Ok(());
             }
-            writer.put((value & 1) == 1, &mut ctx.less_significant[i].value)?;
-            value = value >> 1;
-        }
-        for i in 0..32 {
-            writer.put(value == 1, &mut ctx.less_significant[i].done_with_one)?;
-            if value == 1 {
-                return Ok(());
-            }
-            writer.put((value & 1) == 1, &mut ctx.more_significant[i].value)?;
+            writer.put((value & 1) == 1, &mut ctx.bits[i].value)?;
             value = value >> 1;
         }
         Ok(())
@@ -58,46 +55,47 @@ impl Encode for usize {
         if reader.get(&mut ctx.is_zero)? {
             return Ok(0);
         }
-        for i in 0..32 {
-            if reader.get(&mut ctx.less_significant[i].done_with_one)? {
+        for i in 0..64 {
+            if reader.get(&mut ctx.bits[i].done_with_one)? {
                 return Ok(value + (1 << i));
             }
-            if reader.get(&mut ctx.less_significant[i].value)? {
+            if reader.get(&mut ctx.bits[i].value)? {
                 value += 1 << i;
             }
         }
-        for i in 0..32 {
-            if reader.get(&mut ctx.more_significant[i].done_with_one)? {
-                return Ok(value + (1 << i));
-            }
-            if reader.get(&mut ctx.more_significant[i].value)? {
-                value += 1 << (i + 32);
-            }
-        }
-
         Ok(value)
     }
 }
 
 #[test]
 fn size() {
-    use crate::assert_size;
-    for sz in 0_usize..8_usize {
-        println!("Trying with {sz}");
-        assert_size!(sz, 1);
-    }
-    for sz in 8_usize..128 {
-        println!("Trying with {sz}");
-        assert_size!(sz, 2);
-    }
-    for sz in 128_usize..2048 {
-        println!("Trying with {sz}");
-        assert_size!(sz, 3);
-    }
-    assert_size!([0_usize; 128], 2);
-    assert_size!([1_usize; 19], 2);
-    assert_size!(
+    use crate::assert_bits;
+    assert_bits!(0_usize, 1);
+    assert_bits!(1_usize, 2);
+    assert_bits!(2_usize, 4);
+    assert_bits!(3_usize, 4);
+    assert_bits!(4_usize, 6);
+    assert_bits!(5_usize, 6);
+    assert_bits!(6_usize, 6);
+    assert_bits!(7_usize, 6);
+    assert_bits!(8_usize, 8);
+    assert_bits!(16_usize, 10);
+    assert_bits!(32_usize, 12);
+    assert_bits!(64_usize, 14);
+    assert_bits!(128_usize, 16);
+    assert_bits!(256_usize, 18);
+    assert_bits!(512_usize, 20);
+    assert_bits!(1024_usize, 22);
+    assert_bits!(1024_usize * 1024, 42);
+    assert_bits!(1024_usize * 1024 * 1024, 62);
+    assert_bits!(u32::MAX as usize, 64);
+    // Note the code will work for u32, but the following two tests will fail.
+    assert_bits!(1024_usize * 1024 * 1024 * 1024, 82);
+    assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 102);
+    assert_bits!([0_usize; 128], 7);
+    assert_bits!([1_usize; 19], 9);
+    assert_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        2
+        11
     );
 }
