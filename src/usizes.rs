@@ -1,4 +1,4 @@
-use crate::Encode;
+use crate::{Compact, Encode, URange};
 use cabac::{
     traits::{CabacReader, CabacWriter},
     vp8::VP8Context,
@@ -70,8 +70,12 @@ impl Encode for usize {
 #[test]
 fn size() {
     use crate::assert_bits;
+    use crate::Compact;
+    assert_bits!(Compact(0_u64), 7);
     assert_bits!(0_usize, 1);
+    assert_bits!(Compact(1_u64), 6);
     assert_bits!(1_usize, 2);
+    assert_bits!(Compact(2_u64), 7);
     assert_bits!(2_usize, 4);
     assert_bits!(3_usize, 4);
     assert_bits!(4_usize, 6);
@@ -79,13 +83,20 @@ fn size() {
     assert_bits!(6_usize, 6);
     assert_bits!(7_usize, 6);
     assert_bits!(8_usize, 8);
+    assert_bits!(Compact(16_u64), 10);
     assert_bits!(16_usize, 10);
+    assert_bits!(Compact(32_u64), 11);
     assert_bits!(32_usize, 12);
+    assert_bits!(Compact(64_u64), 12);
     assert_bits!(64_usize, 14);
+    assert_bits!(Compact(128_u64), 13);
     assert_bits!(128_usize, 16);
+    assert_bits!(Compact(256_u64), 14);
     assert_bits!(256_usize, 18);
     assert_bits!(512_usize, 20);
+    assert_bits!(Compact(1024_u64), 16);
     assert_bits!(1024_usize, 22);
+    assert_bits!(Compact(1024_u64 * 1024), 26);
     assert_bits!(1024_usize * 1024, 42);
     assert_bits!(1024_usize * 1024 * 1024, 62);
     assert_bits!(u32::MAX as usize, 64);
