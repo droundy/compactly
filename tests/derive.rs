@@ -25,9 +25,9 @@ fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize);
 
-    assert_bits!(Tuple(0), 1);
-    assert_bits!(Tuple(1), 2);
-    assert_bits!(Tuple(2), 4);
+    assert_bits!(Tuple(0), 3);
+    assert_bits!(Tuple(1), 3);
+    assert_bits!(Tuple(2), 3);
 }
 
 #[test]
@@ -35,10 +35,10 @@ fn pair_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::Encode)]
     pub struct Tuple(usize, bool);
 
-    assert_bits!(Tuple(0, false), 2);
-    assert_bits!(Tuple(1, true), 3);
-    assert_bits!(Tuple(2, false), 5);
-    assert_bits!(Tuple(2048, false), 25);
+    assert_bits!(Tuple(0, false), 4);
+    assert_bits!(Tuple(1, true), 4);
+    assert_bits!(Tuple(2, false), 4);
+    assert_bits!(Tuple(2048, false), 18);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn record() {
             happy: false,
             age: 51
         },
-        14
+        16
     );
     assert_bits!(
         Tuple {
@@ -74,7 +74,7 @@ fn record() {
             happy: true,
             age: 51
         },
-        35
+        29
     );
 }
 

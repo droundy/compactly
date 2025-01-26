@@ -95,13 +95,13 @@ fn btreemap() {
     assert_size!(BTreeMap::<usize, usize>::new(), 1);
     assert_size!(BTreeMap::from([(0_usize, 0_usize)]), 1);
     assert_size!(BTreeMap::from_iter((0_usize..2).map(|v| (v, v))), 3);
-    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 2486);
+    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 2516);
     assert_size!(
         BTreeMap::from_iter((1_000_usize..2_000).map(|v| (v, v))),
-        2472
+        2462
     );
     assert_size!(
         BTreeMap::from_iter((1_000_000_usize..1_001_000).map(|v| (v, v))),
-        2720
+        2662
     );
 }

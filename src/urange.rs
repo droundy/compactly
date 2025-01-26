@@ -32,7 +32,7 @@ impl<const N: usize> TryFrom<usize> for URange<N> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct URangeContext<const N: usize> {
     bits: [<bool as Encode>::Context; N],
 }

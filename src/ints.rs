@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 macro_rules! impl_uint {
     ($t:ident, $context:ident, $bits:literal) => {
+        #[derive(Clone, Copy)]
         pub struct $context {
             leading_zero: [<bool as Encode>::Context; $bits],
             context: [<bool as Encode>::Context; $bits],
@@ -138,6 +139,7 @@ fn size_u16() {
 
 macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
+        #[derive(Clone, Copy)]
         pub struct $context {
             leading_zeros: <URange<{ $bits + 1 }> as Encode>::Context,
             context: [<bool as Encode>::Context; $bits],

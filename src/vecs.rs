@@ -46,6 +46,6 @@ fn size() {
     }
     for num in 5_usize..6 {
         let value = (0..num).collect::<Vec<_>>();
-        assert_size!(dbg!(value), 4);
+        assert_size!(dbg!(value), 5);
     }
 }
