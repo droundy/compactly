@@ -32,16 +32,31 @@ impl<const N: usize> TryFrom<usize> for URange<N> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct URangeContext<const N: usize> {
-    bits: [<bool as Encode>::Context; N],
+    /// This uses way more context than is needed, because I couldn't find an
+    /// elegant way to map the N needed context to the possible bit sequences.  :(
+    bits: Vec<<bool as Encode>::Context>,
 }
 
-impl<const N: usize> Default for URangeContext<N> {
-    fn default() -> Self {
-        Self {
-            bits: [Default::default(); N],
+impl<const N: usize> URangeContext<N> {
+    fn index_mut(&mut self, index: usize) -> &mut <bool as Encode>::Context {
+        if self.bits.len() <= index {
+            self.bits.reserve(index - self.bits.len());
+            while self.bits.len() <= index {
+                self.bits.push(Default::default());
+            }
         }
+        &mut self.bits[index]
+    }
+}
+
+fn half(i: usize) -> usize {
+    let half = i / 2;
+    if half > 1 {
+        1 << half.ilog(2)
+    } else {
+        half
     }
 }
 
@@ -54,24 +69,35 @@ impl<const N: usize> Encode for URange<N> {
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
+        let mut bits_chosen = 0;
         // println!("N={N} and value {}", self.0);
-        let mut value_considered = 1;
+        let mut possible_values_left = N;
+        let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
         let mut i = 1;
-        while accumulated_value + value_considered < N {
-            let ctx = &mut ctx.bits[filled_up + accumulated_value];
-            let bit = self.0 & value_considered != 0;
+        while accumulated_value + value_considered < N && possible_values_left > 1 {
+            let bit = self.0 >= accumulated_value + value_considered;
             // println!(
-            //     "{}: bit {i} is {bit:?} with context {}",
+            //     "bit {i} is {bit:?} == {} >= {}",
             //     self.0,
-            //     filled_up + accumulated_value
+            //     accumulated_value + value_considered
             // );
+            // println!(
+            //     "{}: bit {i} is {bit:?} with context {} considering {value_considered} with {possible_values_left} values left to consider",
+            //     self.0,
+            //     filled_up + bits_chosen
+            // );
+            let ctx = ctx.index_mut(filled_up + bits_chosen);
             writer.put(bit, ctx)?;
             filled_up += i;
             if bit {
+                bits_chosen += 1 << i;
                 accumulated_value += value_considered;
+                possible_values_left -= value_considered;
+            } else {
+                possible_values_left = value_considered;
             }
             // println!("E {i} ==> {filled_up} -> {accumulated_value}");
-            value_considered *= 2;
+            value_considered = half(possible_values_left);
             i += 1;
         }
         Ok(())
@@ -82,17 +108,23 @@ impl<const N: usize> Encode for URange<N> {
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
-        let mut value_considered = 1;
+        let mut bits_chosen = 0;
+        let mut possible_values_left = N;
+        let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
         let mut i = 1;
-        while accumulated_value + value_considered < N {
-            let ctx = &mut ctx.bits[filled_up + accumulated_value];
+        while accumulated_value + value_considered < N && possible_values_left > 1 {
+            let ctx = ctx.index_mut(filled_up + bits_chosen);
             let bit = reader.get(ctx)?;
             filled_up += i;
             if bit {
+                bits_chosen += 1 << i;
                 accumulated_value += value_considered;
+                possible_values_left -= value_considered;
+            } else {
+                possible_values_left = value_considered;
             }
             // println!("D {i} ==> {filled_up} -> {accumulated_value}");
-            value_considered *= 2;
+            value_considered = half(possible_values_left);
             i += 1;
         }
         Ok(Self(accumulated_value))
@@ -105,6 +137,7 @@ fn size() {
     fn test_urange<const N: usize>() {
         for i in 0..N {
             let v = URange::<N>::new(i);
+            println!("Testing URange::<{N}>::new({i})");
             let encoded = crate::encode(&v);
             let decoded = crate::decode::<URange<N>>(&encoded).unwrap();
             assert_eq!(decoded, v);
@@ -124,9 +157,22 @@ fn size() {
     test_urange::<256>();
     test_urange::<257>();
 
-    assert_bits!(URange::<3>::try_from(0).unwrap(), 2);
-    assert_bits!(URange::<3>::try_from(1).unwrap(), 1);
+    assert_bits!(URange::<3>::try_from(0).unwrap(), 1);
+    assert_bits!(URange::<3>::try_from(1).unwrap(), 2);
     assert_bits!(URange::<3>::try_from(2).unwrap(), 2);
+
+    assert_bits!(URange::<5>::try_from(0).unwrap(), 2);
+    assert_bits!(URange::<5>::try_from(1).unwrap(), 2);
+    assert_bits!(URange::<5>::try_from(2).unwrap(), 2);
+    assert_bits!(URange::<5>::try_from(3).unwrap(), 3);
+    assert_bits!(URange::<5>::try_from(4).unwrap(), 3);
+
+    assert_bits!(URange::<6>::try_from(0).unwrap(), 2);
+    assert_bits!(URange::<6>::try_from(1).unwrap(), 2);
+    assert_bits!(URange::<6>::try_from(2).unwrap(), 3);
+    assert_bits!(URange::<6>::try_from(3).unwrap(), 3);
+    assert_bits!(URange::<6>::try_from(4).unwrap(), 3);
+    assert_bits!(URange::<6>::try_from(5).unwrap(), 3);
 
     assert_bits!(URange::<128>::try_from(0).unwrap(), 7);
     assert_bits!(URange::<128>::try_from(1).unwrap(), 7);

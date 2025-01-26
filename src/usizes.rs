@@ -1,7 +1,7 @@
 use crate::{Compact, Encode, URange};
 use std::io::{Read, Write};
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
     small: <URange<4> as Encode>::Context,
@@ -42,13 +42,13 @@ fn size() {
     use crate::Compact;
     assert_bits!(Compact(0_u64), 7);
     assert_bits!(0_usize, 3);
-    assert_bits!(Compact(1_u64), 6);
+    assert_bits!(Compact(1_u64), 7);
     assert_bits!(1_usize, 3);
     assert_bits!(Compact(2_u64), 7);
     assert_bits!(2_usize, 3);
     assert_bits!(3_usize, 3);
     assert_bits!(4_usize, 8);
-    assert_bits!(5_usize, 7);
+    assert_bits!(5_usize, 8);
     assert_bits!(6_usize, 8);
     assert_bits!(7_usize, 8);
     assert_bits!(8_usize, 9);
@@ -76,6 +76,6 @@ fn size() {
     assert_bits!([1_usize; 19], 13);
     assert_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        20
+        19
     );
 }

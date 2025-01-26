@@ -108,7 +108,7 @@ fn bigger_enum() {
         J,
     }
 
-    assert_bits!(A::A, 4);
+    assert_bits!(A::A, 3);
     assert_bits!(A::D, 3);
     assert_bits!(compactly::URange::<10>::new(9), 4);
     assert_bits!(A::J, 4);

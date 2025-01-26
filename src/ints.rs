@@ -139,7 +139,7 @@ fn size_u16() {
 
 macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
-        #[derive(Clone, Copy)]
+        #[derive(Clone)]
         pub struct $context {
             leading_zeros: <URange<{ $bits + 1 }> as Encode>::Context,
             context: [<bool as Encode>::Context; $bits],
@@ -205,7 +205,7 @@ impl_compact!(u16, U16Compact, 16);
 fn compact_u16() {
     use crate::assert_bits;
     assert_bits!(Compact(0_u16), 5);
-    assert_bits!(Compact(1_u16), 4);
+    assert_bits!(Compact(1_u16), 5);
     assert_bits!(Compact(2_u16), 5);
     assert_bits!(Compact(3_u16), 5);
     assert_bits!(Compact(4_u16), 6);
@@ -213,15 +213,15 @@ fn compact_u16() {
     assert_bits!(Compact(6_u16), 6);
     assert_bits!(Compact(7_u16), 6);
     assert_bits!(Compact(8_u16), 7);
-    assert_bits!(Compact(u16::MAX), 20);
-    assert_bits!([Compact(0_u16); 128], 39);
-    assert_bits!([Compact(u16::MAX); 128], 148);
-    assert_bits!([Compact(1_u16); 2], 7);
-    assert_bits!([Compact(1_u16); 19], 18);
+    assert_bits!(Compact(u16::MAX), 19);
+    assert_bits!([Compact(0_u16); 128], 36);
+    assert_bits!([Compact(u16::MAX); 128], 140);
+    assert_bits!([Compact(1_u16); 2], 8);
+    assert_bits!([Compact(1_u16); 19], 22);
     assert_bits!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Compact),
-        36
+        29
     );
 }
 
@@ -229,7 +229,7 @@ fn compact_u16() {
 fn compact_u32() {
     use crate::assert_bits;
     assert_bits!(Compact(0_u32), 6);
-    assert_bits!(Compact(1_u32), 5);
+    assert_bits!(Compact(1_u32), 6);
     assert_bits!(Compact(2_u32), 6);
     assert_bits!(Compact(3_u32), 6);
     assert_bits!(Compact(4_u32), 7);
@@ -237,14 +237,14 @@ fn compact_u32() {
     assert_bits!(Compact(6_u32), 7);
     assert_bits!(Compact(7_u32), 7);
     assert_bits!(Compact(8_u32), 8);
-    assert_bits!(Compact(u32::MAX), 37);
-    assert_bits!([Compact(0_u32); 128], 47);
-    assert_bits!([Compact(u32::MAX); 128], 271);
-    assert_bits!([Compact(1_u32); 2], 8);
-    assert_bits!([Compact(1_u32); 19], 22);
+    assert_bits!(Compact(u32::MAX), 36);
+    assert_bits!([Compact(0_u32); 128], 43);
+    assert_bits!([Compact(u32::MAX); 128], 263);
+    assert_bits!([Compact(1_u32); 2], 10);
+    assert_bits!([Compact(1_u32); 19], 26);
     assert_bits!(
         [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Compact),
-        41
+        34
     );
 }
