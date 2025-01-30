@@ -130,12 +130,26 @@ fn weird_enum() {
 fn fancy_enum() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub enum A {
-        A { age: usize },
+        A {
+            #[small]
+            age: u64,
+        },
+        B {
+            big: bool,
+        },
+    }
+
+    assert_bits!(A::A { age: 51 }, 12);
+    assert_bits!(A::B { big: false }, 2);
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum B {
+        A { age: u64 },
         B { big: bool },
     }
 
-    assert_bits!(A::A { age: 51 }, 13);
-    assert_bits!(A::B { big: false }, 2);
+    assert_bits!(B::A { age: 51 }, 65);
+    assert_bits!(B::B { big: false }, 2);
 }
 
 #[test]
