@@ -1,4 +1,4 @@
-use crate::{Compact, Encode, URange};
+use crate::{Compact, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 macro_rules! impl_uint {
@@ -194,6 +194,48 @@ macro_rules! impl_compact {
                 Ok(Compact(out))
             }
         }
+
+        impl EncodingStrategy<$t> for Small {
+            type Context = $context;
+            fn encode<W: Write>(
+                value: &$t,
+                writer: &mut cabac::vp8::VP8Writer<W>,
+                ctx: &mut Self::Context,
+            ) -> Result<(), std::io::Error> {
+                let uleading = value.leading_zeros() as usize;
+                let leading_zeros = URange::<{ $bits + 1 }>::new(uleading);
+                leading_zeros.encode(writer, &mut ctx.leading_zeros)?;
+                if uleading >= $bits - 1 {
+                    return Ok(());
+                }
+                for i in 0..($bits - 1) - uleading {
+                    ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i])?;
+                }
+                Ok(())
+            }
+            fn decode<R: Read>(
+                reader: &mut cabac::vp8::VP8Reader<R>,
+                ctx: &mut Self::Context,
+            ) -> Result<$t, std::io::Error> {
+                let leading_zeros =
+                    URange::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
+                let uleading = usize::from(leading_zeros);
+                if uleading >= $bits - 1 {
+                    if uleading == $bits {
+                        return Ok(0);
+                    } else {
+                        return Ok(1);
+                    }
+                }
+                let mut out = 1 << ($bits - 1 - uleading);
+                for i in 0..($bits - 1) - uleading {
+                    if bool::decode(reader, &mut ctx.context[i])? {
+                        out |= 1 << i;
+                    }
+                }
+                Ok(out)
+            }
+        }
     };
 }
 
@@ -247,4 +289,8 @@ fn compact_u32() {
             .map(Compact),
         34
     );
+
+    for i in 0_u32..4096 {
+        assert_eq!(crate::encode(&Compact(i)), crate::encode_with(Small, &i));
+    }
 }

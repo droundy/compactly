@@ -48,7 +48,40 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
+pub trait EncodingStrategy<T> {
+    type Context: Default;
+
+    fn encode<W: Write>(
+        value: &T,
+        writer: &mut cabac::vp8::VP8Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error>;
+
+    fn decode<R: Read>(
+        reader: &mut cabac::vp8::VP8Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<T, std::io::Error>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Small;
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LowCardinality;
+
+pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8);
+    let mut writer = VP8Writer::new(&mut out).unwrap();
+    S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
+    writer.finish().unwrap();
+    out
+}
+
+pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
+    let mut reader = VP8Reader::new(&mut bytes).unwrap();
+    S::decode(&mut reader, &mut S::Context::default()).ok()
+}
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
+
 pub struct Compact<T>(T);
 impl<T> std::ops::Deref for Compact<T> {
     type Target = T;
