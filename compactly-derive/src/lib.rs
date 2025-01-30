@@ -7,38 +7,30 @@ use quote::quote;
 use syn::{GenericParam, TraitBound};
 use synstructure::{decl_derive, BindingInfo, VariantInfo};
 
-decl_derive!([Encode, attributes(small, low_cardinality)] => derive_compactly);
+decl_derive!([Encode, attributes(strategy)] => derive_compactly);
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
-enum EncodingStrategy {
-    Small,
-    LowCardinality,
-}
+#[derive(Debug, Clone)]
+struct EncodingStrategy(syn::Type);
 impl EncodingStrategy {
-    fn name(self) -> proc_macro2::TokenStream {
-        match self {
-            EncodingStrategy::Small => quote! { compactly::Small },
-            EncodingStrategy::LowCardinality => quote! { compactly::LowCardinality },
+    fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
+        let attrs = binding
+            .ast()
+            .attrs
+            .iter()
+            .filter_map(|a| {
+                if a.path().is_ident("strategy") {
+                    let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
+                    Some(EncodingStrategy(strategy))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        match attrs.as_slice() {
+            [] => None,
+            [s] => Some(s.clone()),
+            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
         }
-    }
-}
-fn parse_strategy(binding: &BindingInfo) -> Option<EncodingStrategy> {
-    let attrs = binding
-        .ast()
-        .attrs
-        .iter()
-        .filter_map(|a| a.path().get_ident())
-        .map(ToString::to_string)
-        .map(|s| match s.as_str() {
-            "small" => EncodingStrategy::Small,
-            "low_cardinality" | "low-cardinality" => EncodingStrategy::LowCardinality,
-            _ => panic!("Unrecognized encoding strategy: {s:?}"),
-        })
-        .collect::<Vec<_>>();
-    match attrs.as_slice() {
-        [] => None,
-        [s] => Some(*s),
-        _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
     }
 }
 
@@ -106,20 +98,20 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         .iter()
         .flat_map(|variant| variant.bindings().iter())
     {
-        let strategy = parse_strategy(binding);
-        strategies.push(strategy);
+        let strategy = EncodingStrategy::parse(binding);
+        strategies.push(strategy.clone());
         binding_strategies.insert(binding.binding.clone(), strategy);
     }
     let context = s
         .variants()
         .iter()
         .flat_map(|variant| variant.bindings().iter())
-        .zip(strategies.iter().copied())
+        .zip(strategies.iter().cloned())
         .map(|(binding, strategy)| {
             let ty = &binding.ast().ty;
             let name = &binding.binding;
             if let Some(strategy) = strategy {
-                let strategy = strategy.name();
+                let strategy = strategy.0;
                 quote! {
                     #name: <#strategy as EncodingStrategy<#ty>>::Context
                 }
@@ -140,7 +132,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
         let ty = &binding.ast().ty;
         let binding = &binding.binding;
         if let Some(Some(strategy)) = binding_strategies.get(binding) {
-            let strategy = strategy.name();
+            let strategy = &strategy.0;
             quote! {
                 <#strategy as EncodingStrategy<#ty>>::encode(&#binding, writer, &mut ctx.#binding)?;
             }
@@ -177,7 +169,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 .iter()
                 .map(|binding| {
                     if let Some(Some(strategy)) = binding_strategies.get(&binding.binding) {
-                        let strategy = strategy.name();
+                        let strategy = &strategy.0;
                         let ty = &binding.ast().ty;
                         quote! {
                             <#strategy as EncodingStrategy<#ty>>::decode(reader, &mut ctx.#binding)?
@@ -202,7 +194,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::{Encode, EncodingStrategy};
+        use compactly::{Encode, EncodingStrategy, Small, LowCardinality};
 
         pub struct DerivedContext #context_generics {
             discriminant: <#discriminant_type as Encode>::Context,

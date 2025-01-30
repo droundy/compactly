@@ -131,7 +131,7 @@ fn fancy_enum() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub enum A {
         A {
-            #[small]
+            #[strategy(Small)]
             age: u64,
         },
         B {
