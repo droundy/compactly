@@ -7,7 +7,9 @@ pub use compactly_derive::Encode;
 mod array;
 mod bools;
 mod byte;
+mod encoded;
 mod ints;
+mod low_cardinality;
 mod maps;
 mod option;
 mod sets;
@@ -63,9 +65,15 @@ pub trait EncodingStrategy<T> {
     ) -> Result<T, std::io::Error>;
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Encoded<T, S: EncodingStrategy<T>> {
+    value: T,
+    _phantom: std::marker::PhantomData<S>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Small;
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LowCardinality;
 
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
