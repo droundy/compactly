@@ -46,14 +46,31 @@ impl Encode for u8 {
     }
 }
 
+impl Encode for i8 {
+    type Context = <u8 as Encode>::Context;
+    fn encode<W: Write>(
+        &self,
+        writer: &mut cabac::vp8::VP8Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        (*self as u8).encode(writer, ctx)
+    }
+    fn decode<R: Read>(
+        reader: &mut cabac::vp8::VP8Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        <u8 as Encode>::decode(reader, ctx).map(|v| v as i8)
+    }
+}
+
 #[test]
 fn size() {
-    use crate::assert_size;
-    assert_size!(u8::MAX, 2);
-    assert_size!(0_u8, 0);
+    use crate::{assert_bits, assert_size};
+    assert_bits!(u8::MAX, 8);
+    assert_bits!(0_u8, 8);
     for b in 3_u8..=255 {
         println!("Byte {b}");
-        assert_size!(b, (b & 1) as usize + 1);
+        assert_bits!(b, 8);
     }
     assert_size!(*b"hello", 5);
     assert_size!(*b"hello world", 10);
@@ -73,4 +90,7 @@ fn size() {
     assert_size!(*b"\x01\x02\x03\x04\x05\x06", 6);
     assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07", 6);
     assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 7);
+
+    assert_bits!(i8::MAX, 8);
+    assert_bits!(0_i8, 8);
 }
