@@ -17,6 +17,7 @@ macro_rules! assert_bits {
         assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
     };
 }
+
 #[cfg(test)]
 pub(crate) use assert_bits;
 
@@ -160,4 +161,28 @@ fn simplest_generics() {
     }
 
     assert_bits!(A { value: 51_usize }, 12);
+}
+
+#[test]
+fn low_cardinality() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    struct Data {
+        #[strategy(LowCardinality)]
+        value: u64,
+    }
+
+    assert_bits!(Data { value: 51 }, 65);
+    assert_bits!(Data { value: u64::MAX }, 65);
+    assert_bits!(
+        (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
+        10757
+    );
+    // With three options, it takes less than two bits per value:
+    assert_bits!(
+        (0..1024)
+            .map(|v| v % 3)
+            .map(|value| Data { value })
+            .collect::<Vec<_>>(),
+        1838
+    );
 }
