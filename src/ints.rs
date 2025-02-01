@@ -154,44 +154,21 @@ macro_rules! impl_compact {
         }
 
         impl Encode for Compact<$t> {
-            type Context = $context;
+            type Context = <Small as EncodingStrategy<$t>>::Context;
             fn encode<W: Write>(
                 &self,
                 writer: &mut cabac::vp8::VP8Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
-                let uleading = self.leading_zeros() as usize;
-                let leading_zeros = URange::<{ $bits + 1 }>::new(uleading);
-                leading_zeros.encode(writer, &mut ctx.leading_zeros)?;
-                if uleading >= $bits - 1 {
-                    return Ok(());
-                }
-                for i in 0..($bits - 1) - uleading {
-                    ((self.0 >> i) & 1 == 1).encode(writer, &mut ctx.context[i])?;
-                }
-                Ok(())
+                <Small as EncodingStrategy<$t>>::encode(&self.0, writer, ctx)
             }
             fn decode<R: Read>(
                 reader: &mut cabac::vp8::VP8Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let leading_zeros =
-                    URange::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
-                let uleading = usize::from(leading_zeros);
-                if uleading >= $bits - 1 {
-                    if uleading == $bits {
-                        return Ok(Compact(0));
-                    } else {
-                        return Ok(Compact(1));
-                    }
-                }
-                let mut out = 1 << ($bits - 1 - uleading);
-                for i in 0..($bits - 1) - uleading {
-                    if bool::decode(reader, &mut ctx.context[i])? {
-                        out |= 1 << i;
-                    }
-                }
-                Ok(Compact(out))
+                Ok(Compact(<Small as EncodingStrategy<$t>>::decode(
+                    reader, ctx,
+                )?))
             }
         }
 
