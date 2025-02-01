@@ -65,31 +65,31 @@ impl Encode for i8 {
 
 #[test]
 fn size() {
-    use crate::{assert_bits, assert_size};
+    use crate::assert_bits;
     assert_bits!(u8::MAX, 8);
     assert_bits!(0_u8, 8);
     for b in 3_u8..=255 {
         println!("Byte {b}");
         assert_bits!(b, 8);
     }
-    assert_size!(*b"hello", 5);
-    assert_size!(*b"hello world", 10);
-    assert_size!(*b"hello world, hello world", 17);
-    assert_size!(*b"hello hello, hello hello", 15);
-    assert_size!(*b"hello hello, hello hello, hello hello, hello hello", 26);
-    assert_size!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 6);
-    assert_size!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 7);
-    assert_size!(*b"\0", 0);
-    assert_size!(*b"\x01", 2);
-    assert_size!(*b"\x01\x01", 3);
-    assert_size!(*b"\x01\x01\x01\x01", 4);
-    assert_size!(*b"\x01\x01\x01\x01\x01", 4);
-    assert_size!(*b"\x01\x01\x01\x01\x01\x01", 4);
-    assert_size!(*b"\x01\x02\x03\x04", 4);
-    assert_size!(*b"\x01\x02\x03\x04\x05", 5);
-    assert_size!(*b"\x01\x02\x03\x04\x05\x06", 6);
-    assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07", 6);
-    assert_size!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 7);
+    assert_bits!(*b"hello", 31);
+    assert_bits!(*b"hello world", 68);
+    assert_bits!(*b"hello world, hello world", 129);
+    assert_bits!(*b"hello hello, hello hello", 111);
+    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 196);
+    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 38);
+    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 47);
+    assert_bits!(*b"\0", 8);
+    assert_bits!(*b"\x01", 8);
+    assert_bits!(*b"\x01\x01", 13);
+    assert_bits!(*b"\x01\x01\x01\x01", 19);
+    assert_bits!(*b"\x01\x01\x01\x01\x01", 21);
+    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 23);
+    assert_bits!(*b"\x01\x02\x03\x04", 25);
+    assert_bits!(*b"\x01\x02\x03\x04\x05", 30);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", 36);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", 41);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 47);
 
     assert_bits!(i8::MAX, 8);
     assert_bits!(0_i8, 8);
