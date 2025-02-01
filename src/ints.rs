@@ -271,3 +271,126 @@ fn compact_u32() {
         assert_eq!(crate::encode(&Compact(i)), crate::encode_with(Small, &i));
     }
 }
+
+macro_rules! impl_signed {
+    ($signed:ident, $unsigned:ident, $context:ident) => {
+        impl Encode for $signed {
+            type Context = <$unsigned as Encode>::Context;
+            fn encode<W: Write>(
+                &self,
+                writer: &mut cabac::vp8::VP8Writer<W>,
+                ctx: &mut Self::Context,
+            ) -> Result<(), std::io::Error> {
+                $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
+            }
+            fn decode<R: Read>(
+                reader: &mut cabac::vp8::VP8Reader<R>,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                let v = $unsigned::decode(reader, ctx)?;
+                Ok($signed::from_le_bytes(v.to_le_bytes()))
+            }
+        }
+
+        impl Encode for Compact<$signed> {
+            type Context = <Small as EncodingStrategy<$signed>>::Context;
+            fn encode<W: Write>(
+                &self,
+                writer: &mut cabac::vp8::VP8Writer<W>,
+                ctx: &mut Self::Context,
+            ) -> Result<(), std::io::Error> {
+                <Small as EncodingStrategy<$signed>>::encode(&self.0, writer, ctx)
+            }
+            fn decode<R: Read>(
+                reader: &mut cabac::vp8::VP8Reader<R>,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Ok(Compact(<Small as EncodingStrategy<$signed>>::decode(
+                    reader, ctx,
+                )?))
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct $context {
+            is_negative: <bool as Encode>::Context,
+            positive: <Small as EncodingStrategy<$unsigned>>::Context,
+            negative: <Small as EncodingStrategy<$unsigned>>::Context,
+        }
+        impl Default for $context {
+            fn default() -> Self {
+                Self {
+                    is_negative: Default::default(),
+                    positive: Default::default(),
+                    negative: Default::default(),
+                }
+            }
+        }
+
+        impl EncodingStrategy<$signed> for Small {
+            type Context = $context;
+            fn encode<W: Write>(
+                value: &$signed,
+                writer: &mut cabac::vp8::VP8Writer<W>,
+                ctx: &mut Self::Context,
+            ) -> Result<(), std::io::Error> {
+                (*value < 0).encode(writer, &mut ctx.is_negative)?;
+                if *value < 0 {
+                    Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
+                } else {
+                    Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+                }
+            }
+            fn decode<R: Read>(
+                reader: &mut cabac::vp8::VP8Reader<R>,
+                ctx: &mut Self::Context,
+            ) -> Result<$signed, std::io::Error> {
+                if bool::decode(reader, &mut ctx.is_negative)? {
+                    let p =
+                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.negative)?;
+                    Ok(-1 - (p as $signed))
+                } else {
+                    let p =
+                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.positive)?;
+                    Ok(p as $signed)
+                }
+            }
+        }
+    };
+}
+
+impl_signed!(i16, u16, SignedI16Context);
+impl_signed!(i32, u32, SignedI32Context);
+impl_signed!(i64, u64, SignedI64Context);
+
+#[test]
+fn signed() {
+    use crate::assert_bits;
+
+    assert_bits!(Compact(0_i32), 7);
+    assert_bits!(Compact(1_i32), 7);
+    assert_bits!(Compact(-1_i32), 7);
+    assert_bits!(Compact(i32::MAX), 36);
+    assert_bits!(Compact(i32::MIN), 36);
+    for v in [i32::MIN, i32::MAX, -1, 0, 1, 7, 137, i32::MAX - 1] {
+        assert_bits!(v, 32);
+    }
+
+    assert_bits!(Compact(0_i16), 6);
+    assert_bits!(Compact(1_i16), 6);
+    assert_bits!(Compact(-1_i16), 6);
+    assert_bits!(Compact(i16::MAX), 19);
+    assert_bits!(Compact(i16::MIN), 19);
+    for v in [i16::MIN, i16::MAX, -1, 0, 1, 7, 137, i16::MAX - 1] {
+        assert_bits!(v, 16);
+    }
+
+    assert_bits!(Compact(0_i64), 8);
+    assert_bits!(Compact(1_i64), 8);
+    assert_bits!(Compact(-1_i64), 8);
+    assert_bits!(Compact(i64::MAX), 69);
+    assert_bits!(Compact(i64::MIN), 69);
+    for v in [i64::MIN, i64::MAX, -1, 0, 1, 7, 137, i64::MAX - 1] {
+        assert_bits!(v, 64);
+    }
+}
