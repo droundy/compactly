@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 pub use compactly_derive::Encode;
 
 mod array;
+mod bits;
 mod bools;
 mod byte;
 mod encoded;
@@ -13,6 +14,7 @@ mod low_cardinality;
 mod maps;
 mod option;
 mod sets;
+mod string;
 mod tuples;
 mod urange;
 mod usizes;
