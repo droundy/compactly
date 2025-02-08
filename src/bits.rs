@@ -44,6 +44,7 @@ impl<const N: usize> Encode for Bits<N> {
         writer: &mut cabac::vp8::VP8Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
+        debug_assert_eq!(N, 1 << Self::N_BITS);
         let mut filled_up = 0;
         let mut accumulated_value = 0;
         for i in 0..Self::N_BITS {
