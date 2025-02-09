@@ -81,7 +81,24 @@ fn bench_one<T: compactly::Encode + Serialize + DeserializeOwned>(e: impl Encodi
     );
 }
 
-fn bench_all<T: compactly::Encode + Serialize + DeserializeOwned>(value: T) {
+fn bench_all<T: compactly::Encode + Serialize + DeserializeOwned>(name: &str, value: T) {
+    println!("{name}:");
+    {
+        let size = "size";
+        let encoding_ms = "encode";
+        let decoding_ms = "decode";
+        println!(
+            "{:>25} {size:6} {encoding_ms:>6.6}   {decoding_ms:>6.6}",
+            "encoding"
+        );
+        let size = "----";
+        let encoding_ms = "-------------";
+        let decoding_ms = "-------------";
+        println!(
+            "{:>25} {size:6} {encoding_ms:>6.6}   {decoding_ms:>6.6}",
+            "--------"
+        );
+    }
     bench_one(Compactly, &value);
     bench_one(
         Zstd {
@@ -124,5 +141,6 @@ fn format_sz(sz: usize) -> String {
 }
 
 fn main() {
-    bench_all(comparison::tenth_edition());
+    bench_all("mtg tenth edition", comparison::tenth_edition());
+    bench_all("cards", comparison::tenth_edition().data.cards[0].clone());
 }

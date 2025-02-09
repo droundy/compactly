@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, compactly::Encode, Clone)]
 pub struct FullSet {
     meta: Meta,
-    data: Set,
+    pub data: Set,
 }
 
 #[derive(Debug, Serialize, Deserialize, compactly::Encode, Clone)]
@@ -20,7 +20,7 @@ pub struct Set {
     block: Option<String>,
     code: String,
     totalSetSize: usize,
-    cards: Vec<Card>,
+    pub cards: Vec<Card>,
 }
 
 #[derive(Debug, Serialize, Deserialize, compactly::Encode, Clone)]
