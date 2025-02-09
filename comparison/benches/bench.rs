@@ -7,8 +7,8 @@ trait Encoding: std::fmt::Debug + Clone + Copy + Default {
     fn encode<T: compactly::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8>;
     fn decode<T: compactly::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T;
     const NAME: &str;
-    fn name(self) -> &'static str {
-        Self::NAME
+    fn name(self) -> String {
+        Self::NAME.into()
     }
 }
 
@@ -48,19 +48,69 @@ impl Encoding for BincodeFix {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct Zstd<E: Encoding> {
+    encoding: E,
+    level: i32,
+}
+impl<E: Encoding> Encoding for Zstd<E> {
+    const NAME: &str = "zstd other";
+    fn encode<T: compactly::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+        zstd::bulk::compress(self.encoding.encode(value).as_slice(), self.level).unwrap()
+    }
+    fn decode<T: compactly::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+        self.encoding.decode(
+            zstd::bulk::decompress(bytes, 10_000_000)
+                .unwrap()
+                .as_slice(),
+        )
+    }
+    fn name(self) -> String {
+        format!("zstd{} {}", self.level, self.encoding.name())
+    }
+}
+
 fn bench_one<T: compactly::Encode + Serialize + DeserializeOwned>(e: impl Encoding, value: &T) {
     let encoding_ms = bench(|| e.encode(value)).ns_per_iter * 1e-6;
     let encoded = e.encode(value);
     let decoding_ms = bench(|| e.decode::<T>(encoded.as_slice())).ns_per_iter * 1e-6;
     let size = format_sz(encoded.len());
     println!(
-        "{:>20} {size:6} {encoding_ms:>5.2}ms {decoding_ms:>5.2}ms",
+        "{:>25} {size:6} {encoding_ms:>6.2}ms {decoding_ms:>5.2}ms",
         e.name()
     );
 }
 
 fn bench_all<T: compactly::Encode + Serialize + DeserializeOwned>(value: T) {
     bench_one(Compactly, &value);
+    bench_one(
+        Zstd {
+            encoding: BincodeVar,
+            level: 100,
+        },
+        &value,
+    );
+    bench_one(
+        Zstd {
+            encoding: BincodeVar,
+            level: 9,
+        },
+        &value,
+    );
+    bench_one(
+        Zstd {
+            encoding: BincodeVar,
+            level: 3,
+        },
+        &value,
+    );
+    bench_one(
+        Zstd {
+            encoding: BincodeFix,
+            level: 3,
+        },
+        &value,
+    );
     bench_one(BincodeVar, &value);
     bench_one(BincodeFix, &value);
 }
