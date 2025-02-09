@@ -1,3 +1,5 @@
 mod magic;
+pub mod suicide;
 
-pub use magic::{FullSet, tenth_edition};
+pub use magic::{tenth_edition, FullSet};
+pub use suicide::suicides_per_million;

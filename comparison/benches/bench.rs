@@ -133,7 +133,7 @@ fn bench_all<T: compactly::Encode + Serialize + DeserializeOwned>(name: &str, va
 }
 
 fn format_sz(sz: usize) -> String {
-    if sz >= 1024 {
+    if sz >= 1024 * 10 {
         format!("{}k", (sz + 512) / 1024)
     } else {
         format!("{}", sz)
@@ -143,4 +143,5 @@ fn format_sz(sz: usize) -> String {
 fn main() {
     bench_all("mtg tenth edition", comparison::tenth_edition());
     bench_all("cards", comparison::tenth_edition().data.cards[0].clone());
+    bench_all("suicide", comparison::suicides_per_million());
 }
