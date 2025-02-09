@@ -13,7 +13,7 @@ impl Encode for char {
     type Context = CharContext;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut x = u32::from(*self);
@@ -39,7 +39,7 @@ impl Encode for char {
         }
     }
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_ascii)? {
@@ -67,7 +67,7 @@ impl Encode for String {
     type Context = Context;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.chars().count().encode(writer, &mut ctx.len)?;
@@ -77,7 +77,7 @@ impl Encode for String {
         Ok(())
     }
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = usize::decode(reader, &mut ctx.len)?;

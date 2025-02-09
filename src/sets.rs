@@ -22,7 +22,7 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -32,7 +32,7 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
@@ -61,7 +61,7 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
     type Context = SetContext<T>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -71,7 +71,7 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
@@ -94,7 +94,7 @@ impl Encode for Compact<BTreeSet<u64>> {
     type Context = CompactU64Set;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.size)?;
@@ -110,7 +110,7 @@ impl Encode for Compact<BTreeSet<u64>> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut out = BTreeSet::new();

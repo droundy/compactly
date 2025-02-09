@@ -24,7 +24,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -35,7 +35,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
@@ -63,7 +63,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
     type Context = MapContext<K, V>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -74,7 +74,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;

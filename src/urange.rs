@@ -64,7 +64,7 @@ impl<const N: usize> Encode for URange<N> {
     type Context = URangeContext<N>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
@@ -103,7 +103,7 @@ impl<const N: usize> Encode for URange<N> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;

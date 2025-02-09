@@ -180,7 +180,7 @@ fn low_cardinality() {
         value: u64,
     }
 
-    assert_bits!(Data { value: 51 }, 65);
+    assert_bits!(Data { value: 51 }, 66);
     assert_bits!(Data { value: u64::MAX }, 65);
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),

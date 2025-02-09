@@ -41,7 +41,7 @@ impl<const N: usize> Encode for Bits<N> {
     type Context = BitsContext<N>;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         debug_assert_eq!(N, 1 << Self::N_BITS);
@@ -57,7 +57,7 @@ impl<const N: usize> Encode for Bits<N> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
@@ -80,6 +80,6 @@ fn size() {
 
     assert_eq!(Bits::<4>::MAX, 3);
     assert_eq!(Bits::<8>::MAX, 7);
-    assert_bits!(Bits::<4>::try_from(2u8).unwrap(), 2);
-    assert_bits!(Bits::<8>::try_from(7u8).unwrap(), 3);
+    assert_bits!(Bits::<4>::try_from(2u8).unwrap(), 3);
+    assert_bits!(Bits::<8>::try_from(7u8).unwrap(), 4);
 }

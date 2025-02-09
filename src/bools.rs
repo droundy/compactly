@@ -7,13 +7,13 @@ impl Encode for bool {
     type Context = VP8Context;
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         writer.put(*self, ctx)
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         reader.get(ctx)
@@ -22,13 +22,13 @@ impl Encode for bool {
 
 #[test]
 fn size() {
-    use crate::assert_size;
-    assert_size!(true, 1);
-    assert_size!(false, 0);
-    assert_size!([false; 128], 0);
-    assert_size!([true; 2], 2);
-    assert_size!([true; 7], 2);
-    assert_size!([true; 16], 2);
-    assert_size!([true; 64], 2);
-    assert_size!([false, true], 2);
+    use crate::assert_bits;
+    assert_bits!(true, 2);
+    assert_bits!(false, 2);
+    assert_bits!([false; 128], 8);
+    assert_bits!([true; 2], 3);
+    assert_bits!([true; 7], 4);
+    assert_bits!([true; 16], 5);
+    assert_bits!([true; 64], 7);
+    assert_bits!([false, true], 4);
 }

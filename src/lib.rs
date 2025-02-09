@@ -1,5 +1,4 @@
 use cabac::traits::CabacWriter;
-use cabac::vp8::{VP8Reader, VP8Writer};
 use std::io::{Read, Write};
 
 pub use compactly_derive::Encode;
@@ -24,24 +23,27 @@ mod vecs;
 pub use cabac;
 pub use urange::URange;
 
+pub type Writer<W> = cabac::rans32::RansWriter32<W>;
+pub type Reader<R> = cabac::rans32::RansReader32<R>;
+
 pub trait Encode: Sized {
     type Context: Default;
 
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
 }
 
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = VP8Writer::new(&mut out).unwrap();
+    let mut writer = Writer::new(&mut out);
     value
         .encode(&mut writer, &mut T::Context::default())
         .unwrap();
@@ -50,7 +52,7 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 }
 
 pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
-    let mut reader = VP8Reader::new(&mut bytes).unwrap();
+    let mut reader = Reader::new(&mut bytes).unwrap();
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
@@ -59,12 +61,12 @@ pub trait EncodingStrategy<T> {
 
     fn encode<W: Write>(
         value: &T,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error>;
 }
@@ -90,14 +92,14 @@ pub struct LowCardinality;
 
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = VP8Writer::new(&mut out).unwrap();
+    let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
     S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
     writer.finish().unwrap();
     out
 }
 
 pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
-    let mut reader = VP8Reader::new(&mut bytes).unwrap();
+    let mut reader = Reader::new(&mut bytes).unwrap();
     S::decode(&mut reader, &mut S::Context::default()).ok()
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]

@@ -21,7 +21,7 @@ macro_rules! impl_uint {
             type Context = $context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let mut am_leading = true;
@@ -37,7 +37,7 @@ macro_rules! impl_uint {
                 Ok(())
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let mut v = 0;
@@ -157,13 +157,13 @@ macro_rules! impl_compact {
             type Context = <Small as EncodingStrategy<$t>>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$t>>::encode(&self.0, writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 Ok(Compact(<Small as EncodingStrategy<$t>>::decode(
@@ -176,7 +176,7 @@ macro_rules! impl_compact {
             type Context = $context;
             fn encode<W: Write>(
                 value: &$t,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let uleading = value.leading_zeros() as usize;
@@ -191,7 +191,7 @@ macro_rules! impl_compact {
                 Ok(())
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 let leading_zeros =
@@ -278,13 +278,13 @@ macro_rules! impl_signed {
             type Context = <$unsigned as Encode>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let v = $unsigned::decode(reader, ctx)?;
@@ -296,13 +296,13 @@ macro_rules! impl_signed {
             type Context = <Small as EncodingStrategy<$signed>>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$signed>>::encode(&self.0, writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 Ok(Compact(<Small as EncodingStrategy<$signed>>::decode(
@@ -331,7 +331,7 @@ macro_rules! impl_signed {
             type Context = $context;
             fn encode<W: Write>(
                 value: &$signed,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 (*value < 0).encode(writer, &mut ctx.is_negative)?;
@@ -342,7 +342,7 @@ macro_rules! impl_signed {
                 }
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<$signed, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_negative)? {

@@ -4,13 +4,13 @@ impl<T, S: EncodingStrategy<T>> Encode for Encoded<T, S> {
     type Context = S::Context;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         S::encode(&self.value, writer, ctx)
     }
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {

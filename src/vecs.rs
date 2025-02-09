@@ -5,7 +5,7 @@ impl<T: Encode> Encode for Vec<T> {
     type Context = (<usize as Encode>::Context, T::Context);
     fn encode<W: Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.0)?;
@@ -15,7 +15,7 @@ impl<T: Encode> Encode for Vec<T> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let n = usize::decode(reader, &mut ctx.0)?;

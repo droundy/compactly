@@ -16,7 +16,7 @@ impl<T: Encode> Encode for Option<T> {
     type Context = OptionContext<T>;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Some(v) = self {
@@ -27,7 +27,7 @@ impl<T: Encode> Encode for Option<T> {
         }
     }
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_some)? {

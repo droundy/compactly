@@ -23,7 +23,7 @@ macro_rules! impl_float {
             type Context = $context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut crate::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let intvalue = *self as $intty;
@@ -45,7 +45,7 @@ macro_rules! impl_float {
                 }
             }
             fn decode<R: Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut crate::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_int)? {

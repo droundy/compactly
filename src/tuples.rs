@@ -1,16 +1,16 @@
-use crate::Encode;
+use crate::{Encode, Reader, Writer};
 
 impl Encode for () {
     type Context = ();
     fn encode<W: std::io::Write>(
         &self,
-        _writer: &mut cabac::vp8::VP8Writer<W>,
+        _writer: &mut Writer<W>,
         _ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
     fn decode<R: std::io::Read>(
-        _reader: &mut cabac::vp8::VP8Reader<R>,
+        _reader: &mut Reader<R>,
         _ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(())
@@ -22,7 +22,7 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -30,7 +30,7 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -45,7 +45,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -54,7 +54,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -70,7 +70,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -80,7 +80,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -103,7 +103,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -114,7 +114,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -141,7 +141,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -153,7 +153,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -182,7 +182,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -195,7 +195,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -234,7 +234,7 @@ impl<
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut crate::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -248,7 +248,7 @@ impl<
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut crate::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
