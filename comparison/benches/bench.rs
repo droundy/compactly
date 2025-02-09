@@ -144,4 +144,9 @@ fn main() {
     bench_all("mtg tenth edition", comparison::tenth_edition());
     bench_all("cards", comparison::tenth_edition().data.cards[0].clone());
     bench_all("suicide", comparison::suicides_per_million());
+    bench_all("meteorites", comparison::meteorites::meteorites());
+    bench_all(
+        "meteorites by name",
+        comparison::meteorites::meteorite_names(),
+    );
 }

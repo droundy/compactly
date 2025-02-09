@@ -9,6 +9,7 @@ mod bits;
 mod bools;
 mod byte;
 mod encoded;
+mod floats;
 mod ints;
 mod low_cardinality;
 mod maps;

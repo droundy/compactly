@@ -91,6 +91,15 @@ fn simple_enum() {
 
     assert_bits!(A::A, 2);
     assert_bits!(A::D, 2);
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
+    pub enum Bool {
+        True,
+        False,
+    }
+
+    assert_bits!(Bool::True, 1);
+    assert_bits!(Bool::False, 1);
 }
 
 #[test]
