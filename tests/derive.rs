@@ -132,7 +132,7 @@ fn fancy_enum() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     pub enum A {
         A {
-            #[strategy(Small)]
+            #[compactly(Small)]
             age: u64,
         },
         B {
@@ -167,7 +167,7 @@ fn simplest_generics() {
 fn low_cardinality() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::Encode)]
     struct Data {
-        #[strategy(LowCardinality)]
+        #[compactly(LowCardinality)]
         value: u64,
     }
 

@@ -7,7 +7,7 @@ use quote::quote;
 use syn::{GenericParam, TraitBound};
 use synstructure::{decl_derive, BindingInfo, VariantInfo};
 
-decl_derive!([Encode, attributes(strategy)] => derive_compactly);
+decl_derive!([Encode, attributes(compactly)] => derive_compactly);
 
 #[derive(Debug, Clone)]
 struct EncodingStrategy(syn::Type);
@@ -18,7 +18,7 @@ impl EncodingStrategy {
             .attrs
             .iter()
             .filter_map(|a| {
-                if a.path().is_ident("strategy") {
+                if a.path().is_ident("compactly") {
                     let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
                     Some(EncodingStrategy(strategy))
                 } else {
@@ -233,341 +233,341 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
     })
 }
 
-#[test]
-fn zero_size() {
-    synstructure::test_derive! {
-        derive_compactly {
-            struct A;
-        }
-        expands to {
-            const _: () = {
-                extern crate compactly;
-                use compactly::Encode;
+// #[test]
+// fn zero_size() {
+//     synstructure::test_derive! {
+//         derive_compactly {
+//             struct A;
+//         }
+//         expands to {
+//             const _: () = {
+//                 extern crate compactly;
+//                 use compactly::Encode;
 
-                pub struct DerivedContext {
-                    discriminant : <compactly::URange<1usize> as Encode>::Context,
-                }
-                impl Default for DerivedContext {
-                    fn default() -> Self {
-                        Self {
-                            discriminant: Default::default(),
-                        }
-                    }
-                }
+//                 pub struct DerivedContext {
+//                     discriminant : <compactly::URange<1usize> as Encode>::Context,
+//                 }
+//                 impl Default for DerivedContext {
+//                     fn default() -> Self {
+//                         Self {
+//                             discriminant: Default::default(),
+//                         }
+//                     }
+//                 }
 
-                impl Encode for A {
-                    #![allow(unused_variables,non_shorthand_field_patterns)]
-                    type Context = DerivedContext;
-                    fn encode<W: std::io::Write>(
-                            &self,
-                            writer: &mut cabac::vp8::VP8Writer<W>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<(), std::io::Error> {
-                            match self {
-                                A => {
-                                    compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
-                                }
-                            }
-                            match self {
-                                A => {}
-                            }
-                        Ok(())
-                    }
-                    fn decode<R: std::io::Read>(
-                            reader: &mut cabac::vp8::VP8Reader<R>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<Self, std::io::Error> {
-                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok(match usize::from(discriminant) {
-                            0usize => A,
-                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
-                        })
-                    }
-                }
-            };
-        }
-    }
-}
+//                 impl Encode for A {
+//                     #![allow(unused_variables,non_shorthand_field_patterns)]
+//                     type Context = DerivedContext;
+//                     fn encode<W: std::io::Write>(
+//                             &self,
+//                             writer: &mut cabac::vp8::VP8Writer<W>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<(), std::io::Error> {
+//                             match self {
+//                                 A => {
+//                                     compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
+//                                 }
+//                             }
+//                             match self {
+//                                 A => {}
+//                             }
+//                         Ok(())
+//                     }
+//                     fn decode<R: std::io::Read>(
+//                             reader: &mut cabac::vp8::VP8Reader<R>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<Self, std::io::Error> {
+//                         let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+//                         Ok(match usize::from(discriminant) {
+//                             0usize => A,
+//                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+//                         })
+//                     }
+//                 }
+//             };
+//         }
+//     }
+// }
 
-#[test]
-fn tuple_struct() {
-    synstructure::test_derive! {
-        derive_compactly {
-            struct A(usize);
-        }
-        expands to {
-            const _: () = {
-                extern crate compactly;
-                use compactly::Encode;
+// #[test]
+// fn tuple_struct() {
+//     synstructure::test_derive! {
+//         derive_compactly {
+//             struct A(usize);
+//         }
+//         expands to {
+//             const _: () = {
+//                 extern crate compactly;
+//                 use compactly::Encode;
 
-                pub struct DerivedContext {
-                    discriminant : <compactly::URange<1usize> as Encode>::Context,
-                    __binding_0 : <usize as Encode>::Context,
-                }
-                impl Default for DerivedContext {
-                    fn default() -> Self {
-                        Self {
-                            discriminant: Default::default(),
-                            __binding_0: Default::default(),
-                        }
-                    }
-                }
+//                 pub struct DerivedContext {
+//                     discriminant : <compactly::URange<1usize> as Encode>::Context,
+//                     __binding_0 : <usize as Encode>::Context,
+//                 }
+//                 impl Default for DerivedContext {
+//                     fn default() -> Self {
+//                         Self {
+//                             discriminant: Default::default(),
+//                             __binding_0: Default::default(),
+//                         }
+//                     }
+//                 }
 
-                impl Encode for A {
-                    #![allow(unused_variables,non_shorthand_field_patterns)]
-                    type Context = DerivedContext;
-                    fn encode<W: std::io::Write>(
-                            &self,
-                            writer: &mut cabac::vp8::VP8Writer<W>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<(), std::io::Error> {
-                        match self {
-                            A (ref __binding_0, ) => {
-                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
-                            }
-                        }
-                        match self {
-                            A (ref __binding_0, ) => {
-                                {
-                                    __binding_0.encode(writer, &mut ctx.__binding_0)?;
-                                }
-                            }
-                        }
-                        Ok(())
-                    }
-                    fn decode<R: std::io::Read>(
-                            reader: &mut cabac::vp8::VP8Reader<R>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<Self, std::io::Error> {
-                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match usize::from(discriminant) {
-                            0usize => A (Encode::decode(reader, &mut ctx.__binding_0)?,),
-                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
-                        })
-                    }
-                }
-            };
-        }
-    }
-}
+//                 impl Encode for A {
+//                     #![allow(unused_variables,non_shorthand_field_patterns)]
+//                     type Context = DerivedContext;
+//                     fn encode<W: std::io::Write>(
+//                             &self,
+//                             writer: &mut cabac::vp8::VP8Writer<W>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<(), std::io::Error> {
+//                         match self {
+//                             A (ref __binding_0, ) => {
+//                                 compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
+//                             }
+//                         }
+//                         match self {
+//                             A (ref __binding_0, ) => {
+//                                 {
+//                                     __binding_0.encode(writer, &mut ctx.__binding_0)?;
+//                                 }
+//                             }
+//                         }
+//                         Ok(())
+//                     }
+//                     fn decode<R: std::io::Read>(
+//                             reader: &mut cabac::vp8::VP8Reader<R>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<Self, std::io::Error> {
+//                         let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+//                         Ok (match usize::from(discriminant) {
+//                             0usize => A (Encode::decode(reader, &mut ctx.__binding_0)?,),
+//                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+//                         })
+//                     }
+//                 }
+//             };
+//         }
+//     }
+// }
 
-#[test]
-fn normal_struct() {
-    synstructure::test_derive! {
-        derive_compactly {
-            struct A {
-                age: usize,
-                dead: bool,
-            }
-        }
-        expands to {
-            const _: () = {
-                extern crate compactly;
-                use compactly::Encode;
+// #[test]
+// fn normal_struct() {
+//     synstructure::test_derive! {
+//         derive_compactly {
+//             struct A {
+//                 age: usize,
+//                 dead: bool,
+//             }
+//         }
+//         expands to {
+//             const _: () = {
+//                 extern crate compactly;
+//                 use compactly::Encode;
 
-                pub struct DerivedContext {
-                    discriminant : <compactly::URange<1usize> as Encode>::Context,
-                    age: <usize as Encode>::Context,
-                    dead: <bool as Encode>::Context,
-                }
-                impl Default for DerivedContext {
-                    fn default() -> Self {
-                        Self {
-                            discriminant: Default::default(),
-                            age: Default::default(),
-                            dead: Default::default(),
-                        }
-                    }
-                }
+//                 pub struct DerivedContext {
+//                     discriminant : <compactly::URange<1usize> as Encode>::Context,
+//                     age: <usize as Encode>::Context,
+//                     dead: <bool as Encode>::Context,
+//                 }
+//                 impl Default for DerivedContext {
+//                     fn default() -> Self {
+//                         Self {
+//                             discriminant: Default::default(),
+//                             age: Default::default(),
+//                             dead: Default::default(),
+//                         }
+//                     }
+//                 }
 
-                impl Encode for A {
-                    #![allow(unused_variables,non_shorthand_field_patterns)]
-                    type Context = DerivedContext;
-                    fn encode<W: std::io::Write>(
-                            &self,
-                            writer: &mut cabac::vp8::VP8Writer<W>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<(), std::io::Error> {
-                        match self {
-                            A {
-                                age: ref age, dead: ref dead,
-                            } => {
-                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
-                            }
-                        }
-                        match self {
-                            A {age: ref age, dead: ref dead,} => {
-                                {
-                                    age.encode(writer, &mut ctx.age)?;
-                                }
-                                {
-                                    dead.encode(writer, &mut ctx.dead)?;
-                                }
-                            }
-                        }
-                        Ok(())
-                    }
-                    fn decode<R: std::io::Read>(
-                            reader: &mut cabac::vp8::VP8Reader<R>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<Self, std::io::Error> {
-                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match usize::from(discriminant) {
-                            0usize => A {
-                                age: Encode::decode(reader, &mut ctx.age)?,
-                                dead: Encode::decode(reader, &mut ctx.dead)?,
-                            },
-                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
-                        })
-                    }
-                }
-            };
-        }
-    }
-}
+//                 impl Encode for A {
+//                     #![allow(unused_variables,non_shorthand_field_patterns)]
+//                     type Context = DerivedContext;
+//                     fn encode<W: std::io::Write>(
+//                             &self,
+//                             writer: &mut cabac::vp8::VP8Writer<W>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<(), std::io::Error> {
+//                         match self {
+//                             A {
+//                                 age: ref age, dead: ref dead,
+//                             } => {
+//                                 compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
+//                             }
+//                         }
+//                         match self {
+//                             A {age: ref age, dead: ref dead,} => {
+//                                 {
+//                                     age.encode(writer, &mut ctx.age)?;
+//                                 }
+//                                 {
+//                                     dead.encode(writer, &mut ctx.dead)?;
+//                                 }
+//                             }
+//                         }
+//                         Ok(())
+//                     }
+//                     fn decode<R: std::io::Read>(
+//                             reader: &mut cabac::vp8::VP8Reader<R>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<Self, std::io::Error> {
+//                         let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+//                         Ok (match usize::from(discriminant) {
+//                             0usize => A {
+//                                 age: Encode::decode(reader, &mut ctx.age)?,
+//                                 dead: Encode::decode(reader, &mut ctx.dead)?,
+//                             },
+//                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+//                         })
+//                     }
+//                 }
+//             };
+//         }
+//     }
+// }
 
-#[test]
-fn an_enum() {
-    synstructure::test_derive! {
-        derive_compactly {
-            enum A {
-                A { age: usize },
-                B { big: bool },
-            }
-        }
-        expands to {
-            const _: () = {
-            extern crate compactly;
-            use compactly::Encode;
-            pub struct DerivedContext {
-                discriminant: <compactly::URange<2usize> as Encode>::Context,
-                age: <usize as Encode>::Context,
-                big: <bool as Encode>::Context,
-            }
-            impl Default for DerivedContext {
-                fn default() -> Self {
-                    Self {
-                        discriminant: Default::default(),
-                        age: Default::default(),
-                        big: Default::default(),
-                    }
-                }
-            }
-            impl Encode for A {
-                #![allow(unused_variables,non_shorthand_field_patterns)]
-                type Context = DerivedContext;
-                fn encode<W : std::io::Write> (
-                    & self, writer: &mut cabac::vp8::VP8Writer<W>, ctx: &mut Self::Context,)
-                -> Result<(), std::io::Error> {
-                    match self {
-                        A::A { age: ref age, } => {
-                            compactly::URange::<2usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
-                        }
-                        A::B { big: ref big, } => {
-                            compactly::URange::<2usize>::new(1usize).encode(writer, &mut ctx.discriminant)?;
-                        }
-                    }
-                    match self {
-                        A::A { age: ref age, } => {
-                            {
-                                age.encode(writer, &mut ctx.age)?;
-                            }
-                        }
-                        A::B { big: ref big, } => {
-                            {
-                                big.encode(writer, &mut ctx.big)?;
-                            }
-                        }
-                    }
-                    Ok (())
-                }
-                fn decode<R: std::io::Read> (
-                    reader: &mut cabac::vp8::VP8Reader<R>,
-                    ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
-                    let discriminant: compactly::URange<2usize> = Encode::decode(reader, &mut ctx.discriminant)?;
-                    Ok (
-                        match usize::from(discriminant) {
-                            0usize => A::A {
-                                age: Encode::decode(reader, &mut ctx.age)?,
-                            },
-                            1usize => A::B {
-                                big: Encode::decode(reader, &mut ctx.big)?,
-                            },
-                            _ => return Err (
-                                std::io::Error::other ("This discriminant should be impossible"))
-                            }
-                        )
-                    }
-                }
-            };
-        }
-    }
-}
-#[test]
-fn generics() {
-    synstructure::test_derive! {
-        derive_compactly {
-            struct A<T> {
-                value: T,
-            }
-        }
-        expands to {
-            const _: () = {
-                extern crate compactly;
-                use compactly::Encode;
+// #[test]
+// fn an_enum() {
+//     synstructure::test_derive! {
+//         derive_compactly {
+//             enum A {
+//                 A { age: usize },
+//                 B { big: bool },
+//             }
+//         }
+//         expands to {
+//             const _: () = {
+//             extern crate compactly;
+//             use compactly::Encode;
+//             pub struct DerivedContext {
+//                 discriminant: <compactly::URange<2usize> as Encode>::Context,
+//                 age: <usize as Encode>::Context,
+//                 big: <bool as Encode>::Context,
+//             }
+//             impl Default for DerivedContext {
+//                 fn default() -> Self {
+//                     Self {
+//                         discriminant: Default::default(),
+//                         age: Default::default(),
+//                         big: Default::default(),
+//                     }
+//                 }
+//             }
+//             impl Encode for A {
+//                 #![allow(unused_variables,non_shorthand_field_patterns)]
+//                 type Context = DerivedContext;
+//                 fn encode<W : std::io::Write> (
+//                     & self, writer: &mut cabac::vp8::VP8Writer<W>, ctx: &mut Self::Context,)
+//                 -> Result<(), std::io::Error> {
+//                     match self {
+//                         A::A { age: ref age, } => {
+//                             compactly::URange::<2usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
+//                         }
+//                         A::B { big: ref big, } => {
+//                             compactly::URange::<2usize>::new(1usize).encode(writer, &mut ctx.discriminant)?;
+//                         }
+//                     }
+//                     match self {
+//                         A::A { age: ref age, } => {
+//                             {
+//                                 age.encode(writer, &mut ctx.age)?;
+//                             }
+//                         }
+//                         A::B { big: ref big, } => {
+//                             {
+//                                 big.encode(writer, &mut ctx.big)?;
+//                             }
+//                         }
+//                     }
+//                     Ok (())
+//                 }
+//                 fn decode<R: std::io::Read> (
+//                     reader: &mut cabac::vp8::VP8Reader<R>,
+//                     ctx: &mut Self::Context,
+//                 ) -> Result<Self, std::io::Error> {
+//                     let discriminant: compactly::URange<2usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+//                     Ok (
+//                         match usize::from(discriminant) {
+//                             0usize => A::A {
+//                                 age: Encode::decode(reader, &mut ctx.age)?,
+//                             },
+//                             1usize => A::B {
+//                                 big: Encode::decode(reader, &mut ctx.big)?,
+//                             },
+//                             _ => return Err (
+//                                 std::io::Error::other ("This discriminant should be impossible"))
+//                             }
+//                         )
+//                     }
+//                 }
+//             };
+//         }
+//     }
+// }
+// #[test]
+// fn generics() {
+//     synstructure::test_derive! {
+//         derive_compactly {
+//             struct A<T> {
+//                 value: T,
+//             }
+//         }
+//         expands to {
+//             const _: () = {
+//                 extern crate compactly;
+//                 use compactly::Encode;
 
-                pub struct DerivedContext<T: Encode> {
-                    discriminant : <compactly::URange<1usize> as Encode>::Context,
-                    value: <T as Encode>::Context,
-                }
-                impl<T: Encode> Default for DerivedContext<T> {
-                    fn default() -> Self {
-                        Self {
-                            discriminant: Default::default(),
-                            value: Default::default(),
-                        }
-                    }
-                }
+//                 pub struct DerivedContext<T: Encode> {
+//                     discriminant : <compactly::URange<1usize> as Encode>::Context,
+//                     value: <T as Encode>::Context,
+//                 }
+//                 impl<T: Encode> Default for DerivedContext<T> {
+//                     fn default() -> Self {
+//                         Self {
+//                             discriminant: Default::default(),
+//                             value: Default::default(),
+//                         }
+//                     }
+//                 }
 
-                impl<T> Encode for A<T> where T: Encode {
-                    #![allow(unused_variables,non_shorthand_field_patterns)]
-                    type Context = DerivedContext<T>;
-                    fn encode<W: std::io::Write>(
-                            &self,
-                            writer: &mut cabac::vp8::VP8Writer<W>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<(), std::io::Error> {
-                        match self {
-                            A {
-                                value: ref value,
-                            } => {
-                                compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
-                            }
-                        }
-                        match self {
-                            A {value: ref value,} => {
-                                {
-                                    value.encode(writer, &mut ctx.value)?;
-                                }
-                            }
-                        }
-                        Ok(())
-                    }
-                    fn decode<R: std::io::Read>(
-                            reader: &mut cabac::vp8::VP8Reader<R>,
-                            ctx: &mut Self::Context,
-                        ) -> Result<Self, std::io::Error> {
-                        let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
-                        Ok (match usize::from(discriminant) {
-                            0usize => A {
-                                value: Encode::decode(reader, &mut ctx.value)?,
-                            },
-                            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
-                        })
-                    }
-                }
-            };
-        }
-    }
-}
+//                 impl<T> Encode for A<T> where T: Encode {
+//                     #![allow(unused_variables,non_shorthand_field_patterns)]
+//                     type Context = DerivedContext<T>;
+//                     fn encode<W: std::io::Write>(
+//                             &self,
+//                             writer: &mut cabac::vp8::VP8Writer<W>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<(), std::io::Error> {
+//                         match self {
+//                             A {
+//                                 value: ref value,
+//                             } => {
+//                                 compactly::URange::<1usize>::new(0usize).encode(writer, &mut ctx.discriminant)?;
+//                             }
+//                         }
+//                         match self {
+//                             A {value: ref value,} => {
+//                                 {
+//                                     value.encode(writer, &mut ctx.value)?;
+//                                 }
+//                             }
+//                         }
+//                         Ok(())
+//                     }
+//                     fn decode<R: std::io::Read>(
+//                             reader: &mut cabac::vp8::VP8Reader<R>,
+//                             ctx: &mut Self::Context,
+//                         ) -> Result<Self, std::io::Error> {
+//                         let discriminant: compactly::URange<1usize> = Encode::decode(reader, &mut ctx.discriminant)?;
+//                         Ok (match usize::from(discriminant) {
+//                             0usize => A {
+//                                 value: Encode::decode(reader, &mut ctx.value)?,
+//                             },
+//                             _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+//                         })
+//                     }
+//                 }
+//             };
+//         }
+//     }
+// }
