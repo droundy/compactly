@@ -20,6 +20,7 @@ mod urange;
 mod usizes;
 mod vecs;
 
+pub use cabac;
 pub use urange::URange;
 
 pub trait Encode: Sized {

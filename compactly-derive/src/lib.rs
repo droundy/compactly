@@ -215,7 +215,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
             type Context = DerivedContext #context_generics_without_bound;
             fn encode<W: std::io::Write>(
                 &self,
-                writer: &mut cabac::vp8::VP8Writer<W>,
+                writer: &mut compactly::cabac::vp8::VP8Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 match self { #encode_discriminant }
@@ -223,7 +223,7 @@ fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream 
                 Ok(())
             }
             fn decode<R: std::io::Read>(
-                reader: &mut cabac::vp8::VP8Reader<R>,
+                reader: &mut compactly::cabac::vp8::VP8Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let discriminant: #discriminant_type = Encode::decode(reader, &mut ctx.discriminant)?;
