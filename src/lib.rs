@@ -23,8 +23,8 @@ mod vecs;
 pub use cabac;
 pub use urange::URange;
 
-pub type Writer<W> = cabac::rans32::RansWriter32<W>;
-pub type Reader<R> = cabac::rans32::RansReader32<R>;
+pub type Writer<W> = cabac::vp8::VP8Writer<W>;
+pub type Reader<R> = cabac::vp8::VP8Reader<R>;
 
 pub trait Encode: Sized {
     type Context: Default;
@@ -43,7 +43,7 @@ pub trait Encode: Sized {
 
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = Writer::new(&mut out);
+    let mut writer = Writer::new(&mut out).unwrap();
     value
         .encode(&mut writer, &mut T::Context::default())
         .unwrap();
@@ -92,7 +92,7 @@ pub struct LowCardinality;
 
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
+    let mut writer = Writer::<&mut Vec<u8>>::new(&mut out).unwrap();
     S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
     writer.finish().unwrap();
     out

@@ -66,31 +66,31 @@ impl Encode for i8 {
 #[test]
 fn size() {
     use crate::assert_bits;
-    assert_bits!(u8::MAX, 9);
-    assert_bits!(0_u8, 9);
+    assert_bits!(u8::MAX, 8);
+    assert_bits!(0_u8, 8);
     for b in 3_u8..=255 {
         println!("Byte {b}");
-        assert_bits!(b, 9);
+        assert_bits!(b, 8);
     }
-    assert_bits!(*b"hello", 32);
-    assert_bits!(*b"hello world", 69);
-    assert_bits!(*b"hello world, hello world", 130);
-    assert_bits!(*b"hello hello, hello hello", 112);
-    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 197);
+    assert_bits!(*b"hello", 31);
+    assert_bits!(*b"hello world", 68);
+    assert_bits!(*b"hello world, hello world", 129);
+    assert_bits!(*b"hello hello, hello hello", 111);
+    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 196);
     assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 38);
     assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 47);
-    assert_bits!(*b"\0", 9);
-    assert_bits!(*b"\x01", 9);
-    assert_bits!(*b"\x01\x01", 14);
-    assert_bits!(*b"\x01\x01\x01\x01", 20);
-    assert_bits!(*b"\x01\x01\x01\x01\x01", 22);
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 24);
-    assert_bits!(*b"\x01\x02\x03\x04", 26);
-    assert_bits!(*b"\x01\x02\x03\x04\x05", 31);
+    assert_bits!(*b"\0", 8);
+    assert_bits!(*b"\x01", 8);
+    assert_bits!(*b"\x01\x01", 13);
+    assert_bits!(*b"\x01\x01\x01\x01", 19);
+    assert_bits!(*b"\x01\x01\x01\x01\x01", 21);
+    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 23);
+    assert_bits!(*b"\x01\x02\x03\x04", 25);
+    assert_bits!(*b"\x01\x02\x03\x04\x05", 30);
     assert_bits!(*b"\x01\x02\x03\x04\x05\x06", 36);
     assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", 41);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 48);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 47);
 
-    assert_bits!(i8::MAX, 9);
-    assert_bits!(0_i8, 9);
+    assert_bits!(i8::MAX, 8);
+    assert_bits!(0_i8, 8);
 }
