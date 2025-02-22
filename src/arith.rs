@@ -80,14 +80,14 @@ impl ArithState {
         debug_assert!(prob < 1 << shift);
         debug_assert!(self.hi > self.lo);
         let width = self.hi - self.lo;
-        let min = u64::MAX >> 16;
-        #[cfg(test)]
-        {
-            println!(" self = {self:x?}");
-            println!("width = {width:016x}");
-            println!("  min = {min:016x}");
-        }
-        if width < min {
+        // let min = u64::MAX >> 16;
+        // #[cfg(test)]
+        // {
+        //     println!(" self = {self:x?}");
+        //     println!("width = {width:016x}");
+        //     println!("  min = {min:016x}");
+        // }
+        if self.lo >> 56 == self.hi >> 56 {
             None
         } else {
             Some(self.lo + (width >> shift) * prob)
@@ -237,6 +237,19 @@ mod tests {
             vec![(1u64, 2u8, false)],
             vec![(1u64, 2u8, true)],
             vec![(2063, 13, false), (46, 7, true), (441, 12, true)],
+            vec![
+                (3, 2, true),
+                (5, 9, false),
+                (6997, 14, false),
+                (16, 5, false),
+                (4, 5, false),
+                (28478, 15, false),
+                (14625, 15, false),
+                (103, 7, false),
+                (1, 1, false),
+                (3, 2, true),
+                (178, 10, false),
+            ],
         ] {
             println!("\nTest {probs:?}");
             let mut encoder = Encoder::new();
