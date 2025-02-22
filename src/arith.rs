@@ -266,7 +266,7 @@ mod tests {
             }
         }
         for _ in 0..10_000 {
-            let num_bits = rand::random::<usize>() % 16;
+            let num_bits = rand::random::<usize>() % 32 * 8;
             let mut probs = Vec::new();
             for _ in 0..num_bits {
                 probs.push(rand_prob());
