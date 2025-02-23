@@ -6,8 +6,21 @@ pub struct ArithState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Probability {
-    pub(crate) prob: u64,
-    pub(crate) shift: u8,
+    pub prob: u64,
+    pub shift: u8,
+}
+
+impl Probability {
+    pub fn likely_bit(&self) -> bool {
+        self.prob < (1 << (self.shift - 1))
+    }
+}
+
+#[test]
+fn likely_bit() {
+    assert_eq!((Probability { prob: 1, shift: 2 }).likely_bit(), true);
+    assert_eq!((Probability { prob: 2, shift: 2 }).likely_bit(), false);
+    assert_eq!((Probability { prob: 3, shift: 2 }).likely_bit(), false);
 }
 
 impl Default for ArithState {
