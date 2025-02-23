@@ -40,11 +40,6 @@ impl ArithState {
 
     pub fn last_byte(self) -> u8 {
         (self.hi >> 56) as u8
-        // if self.hi >> 63 == self.lo >> 63 {
-        //     Some((self.lo >> 56) as u8)
-        // } else {
-        //     None
-        // }
     }
 
     pub fn encode(&mut self, prob: u64, shift: u8, value: bool) {
@@ -79,13 +74,6 @@ impl ArithState {
         debug_assert!(prob < 1 << shift);
         debug_assert!(self.hi > self.lo);
         let width = self.hi - self.lo;
-        // let min = u64::MAX >> 16;
-        // #[cfg(test)]
-        // {
-        //     println!(" self = {self:x?}");
-        //     println!("width = {width:016x}");
-        //     println!("  min = {min:016x}");
-        // }
         if self.lo >> 56 == self.hi >> 56 {
             None
         } else {
@@ -118,9 +106,6 @@ impl Encoder {
             self.bytes.push(byte);
         }
         self.bytes.push(self.state.last_byte());
-        // if let Some(byte) = self.state.last_byte() {
-        //     self.bytes.push(byte);
-        // }
         self.bytes
     }
 }
@@ -200,7 +185,6 @@ mod tests {
             s.encode(128, 8, false);
         }
         assert_eq!(s.next_byte(), Some(0));
-        // assert_eq!(s, ArithState::default()); // this is only approximately true due to truncation
     }
 
     #[test]
