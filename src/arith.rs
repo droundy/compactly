@@ -4,6 +4,12 @@ pub struct ArithState {
     hi: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Probability {
+    pub(crate) prob: u64,
+    pub(crate) shift: u8,
+}
+
 impl Default for ArithState {
     fn default() -> Self {
         ArithState {
@@ -42,7 +48,7 @@ impl ArithState {
         (self.hi >> 56) as u8
     }
 
-    pub fn encode(&mut self, prob: u64, shift: u8, value: bool) {
+    pub fn encode(&mut self, Probability { prob, shift }: Probability, value: bool) {
         let split = self
             .split(prob, shift)
             .expect("call next_byte enough before encode");
@@ -56,7 +62,7 @@ impl ArithState {
         println!("encoding {prob} {shift} {value:?}   with split {split:016x} gives {self:x?}");
     }
 
-    pub fn decode(&mut self, prob: u64, shift: u8, value: u64) -> bool {
+    pub fn decode(&mut self, Probability { prob, shift }: Probability, value: u64) -> bool {
         let split = self
             .split(prob, shift)
             .expect("call next_byte enough before decode");
@@ -95,11 +101,11 @@ impl Encoder {
             state: ArithState::default(),
         }
     }
-    pub fn encode(&mut self, prob: u64, shift: u8, value: bool) {
+    pub fn encode(&mut self, p: Probability, value: bool) {
         while let Some(byte) = self.state.next_byte() {
             self.bytes.push(byte);
         }
-        self.state.encode(prob, shift, value);
+        self.state.encode(p, value);
     }
     pub fn finish(mut self) -> Vec<u8> {
         while let Some(byte) = self.state.next_byte() {
@@ -130,8 +136,8 @@ impl Decoder {
             value,
         }
     }
-    pub fn decode(&mut self, prob: u64, shift: u8) -> bool {
-        let out = self.state.decode(prob, shift, self.value);
+    pub fn decode(&mut self, p: Probability) -> bool {
+        let out = self.state.decode(p, self.value);
         println!("after decode: {:x?}", self.state);
         while let Some(_) = self.state.next_byte() {
             self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
@@ -144,11 +150,11 @@ impl Decoder {
 mod tests {
     use super::*;
 
-    fn rand_prob() -> (u64, u8, bool) {
+    fn rand_prob() -> (Probability, bool) {
         let value_bool = rand::random::<bool>();
         let shift = 1 + (rand::random::<u8>() % 15);
         let prob = 1 + (rand::random::<u64>() % ((1 << shift) - 1));
-        (prob, shift, value_bool)
+        (Probability { prob, shift }, value_bool)
     }
 
     #[test]
@@ -169,10 +175,10 @@ mod tests {
             println!("after regularization s is {s:x?}");
             debug_assert!(s.hi > s.lo);
             let mut decoding_s = s;
-            let (prob, shift, value_bool) = rand_prob();
-            s.encode(dbg!(prob), dbg!(shift), dbg!(value_bool));
+            let (p, value_bool) = rand_prob();
+            s.encode(p, value_bool);
             let value_chosen = s.lo + (rand::random::<u64>() % (s.hi - s.lo));
-            let decoded = decoding_s.decode(prob, shift, value_chosen);
+            let decoded = decoding_s.decode(p, value_chosen);
             assert_eq!(decoded, value_bool);
             assert_eq!(s, decoding_s);
         }
@@ -182,7 +188,13 @@ mod tests {
     fn zero_byte() {
         let mut s = ArithState::default();
         for _ in 0..8 {
-            s.encode(128, 8, false);
+            s.encode(
+                Probability {
+                    prob: 127,
+                    shift: 8,
+                },
+                false,
+            );
         }
         assert_eq!(s.next_byte(), Some(0));
     }
@@ -192,7 +204,13 @@ mod tests {
         let mut s = ArithState::default();
         assert_eq!(s.split(128, 8).map(|v| v >> 8), Some((u64::MAX / 2) >> 8));
         for _ in 0..9 {
-            s.encode(128, 8, true);
+            s.encode(
+                Probability {
+                    prob: 127,
+                    shift: 8,
+                },
+                true,
+            );
         }
         assert_eq!(s.next_byte(), Some(u8::MAX));
     }
@@ -237,7 +255,8 @@ mod tests {
             println!("\nTest {probs:?}");
             let mut encoder = Encoder::new();
             for &(prob, shift, bit) in &probs {
-                encoder.encode(prob, shift, bit);
+                let p = Probability { prob, shift };
+                encoder.encode(p, bit);
             }
             println!("{encoder:x?}");
             let bytes = encoder.finish();
@@ -245,7 +264,8 @@ mod tests {
             let mut decoder = Decoder::new(bytes);
             for &(prob, shift, bit) in &probs {
                 println!("Decoding {prob} {shift} {bit:?}");
-                assert_eq!(decoder.decode(prob, shift), bit);
+                let p = Probability { prob, shift };
+                assert_eq!(decoder.decode(p), bit);
             }
         }
         for _ in 0..10_000 {
@@ -256,15 +276,15 @@ mod tests {
             }
             println!("\n\ntesting {probs:?}");
             let mut encoder = Encoder::new();
-            for &(prob, shift, bit) in &probs {
-                encoder.encode(prob, shift, bit);
+            for &(p, bit) in &probs {
+                encoder.encode(p, bit);
             }
             let bytes = encoder.finish();
             println!("\n\nEncoded random as: {bytes:02x?}\n");
             let mut decoder = Decoder::new(bytes);
-            for &(prob, shift, bit) in &probs {
-                println!("Decoding {prob} {shift} {bit:?}");
-                assert_eq!(decoder.decode(prob, shift), bit);
+            for &(p, bit) in &probs {
+                println!("Decoding {p:?} {bit:?}");
+                assert_eq!(decoder.decode(p), bit);
             }
         }
     }

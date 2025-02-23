@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 pub use compactly_derive::Encode;
 
+mod adapt;
 pub mod arith;
 mod array;
 mod bits;
