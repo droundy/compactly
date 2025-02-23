@@ -38,9 +38,8 @@ impl ArithState {
         }
     }
 
-    pub fn last_bytes(self) -> [u8; 8] {
-        self.lo.to_be_bytes()
-        // Some((self.lo >> 56) as u8)
+    pub fn last_byte(self) -> u8 {
+        (self.hi >> 56) as u8
         // if self.hi >> 63 == self.lo >> 63 {
         //     Some((self.lo >> 56) as u8)
         // } else {
@@ -118,7 +117,7 @@ impl Encoder {
         while let Some(byte) = self.state.next_byte() {
             self.bytes.push(byte);
         }
-        self.bytes.extend_from_slice(&self.state.last_bytes());
+        self.bytes.push(self.state.last_byte());
         // if let Some(byte) = self.state.last_byte() {
         //     self.bytes.push(byte);
         // }
