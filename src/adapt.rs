@@ -14,9 +14,10 @@ impl Encoder {
         }
     }
     pub fn encode(&mut self, value: bool, context: &mut BitContext) {
-        todo!()
+        self.arith.encode(context.probability(), value);
+        *context = context.adapt(value, &mut self.rng);
     }
-    pub fn finish(mut self) -> Vec<u8> {
+    pub fn finish(self) -> Vec<u8> {
         self.arith.finish()
     }
 }
@@ -28,7 +29,7 @@ pub struct Decoder {
 }
 
 impl Decoder {
-    pub fn new(mut bytes: Vec<u8>) -> Self {
+    pub fn new(bytes: Vec<u8>) -> Self {
         Self {
             arith: crate::arith::Decoder::new(bytes),
             rng: SplitMix64::default(),
@@ -42,7 +43,7 @@ impl Decoder {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum BitContext {
+pub enum BitContext {
     Start,
     /// Have seen just one false
     P1_0,
@@ -54,7 +55,7 @@ pub(crate) enum BitContext {
 use BitContext::*;
 
 impl BitContext {
-    pub(crate) const fn probability(self) -> Probability {
+    pub const fn probability(self) -> Probability {
         match self {
             Start => Probability { prob: 1, shift: 1 },
             P1_0 => Probability { prob: 1, shift: 2 },
