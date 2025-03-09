@@ -264,7 +264,7 @@ pub enum BitContext {
 use BitContext::*;
 
 impl BitContext {
-    fn probability(self) -> Probability {
+    pub fn probability(self) -> Probability {
         match self {
             Count0_0 => Probability { prob: 2, shift: 2 },
             Count1_0 => Probability { prob: 85, shift: 8 },
@@ -743,7 +743,7 @@ impl BitContext {
         }
     }
 
-    fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {
+    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {
         match self {
             Count0_0 => {
                 if bit == false {

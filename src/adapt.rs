@@ -1,4 +1,4 @@
-use crate::arith::Probability;
+use crate::bit_context::BitContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Encoder {
@@ -39,47 +39,6 @@ impl Decoder {
         let bit = self.arith.decode(context.probability());
         *context = context.adapt(bit, &mut self.rng);
         bit
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BitContext {
-    Start,
-    /// Have seen just one false
-    P1_0,
-    /// Have seen just one true
-    P0_1,
-    /// Have seen a false and a true
-    P1_1,
-}
-use BitContext::*;
-
-impl BitContext {
-    pub const fn probability(self) -> Probability {
-        match self {
-            Start => Probability { prob: 1, shift: 1 },
-            P1_0 => Probability { prob: 1, shift: 2 },
-            P0_1 => Probability { prob: 3, shift: 2 },
-            P1_1 => Probability { prob: 1, shift: 1 },
-        }
-    }
-
-    pub(crate) const fn adapt(self, bit: bool, _rng: &mut SplitMix64) -> Self {
-        if bit {
-            match self {
-                Start => P0_1,
-                P1_0 => P1_1,
-                P0_1 => P0_1, // FIXME
-                P1_1 => P1_1, // FIXME
-            }
-        } else {
-            match self {
-                Start => P1_0,
-                P0_1 => P1_1,
-                P1_0 => P1_0, // FIXME
-                P1_1 => P1_1, // FIXME
-            }
-        }
     }
 }
 

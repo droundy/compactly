@@ -140,8 +140,8 @@ fn main() {
 
     println!(
         r"//! Generated with `cargo run --example bit-context > src/bit_context.rs`
-use crate::arith::Probability;
 use crate::adapt::SplitMix64;
+use crate::arith::Probability;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {{
@@ -164,7 +164,7 @@ use BitContext::*;
     println!(
         r"
 impl BitContext {{
-    fn probability(self) -> Probability {{
+    pub fn probability(self) -> Probability {{
         match self {{"
     );
 
@@ -182,7 +182,7 @@ impl BitContext {{
 
     println!(
         r"
-    fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
         match self {{"
     );
 
