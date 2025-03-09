@@ -6,6 +6,7 @@ pub use compactly_derive::Encode;
 pub mod adapt;
 pub mod arith;
 mod array;
+mod bit_context;
 mod bits;
 mod bools;
 mod byte;

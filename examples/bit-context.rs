@@ -10,7 +10,7 @@ struct BitC {
 
 #[derive(Debug, Clone, Copy)]
 enum Bucket {
-    Start,
+    Count { trues: usize, falses: usize },
     AllTrue(usize),
     AllFalse(usize),
 }
@@ -18,41 +18,102 @@ enum Bucket {
 impl Bucket {
     fn name(self) -> String {
         match self {
-            Bucket::Start => "Start".to_string(),
+            Bucket::Count { trues, falses } => format!("Count{falses}_{trues}"),
             Bucket::AllTrue(n) => format!("AllTrue{n}"),
             Bucket::AllFalse(n) => format!("AllFalse{n}"),
+        }
+    }
+    fn new(trues: usize, falses: usize) -> Self {
+        if trues + falses >= MAX_COUNT {
+            if (trues + 1) / 2 == 0 {
+                Bucket::AllFalse(MIN_ALL)
+            } else if (falses + 1) / 2 == 0 {
+                Bucket::AllTrue(MIN_ALL)
+            } else {
+                Bucket::new((trues + 1) / 2, (falses + 1) / 2)
+            }
+        } else {
+            Bucket::Count { trues, falses }
         }
     }
     fn bitc(self) -> BitC {
         let name = self.name();
         match self {
-            Bucket::Start => BitC {
-                name,
-                probability: Probability { prob: 1, shift: 1 },
-                next_unlikely: Bucket::AllTrue(1).name(),
-                next_likely: Bucket::AllTrue(0).name(),
-                prob_same: None,
-            },
+            Bucket::Count { trues, falses } => {
+                let mut prob = if trues == 0 {
+                    1 * 256 / ((2 + falses) as u64)
+                } else if falses == 0 {
+                    (1 + trues) as u64 * 256 / ((2 + trues) as u64)
+                } else {
+                    trues as u64 * 256 / ((trues + falses) as u64)
+                };
+                let mut shift = 8;
+                while prob & 1 == 0 && shift > 2 {
+                    prob >>= 1;
+                    shift -= 1;
+                }
+                let next_likely = if trues > falses {
+                    Bucket::new(trues + 1, falses)
+                } else {
+                    Bucket::new(trues, falses + 1)
+                }
+                .name();
+                let next_unlikely = if trues > falses {
+                    Bucket::new(trues, falses + 1)
+                } else {
+                    Bucket::new(trues + 1, falses)
+                }
+                .name();
+                BitC {
+                    name,
+                    probability: Probability { prob, shift },
+                    next_unlikely,
+                    next_likely,
+                    prob_same: None,
+                }
+            }
             Bucket::AllTrue(n) => {
                 let shift = (n as u8) + 1;
+                let next_unlikely = if n == MAX_ALL {
+                    self
+                } else {
+                    Bucket::new(1 << n, 1)
+                }
+                .name();
                 BitC {
                     name,
                     probability: Probability { prob: 1, shift },
-                    next_unlikely: Bucket::Start.name(),
-                    next_likely: Bucket::AllTrue(n + 1).name(),
+                    next_unlikely,
+                    next_likely: if n < MAX_ALL {
+                        Bucket::AllTrue(n + 1)
+                    } else {
+                        self
+                    }
+                    .name(),
                     prob_same: Some(u64::MAX - (u64::MAX >> shift)),
                 }
             }
             Bucket::AllFalse(n) => {
                 let shift = (n as u8) + 1;
+                let next_unlikely = if n == MAX_ALL {
+                    self
+                } else {
+                    Bucket::new(1, 1 << n)
+                }
+                .name();
                 BitC {
                     name,
                     probability: Probability {
-                        prob: 1 << shift,
+                        prob: (1 << shift) - 1,
                         shift,
                     },
-                    next_unlikely: Bucket::Start.name(),
-                    next_likely: Bucket::AllFalse(n + 1).name(),
+                    next_unlikely,
+                    next_likely: if n < MAX_ALL {
+                        Bucket::AllFalse(n + 1)
+                    } else {
+                        self
+                    }
+                    .name(),
                     prob_same: Some(u64::MAX - (u64::MAX >> shift)),
                 }
             }
@@ -60,30 +121,43 @@ impl Bucket {
     }
 }
 
+const MAX_COUNT: usize = 21;
+const MIN_ALL: usize = MAX_COUNT.ilog2() as usize;
+const MAX_ALL: usize = 15;
+
 fn main() {
-    let variants = vec![
-        Bucket::Start,
-        Bucket::AllFalse(1),
-        Bucket::AllFalse(2),
-        Bucket::AllTrue(1),
-        Bucket::AllTrue(2),
-    ];
+    let mut variants = Vec::new();
+    for tot in 0..MAX_COUNT {
+        for trues in 0..tot + 1 {
+            let falses = tot - trues;
+            variants.push(Bucket::Count { trues, falses })
+        }
+    }
+    for same in MIN_ALL..MAX_ALL + 1 {
+        variants.push(Bucket::AllFalse(same));
+        variants.push(Bucket::AllTrue(same));
+    }
 
     println!(
-        r"
-pub enum BitContext {{"
+        r"//! Generated with `cargo run --example bit-context > src/bit_context.rs`
+use crate::arith::Probability;
+use crate::adapt::SplitMix64;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BitContext {{
+    #[default]"
     );
 
     for BitC {
         name, probability, ..
     } in variants.iter().map(|b| b.bitc())
     {
-        println!("    {name}, // {probability:?}")
+        println!("    {name}, // {probability:?} = {probability}")
     }
 
     println!(
         r"}}
-use BitC::*;
+use BitContext::*;
 "
     );
 
@@ -108,8 +182,7 @@ impl BitContext {{
 
     println!(
         r"
-impl BitContext {{
-    fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Probability {{
+    fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
         match self {{"
     );
 
@@ -127,7 +200,7 @@ impl BitContext {{
             println!(
                 "            {name} => {{
                 if bit == {likely_bit:?} {{
-                    if rng.next() < {prob_same:016x} {{ {next_likely} }} else {{ {name} }}
+                    if rng.next() < 0x{prob_same:016x} {{ {next_likely} }} else {{ {name} }}
                 }} else {{
                     {next_unlikely}
                 }}
@@ -152,4 +225,6 @@ impl BitContext {{
         r"    }}
 }}"
     );
+
+    println!(r"// Count of variants: {}", variants.len());
 }

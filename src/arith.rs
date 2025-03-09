@@ -14,6 +14,16 @@ impl Probability {
     pub fn likely_bit(&self) -> bool {
         self.prob < (1 << (self.shift - 1))
     }
+    pub fn as_f64(self) -> f64 {
+        self.prob as f64 / (1_u64 << self.shift) as f64
+    }
+}
+
+impl std::fmt::Display for Probability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = self.prob as f64 / (1_u64 << self.shift) as f64;
+        write!(f, "{v}")
+    }
 }
 
 #[test]
