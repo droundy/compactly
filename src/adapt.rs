@@ -60,3 +60,28 @@ impl Default for SplitMix64 {
         Self(137)
     }
 }
+
+#[test]
+fn encode_size() {
+    fn measure_size(bits: &[bool], expected_bytes: usize) {
+        let mut context = BitContext::default();
+        let mut e = Encoder::new();
+        for bit in bits.iter().copied() {
+            e.encode(bit, &mut context);
+        }
+        let bytes = e.finish();
+        assert_eq!(bytes.len(), expected_bytes, "For {bits:?} wrong size");
+        let mut decoded = Vec::new();
+        let mut decoder = Decoder::new(bytes.clone());
+        let mut decontext = BitContext::default();
+        for _ in 0..bits.len() {
+            decoded.push(decoder.decode(&mut decontext));
+        }
+        assert_eq!(bits, decoded.as_slice());
+    }
+    measure_size(&[], 1);
+    for i in 1..7 {
+        measure_size(&vec![true; i], 1);
+        measure_size(&vec![false; i], 1);
+    }
+}
