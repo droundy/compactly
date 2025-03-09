@@ -70,7 +70,12 @@ fn encode_size() {
             e.encode(bit, &mut context);
         }
         let bytes = e.finish();
-        assert_eq!(bytes.len(), expected_bytes, "For {bits:?} wrong size");
+        assert_eq!(
+            bytes.len(),
+            expected_bytes,
+            "For {bits:?} wrong size for {} bits",
+            bits.len()
+        );
         let mut decoded = Vec::new();
         let mut decoder = Decoder::new(bytes.clone());
         let mut decontext = BitContext::default();
@@ -80,8 +85,15 @@ fn encode_size() {
         assert_eq!(bits, decoded.as_slice());
     }
     measure_size(&[], 1);
-    for i in 1..7 {
+    for i in 0..7 {
         measure_size(&vec![true; i], 1);
         measure_size(&vec![false; i], 1);
+    }
+    for i in 0..11 {
+        let mut bits = Vec::new();
+        for x in 0..i {
+            bits.push(x & 1 == 0);
+        }
+        measure_size(&bits, 1);
     }
 }
