@@ -67,6 +67,10 @@ fn encode_size() {
         let mut context = BitContext::default();
         let mut e = Encoder::new();
         for bit in bits.iter().copied() {
+            // println!(
+            //     "Context is {context:?} with probability {}",
+            //     context.probability()
+            // );
             e.encode(bit, &mut context);
         }
         let bytes = e.finish();
@@ -85,15 +89,24 @@ fn encode_size() {
         assert_eq!(bits, decoded.as_slice());
     }
     measure_size(&[], 1);
-    for i in 0..7 {
+    for i in 0..5 * 1024 {
         measure_size(&vec![true; i], 1);
         measure_size(&vec![false; i], 1);
     }
-    for i in 0..11 {
+    // measure_size(&vec![true; 512], 2);
+    // measure_size(&vec![false; 256], 2);
+    for i in 0..8 {
         let mut bits = Vec::new();
         for x in 0..i {
             bits.push(x & 1 == 0);
         }
         measure_size(&bits, 1);
+    }
+    for i in 8..15 {
+        let mut bits = Vec::new();
+        for x in 0..i {
+            bits.push(x & 1 == 0);
+        }
+        measure_size(&bits, 2);
     }
 }

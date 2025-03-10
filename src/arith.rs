@@ -46,21 +46,21 @@ impl ArithState {
     pub fn next_byte(&mut self) -> Option<u8> {
         let lo_byte = (self.lo >> 56) as u8;
         let hi_byte = (self.hi >> 56) as u8;
-        #[cfg(test)]
-        {
-            let width = self.hi - self.lo;
-            println!("width = {width:016x}");
-            println!("  min = {:016x}", u64::MAX >> 8);
-            println!("lo_byte {lo_byte:02x}");
-            println!("hi_byte {hi_byte:02x}");
-        }
+        // #[cfg(test)]
+        // {
+        //     let width = self.hi - self.lo;
+        //     println!("width = {width:016x}");
+        //     println!("  min = {:016x}", u64::MAX >> 8);
+        //     println!("lo_byte {lo_byte:02x}");
+        //     println!("hi_byte {hi_byte:02x}");
+        // }
         if lo_byte == hi_byte {
             self.lo = self.lo << 8;
             self.hi = self.hi << 8;
-            #[cfg(test)]
-            {
-                println!("next_byte resetting to {self:x?}");
-            }
+            // #[cfg(test)]
+            // {
+            //     println!("next_byte resetting to {self:x?}");
+            // }
             Some(lo_byte)
         } else {
             None
@@ -82,7 +82,7 @@ impl ArithState {
         } else {
             self.hi = split;
         }
-        println!("encoding {prob} {shift} {value:?}   with split {split:016x} gives {self:x?}");
+        // println!("encoding {prob} {shift} {value:?}   with split {split:016x} gives {self:x?}");
     }
 
     pub fn decode(&mut self, Probability { prob, shift }: Probability, value: u64) -> bool {
@@ -90,7 +90,7 @@ impl ArithState {
             .split(prob, shift)
             .expect("call next_byte enough before decode");
         let b = value > split;
-        println!("decoded bit {prob} {shift} {b:?}   from {value:016x} and split {split:016x}");
+        // println!("decoded bit {prob} {shift} {b:?}   from {value:016x} and split {split:016x}");
         if b {
             self.lo = split + 1;
         } else {
@@ -124,11 +124,11 @@ impl Encoder {
             state: ArithState::default(),
         }
     }
-    pub fn encode(&mut self, p: Probability, value: bool) {
+    pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
         while let Some(byte) = self.state.next_byte() {
             self.bytes.push(byte);
         }
-        self.state.encode(p, value);
+        self.state.encode(probability_of_false, value);
     }
     pub fn finish(mut self) -> Vec<u8> {
         while let Some(byte) = self.state.next_byte() {
@@ -161,7 +161,7 @@ impl Decoder {
     }
     pub fn decode(&mut self, p: Probability) -> bool {
         let out = self.state.decode(p, self.value);
-        println!("after decode: {:x?}", self.state);
+        // println!("after decode: {:x?}", self.state);
         while let Some(_) = self.state.next_byte() {
             self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
         }

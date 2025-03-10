@@ -18,7 +18,7 @@ enum Bucket {
 impl Bucket {
     fn name(self) -> String {
         match self {
-            Bucket::Count { trues, falses } => format!("Count{falses}_{trues}"),
+            Bucket::Count { trues, falses } => format!("True{trues}False{falses}"),
             Bucket::AllTrue(n) => format!("AllTrue{n}"),
             Bucket::AllFalse(n) => format!("AllFalse{n}"),
         }
@@ -40,25 +40,26 @@ impl Bucket {
         let name = self.name();
         match self {
             Bucket::Count { trues, falses } => {
-                let mut prob = if trues == 0 {
-                    1 * 256 / ((2 + falses) as u64)
-                } else if falses == 0 {
-                    (1 + trues) as u64 * 256 / ((2 + trues) as u64)
+                let mut prob = if falses == 0 {
+                    1 * 256 / ((2 + trues) as u64)
+                } else if trues == 0 {
+                    (1 + falses) as u64 * 256 / ((2 + falses) as u64)
                 } else {
-                    trues as u64 * 256 / ((trues + falses) as u64)
+                    falses as u64 * 256 / ((trues + falses) as u64)
                 };
                 let mut shift = 8;
                 while prob & 1 == 0 && shift > 2 {
                     prob >>= 1;
                     shift -= 1;
                 }
-                let next_likely = if trues > falses {
+                let probability = Probability { prob, shift };
+                let next_likely = if probability.likely_bit() {
                     Bucket::new(trues + 1, falses)
                 } else {
                     Bucket::new(trues, falses + 1)
                 }
                 .name();
-                let next_unlikely = if trues > falses {
+                let next_unlikely = if probability.likely_bit() {
                     Bucket::new(trues, falses + 1)
                 } else {
                     Bucket::new(trues + 1, falses)
@@ -66,7 +67,7 @@ impl Bucket {
                 .name();
                 BitC {
                     name,
-                    probability: Probability { prob, shift },
+                    probability,
                     next_unlikely,
                     next_likely,
                     prob_same: None,
@@ -74,6 +75,7 @@ impl Bucket {
             }
             Bucket::AllTrue(n) => {
                 let shift = (n as u8) + 1;
+                let probability = Probability { prob: 1, shift };
                 let next_unlikely = if n == MAX_ALL {
                     self
                 } else {
@@ -82,7 +84,7 @@ impl Bucket {
                 .name();
                 BitC {
                     name,
-                    probability: Probability { prob: 1, shift },
+                    probability,
                     next_unlikely,
                     next_likely: if n < MAX_ALL {
                         Bucket::AllTrue(n + 1)
@@ -95,6 +97,10 @@ impl Bucket {
             }
             Bucket::AllFalse(n) => {
                 let shift = (n as u8) + 1;
+                let probability = Probability {
+                    prob: (1 << shift) - 1,
+                    shift,
+                };
                 let next_unlikely = if n == MAX_ALL {
                     self
                 } else {
@@ -103,10 +109,7 @@ impl Bucket {
                 .name();
                 BitC {
                     name,
-                    probability: Probability {
-                        prob: (1 << shift) - 1,
-                        shift,
-                    },
+                    probability,
                     next_unlikely,
                     next_likely: if n < MAX_ALL {
                         Bucket::AllFalse(n + 1)

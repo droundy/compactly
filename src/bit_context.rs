@@ -5,687 +5,687 @@ use crate::arith::Probability;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {
     #[default]
-    Count0_0, // Probability { prob: 2, shift: 2 } = 0.5
-    Count1_0,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count0_1,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count2_0,   // Probability { prob: 1, shift: 2 } = 0.25
-    Count1_1,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count0_2,   // Probability { prob: 3, shift: 2 } = 0.75
-    Count3_0,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    Count2_1,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count1_2,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count0_3,   // Probability { prob: 51, shift: 6 } = 0.796875
-    Count4_0,   // Probability { prob: 21, shift: 7 } = 0.1640625
-    Count3_1,   // Probability { prob: 1, shift: 2 } = 0.25
-    Count2_2,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count1_3,   // Probability { prob: 3, shift: 2 } = 0.75
-    Count0_4,   // Probability { prob: 213, shift: 8 } = 0.83203125
-    Count5_0,   // Probability { prob: 9, shift: 6 } = 0.140625
-    Count4_1,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    Count3_2,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    Count2_3,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    Count1_4,   // Probability { prob: 51, shift: 6 } = 0.796875
-    Count0_5,   // Probability { prob: 219, shift: 8 } = 0.85546875
-    Count6_0,   // Probability { prob: 1, shift: 3 } = 0.125
-    Count5_1,   // Probability { prob: 21, shift: 7 } = 0.1640625
-    Count4_2,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count3_3,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count2_4,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count1_5,   // Probability { prob: 213, shift: 8 } = 0.83203125
-    Count0_6,   // Probability { prob: 7, shift: 3 } = 0.875
-    Count7_0,   // Probability { prob: 7, shift: 6 } = 0.109375
-    Count6_1,   // Probability { prob: 9, shift: 6 } = 0.140625
-    Count5_2,   // Probability { prob: 73, shift: 8 } = 0.28515625
-    Count4_3,   // Probability { prob: 109, shift: 8 } = 0.42578125
-    Count3_4,   // Probability { prob: 73, shift: 7 } = 0.5703125
-    Count2_5,   // Probability { prob: 91, shift: 7 } = 0.7109375
-    Count1_6,   // Probability { prob: 219, shift: 8 } = 0.85546875
-    Count0_7,   // Probability { prob: 227, shift: 8 } = 0.88671875
-    Count8_0,   // Probability { prob: 25, shift: 8 } = 0.09765625
-    Count7_1,   // Probability { prob: 1, shift: 3 } = 0.125
-    Count6_2,   // Probability { prob: 1, shift: 2 } = 0.25
-    Count5_3,   // Probability { prob: 3, shift: 3 } = 0.375
-    Count4_4,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count3_5,   // Probability { prob: 5, shift: 3 } = 0.625
-    Count2_6,   // Probability { prob: 3, shift: 2 } = 0.75
-    Count1_7,   // Probability { prob: 7, shift: 3 } = 0.875
-    Count0_8,   // Probability { prob: 115, shift: 7 } = 0.8984375
-    Count9_0,   // Probability { prob: 23, shift: 8 } = 0.08984375
-    Count8_1,   // Probability { prob: 7, shift: 6 } = 0.109375
-    Count7_2,   // Probability { prob: 7, shift: 5 } = 0.21875
-    Count6_3,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count5_4,   // Probability { prob: 113, shift: 8 } = 0.44140625
-    Count4_5,   // Probability { prob: 71, shift: 7 } = 0.5546875
-    Count3_6,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count2_7,   // Probability { prob: 199, shift: 8 } = 0.77734375
-    Count1_8,   // Probability { prob: 227, shift: 8 } = 0.88671875
-    Count0_9,   // Probability { prob: 29, shift: 5 } = 0.90625
-    Count10_0,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    Count9_1,   // Probability { prob: 25, shift: 8 } = 0.09765625
-    Count8_2,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    Count7_3,   // Probability { prob: 19, shift: 6 } = 0.296875
-    Count6_4,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    Count5_5,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count4_6,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    Count3_7,   // Probability { prob: 179, shift: 8 } = 0.69921875
-    Count2_8,   // Probability { prob: 51, shift: 6 } = 0.796875
-    Count1_9,   // Probability { prob: 115, shift: 7 } = 0.8984375
-    Count0_10,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    Count11_0,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    Count10_1,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    Count9_2,   // Probability { prob: 23, shift: 7 } = 0.1796875
-    Count8_3,   // Probability { prob: 69, shift: 8 } = 0.26953125
-    Count7_4,   // Probability { prob: 93, shift: 8 } = 0.36328125
-    Count6_5,   // Probability { prob: 29, shift: 6 } = 0.453125
-    Count5_6,   // Probability { prob: 139, shift: 8 } = 0.54296875
-    Count4_7,   // Probability { prob: 81, shift: 7 } = 0.6328125
-    Count3_8,   // Probability { prob: 93, shift: 7 } = 0.7265625
-    Count2_9,   // Probability { prob: 209, shift: 8 } = 0.81640625
-    Count1_10,  // Probability { prob: 29, shift: 5 } = 0.90625
-    Count0_11,  // Probability { prob: 59, shift: 6 } = 0.921875
-    Count12_0,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    Count11_1,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    Count10_2,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    Count9_3,   // Probability { prob: 1, shift: 2 } = 0.25
-    Count8_4,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count7_5,   // Probability { prob: 53, shift: 7 } = 0.4140625
-    Count6_6,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count5_7,   // Probability { prob: 149, shift: 8 } = 0.58203125
-    Count4_8,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count3_9,   // Probability { prob: 3, shift: 2 } = 0.75
-    Count2_10,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    Count1_11,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    Count0_12,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    Count13_0,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    Count12_1,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    Count11_2,  // Probability { prob: 39, shift: 8 } = 0.15234375
-    Count10_3,  // Probability { prob: 59, shift: 8 } = 0.23046875
-    Count9_4,   // Probability { prob: 39, shift: 7 } = 0.3046875
-    Count8_5,   // Probability { prob: 49, shift: 7 } = 0.3828125
-    Count7_6,   // Probability { prob: 59, shift: 7 } = 0.4609375
-    Count6_7,   // Probability { prob: 137, shift: 8 } = 0.53515625
-    Count5_8,   // Probability { prob: 157, shift: 8 } = 0.61328125
-    Count4_9,   // Probability { prob: 177, shift: 8 } = 0.69140625
-    Count3_10,  // Probability { prob: 49, shift: 6 } = 0.765625
-    Count2_11,  // Probability { prob: 27, shift: 5 } = 0.84375
-    Count1_12,  // Probability { prob: 59, shift: 6 } = 0.921875
-    Count0_13,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    Count14_0,  // Probability { prob: 1, shift: 4 } = 0.0625
-    Count13_1,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    Count12_2,  // Probability { prob: 9, shift: 6 } = 0.140625
-    Count11_3,  // Probability { prob: 27, shift: 7 } = 0.2109375
-    Count10_4,  // Probability { prob: 73, shift: 8 } = 0.28515625
-    Count9_5,   // Probability { prob: 91, shift: 8 } = 0.35546875
-    Count8_6,   // Probability { prob: 109, shift: 8 } = 0.42578125
-    Count7_7,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count6_8,   // Probability { prob: 73, shift: 7 } = 0.5703125
-    Count5_9,   // Probability { prob: 41, shift: 6 } = 0.640625
-    Count4_10,  // Probability { prob: 91, shift: 7 } = 0.7109375
-    Count3_11,  // Probability { prob: 201, shift: 8 } = 0.78515625
-    Count2_12,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    Count1_13,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    Count0_14,  // Probability { prob: 15, shift: 4 } = 0.9375
-    Count15_0,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    Count14_1,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    Count13_2,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    Count12_3,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    Count11_4,  // Probability { prob: 17, shift: 6 } = 0.265625
-    Count10_5,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count9_6,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    Count8_7,   // Probability { prob: 119, shift: 8 } = 0.46484375
-    Count7_8,   // Probability { prob: 17, shift: 5 } = 0.53125
-    Count6_9,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    Count5_10,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count4_11,  // Probability { prob: 187, shift: 8 } = 0.73046875
-    Count3_12,  // Probability { prob: 51, shift: 6 } = 0.796875
-    Count2_13,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    Count1_14,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    Count0_15,  // Probability { prob: 15, shift: 4 } = 0.9375
-    Count16_0,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    Count15_1,  // Probability { prob: 1, shift: 4 } = 0.0625
-    Count14_2,  // Probability { prob: 1, shift: 3 } = 0.125
-    Count13_3,  // Probability { prob: 3, shift: 4 } = 0.1875
-    Count12_4,  // Probability { prob: 1, shift: 2 } = 0.25
-    Count11_5,  // Probability { prob: 5, shift: 4 } = 0.3125
-    Count10_6,  // Probability { prob: 3, shift: 3 } = 0.375
-    Count9_7,   // Probability { prob: 7, shift: 4 } = 0.4375
-    Count8_8,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count7_9,   // Probability { prob: 9, shift: 4 } = 0.5625
-    Count6_10,  // Probability { prob: 5, shift: 3 } = 0.625
-    Count5_11,  // Probability { prob: 11, shift: 4 } = 0.6875
-    Count4_12,  // Probability { prob: 3, shift: 2 } = 0.75
-    Count3_13,  // Probability { prob: 13, shift: 4 } = 0.8125
-    Count2_14,  // Probability { prob: 7, shift: 3 } = 0.875
-    Count1_15,  // Probability { prob: 15, shift: 4 } = 0.9375
-    Count0_16,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    Count17_0,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    Count16_1,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    Count15_2,  // Probability { prob: 15, shift: 7 } = 0.1171875
-    Count14_3,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    Count13_4,  // Probability { prob: 15, shift: 6 } = 0.234375
-    Count12_5,  // Probability { prob: 75, shift: 8 } = 0.29296875
-    Count11_6,  // Probability { prob: 45, shift: 7 } = 0.3515625
-    Count10_7,  // Probability { prob: 105, shift: 8 } = 0.41015625
-    Count9_8,   // Probability { prob: 15, shift: 5 } = 0.46875
-    Count8_9,   // Probability { prob: 135, shift: 8 } = 0.52734375
-    Count7_10,  // Probability { prob: 75, shift: 7 } = 0.5859375
-    Count6_11,  // Probability { prob: 165, shift: 8 } = 0.64453125
-    Count5_12,  // Probability { prob: 45, shift: 6 } = 0.703125
-    Count4_13,  // Probability { prob: 195, shift: 8 } = 0.76171875
-    Count3_14,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    Count2_15,  // Probability { prob: 225, shift: 8 } = 0.87890625
-    Count1_16,  // Probability { prob: 15, shift: 4 } = 0.9375
-    Count0_17,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    Count18_0,  // Probability { prob: 3, shift: 6 } = 0.046875
-    Count17_1,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    Count16_2,  // Probability { prob: 7, shift: 6 } = 0.109375
-    Count15_3,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    Count14_4,  // Probability { prob: 7, shift: 5 } = 0.21875
-    Count13_5,  // Probability { prob: 71, shift: 8 } = 0.27734375
-    Count12_6,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    Count11_7,  // Probability { prob: 99, shift: 8 } = 0.38671875
-    Count10_8,  // Probability { prob: 113, shift: 8 } = 0.44140625
-    Count9_9,   // Probability { prob: 2, shift: 2 } = 0.5
-    Count8_10,  // Probability { prob: 71, shift: 7 } = 0.5546875
-    Count7_11,  // Probability { prob: 39, shift: 6 } = 0.609375
-    Count6_12,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    Count5_13,  // Probability { prob: 23, shift: 5 } = 0.71875
-    Count4_14,  // Probability { prob: 199, shift: 8 } = 0.77734375
-    Count3_15,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    Count2_16,  // Probability { prob: 227, shift: 8 } = 0.88671875
-    Count1_17,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    Count0_18,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    Count19_0,  // Probability { prob: 3, shift: 6 } = 0.046875
-    Count18_1,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    Count17_2,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    Count16_3,  // Probability { prob: 5, shift: 5 } = 0.15625
-    Count15_4,  // Probability { prob: 53, shift: 8 } = 0.20703125
-    Count14_5,  // Probability { prob: 67, shift: 8 } = 0.26171875
-    Count13_6,  // Probability { prob: 5, shift: 4 } = 0.3125
-    Count12_7,  // Probability { prob: 47, shift: 7 } = 0.3671875
-    Count11_8,  // Probability { prob: 107, shift: 8 } = 0.41796875
-    Count10_9,  // Probability { prob: 121, shift: 8 } = 0.47265625
-    Count9_10,  // Probability { prob: 67, shift: 7 } = 0.5234375
-    Count8_11,  // Probability { prob: 37, shift: 6 } = 0.578125
-    Count7_12,  // Probability { prob: 161, shift: 8 } = 0.62890625
-    Count6_13,  // Probability { prob: 175, shift: 8 } = 0.68359375
-    Count5_14,  // Probability { prob: 47, shift: 6 } = 0.734375
-    Count4_15,  // Probability { prob: 101, shift: 7 } = 0.7890625
-    Count3_16,  // Probability { prob: 215, shift: 8 } = 0.83984375
-    Count2_17,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    Count1_18,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    Count0_19,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    Count20_0,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    Count19_1,  // Probability { prob: 3, shift: 6 } = 0.046875
-    Count18_2,  // Probability { prob: 25, shift: 8 } = 0.09765625
-    Count17_3,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    Count16_4,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    Count15_5,  // Probability { prob: 1, shift: 2 } = 0.25
-    Count14_6,  // Probability { prob: 19, shift: 6 } = 0.296875
-    Count13_7,  // Probability { prob: 89, shift: 8 } = 0.34765625
-    Count12_8,  // Probability { prob: 51, shift: 7 } = 0.3984375
-    Count11_9,  // Probability { prob: 115, shift: 8 } = 0.44921875
-    Count10_10, // Probability { prob: 2, shift: 2 } = 0.5
-    Count9_11,  // Probability { prob: 35, shift: 6 } = 0.546875
-    Count8_12,  // Probability { prob: 153, shift: 8 } = 0.59765625
-    Count7_13,  // Probability { prob: 83, shift: 7 } = 0.6484375
-    Count6_14,  // Probability { prob: 179, shift: 8 } = 0.69921875
-    Count5_15,  // Probability { prob: 3, shift: 2 } = 0.75
-    Count4_16,  // Probability { prob: 51, shift: 6 } = 0.796875
-    Count3_17,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    Count2_18,  // Probability { prob: 115, shift: 7 } = 0.8984375
-    Count1_19,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    Count0_20,  // Probability { prob: 61, shift: 6 } = 0.953125
-    AllFalse4,  // Probability { prob: 31, shift: 5 } = 0.96875
-    AllTrue4,   // Probability { prob: 1, shift: 5 } = 0.03125
-    AllFalse5,  // Probability { prob: 63, shift: 6 } = 0.984375
-    AllTrue5,   // Probability { prob: 1, shift: 6 } = 0.015625
-    AllFalse6,  // Probability { prob: 127, shift: 7 } = 0.9921875
-    AllTrue6,   // Probability { prob: 1, shift: 7 } = 0.0078125
-    AllFalse7,  // Probability { prob: 255, shift: 8 } = 0.99609375
-    AllTrue7,   // Probability { prob: 1, shift: 8 } = 0.00390625
-    AllFalse8,  // Probability { prob: 511, shift: 9 } = 0.998046875
-    AllTrue8,   // Probability { prob: 1, shift: 9 } = 0.001953125
-    AllFalse9,  // Probability { prob: 1023, shift: 10 } = 0.9990234375
-    AllTrue9,   // Probability { prob: 1, shift: 10 } = 0.0009765625
-    AllFalse10, // Probability { prob: 2047, shift: 11 } = 0.99951171875
-    AllTrue10,  // Probability { prob: 1, shift: 11 } = 0.00048828125
-    AllFalse11, // Probability { prob: 4095, shift: 12 } = 0.999755859375
-    AllTrue11,  // Probability { prob: 1, shift: 12 } = 0.000244140625
-    AllFalse12, // Probability { prob: 8191, shift: 13 } = 0.9998779296875
-    AllTrue12,  // Probability { prob: 1, shift: 13 } = 0.0001220703125
-    AllFalse13, // Probability { prob: 16383, shift: 14 } = 0.99993896484375
-    AllTrue13,  // Probability { prob: 1, shift: 14 } = 0.00006103515625
-    AllFalse14, // Probability { prob: 32767, shift: 15 } = 0.999969482421875
-    AllTrue14,  // Probability { prob: 1, shift: 15 } = 0.000030517578125
-    AllFalse15, // Probability { prob: 65535, shift: 16 } = 0.9999847412109375
-    AllTrue15,  // Probability { prob: 1, shift: 16 } = 0.0000152587890625
+    True0False0, // Probability { prob: 2, shift: 2 } = 0.5
+    True0False1,   // Probability { prob: 85, shift: 7 } = 0.6640625
+    True1False0,   // Probability { prob: 85, shift: 8 } = 0.33203125
+    True0False2,   // Probability { prob: 3, shift: 2 } = 0.75
+    True1False1,   // Probability { prob: 2, shift: 2 } = 0.5
+    True2False0,   // Probability { prob: 1, shift: 2 } = 0.25
+    True0False3,   // Probability { prob: 51, shift: 6 } = 0.796875
+    True1False2,   // Probability { prob: 85, shift: 7 } = 0.6640625
+    True2False1,   // Probability { prob: 85, shift: 8 } = 0.33203125
+    True3False0,   // Probability { prob: 51, shift: 8 } = 0.19921875
+    True0False4,   // Probability { prob: 213, shift: 8 } = 0.83203125
+    True1False3,   // Probability { prob: 3, shift: 2 } = 0.75
+    True2False2,   // Probability { prob: 2, shift: 2 } = 0.5
+    True3False1,   // Probability { prob: 1, shift: 2 } = 0.25
+    True4False0,   // Probability { prob: 21, shift: 7 } = 0.1640625
+    True0False5,   // Probability { prob: 219, shift: 8 } = 0.85546875
+    True1False4,   // Probability { prob: 51, shift: 6 } = 0.796875
+    True2False3,   // Probability { prob: 153, shift: 8 } = 0.59765625
+    True3False2,   // Probability { prob: 51, shift: 7 } = 0.3984375
+    True4False1,   // Probability { prob: 51, shift: 8 } = 0.19921875
+    True5False0,   // Probability { prob: 9, shift: 6 } = 0.140625
+    True0False6,   // Probability { prob: 7, shift: 3 } = 0.875
+    True1False5,   // Probability { prob: 213, shift: 8 } = 0.83203125
+    True2False4,   // Probability { prob: 85, shift: 7 } = 0.6640625
+    True3False3,   // Probability { prob: 2, shift: 2 } = 0.5
+    True4False2,   // Probability { prob: 85, shift: 8 } = 0.33203125
+    True5False1,   // Probability { prob: 21, shift: 7 } = 0.1640625
+    True6False0,   // Probability { prob: 1, shift: 3 } = 0.125
+    True0False7,   // Probability { prob: 227, shift: 8 } = 0.88671875
+    True1False6,   // Probability { prob: 219, shift: 8 } = 0.85546875
+    True2False5,   // Probability { prob: 91, shift: 7 } = 0.7109375
+    True3False4,   // Probability { prob: 73, shift: 7 } = 0.5703125
+    True4False3,   // Probability { prob: 109, shift: 8 } = 0.42578125
+    True5False2,   // Probability { prob: 73, shift: 8 } = 0.28515625
+    True6False1,   // Probability { prob: 9, shift: 6 } = 0.140625
+    True7False0,   // Probability { prob: 7, shift: 6 } = 0.109375
+    True0False8,   // Probability { prob: 115, shift: 7 } = 0.8984375
+    True1False7,   // Probability { prob: 7, shift: 3 } = 0.875
+    True2False6,   // Probability { prob: 3, shift: 2 } = 0.75
+    True3False5,   // Probability { prob: 5, shift: 3 } = 0.625
+    True4False4,   // Probability { prob: 2, shift: 2 } = 0.5
+    True5False3,   // Probability { prob: 3, shift: 3 } = 0.375
+    True6False2,   // Probability { prob: 1, shift: 2 } = 0.25
+    True7False1,   // Probability { prob: 1, shift: 3 } = 0.125
+    True8False0,   // Probability { prob: 25, shift: 8 } = 0.09765625
+    True0False9,   // Probability { prob: 29, shift: 5 } = 0.90625
+    True1False8,   // Probability { prob: 227, shift: 8 } = 0.88671875
+    True2False7,   // Probability { prob: 199, shift: 8 } = 0.77734375
+    True3False6,   // Probability { prob: 85, shift: 7 } = 0.6640625
+    True4False5,   // Probability { prob: 71, shift: 7 } = 0.5546875
+    True5False4,   // Probability { prob: 113, shift: 8 } = 0.44140625
+    True6False3,   // Probability { prob: 85, shift: 8 } = 0.33203125
+    True7False2,   // Probability { prob: 7, shift: 5 } = 0.21875
+    True8False1,   // Probability { prob: 7, shift: 6 } = 0.109375
+    True9False0,   // Probability { prob: 23, shift: 8 } = 0.08984375
+    True0False10,  // Probability { prob: 117, shift: 7 } = 0.9140625
+    True1False9,   // Probability { prob: 115, shift: 7 } = 0.8984375
+    True2False8,   // Probability { prob: 51, shift: 6 } = 0.796875
+    True3False7,   // Probability { prob: 179, shift: 8 } = 0.69921875
+    True4False6,   // Probability { prob: 153, shift: 8 } = 0.59765625
+    True5False5,   // Probability { prob: 2, shift: 2 } = 0.5
+    True6False4,   // Probability { prob: 51, shift: 7 } = 0.3984375
+    True7False3,   // Probability { prob: 19, shift: 6 } = 0.296875
+    True8False2,   // Probability { prob: 51, shift: 8 } = 0.19921875
+    True9False1,   // Probability { prob: 25, shift: 8 } = 0.09765625
+    True10False0,  // Probability { prob: 21, shift: 8 } = 0.08203125
+    True0False11,  // Probability { prob: 59, shift: 6 } = 0.921875
+    True1False10,  // Probability { prob: 29, shift: 5 } = 0.90625
+    True2False9,   // Probability { prob: 209, shift: 8 } = 0.81640625
+    True3False8,   // Probability { prob: 93, shift: 7 } = 0.7265625
+    True4False7,   // Probability { prob: 81, shift: 7 } = 0.6328125
+    True5False6,   // Probability { prob: 139, shift: 8 } = 0.54296875
+    True6False5,   // Probability { prob: 29, shift: 6 } = 0.453125
+    True7False4,   // Probability { prob: 93, shift: 8 } = 0.36328125
+    True8False3,   // Probability { prob: 69, shift: 8 } = 0.26953125
+    True9False2,   // Probability { prob: 23, shift: 7 } = 0.1796875
+    True10False1,  // Probability { prob: 23, shift: 8 } = 0.08984375
+    True11False0,  // Probability { prob: 19, shift: 8 } = 0.07421875
+    True0False12,  // Probability { prob: 237, shift: 8 } = 0.92578125
+    True1False11,  // Probability { prob: 117, shift: 7 } = 0.9140625
+    True2False10,  // Probability { prob: 213, shift: 8 } = 0.83203125
+    True3False9,   // Probability { prob: 3, shift: 2 } = 0.75
+    True4False8,   // Probability { prob: 85, shift: 7 } = 0.6640625
+    True5False7,   // Probability { prob: 149, shift: 8 } = 0.58203125
+    True6False6,   // Probability { prob: 2, shift: 2 } = 0.5
+    True7False5,   // Probability { prob: 53, shift: 7 } = 0.4140625
+    True8False4,   // Probability { prob: 85, shift: 8 } = 0.33203125
+    True9False3,   // Probability { prob: 1, shift: 2 } = 0.25
+    True10False2,  // Probability { prob: 21, shift: 7 } = 0.1640625
+    True11False1,  // Probability { prob: 21, shift: 8 } = 0.08203125
+    True12False0,  // Probability { prob: 9, shift: 7 } = 0.0703125
+    True0False13,  // Probability { prob: 119, shift: 7 } = 0.9296875
+    True1False12,  // Probability { prob: 59, shift: 6 } = 0.921875
+    True2False11,  // Probability { prob: 27, shift: 5 } = 0.84375
+    True3False10,  // Probability { prob: 49, shift: 6 } = 0.765625
+    True4False9,   // Probability { prob: 177, shift: 8 } = 0.69140625
+    True5False8,   // Probability { prob: 157, shift: 8 } = 0.61328125
+    True6False7,   // Probability { prob: 137, shift: 8 } = 0.53515625
+    True7False6,   // Probability { prob: 59, shift: 7 } = 0.4609375
+    True8False5,   // Probability { prob: 49, shift: 7 } = 0.3828125
+    True9False4,   // Probability { prob: 39, shift: 7 } = 0.3046875
+    True10False3,  // Probability { prob: 59, shift: 8 } = 0.23046875
+    True11False2,  // Probability { prob: 39, shift: 8 } = 0.15234375
+    True12False1,  // Probability { prob: 19, shift: 8 } = 0.07421875
+    True13False0,  // Probability { prob: 17, shift: 8 } = 0.06640625
+    True0False14,  // Probability { prob: 15, shift: 4 } = 0.9375
+    True1False13,  // Probability { prob: 237, shift: 8 } = 0.92578125
+    True2False12,  // Probability { prob: 219, shift: 8 } = 0.85546875
+    True3False11,  // Probability { prob: 201, shift: 8 } = 0.78515625
+    True4False10,  // Probability { prob: 91, shift: 7 } = 0.7109375
+    True5False9,   // Probability { prob: 41, shift: 6 } = 0.640625
+    True6False8,   // Probability { prob: 73, shift: 7 } = 0.5703125
+    True7False7,   // Probability { prob: 2, shift: 2 } = 0.5
+    True8False6,   // Probability { prob: 109, shift: 8 } = 0.42578125
+    True9False5,   // Probability { prob: 91, shift: 8 } = 0.35546875
+    True10False4,  // Probability { prob: 73, shift: 8 } = 0.28515625
+    True11False3,  // Probability { prob: 27, shift: 7 } = 0.2109375
+    True12False2,  // Probability { prob: 9, shift: 6 } = 0.140625
+    True13False1,  // Probability { prob: 9, shift: 7 } = 0.0703125
+    True14False0,  // Probability { prob: 1, shift: 4 } = 0.0625
+    True0False15,  // Probability { prob: 15, shift: 4 } = 0.9375
+    True1False14,  // Probability { prob: 119, shift: 7 } = 0.9296875
+    True2False13,  // Probability { prob: 221, shift: 8 } = 0.86328125
+    True3False12,  // Probability { prob: 51, shift: 6 } = 0.796875
+    True4False11,  // Probability { prob: 187, shift: 8 } = 0.73046875
+    True5False10,  // Probability { prob: 85, shift: 7 } = 0.6640625
+    True6False9,   // Probability { prob: 153, shift: 8 } = 0.59765625
+    True7False8,   // Probability { prob: 17, shift: 5 } = 0.53125
+    True8False7,   // Probability { prob: 119, shift: 8 } = 0.46484375
+    True9False6,   // Probability { prob: 51, shift: 7 } = 0.3984375
+    True10False5,  // Probability { prob: 85, shift: 8 } = 0.33203125
+    True11False4,  // Probability { prob: 17, shift: 6 } = 0.265625
+    True12False3,  // Probability { prob: 51, shift: 8 } = 0.19921875
+    True13False2,  // Probability { prob: 17, shift: 7 } = 0.1328125
+    True14False1,  // Probability { prob: 17, shift: 8 } = 0.06640625
+    True15False0,  // Probability { prob: 15, shift: 8 } = 0.05859375
+    True0False16,  // Probability { prob: 241, shift: 8 } = 0.94140625
+    True1False15,  // Probability { prob: 15, shift: 4 } = 0.9375
+    True2False14,  // Probability { prob: 7, shift: 3 } = 0.875
+    True3False13,  // Probability { prob: 13, shift: 4 } = 0.8125
+    True4False12,  // Probability { prob: 3, shift: 2 } = 0.75
+    True5False11,  // Probability { prob: 11, shift: 4 } = 0.6875
+    True6False10,  // Probability { prob: 5, shift: 3 } = 0.625
+    True7False9,   // Probability { prob: 9, shift: 4 } = 0.5625
+    True8False8,   // Probability { prob: 2, shift: 2 } = 0.5
+    True9False7,   // Probability { prob: 7, shift: 4 } = 0.4375
+    True10False6,  // Probability { prob: 3, shift: 3 } = 0.375
+    True11False5,  // Probability { prob: 5, shift: 4 } = 0.3125
+    True12False4,  // Probability { prob: 1, shift: 2 } = 0.25
+    True13False3,  // Probability { prob: 3, shift: 4 } = 0.1875
+    True14False2,  // Probability { prob: 1, shift: 3 } = 0.125
+    True15False1,  // Probability { prob: 1, shift: 4 } = 0.0625
+    True16False0,  // Probability { prob: 7, shift: 7 } = 0.0546875
+    True0False17,  // Probability { prob: 121, shift: 7 } = 0.9453125
+    True1False16,  // Probability { prob: 15, shift: 4 } = 0.9375
+    True2False15,  // Probability { prob: 225, shift: 8 } = 0.87890625
+    True3False14,  // Probability { prob: 105, shift: 7 } = 0.8203125
+    True4False13,  // Probability { prob: 195, shift: 8 } = 0.76171875
+    True5False12,  // Probability { prob: 45, shift: 6 } = 0.703125
+    True6False11,  // Probability { prob: 165, shift: 8 } = 0.64453125
+    True7False10,  // Probability { prob: 75, shift: 7 } = 0.5859375
+    True8False9,   // Probability { prob: 135, shift: 8 } = 0.52734375
+    True9False8,   // Probability { prob: 15, shift: 5 } = 0.46875
+    True10False7,  // Probability { prob: 105, shift: 8 } = 0.41015625
+    True11False6,  // Probability { prob: 45, shift: 7 } = 0.3515625
+    True12False5,  // Probability { prob: 75, shift: 8 } = 0.29296875
+    True13False4,  // Probability { prob: 15, shift: 6 } = 0.234375
+    True14False3,  // Probability { prob: 45, shift: 8 } = 0.17578125
+    True15False2,  // Probability { prob: 15, shift: 7 } = 0.1171875
+    True16False1,  // Probability { prob: 15, shift: 8 } = 0.05859375
+    True17False0,  // Probability { prob: 13, shift: 8 } = 0.05078125
+    True0False18,  // Probability { prob: 243, shift: 8 } = 0.94921875
+    True1False17,  // Probability { prob: 241, shift: 8 } = 0.94140625
+    True2False16,  // Probability { prob: 227, shift: 8 } = 0.88671875
+    True3False15,  // Probability { prob: 213, shift: 8 } = 0.83203125
+    True4False14,  // Probability { prob: 199, shift: 8 } = 0.77734375
+    True5False13,  // Probability { prob: 23, shift: 5 } = 0.71875
+    True6False12,  // Probability { prob: 85, shift: 7 } = 0.6640625
+    True7False11,  // Probability { prob: 39, shift: 6 } = 0.609375
+    True8False10,  // Probability { prob: 71, shift: 7 } = 0.5546875
+    True9False9,   // Probability { prob: 2, shift: 2 } = 0.5
+    True10False8,  // Probability { prob: 113, shift: 8 } = 0.44140625
+    True11False7,  // Probability { prob: 99, shift: 8 } = 0.38671875
+    True12False6,  // Probability { prob: 85, shift: 8 } = 0.33203125
+    True13False5,  // Probability { prob: 71, shift: 8 } = 0.27734375
+    True14False4,  // Probability { prob: 7, shift: 5 } = 0.21875
+    True15False3,  // Probability { prob: 21, shift: 7 } = 0.1640625
+    True16False2,  // Probability { prob: 7, shift: 6 } = 0.109375
+    True17False1,  // Probability { prob: 7, shift: 7 } = 0.0546875
+    True18False0,  // Probability { prob: 3, shift: 6 } = 0.046875
+    True0False19,  // Probability { prob: 243, shift: 8 } = 0.94921875
+    True1False18,  // Probability { prob: 121, shift: 7 } = 0.9453125
+    True2False17,  // Probability { prob: 229, shift: 8 } = 0.89453125
+    True3False16,  // Probability { prob: 215, shift: 8 } = 0.83984375
+    True4False15,  // Probability { prob: 101, shift: 7 } = 0.7890625
+    True5False14,  // Probability { prob: 47, shift: 6 } = 0.734375
+    True6False13,  // Probability { prob: 175, shift: 8 } = 0.68359375
+    True7False12,  // Probability { prob: 161, shift: 8 } = 0.62890625
+    True8False11,  // Probability { prob: 37, shift: 6 } = 0.578125
+    True9False10,  // Probability { prob: 67, shift: 7 } = 0.5234375
+    True10False9,  // Probability { prob: 121, shift: 8 } = 0.47265625
+    True11False8,  // Probability { prob: 107, shift: 8 } = 0.41796875
+    True12False7,  // Probability { prob: 47, shift: 7 } = 0.3671875
+    True13False6,  // Probability { prob: 5, shift: 4 } = 0.3125
+    True14False5,  // Probability { prob: 67, shift: 8 } = 0.26171875
+    True15False4,  // Probability { prob: 53, shift: 8 } = 0.20703125
+    True16False3,  // Probability { prob: 5, shift: 5 } = 0.15625
+    True17False2,  // Probability { prob: 13, shift: 7 } = 0.1015625
+    True18False1,  // Probability { prob: 13, shift: 8 } = 0.05078125
+    True19False0,  // Probability { prob: 3, shift: 6 } = 0.046875
+    True0False20,  // Probability { prob: 61, shift: 6 } = 0.953125
+    True1False19,  // Probability { prob: 243, shift: 8 } = 0.94921875
+    True2False18,  // Probability { prob: 115, shift: 7 } = 0.8984375
+    True3False17,  // Probability { prob: 217, shift: 8 } = 0.84765625
+    True4False16,  // Probability { prob: 51, shift: 6 } = 0.796875
+    True5False15,  // Probability { prob: 3, shift: 2 } = 0.75
+    True6False14,  // Probability { prob: 179, shift: 8 } = 0.69921875
+    True7False13,  // Probability { prob: 83, shift: 7 } = 0.6484375
+    True8False12,  // Probability { prob: 153, shift: 8 } = 0.59765625
+    True9False11,  // Probability { prob: 35, shift: 6 } = 0.546875
+    True10False10, // Probability { prob: 2, shift: 2 } = 0.5
+    True11False9,  // Probability { prob: 115, shift: 8 } = 0.44921875
+    True12False8,  // Probability { prob: 51, shift: 7 } = 0.3984375
+    True13False7,  // Probability { prob: 89, shift: 8 } = 0.34765625
+    True14False6,  // Probability { prob: 19, shift: 6 } = 0.296875
+    True15False5,  // Probability { prob: 1, shift: 2 } = 0.25
+    True16False4,  // Probability { prob: 51, shift: 8 } = 0.19921875
+    True17False3,  // Probability { prob: 19, shift: 7 } = 0.1484375
+    True18False2,  // Probability { prob: 25, shift: 8 } = 0.09765625
+    True19False1,  // Probability { prob: 3, shift: 6 } = 0.046875
+    True20False0,  // Probability { prob: 11, shift: 8 } = 0.04296875
+    AllFalse4,     // Probability { prob: 31, shift: 5 } = 0.96875
+    AllTrue4,      // Probability { prob: 1, shift: 5 } = 0.03125
+    AllFalse5,     // Probability { prob: 63, shift: 6 } = 0.984375
+    AllTrue5,      // Probability { prob: 1, shift: 6 } = 0.015625
+    AllFalse6,     // Probability { prob: 127, shift: 7 } = 0.9921875
+    AllTrue6,      // Probability { prob: 1, shift: 7 } = 0.0078125
+    AllFalse7,     // Probability { prob: 255, shift: 8 } = 0.99609375
+    AllTrue7,      // Probability { prob: 1, shift: 8 } = 0.00390625
+    AllFalse8,     // Probability { prob: 511, shift: 9 } = 0.998046875
+    AllTrue8,      // Probability { prob: 1, shift: 9 } = 0.001953125
+    AllFalse9,     // Probability { prob: 1023, shift: 10 } = 0.9990234375
+    AllTrue9,      // Probability { prob: 1, shift: 10 } = 0.0009765625
+    AllFalse10,    // Probability { prob: 2047, shift: 11 } = 0.99951171875
+    AllTrue10,     // Probability { prob: 1, shift: 11 } = 0.00048828125
+    AllFalse11,    // Probability { prob: 4095, shift: 12 } = 0.999755859375
+    AllTrue11,     // Probability { prob: 1, shift: 12 } = 0.000244140625
+    AllFalse12,    // Probability { prob: 8191, shift: 13 } = 0.9998779296875
+    AllTrue12,     // Probability { prob: 1, shift: 13 } = 0.0001220703125
+    AllFalse13,    // Probability { prob: 16383, shift: 14 } = 0.99993896484375
+    AllTrue13,     // Probability { prob: 1, shift: 14 } = 0.00006103515625
+    AllFalse14,    // Probability { prob: 32767, shift: 15 } = 0.999969482421875
+    AllTrue14,     // Probability { prob: 1, shift: 15 } = 0.000030517578125
+    AllFalse15,    // Probability { prob: 65535, shift: 16 } = 0.9999847412109375
+    AllTrue15,     // Probability { prob: 1, shift: 16 } = 0.0000152587890625
 }
 use BitContext::*;
 
 impl BitContext {
     pub fn probability(self) -> Probability {
         match self {
-            Count0_0 => Probability { prob: 2, shift: 2 },
-            Count1_0 => Probability { prob: 85, shift: 8 },
-            Count0_1 => Probability { prob: 85, shift: 7 },
-            Count2_0 => Probability { prob: 1, shift: 2 },
-            Count1_1 => Probability { prob: 2, shift: 2 },
-            Count0_2 => Probability { prob: 3, shift: 2 },
-            Count3_0 => Probability { prob: 51, shift: 8 },
-            Count2_1 => Probability { prob: 85, shift: 8 },
-            Count1_2 => Probability { prob: 85, shift: 7 },
-            Count0_3 => Probability { prob: 51, shift: 6 },
-            Count4_0 => Probability { prob: 21, shift: 7 },
-            Count3_1 => Probability { prob: 1, shift: 2 },
-            Count2_2 => Probability { prob: 2, shift: 2 },
-            Count1_3 => Probability { prob: 3, shift: 2 },
-            Count0_4 => Probability {
+            True0False0 => Probability { prob: 2, shift: 2 },
+            True0False1 => Probability { prob: 85, shift: 7 },
+            True1False0 => Probability { prob: 85, shift: 8 },
+            True0False2 => Probability { prob: 3, shift: 2 },
+            True1False1 => Probability { prob: 2, shift: 2 },
+            True2False0 => Probability { prob: 1, shift: 2 },
+            True0False3 => Probability { prob: 51, shift: 6 },
+            True1False2 => Probability { prob: 85, shift: 7 },
+            True2False1 => Probability { prob: 85, shift: 8 },
+            True3False0 => Probability { prob: 51, shift: 8 },
+            True0False4 => Probability {
                 prob: 213,
                 shift: 8,
             },
-            Count5_0 => Probability { prob: 9, shift: 6 },
-            Count4_1 => Probability { prob: 51, shift: 8 },
-            Count3_2 => Probability { prob: 51, shift: 7 },
-            Count2_3 => Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Count1_4 => Probability { prob: 51, shift: 6 },
-            Count0_5 => Probability {
+            True1False3 => Probability { prob: 3, shift: 2 },
+            True2False2 => Probability { prob: 2, shift: 2 },
+            True3False1 => Probability { prob: 1, shift: 2 },
+            True4False0 => Probability { prob: 21, shift: 7 },
+            True0False5 => Probability {
                 prob: 219,
                 shift: 8,
             },
-            Count6_0 => Probability { prob: 1, shift: 3 },
-            Count5_1 => Probability { prob: 21, shift: 7 },
-            Count4_2 => Probability { prob: 85, shift: 8 },
-            Count3_3 => Probability { prob: 2, shift: 2 },
-            Count2_4 => Probability { prob: 85, shift: 7 },
-            Count1_5 => Probability {
+            True1False4 => Probability { prob: 51, shift: 6 },
+            True2False3 => Probability {
+                prob: 153,
+                shift: 8,
+            },
+            True3False2 => Probability { prob: 51, shift: 7 },
+            True4False1 => Probability { prob: 51, shift: 8 },
+            True5False0 => Probability { prob: 9, shift: 6 },
+            True0False6 => Probability { prob: 7, shift: 3 },
+            True1False5 => Probability {
                 prob: 213,
                 shift: 8,
             },
-            Count0_6 => Probability { prob: 7, shift: 3 },
-            Count7_0 => Probability { prob: 7, shift: 6 },
-            Count6_1 => Probability { prob: 9, shift: 6 },
-            Count5_2 => Probability { prob: 73, shift: 8 },
-            Count4_3 => Probability {
+            True2False4 => Probability { prob: 85, shift: 7 },
+            True3False3 => Probability { prob: 2, shift: 2 },
+            True4False2 => Probability { prob: 85, shift: 8 },
+            True5False1 => Probability { prob: 21, shift: 7 },
+            True6False0 => Probability { prob: 1, shift: 3 },
+            True0False7 => Probability {
+                prob: 227,
+                shift: 8,
+            },
+            True1False6 => Probability {
+                prob: 219,
+                shift: 8,
+            },
+            True2False5 => Probability { prob: 91, shift: 7 },
+            True3False4 => Probability { prob: 73, shift: 7 },
+            True4False3 => Probability {
                 prob: 109,
                 shift: 8,
             },
-            Count3_4 => Probability { prob: 73, shift: 7 },
-            Count2_5 => Probability { prob: 91, shift: 7 },
-            Count1_6 => Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Count0_7 => Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Count8_0 => Probability { prob: 25, shift: 8 },
-            Count7_1 => Probability { prob: 1, shift: 3 },
-            Count6_2 => Probability { prob: 1, shift: 2 },
-            Count5_3 => Probability { prob: 3, shift: 3 },
-            Count4_4 => Probability { prob: 2, shift: 2 },
-            Count3_5 => Probability { prob: 5, shift: 3 },
-            Count2_6 => Probability { prob: 3, shift: 2 },
-            Count1_7 => Probability { prob: 7, shift: 3 },
-            Count0_8 => Probability {
+            True5False2 => Probability { prob: 73, shift: 8 },
+            True6False1 => Probability { prob: 9, shift: 6 },
+            True7False0 => Probability { prob: 7, shift: 6 },
+            True0False8 => Probability {
                 prob: 115,
                 shift: 7,
             },
-            Count9_0 => Probability { prob: 23, shift: 8 },
-            Count8_1 => Probability { prob: 7, shift: 6 },
-            Count7_2 => Probability { prob: 7, shift: 5 },
-            Count6_3 => Probability { prob: 85, shift: 8 },
-            Count5_4 => Probability {
-                prob: 113,
+            True1False7 => Probability { prob: 7, shift: 3 },
+            True2False6 => Probability { prob: 3, shift: 2 },
+            True3False5 => Probability { prob: 5, shift: 3 },
+            True4False4 => Probability { prob: 2, shift: 2 },
+            True5False3 => Probability { prob: 3, shift: 3 },
+            True6False2 => Probability { prob: 1, shift: 2 },
+            True7False1 => Probability { prob: 1, shift: 3 },
+            True8False0 => Probability { prob: 25, shift: 8 },
+            True0False9 => Probability { prob: 29, shift: 5 },
+            True1False8 => Probability {
+                prob: 227,
                 shift: 8,
             },
-            Count4_5 => Probability { prob: 71, shift: 7 },
-            Count3_6 => Probability { prob: 85, shift: 7 },
-            Count2_7 => Probability {
+            True2False7 => Probability {
                 prob: 199,
                 shift: 8,
             },
-            Count1_8 => Probability {
-                prob: 227,
+            True3False6 => Probability { prob: 85, shift: 7 },
+            True4False5 => Probability { prob: 71, shift: 7 },
+            True5False4 => Probability {
+                prob: 113,
                 shift: 8,
             },
-            Count0_9 => Probability { prob: 29, shift: 5 },
-            Count10_0 => Probability { prob: 21, shift: 8 },
-            Count9_1 => Probability { prob: 25, shift: 8 },
-            Count8_2 => Probability { prob: 51, shift: 8 },
-            Count7_3 => Probability { prob: 19, shift: 6 },
-            Count6_4 => Probability { prob: 51, shift: 7 },
-            Count5_5 => Probability { prob: 2, shift: 2 },
-            Count4_6 => Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Count3_7 => Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Count2_8 => Probability { prob: 51, shift: 6 },
-            Count1_9 => Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Count0_10 => Probability {
+            True6False3 => Probability { prob: 85, shift: 8 },
+            True7False2 => Probability { prob: 7, shift: 5 },
+            True8False1 => Probability { prob: 7, shift: 6 },
+            True9False0 => Probability { prob: 23, shift: 8 },
+            True0False10 => Probability {
                 prob: 117,
                 shift: 7,
             },
-            Count11_0 => Probability { prob: 19, shift: 8 },
-            Count10_1 => Probability { prob: 23, shift: 8 },
-            Count9_2 => Probability { prob: 23, shift: 7 },
-            Count8_3 => Probability { prob: 69, shift: 8 },
-            Count7_4 => Probability { prob: 93, shift: 8 },
-            Count6_5 => Probability { prob: 29, shift: 6 },
-            Count5_6 => Probability {
-                prob: 139,
+            True1False9 => Probability {
+                prob: 115,
+                shift: 7,
+            },
+            True2False8 => Probability { prob: 51, shift: 6 },
+            True3False7 => Probability {
+                prob: 179,
                 shift: 8,
             },
-            Count4_7 => Probability { prob: 81, shift: 7 },
-            Count3_8 => Probability { prob: 93, shift: 7 },
-            Count2_9 => Probability {
+            True4False6 => Probability {
+                prob: 153,
+                shift: 8,
+            },
+            True5False5 => Probability { prob: 2, shift: 2 },
+            True6False4 => Probability { prob: 51, shift: 7 },
+            True7False3 => Probability { prob: 19, shift: 6 },
+            True8False2 => Probability { prob: 51, shift: 8 },
+            True9False1 => Probability { prob: 25, shift: 8 },
+            True10False0 => Probability { prob: 21, shift: 8 },
+            True0False11 => Probability { prob: 59, shift: 6 },
+            True1False10 => Probability { prob: 29, shift: 5 },
+            True2False9 => Probability {
                 prob: 209,
                 shift: 8,
             },
-            Count1_10 => Probability { prob: 29, shift: 5 },
-            Count0_11 => Probability { prob: 59, shift: 6 },
-            Count12_0 => Probability { prob: 9, shift: 7 },
-            Count11_1 => Probability { prob: 21, shift: 8 },
-            Count10_2 => Probability { prob: 21, shift: 7 },
-            Count9_3 => Probability { prob: 1, shift: 2 },
-            Count8_4 => Probability { prob: 85, shift: 8 },
-            Count7_5 => Probability { prob: 53, shift: 7 },
-            Count6_6 => Probability { prob: 2, shift: 2 },
-            Count5_7 => Probability {
-                prob: 149,
+            True3False8 => Probability { prob: 93, shift: 7 },
+            True4False7 => Probability { prob: 81, shift: 7 },
+            True5False6 => Probability {
+                prob: 139,
                 shift: 8,
             },
-            Count4_8 => Probability { prob: 85, shift: 7 },
-            Count3_9 => Probability { prob: 3, shift: 2 },
-            Count2_10 => Probability {
-                prob: 213,
+            True6False5 => Probability { prob: 29, shift: 6 },
+            True7False4 => Probability { prob: 93, shift: 8 },
+            True8False3 => Probability { prob: 69, shift: 8 },
+            True9False2 => Probability { prob: 23, shift: 7 },
+            True10False1 => Probability { prob: 23, shift: 8 },
+            True11False0 => Probability { prob: 19, shift: 8 },
+            True0False12 => Probability {
+                prob: 237,
                 shift: 8,
             },
-            Count1_11 => Probability {
+            True1False11 => Probability {
                 prob: 117,
                 shift: 7,
             },
-            Count0_12 => Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Count13_0 => Probability { prob: 17, shift: 8 },
-            Count12_1 => Probability { prob: 19, shift: 8 },
-            Count11_2 => Probability { prob: 39, shift: 8 },
-            Count10_3 => Probability { prob: 59, shift: 8 },
-            Count9_4 => Probability { prob: 39, shift: 7 },
-            Count8_5 => Probability { prob: 49, shift: 7 },
-            Count7_6 => Probability { prob: 59, shift: 7 },
-            Count6_7 => Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Count5_8 => Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Count4_9 => Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Count3_10 => Probability { prob: 49, shift: 6 },
-            Count2_11 => Probability { prob: 27, shift: 5 },
-            Count1_12 => Probability { prob: 59, shift: 6 },
-            Count0_13 => Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Count14_0 => Probability { prob: 1, shift: 4 },
-            Count13_1 => Probability { prob: 9, shift: 7 },
-            Count12_2 => Probability { prob: 9, shift: 6 },
-            Count11_3 => Probability { prob: 27, shift: 7 },
-            Count10_4 => Probability { prob: 73, shift: 8 },
-            Count9_5 => Probability { prob: 91, shift: 8 },
-            Count8_6 => Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Count7_7 => Probability { prob: 2, shift: 2 },
-            Count6_8 => Probability { prob: 73, shift: 7 },
-            Count5_9 => Probability { prob: 41, shift: 6 },
-            Count4_10 => Probability { prob: 91, shift: 7 },
-            Count3_11 => Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Count2_12 => Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Count1_13 => Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Count0_14 => Probability { prob: 15, shift: 4 },
-            Count15_0 => Probability { prob: 15, shift: 8 },
-            Count14_1 => Probability { prob: 17, shift: 8 },
-            Count13_2 => Probability { prob: 17, shift: 7 },
-            Count12_3 => Probability { prob: 51, shift: 8 },
-            Count11_4 => Probability { prob: 17, shift: 6 },
-            Count10_5 => Probability { prob: 85, shift: 8 },
-            Count9_6 => Probability { prob: 51, shift: 7 },
-            Count8_7 => Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Count7_8 => Probability { prob: 17, shift: 5 },
-            Count6_9 => Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Count5_10 => Probability { prob: 85, shift: 7 },
-            Count4_11 => Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Count3_12 => Probability { prob: 51, shift: 6 },
-            Count2_13 => Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Count1_14 => Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Count0_15 => Probability { prob: 15, shift: 4 },
-            Count16_0 => Probability { prob: 7, shift: 7 },
-            Count15_1 => Probability { prob: 1, shift: 4 },
-            Count14_2 => Probability { prob: 1, shift: 3 },
-            Count13_3 => Probability { prob: 3, shift: 4 },
-            Count12_4 => Probability { prob: 1, shift: 2 },
-            Count11_5 => Probability { prob: 5, shift: 4 },
-            Count10_6 => Probability { prob: 3, shift: 3 },
-            Count9_7 => Probability { prob: 7, shift: 4 },
-            Count8_8 => Probability { prob: 2, shift: 2 },
-            Count7_9 => Probability { prob: 9, shift: 4 },
-            Count6_10 => Probability { prob: 5, shift: 3 },
-            Count5_11 => Probability { prob: 11, shift: 4 },
-            Count4_12 => Probability { prob: 3, shift: 2 },
-            Count3_13 => Probability { prob: 13, shift: 4 },
-            Count2_14 => Probability { prob: 7, shift: 3 },
-            Count1_15 => Probability { prob: 15, shift: 4 },
-            Count0_16 => Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Count17_0 => Probability { prob: 13, shift: 8 },
-            Count16_1 => Probability { prob: 15, shift: 8 },
-            Count15_2 => Probability { prob: 15, shift: 7 },
-            Count14_3 => Probability { prob: 45, shift: 8 },
-            Count13_4 => Probability { prob: 15, shift: 6 },
-            Count12_5 => Probability { prob: 75, shift: 8 },
-            Count11_6 => Probability { prob: 45, shift: 7 },
-            Count10_7 => Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Count9_8 => Probability { prob: 15, shift: 5 },
-            Count8_9 => Probability {
-                prob: 135,
-                shift: 8,
-            },
-            Count7_10 => Probability { prob: 75, shift: 7 },
-            Count6_11 => Probability {
-                prob: 165,
-                shift: 8,
-            },
-            Count5_12 => Probability { prob: 45, shift: 6 },
-            Count4_13 => Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Count3_14 => Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Count2_15 => Probability {
-                prob: 225,
-                shift: 8,
-            },
-            Count1_16 => Probability { prob: 15, shift: 4 },
-            Count0_17 => Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Count18_0 => Probability { prob: 3, shift: 6 },
-            Count17_1 => Probability { prob: 7, shift: 7 },
-            Count16_2 => Probability { prob: 7, shift: 6 },
-            Count15_3 => Probability { prob: 21, shift: 7 },
-            Count14_4 => Probability { prob: 7, shift: 5 },
-            Count13_5 => Probability { prob: 71, shift: 8 },
-            Count12_6 => Probability { prob: 85, shift: 8 },
-            Count11_7 => Probability { prob: 99, shift: 8 },
-            Count10_8 => Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Count9_9 => Probability { prob: 2, shift: 2 },
-            Count8_10 => Probability { prob: 71, shift: 7 },
-            Count7_11 => Probability { prob: 39, shift: 6 },
-            Count6_12 => Probability { prob: 85, shift: 7 },
-            Count5_13 => Probability { prob: 23, shift: 5 },
-            Count4_14 => Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Count3_15 => Probability {
+            True2False10 => Probability {
                 prob: 213,
                 shift: 8,
             },
-            Count2_16 => Probability {
-                prob: 227,
+            True3False9 => Probability { prob: 3, shift: 2 },
+            True4False8 => Probability { prob: 85, shift: 7 },
+            True5False7 => Probability {
+                prob: 149,
                 shift: 8,
             },
-            Count1_17 => Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Count0_18 => Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Count19_0 => Probability { prob: 3, shift: 6 },
-            Count18_1 => Probability { prob: 13, shift: 8 },
-            Count17_2 => Probability { prob: 13, shift: 7 },
-            Count16_3 => Probability { prob: 5, shift: 5 },
-            Count15_4 => Probability { prob: 53, shift: 8 },
-            Count14_5 => Probability { prob: 67, shift: 8 },
-            Count13_6 => Probability { prob: 5, shift: 4 },
-            Count12_7 => Probability { prob: 47, shift: 7 },
-            Count11_8 => Probability {
-                prob: 107,
-                shift: 8,
-            },
-            Count10_9 => Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Count9_10 => Probability { prob: 67, shift: 7 },
-            Count8_11 => Probability { prob: 37, shift: 6 },
-            Count7_12 => Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Count6_13 => Probability {
-                prob: 175,
-                shift: 8,
-            },
-            Count5_14 => Probability { prob: 47, shift: 6 },
-            Count4_15 => Probability {
-                prob: 101,
+            True6False6 => Probability { prob: 2, shift: 2 },
+            True7False5 => Probability { prob: 53, shift: 7 },
+            True8False4 => Probability { prob: 85, shift: 8 },
+            True9False3 => Probability { prob: 1, shift: 2 },
+            True10False2 => Probability { prob: 21, shift: 7 },
+            True11False1 => Probability { prob: 21, shift: 8 },
+            True12False0 => Probability { prob: 9, shift: 7 },
+            True0False13 => Probability {
+                prob: 119,
                 shift: 7,
             },
-            Count3_16 => Probability {
-                prob: 215,
+            True1False12 => Probability { prob: 59, shift: 6 },
+            True2False11 => Probability { prob: 27, shift: 5 },
+            True3False10 => Probability { prob: 49, shift: 6 },
+            True4False9 => Probability {
+                prob: 177,
                 shift: 8,
             },
-            Count2_17 => Probability {
-                prob: 229,
+            True5False8 => Probability {
+                prob: 157,
                 shift: 8,
             },
-            Count1_18 => Probability {
-                prob: 121,
+            True6False7 => Probability {
+                prob: 137,
+                shift: 8,
+            },
+            True7False6 => Probability { prob: 59, shift: 7 },
+            True8False5 => Probability { prob: 49, shift: 7 },
+            True9False4 => Probability { prob: 39, shift: 7 },
+            True10False3 => Probability { prob: 59, shift: 8 },
+            True11False2 => Probability { prob: 39, shift: 8 },
+            True12False1 => Probability { prob: 19, shift: 8 },
+            True13False0 => Probability { prob: 17, shift: 8 },
+            True0False14 => Probability { prob: 15, shift: 4 },
+            True1False13 => Probability {
+                prob: 237,
+                shift: 8,
+            },
+            True2False12 => Probability {
+                prob: 219,
+                shift: 8,
+            },
+            True3False11 => Probability {
+                prob: 201,
+                shift: 8,
+            },
+            True4False10 => Probability { prob: 91, shift: 7 },
+            True5False9 => Probability { prob: 41, shift: 6 },
+            True6False8 => Probability { prob: 73, shift: 7 },
+            True7False7 => Probability { prob: 2, shift: 2 },
+            True8False6 => Probability {
+                prob: 109,
+                shift: 8,
+            },
+            True9False5 => Probability { prob: 91, shift: 8 },
+            True10False4 => Probability { prob: 73, shift: 8 },
+            True11False3 => Probability { prob: 27, shift: 7 },
+            True12False2 => Probability { prob: 9, shift: 6 },
+            True13False1 => Probability { prob: 9, shift: 7 },
+            True14False0 => Probability { prob: 1, shift: 4 },
+            True0False15 => Probability { prob: 15, shift: 4 },
+            True1False14 => Probability {
+                prob: 119,
                 shift: 7,
             },
-            Count0_19 => Probability {
-                prob: 243,
+            True2False13 => Probability {
+                prob: 221,
                 shift: 8,
             },
-            Count20_0 => Probability { prob: 11, shift: 8 },
-            Count19_1 => Probability { prob: 3, shift: 6 },
-            Count18_2 => Probability { prob: 25, shift: 8 },
-            Count17_3 => Probability { prob: 19, shift: 7 },
-            Count16_4 => Probability { prob: 51, shift: 8 },
-            Count15_5 => Probability { prob: 1, shift: 2 },
-            Count14_6 => Probability { prob: 19, shift: 6 },
-            Count13_7 => Probability { prob: 89, shift: 8 },
-            Count12_8 => Probability { prob: 51, shift: 7 },
-            Count11_9 => Probability {
-                prob: 115,
+            True3False12 => Probability { prob: 51, shift: 6 },
+            True4False11 => Probability {
+                prob: 187,
                 shift: 8,
             },
-            Count10_10 => Probability { prob: 2, shift: 2 },
-            Count9_11 => Probability { prob: 35, shift: 6 },
-            Count8_12 => Probability {
+            True5False10 => Probability { prob: 85, shift: 7 },
+            True6False9 => Probability {
                 prob: 153,
                 shift: 8,
             },
-            Count7_13 => Probability { prob: 83, shift: 7 },
-            Count6_14 => Probability {
-                prob: 179,
+            True7False8 => Probability { prob: 17, shift: 5 },
+            True8False7 => Probability {
+                prob: 119,
                 shift: 8,
             },
-            Count5_15 => Probability { prob: 3, shift: 2 },
-            Count4_16 => Probability { prob: 51, shift: 6 },
-            Count3_17 => Probability {
-                prob: 217,
+            True9False6 => Probability { prob: 51, shift: 7 },
+            True10False5 => Probability { prob: 85, shift: 8 },
+            True11False4 => Probability { prob: 17, shift: 6 },
+            True12False3 => Probability { prob: 51, shift: 8 },
+            True13False2 => Probability { prob: 17, shift: 7 },
+            True14False1 => Probability { prob: 17, shift: 8 },
+            True15False0 => Probability { prob: 15, shift: 8 },
+            True0False16 => Probability {
+                prob: 241,
                 shift: 8,
             },
-            Count2_18 => Probability {
-                prob: 115,
+            True1False15 => Probability { prob: 15, shift: 4 },
+            True2False14 => Probability { prob: 7, shift: 3 },
+            True3False13 => Probability { prob: 13, shift: 4 },
+            True4False12 => Probability { prob: 3, shift: 2 },
+            True5False11 => Probability { prob: 11, shift: 4 },
+            True6False10 => Probability { prob: 5, shift: 3 },
+            True7False9 => Probability { prob: 9, shift: 4 },
+            True8False8 => Probability { prob: 2, shift: 2 },
+            True9False7 => Probability { prob: 7, shift: 4 },
+            True10False6 => Probability { prob: 3, shift: 3 },
+            True11False5 => Probability { prob: 5, shift: 4 },
+            True12False4 => Probability { prob: 1, shift: 2 },
+            True13False3 => Probability { prob: 3, shift: 4 },
+            True14False2 => Probability { prob: 1, shift: 3 },
+            True15False1 => Probability { prob: 1, shift: 4 },
+            True16False0 => Probability { prob: 7, shift: 7 },
+            True0False17 => Probability {
+                prob: 121,
                 shift: 7,
             },
-            Count1_19 => Probability {
+            True1False16 => Probability { prob: 15, shift: 4 },
+            True2False15 => Probability {
+                prob: 225,
+                shift: 8,
+            },
+            True3False14 => Probability {
+                prob: 105,
+                shift: 7,
+            },
+            True4False13 => Probability {
+                prob: 195,
+                shift: 8,
+            },
+            True5False12 => Probability { prob: 45, shift: 6 },
+            True6False11 => Probability {
+                prob: 165,
+                shift: 8,
+            },
+            True7False10 => Probability { prob: 75, shift: 7 },
+            True8False9 => Probability {
+                prob: 135,
+                shift: 8,
+            },
+            True9False8 => Probability { prob: 15, shift: 5 },
+            True10False7 => Probability {
+                prob: 105,
+                shift: 8,
+            },
+            True11False6 => Probability { prob: 45, shift: 7 },
+            True12False5 => Probability { prob: 75, shift: 8 },
+            True13False4 => Probability { prob: 15, shift: 6 },
+            True14False3 => Probability { prob: 45, shift: 8 },
+            True15False2 => Probability { prob: 15, shift: 7 },
+            True16False1 => Probability { prob: 15, shift: 8 },
+            True17False0 => Probability { prob: 13, shift: 8 },
+            True0False18 => Probability {
                 prob: 243,
                 shift: 8,
             },
-            Count0_20 => Probability { prob: 61, shift: 6 },
+            True1False17 => Probability {
+                prob: 241,
+                shift: 8,
+            },
+            True2False16 => Probability {
+                prob: 227,
+                shift: 8,
+            },
+            True3False15 => Probability {
+                prob: 213,
+                shift: 8,
+            },
+            True4False14 => Probability {
+                prob: 199,
+                shift: 8,
+            },
+            True5False13 => Probability { prob: 23, shift: 5 },
+            True6False12 => Probability { prob: 85, shift: 7 },
+            True7False11 => Probability { prob: 39, shift: 6 },
+            True8False10 => Probability { prob: 71, shift: 7 },
+            True9False9 => Probability { prob: 2, shift: 2 },
+            True10False8 => Probability {
+                prob: 113,
+                shift: 8,
+            },
+            True11False7 => Probability { prob: 99, shift: 8 },
+            True12False6 => Probability { prob: 85, shift: 8 },
+            True13False5 => Probability { prob: 71, shift: 8 },
+            True14False4 => Probability { prob: 7, shift: 5 },
+            True15False3 => Probability { prob: 21, shift: 7 },
+            True16False2 => Probability { prob: 7, shift: 6 },
+            True17False1 => Probability { prob: 7, shift: 7 },
+            True18False0 => Probability { prob: 3, shift: 6 },
+            True0False19 => Probability {
+                prob: 243,
+                shift: 8,
+            },
+            True1False18 => Probability {
+                prob: 121,
+                shift: 7,
+            },
+            True2False17 => Probability {
+                prob: 229,
+                shift: 8,
+            },
+            True3False16 => Probability {
+                prob: 215,
+                shift: 8,
+            },
+            True4False15 => Probability {
+                prob: 101,
+                shift: 7,
+            },
+            True5False14 => Probability { prob: 47, shift: 6 },
+            True6False13 => Probability {
+                prob: 175,
+                shift: 8,
+            },
+            True7False12 => Probability {
+                prob: 161,
+                shift: 8,
+            },
+            True8False11 => Probability { prob: 37, shift: 6 },
+            True9False10 => Probability { prob: 67, shift: 7 },
+            True10False9 => Probability {
+                prob: 121,
+                shift: 8,
+            },
+            True11False8 => Probability {
+                prob: 107,
+                shift: 8,
+            },
+            True12False7 => Probability { prob: 47, shift: 7 },
+            True13False6 => Probability { prob: 5, shift: 4 },
+            True14False5 => Probability { prob: 67, shift: 8 },
+            True15False4 => Probability { prob: 53, shift: 8 },
+            True16False3 => Probability { prob: 5, shift: 5 },
+            True17False2 => Probability { prob: 13, shift: 7 },
+            True18False1 => Probability { prob: 13, shift: 8 },
+            True19False0 => Probability { prob: 3, shift: 6 },
+            True0False20 => Probability { prob: 61, shift: 6 },
+            True1False19 => Probability {
+                prob: 243,
+                shift: 8,
+            },
+            True2False18 => Probability {
+                prob: 115,
+                shift: 7,
+            },
+            True3False17 => Probability {
+                prob: 217,
+                shift: 8,
+            },
+            True4False16 => Probability { prob: 51, shift: 6 },
+            True5False15 => Probability { prob: 3, shift: 2 },
+            True6False14 => Probability {
+                prob: 179,
+                shift: 8,
+            },
+            True7False13 => Probability { prob: 83, shift: 7 },
+            True8False12 => Probability {
+                prob: 153,
+                shift: 8,
+            },
+            True9False11 => Probability { prob: 35, shift: 6 },
+            True10False10 => Probability { prob: 2, shift: 2 },
+            True11False9 => Probability {
+                prob: 115,
+                shift: 8,
+            },
+            True12False8 => Probability { prob: 51, shift: 7 },
+            True13False7 => Probability { prob: 89, shift: 8 },
+            True14False6 => Probability { prob: 19, shift: 6 },
+            True15False5 => Probability { prob: 1, shift: 2 },
+            True16False4 => Probability { prob: 51, shift: 8 },
+            True17False3 => Probability { prob: 19, shift: 7 },
+            True18False2 => Probability { prob: 25, shift: 8 },
+            True19False1 => Probability { prob: 3, shift: 6 },
+            True20False0 => Probability { prob: 11, shift: 8 },
             AllFalse4 => Probability { prob: 31, shift: 5 },
             AllTrue4 => Probability { prob: 1, shift: 5 },
             AllFalse5 => Probability { prob: 63, shift: 6 },
@@ -745,1621 +745,1621 @@ impl BitContext {
 
     pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {
         match self {
-            Count0_0 => {
+            True0False0 => {
                 if bit == false {
-                    Count1_0
+                    True0False1
                 } else {
-                    Count0_1
+                    True1False0
                 }
             }
-            Count1_0 => {
-                if bit == true {
-                    Count2_0
-                } else {
-                    Count1_1
-                }
-            }
-            Count0_1 => {
+            True0False1 => {
                 if bit == false {
-                    Count0_2
+                    True0False2
                 } else {
-                    Count1_1
+                    True1False1
                 }
             }
-            Count2_0 => {
+            True1False0 => {
                 if bit == true {
-                    Count3_0
+                    True2False0
                 } else {
-                    Count2_1
+                    True1False1
                 }
             }
-            Count1_1 => {
+            True0False2 => {
                 if bit == false {
-                    Count2_1
+                    True0False3
                 } else {
-                    Count1_2
+                    True1False2
                 }
             }
-            Count0_2 => {
+            True1False1 => {
                 if bit == false {
-                    Count0_3
+                    True1False2
                 } else {
-                    Count1_2
+                    True2False1
                 }
             }
-            Count3_0 => {
+            True2False0 => {
                 if bit == true {
-                    Count4_0
+                    True3False0
                 } else {
-                    Count3_1
+                    True2False1
                 }
             }
-            Count2_1 => {
-                if bit == true {
-                    Count3_1
-                } else {
-                    Count2_2
-                }
-            }
-            Count1_2 => {
+            True0False3 => {
                 if bit == false {
-                    Count1_3
+                    True0False4
                 } else {
-                    Count2_2
+                    True1False3
                 }
             }
-            Count0_3 => {
+            True1False2 => {
                 if bit == false {
-                    Count0_4
+                    True1False3
                 } else {
-                    Count1_3
+                    True2False2
                 }
             }
-            Count4_0 => {
+            True2False1 => {
                 if bit == true {
-                    Count5_0
+                    True3False1
                 } else {
-                    Count4_1
+                    True2False2
                 }
             }
-            Count3_1 => {
+            True3False0 => {
                 if bit == true {
-                    Count4_1
+                    True4False0
                 } else {
-                    Count3_2
+                    True3False1
                 }
             }
-            Count2_2 => {
+            True0False4 => {
                 if bit == false {
-                    Count3_2
+                    True0False5
                 } else {
-                    Count2_3
+                    True1False4
                 }
             }
-            Count1_3 => {
+            True1False3 => {
                 if bit == false {
-                    Count1_4
+                    True1False4
                 } else {
-                    Count2_3
+                    True2False3
                 }
             }
-            Count0_4 => {
+            True2False2 => {
                 if bit == false {
-                    Count0_5
-                } else {
-                    Count1_4
-                }
-            }
-            Count5_0 => {
-                if bit == true {
-                    Count6_0
+                    True2False3
                 } else {
-                    Count5_1
+                    True3False2
                 }
             }
-            Count4_1 => {
+            True3False1 => {
                 if bit == true {
-                    Count5_1
+                    True4False1
                 } else {
-                    Count4_2
+                    True3False2
                 }
             }
-            Count3_2 => {
+            True4False0 => {
                 if bit == true {
-                    Count4_2
+                    True5False0
                 } else {
-                    Count3_3
+                    True4False1
                 }
             }
-            Count2_3 => {
+            True0False5 => {
                 if bit == false {
-                    Count2_4
+                    True0False6
                 } else {
-                    Count3_3
+                    True1False5
                 }
             }
-            Count1_4 => {
+            True1False4 => {
                 if bit == false {
-                    Count1_5
+                    True1False5
                 } else {
-                    Count2_4
+                    True2False4
                 }
             }
-            Count0_5 => {
+            True2False3 => {
                 if bit == false {
-                    Count0_6
+                    True2False4
                 } else {
-                    Count1_5
+                    True3False3
                 }
             }
-            Count6_0 => {
+            True3False2 => {
                 if bit == true {
-                    Count7_0
+                    True4False2
                 } else {
-                    Count6_1
+                    True3False3
                 }
             }
-            Count5_1 => {
+            True4False1 => {
                 if bit == true {
-                    Count6_1
+                    True5False1
                 } else {
-                    Count5_2
+                    True4False2
                 }
             }
-            Count4_2 => {
+            True5False0 => {
                 if bit == true {
-                    Count5_2
+                    True6False0
                 } else {
-                    Count4_3
+                    True5False1
                 }
             }
-            Count3_3 => {
+            True0False6 => {
                 if bit == false {
-                    Count4_3
+                    True0False7
                 } else {
-                    Count3_4
+                    True1False6
                 }
             }
-            Count2_4 => {
+            True1False5 => {
                 if bit == false {
-                    Count2_5
+                    True1False6
                 } else {
-                    Count3_4
+                    True2False5
                 }
             }
-            Count1_5 => {
+            True2False4 => {
                 if bit == false {
-                    Count1_6
+                    True2False5
                 } else {
-                    Count2_5
+                    True3False4
                 }
             }
-            Count0_6 => {
+            True3False3 => {
                 if bit == false {
-                    Count0_7
-                } else {
-                    Count1_6
-                }
-            }
-            Count7_0 => {
-                if bit == true {
-                    Count8_0
+                    True3False4
                 } else {
-                    Count7_1
+                    True4False3
                 }
             }
-            Count6_1 => {
+            True4False2 => {
                 if bit == true {
-                    Count7_1
+                    True5False2
                 } else {
-                    Count6_2
+                    True4False3
                 }
             }
-            Count5_2 => {
+            True5False1 => {
                 if bit == true {
-                    Count6_2
+                    True6False1
                 } else {
-                    Count5_3
+                    True5False2
                 }
             }
-            Count4_3 => {
+            True6False0 => {
                 if bit == true {
-                    Count5_3
+                    True7False0
                 } else {
-                    Count4_4
+                    True6False1
                 }
             }
-            Count3_4 => {
+            True0False7 => {
                 if bit == false {
-                    Count3_5
+                    True0False8
                 } else {
-                    Count4_4
+                    True1False7
                 }
             }
-            Count2_5 => {
+            True1False6 => {
                 if bit == false {
-                    Count2_6
+                    True1False7
                 } else {
-                    Count3_5
+                    True2False6
                 }
             }
-            Count1_6 => {
+            True2False5 => {
                 if bit == false {
-                    Count1_7
+                    True2False6
                 } else {
-                    Count2_6
+                    True3False5
                 }
             }
-            Count0_7 => {
+            True3False4 => {
                 if bit == false {
-                    Count0_8
+                    True3False5
                 } else {
-                    Count1_7
+                    True4False4
                 }
             }
-            Count8_0 => {
+            True4False3 => {
                 if bit == true {
-                    Count9_0
+                    True5False3
                 } else {
-                    Count8_1
+                    True4False4
                 }
             }
-            Count7_1 => {
+            True5False2 => {
                 if bit == true {
-                    Count8_1
+                    True6False2
                 } else {
-                    Count7_2
+                    True5False3
                 }
             }
-            Count6_2 => {
+            True6False1 => {
                 if bit == true {
-                    Count7_2
+                    True7False1
                 } else {
-                    Count6_3
+                    True6False2
                 }
             }
-            Count5_3 => {
+            True7False0 => {
                 if bit == true {
-                    Count6_3
+                    True8False0
                 } else {
-                    Count5_4
+                    True7False1
                 }
             }
-            Count4_4 => {
+            True0False8 => {
                 if bit == false {
-                    Count5_4
+                    True0False9
                 } else {
-                    Count4_5
+                    True1False8
                 }
             }
-            Count3_5 => {
+            True1False7 => {
                 if bit == false {
-                    Count3_6
+                    True1False8
                 } else {
-                    Count4_5
+                    True2False7
                 }
             }
-            Count2_6 => {
+            True2False6 => {
                 if bit == false {
-                    Count2_7
+                    True2False7
                 } else {
-                    Count3_6
+                    True3False6
                 }
             }
-            Count1_7 => {
+            True3False5 => {
                 if bit == false {
-                    Count1_8
+                    True3False6
                 } else {
-                    Count2_7
+                    True4False5
                 }
             }
-            Count0_8 => {
+            True4False4 => {
                 if bit == false {
-                    Count0_9
-                } else {
-                    Count1_8
-                }
-            }
-            Count9_0 => {
-                if bit == true {
-                    Count10_0
+                    True4False5
                 } else {
-                    Count9_1
+                    True5False4
                 }
             }
-            Count8_1 => {
+            True5False3 => {
                 if bit == true {
-                    Count9_1
+                    True6False3
                 } else {
-                    Count8_2
+                    True5False4
                 }
             }
-            Count7_2 => {
+            True6False2 => {
                 if bit == true {
-                    Count8_2
+                    True7False2
                 } else {
-                    Count7_3
+                    True6False3
                 }
             }
-            Count6_3 => {
+            True7False1 => {
                 if bit == true {
-                    Count7_3
+                    True8False1
                 } else {
-                    Count6_4
+                    True7False2
                 }
             }
-            Count5_4 => {
+            True8False0 => {
                 if bit == true {
-                    Count6_4
+                    True9False0
                 } else {
-                    Count5_5
+                    True8False1
                 }
             }
-            Count4_5 => {
+            True0False9 => {
                 if bit == false {
-                    Count4_6
+                    True0False10
                 } else {
-                    Count5_5
+                    True1False9
                 }
             }
-            Count3_6 => {
+            True1False8 => {
                 if bit == false {
-                    Count3_7
+                    True1False9
                 } else {
-                    Count4_6
+                    True2False8
                 }
             }
-            Count2_7 => {
+            True2False7 => {
                 if bit == false {
-                    Count2_8
+                    True2False8
                 } else {
-                    Count3_7
+                    True3False7
                 }
             }
-            Count1_8 => {
+            True3False6 => {
                 if bit == false {
-                    Count1_9
+                    True3False7
                 } else {
-                    Count2_8
+                    True4False6
                 }
             }
-            Count0_9 => {
+            True4False5 => {
                 if bit == false {
-                    Count0_10
+                    True4False6
                 } else {
-                    Count1_9
+                    True5False5
                 }
             }
-            Count10_0 => {
+            True5False4 => {
                 if bit == true {
-                    Count11_0
+                    True6False4
                 } else {
-                    Count10_1
+                    True5False5
                 }
             }
-            Count9_1 => {
+            True6False3 => {
                 if bit == true {
-                    Count10_1
+                    True7False3
                 } else {
-                    Count9_2
+                    True6False4
                 }
             }
-            Count8_2 => {
+            True7False2 => {
                 if bit == true {
-                    Count9_2
+                    True8False2
                 } else {
-                    Count8_3
+                    True7False3
                 }
             }
-            Count7_3 => {
+            True8False1 => {
                 if bit == true {
-                    Count8_3
+                    True9False1
                 } else {
-                    Count7_4
+                    True8False2
                 }
             }
-            Count6_4 => {
+            True9False0 => {
                 if bit == true {
-                    Count7_4
+                    True10False0
                 } else {
-                    Count6_5
+                    True9False1
                 }
             }
-            Count5_5 => {
+            True0False10 => {
                 if bit == false {
-                    Count6_5
+                    True0False11
                 } else {
-                    Count5_6
+                    True1False10
                 }
             }
-            Count4_6 => {
+            True1False9 => {
                 if bit == false {
-                    Count4_7
+                    True1False10
                 } else {
-                    Count5_6
+                    True2False9
                 }
             }
-            Count3_7 => {
+            True2False8 => {
                 if bit == false {
-                    Count3_8
+                    True2False9
                 } else {
-                    Count4_7
+                    True3False8
                 }
             }
-            Count2_8 => {
+            True3False7 => {
                 if bit == false {
-                    Count2_9
+                    True3False8
                 } else {
-                    Count3_8
+                    True4False7
                 }
             }
-            Count1_9 => {
+            True4False6 => {
                 if bit == false {
-                    Count1_10
+                    True4False7
                 } else {
-                    Count2_9
+                    True5False6
                 }
             }
-            Count0_10 => {
+            True5False5 => {
                 if bit == false {
-                    Count0_11
-                } else {
-                    Count1_10
-                }
-            }
-            Count11_0 => {
-                if bit == true {
-                    Count12_0
+                    True5False6
                 } else {
-                    Count11_1
+                    True6False5
                 }
             }
-            Count10_1 => {
+            True6False4 => {
                 if bit == true {
-                    Count11_1
+                    True7False4
                 } else {
-                    Count10_2
+                    True6False5
                 }
             }
-            Count9_2 => {
+            True7False3 => {
                 if bit == true {
-                    Count10_2
+                    True8False3
                 } else {
-                    Count9_3
+                    True7False4
                 }
             }
-            Count8_3 => {
+            True8False2 => {
                 if bit == true {
-                    Count9_3
+                    True9False2
                 } else {
-                    Count8_4
+                    True8False3
                 }
             }
-            Count7_4 => {
+            True9False1 => {
                 if bit == true {
-                    Count8_4
+                    True10False1
                 } else {
-                    Count7_5
+                    True9False2
                 }
             }
-            Count6_5 => {
+            True10False0 => {
                 if bit == true {
-                    Count7_5
+                    True11False0
                 } else {
-                    Count6_6
+                    True10False1
                 }
             }
-            Count5_6 => {
+            True0False11 => {
                 if bit == false {
-                    Count5_7
+                    True0False12
                 } else {
-                    Count6_6
+                    True1False11
                 }
             }
-            Count4_7 => {
+            True1False10 => {
                 if bit == false {
-                    Count4_8
+                    True1False11
                 } else {
-                    Count5_7
+                    True2False10
                 }
             }
-            Count3_8 => {
+            True2False9 => {
                 if bit == false {
-                    Count3_9
+                    True2False10
                 } else {
-                    Count4_8
+                    True3False9
                 }
             }
-            Count2_9 => {
+            True3False8 => {
                 if bit == false {
-                    Count2_10
+                    True3False9
                 } else {
-                    Count3_9
+                    True4False8
                 }
             }
-            Count1_10 => {
+            True4False7 => {
                 if bit == false {
-                    Count1_11
+                    True4False8
                 } else {
-                    Count2_10
+                    True5False7
                 }
             }
-            Count0_11 => {
+            True5False6 => {
                 if bit == false {
-                    Count0_12
+                    True5False7
                 } else {
-                    Count1_11
+                    True6False6
                 }
             }
-            Count12_0 => {
+            True6False5 => {
                 if bit == true {
-                    Count13_0
+                    True7False5
                 } else {
-                    Count12_1
+                    True6False6
                 }
             }
-            Count11_1 => {
+            True7False4 => {
                 if bit == true {
-                    Count12_1
+                    True8False4
                 } else {
-                    Count11_2
+                    True7False5
                 }
             }
-            Count10_2 => {
+            True8False3 => {
                 if bit == true {
-                    Count11_2
+                    True9False3
                 } else {
-                    Count10_3
+                    True8False4
                 }
             }
-            Count9_3 => {
+            True9False2 => {
                 if bit == true {
-                    Count10_3
+                    True10False2
                 } else {
-                    Count9_4
+                    True9False3
                 }
             }
-            Count8_4 => {
+            True10False1 => {
                 if bit == true {
-                    Count9_4
+                    True11False1
                 } else {
-                    Count8_5
+                    True10False2
                 }
             }
-            Count7_5 => {
+            True11False0 => {
                 if bit == true {
-                    Count8_5
+                    True12False0
                 } else {
-                    Count7_6
+                    True11False1
                 }
             }
-            Count6_6 => {
+            True0False12 => {
                 if bit == false {
-                    Count7_6
+                    True0False13
                 } else {
-                    Count6_7
+                    True1False12
                 }
             }
-            Count5_7 => {
+            True1False11 => {
                 if bit == false {
-                    Count5_8
+                    True1False12
                 } else {
-                    Count6_7
+                    True2False11
                 }
             }
-            Count4_8 => {
+            True2False10 => {
                 if bit == false {
-                    Count4_9
+                    True2False11
                 } else {
-                    Count5_8
+                    True3False10
                 }
             }
-            Count3_9 => {
+            True3False9 => {
                 if bit == false {
-                    Count3_10
+                    True3False10
                 } else {
-                    Count4_9
+                    True4False9
                 }
             }
-            Count2_10 => {
+            True4False8 => {
                 if bit == false {
-                    Count2_11
+                    True4False9
                 } else {
-                    Count3_10
+                    True5False8
                 }
             }
-            Count1_11 => {
+            True5False7 => {
                 if bit == false {
-                    Count1_12
+                    True5False8
                 } else {
-                    Count2_11
+                    True6False7
                 }
             }
-            Count0_12 => {
+            True6False6 => {
                 if bit == false {
-                    Count0_13
-                } else {
-                    Count1_12
-                }
-            }
-            Count13_0 => {
-                if bit == true {
-                    Count14_0
+                    True6False7
                 } else {
-                    Count13_1
+                    True7False6
                 }
             }
-            Count12_1 => {
+            True7False5 => {
                 if bit == true {
-                    Count13_1
+                    True8False5
                 } else {
-                    Count12_2
+                    True7False6
                 }
             }
-            Count11_2 => {
+            True8False4 => {
                 if bit == true {
-                    Count12_2
+                    True9False4
                 } else {
-                    Count11_3
+                    True8False5
                 }
             }
-            Count10_3 => {
+            True9False3 => {
                 if bit == true {
-                    Count11_3
+                    True10False3
                 } else {
-                    Count10_4
+                    True9False4
                 }
             }
-            Count9_4 => {
+            True10False2 => {
                 if bit == true {
-                    Count10_4
+                    True11False2
                 } else {
-                    Count9_5
+                    True10False3
                 }
             }
-            Count8_5 => {
+            True11False1 => {
                 if bit == true {
-                    Count9_5
+                    True12False1
                 } else {
-                    Count8_6
+                    True11False2
                 }
             }
-            Count7_6 => {
+            True12False0 => {
                 if bit == true {
-                    Count8_6
+                    True13False0
                 } else {
-                    Count7_7
+                    True12False1
                 }
             }
-            Count6_7 => {
+            True0False13 => {
                 if bit == false {
-                    Count6_8
+                    True0False14
                 } else {
-                    Count7_7
+                    True1False13
                 }
             }
-            Count5_8 => {
+            True1False12 => {
                 if bit == false {
-                    Count5_9
+                    True1False13
                 } else {
-                    Count6_8
+                    True2False12
                 }
             }
-            Count4_9 => {
+            True2False11 => {
                 if bit == false {
-                    Count4_10
+                    True2False12
                 } else {
-                    Count5_9
+                    True3False11
                 }
             }
-            Count3_10 => {
+            True3False10 => {
                 if bit == false {
-                    Count3_11
+                    True3False11
                 } else {
-                    Count4_10
+                    True4False10
                 }
             }
-            Count2_11 => {
+            True4False9 => {
                 if bit == false {
-                    Count2_12
+                    True4False10
                 } else {
-                    Count3_11
+                    True5False9
                 }
             }
-            Count1_12 => {
+            True5False8 => {
                 if bit == false {
-                    Count1_13
+                    True5False9
                 } else {
-                    Count2_12
+                    True6False8
                 }
             }
-            Count0_13 => {
+            True6False7 => {
                 if bit == false {
-                    Count0_14
+                    True6False8
                 } else {
-                    Count1_13
+                    True7False7
                 }
             }
-            Count14_0 => {
+            True7False6 => {
                 if bit == true {
-                    Count15_0
+                    True8False6
                 } else {
-                    Count14_1
+                    True7False7
                 }
             }
-            Count13_1 => {
+            True8False5 => {
                 if bit == true {
-                    Count14_1
+                    True9False5
                 } else {
-                    Count13_2
+                    True8False6
                 }
             }
-            Count12_2 => {
+            True9False4 => {
                 if bit == true {
-                    Count13_2
+                    True10False4
                 } else {
-                    Count12_3
+                    True9False5
                 }
             }
-            Count11_3 => {
+            True10False3 => {
                 if bit == true {
-                    Count12_3
+                    True11False3
                 } else {
-                    Count11_4
+                    True10False4
                 }
             }
-            Count10_4 => {
+            True11False2 => {
                 if bit == true {
-                    Count11_4
+                    True12False2
                 } else {
-                    Count10_5
+                    True11False3
                 }
             }
-            Count9_5 => {
+            True12False1 => {
                 if bit == true {
-                    Count10_5
+                    True13False1
                 } else {
-                    Count9_6
+                    True12False2
                 }
             }
-            Count8_6 => {
+            True13False0 => {
                 if bit == true {
-                    Count9_6
+                    True14False0
                 } else {
-                    Count8_7
+                    True13False1
                 }
             }
-            Count7_7 => {
+            True0False14 => {
                 if bit == false {
-                    Count8_7
+                    True0False15
                 } else {
-                    Count7_8
+                    True1False14
                 }
             }
-            Count6_8 => {
+            True1False13 => {
                 if bit == false {
-                    Count6_9
+                    True1False14
                 } else {
-                    Count7_8
+                    True2False13
                 }
             }
-            Count5_9 => {
+            True2False12 => {
                 if bit == false {
-                    Count5_10
+                    True2False13
                 } else {
-                    Count6_9
+                    True3False12
                 }
             }
-            Count4_10 => {
+            True3False11 => {
                 if bit == false {
-                    Count4_11
+                    True3False12
                 } else {
-                    Count5_10
+                    True4False11
                 }
             }
-            Count3_11 => {
+            True4False10 => {
                 if bit == false {
-                    Count3_12
+                    True4False11
                 } else {
-                    Count4_11
+                    True5False10
                 }
             }
-            Count2_12 => {
+            True5False9 => {
                 if bit == false {
-                    Count2_13
+                    True5False10
                 } else {
-                    Count3_12
+                    True6False9
                 }
             }
-            Count1_13 => {
+            True6False8 => {
                 if bit == false {
-                    Count1_14
+                    True6False9
                 } else {
-                    Count2_13
+                    True7False8
                 }
             }
-            Count0_14 => {
+            True7False7 => {
                 if bit == false {
-                    Count0_15
+                    True7False8
                 } else {
-                    Count1_14
+                    True8False7
                 }
             }
-            Count15_0 => {
+            True8False6 => {
                 if bit == true {
-                    Count16_0
+                    True9False6
                 } else {
-                    Count15_1
+                    True8False7
                 }
             }
-            Count14_1 => {
+            True9False5 => {
                 if bit == true {
-                    Count15_1
+                    True10False5
                 } else {
-                    Count14_2
+                    True9False6
                 }
             }
-            Count13_2 => {
+            True10False4 => {
                 if bit == true {
-                    Count14_2
+                    True11False4
                 } else {
-                    Count13_3
+                    True10False5
                 }
             }
-            Count12_3 => {
+            True11False3 => {
                 if bit == true {
-                    Count13_3
+                    True12False3
                 } else {
-                    Count12_4
+                    True11False4
                 }
             }
-            Count11_4 => {
+            True12False2 => {
                 if bit == true {
-                    Count12_4
+                    True13False2
                 } else {
-                    Count11_5
+                    True12False3
                 }
             }
-            Count10_5 => {
+            True13False1 => {
                 if bit == true {
-                    Count11_5
+                    True14False1
                 } else {
-                    Count10_6
+                    True13False2
                 }
             }
-            Count9_6 => {
+            True14False0 => {
                 if bit == true {
-                    Count10_6
+                    True15False0
                 } else {
-                    Count9_7
+                    True14False1
                 }
             }
-            Count8_7 => {
-                if bit == true {
-                    Count9_7
-                } else {
-                    Count8_8
-                }
-            }
-            Count7_8 => {
+            True0False15 => {
                 if bit == false {
-                    Count7_9
+                    True0False16
                 } else {
-                    Count8_8
+                    True1False15
                 }
             }
-            Count6_9 => {
+            True1False14 => {
                 if bit == false {
-                    Count6_10
+                    True1False15
                 } else {
-                    Count7_9
+                    True2False14
                 }
             }
-            Count5_10 => {
+            True2False13 => {
                 if bit == false {
-                    Count5_11
+                    True2False14
                 } else {
-                    Count6_10
+                    True3False13
                 }
             }
-            Count4_11 => {
+            True3False12 => {
                 if bit == false {
-                    Count4_12
+                    True3False13
                 } else {
-                    Count5_11
+                    True4False12
                 }
             }
-            Count3_12 => {
+            True4False11 => {
                 if bit == false {
-                    Count3_13
+                    True4False12
                 } else {
-                    Count4_12
+                    True5False11
                 }
             }
-            Count2_13 => {
+            True5False10 => {
                 if bit == false {
-                    Count2_14
+                    True5False11
                 } else {
-                    Count3_13
+                    True6False10
                 }
             }
-            Count1_14 => {
+            True6False9 => {
                 if bit == false {
-                    Count1_15
+                    True6False10
                 } else {
-                    Count2_14
+                    True7False9
                 }
             }
-            Count0_15 => {
+            True7False8 => {
                 if bit == false {
-                    Count0_16
+                    True7False9
                 } else {
-                    Count1_15
+                    True8False8
                 }
             }
-            Count16_0 => {
+            True8False7 => {
                 if bit == true {
-                    Count17_0
+                    True9False7
                 } else {
-                    Count16_1
+                    True8False8
                 }
             }
-            Count15_1 => {
+            True9False6 => {
                 if bit == true {
-                    Count16_1
+                    True10False6
                 } else {
-                    Count15_2
+                    True9False7
                 }
             }
-            Count14_2 => {
+            True10False5 => {
                 if bit == true {
-                    Count15_2
+                    True11False5
                 } else {
-                    Count14_3
+                    True10False6
                 }
             }
-            Count13_3 => {
+            True11False4 => {
                 if bit == true {
-                    Count14_3
+                    True12False4
                 } else {
-                    Count13_4
+                    True11False5
                 }
             }
-            Count12_4 => {
+            True12False3 => {
                 if bit == true {
-                    Count13_4
+                    True13False3
                 } else {
-                    Count12_5
+                    True12False4
                 }
             }
-            Count11_5 => {
+            True13False2 => {
                 if bit == true {
-                    Count12_5
+                    True14False2
                 } else {
-                    Count11_6
+                    True13False3
                 }
             }
-            Count10_6 => {
+            True14False1 => {
                 if bit == true {
-                    Count11_6
+                    True15False1
                 } else {
-                    Count10_7
+                    True14False2
                 }
             }
-            Count9_7 => {
+            True15False0 => {
                 if bit == true {
-                    Count10_7
+                    True16False0
                 } else {
-                    Count9_8
+                    True15False1
                 }
             }
-            Count8_8 => {
+            True0False16 => {
                 if bit == false {
-                    Count9_8
+                    True0False17
                 } else {
-                    Count8_9
+                    True1False16
                 }
             }
-            Count7_9 => {
+            True1False15 => {
                 if bit == false {
-                    Count7_10
+                    True1False16
                 } else {
-                    Count8_9
+                    True2False15
                 }
             }
-            Count6_10 => {
+            True2False14 => {
                 if bit == false {
-                    Count6_11
+                    True2False15
                 } else {
-                    Count7_10
+                    True3False14
                 }
             }
-            Count5_11 => {
+            True3False13 => {
                 if bit == false {
-                    Count5_12
+                    True3False14
                 } else {
-                    Count6_11
+                    True4False13
                 }
             }
-            Count4_12 => {
+            True4False12 => {
                 if bit == false {
-                    Count4_13
+                    True4False13
                 } else {
-                    Count5_12
+                    True5False12
                 }
             }
-            Count3_13 => {
+            True5False11 => {
                 if bit == false {
-                    Count3_14
+                    True5False12
                 } else {
-                    Count4_13
+                    True6False11
                 }
             }
-            Count2_14 => {
+            True6False10 => {
                 if bit == false {
-                    Count2_15
+                    True6False11
                 } else {
-                    Count3_14
+                    True7False10
                 }
             }
-            Count1_15 => {
+            True7False9 => {
                 if bit == false {
-                    Count1_16
+                    True7False10
                 } else {
-                    Count2_15
+                    True8False9
                 }
             }
-            Count0_16 => {
+            True8False8 => {
                 if bit == false {
-                    Count0_17
-                } else {
-                    Count1_16
-                }
-            }
-            Count17_0 => {
-                if bit == true {
-                    Count18_0
+                    True8False9
                 } else {
-                    Count17_1
+                    True9False8
                 }
             }
-            Count16_1 => {
+            True9False7 => {
                 if bit == true {
-                    Count17_1
+                    True10False7
                 } else {
-                    Count16_2
+                    True9False8
                 }
             }
-            Count15_2 => {
+            True10False6 => {
                 if bit == true {
-                    Count16_2
+                    True11False6
                 } else {
-                    Count15_3
+                    True10False7
                 }
             }
-            Count14_3 => {
+            True11False5 => {
                 if bit == true {
-                    Count15_3
+                    True12False5
                 } else {
-                    Count14_4
+                    True11False6
                 }
             }
-            Count13_4 => {
+            True12False4 => {
                 if bit == true {
-                    Count14_4
+                    True13False4
                 } else {
-                    Count13_5
+                    True12False5
                 }
             }
-            Count12_5 => {
+            True13False3 => {
                 if bit == true {
-                    Count13_5
+                    True14False3
                 } else {
-                    Count12_6
+                    True13False4
                 }
             }
-            Count11_6 => {
+            True14False2 => {
                 if bit == true {
-                    Count12_6
+                    True15False2
                 } else {
-                    Count11_7
+                    True14False3
                 }
             }
-            Count10_7 => {
+            True15False1 => {
                 if bit == true {
-                    Count11_7
+                    True16False1
                 } else {
-                    Count10_8
+                    True15False2
                 }
             }
-            Count9_8 => {
+            True16False0 => {
                 if bit == true {
-                    Count10_8
+                    True17False0
                 } else {
-                    Count9_9
+                    True16False1
                 }
             }
-            Count8_9 => {
+            True0False17 => {
                 if bit == false {
-                    Count8_10
+                    True0False18
                 } else {
-                    Count9_9
+                    True1False17
                 }
             }
-            Count7_10 => {
+            True1False16 => {
                 if bit == false {
-                    Count7_11
+                    True1False17
                 } else {
-                    Count8_10
+                    True2False16
                 }
             }
-            Count6_11 => {
+            True2False15 => {
                 if bit == false {
-                    Count6_12
+                    True2False16
                 } else {
-                    Count7_11
+                    True3False15
                 }
             }
-            Count5_12 => {
+            True3False14 => {
                 if bit == false {
-                    Count5_13
+                    True3False15
                 } else {
-                    Count6_12
+                    True4False14
                 }
             }
-            Count4_13 => {
+            True4False13 => {
                 if bit == false {
-                    Count4_14
+                    True4False14
                 } else {
-                    Count5_13
+                    True5False13
                 }
             }
-            Count3_14 => {
+            True5False12 => {
                 if bit == false {
-                    Count3_15
+                    True5False13
                 } else {
-                    Count4_14
+                    True6False12
                 }
             }
-            Count2_15 => {
+            True6False11 => {
                 if bit == false {
-                    Count2_16
+                    True6False12
                 } else {
-                    Count3_15
+                    True7False11
                 }
             }
-            Count1_16 => {
+            True7False10 => {
                 if bit == false {
-                    Count1_17
+                    True7False11
                 } else {
-                    Count2_16
+                    True8False10
                 }
             }
-            Count0_17 => {
+            True8False9 => {
                 if bit == false {
-                    Count0_18
+                    True8False10
                 } else {
-                    Count1_17
+                    True9False9
                 }
             }
-            Count18_0 => {
+            True9False8 => {
                 if bit == true {
-                    Count19_0
+                    True10False8
                 } else {
-                    Count18_1
+                    True9False9
                 }
             }
-            Count17_1 => {
+            True10False7 => {
                 if bit == true {
-                    Count18_1
+                    True11False7
                 } else {
-                    Count17_2
+                    True10False8
                 }
             }
-            Count16_2 => {
+            True11False6 => {
                 if bit == true {
-                    Count17_2
+                    True12False6
                 } else {
-                    Count16_3
+                    True11False7
                 }
             }
-            Count15_3 => {
+            True12False5 => {
                 if bit == true {
-                    Count16_3
+                    True13False5
                 } else {
-                    Count15_4
+                    True12False6
                 }
             }
-            Count14_4 => {
+            True13False4 => {
                 if bit == true {
-                    Count15_4
+                    True14False4
                 } else {
-                    Count14_5
+                    True13False5
                 }
             }
-            Count13_5 => {
+            True14False3 => {
                 if bit == true {
-                    Count14_5
+                    True15False3
                 } else {
-                    Count13_6
+                    True14False4
                 }
             }
-            Count12_6 => {
+            True15False2 => {
                 if bit == true {
-                    Count13_6
+                    True16False2
                 } else {
-                    Count12_7
+                    True15False3
                 }
             }
-            Count11_7 => {
+            True16False1 => {
                 if bit == true {
-                    Count12_7
+                    True17False1
                 } else {
-                    Count11_8
+                    True16False2
                 }
             }
-            Count10_8 => {
+            True17False0 => {
                 if bit == true {
-                    Count11_8
+                    True18False0
                 } else {
-                    Count10_9
+                    True17False1
                 }
             }
-            Count9_9 => {
+            True0False18 => {
                 if bit == false {
-                    Count10_9
+                    True0False19
                 } else {
-                    Count9_10
+                    True1False18
                 }
             }
-            Count8_10 => {
+            True1False17 => {
                 if bit == false {
-                    Count8_11
+                    True1False18
                 } else {
-                    Count9_10
+                    True2False17
                 }
             }
-            Count7_11 => {
+            True2False16 => {
                 if bit == false {
-                    Count7_12
+                    True2False17
                 } else {
-                    Count8_11
+                    True3False16
                 }
             }
-            Count6_12 => {
+            True3False15 => {
                 if bit == false {
-                    Count6_13
+                    True3False16
                 } else {
-                    Count7_12
+                    True4False15
                 }
             }
-            Count5_13 => {
+            True4False14 => {
                 if bit == false {
-                    Count5_14
+                    True4False15
                 } else {
-                    Count6_13
+                    True5False14
                 }
             }
-            Count4_14 => {
+            True5False13 => {
                 if bit == false {
-                    Count4_15
+                    True5False14
                 } else {
-                    Count5_14
+                    True6False13
                 }
             }
-            Count3_15 => {
+            True6False12 => {
                 if bit == false {
-                    Count3_16
+                    True6False13
                 } else {
-                    Count4_15
+                    True7False12
                 }
             }
-            Count2_16 => {
+            True7False11 => {
                 if bit == false {
-                    Count2_17
+                    True7False12
                 } else {
-                    Count3_16
+                    True8False11
                 }
             }
-            Count1_17 => {
+            True8False10 => {
                 if bit == false {
-                    Count1_18
+                    True8False11
                 } else {
-                    Count2_17
+                    True9False10
                 }
             }
-            Count0_18 => {
+            True9False9 => {
                 if bit == false {
-                    Count0_19
+                    True9False10
                 } else {
-                    Count1_18
+                    True10False9
                 }
             }
-            Count19_0 => {
+            True10False8 => {
                 if bit == true {
-                    Count20_0
+                    True11False8
                 } else {
-                    Count19_1
+                    True10False9
                 }
             }
-            Count18_1 => {
+            True11False7 => {
                 if bit == true {
-                    Count19_1
+                    True12False7
                 } else {
-                    Count18_2
+                    True11False8
                 }
             }
-            Count17_2 => {
+            True12False6 => {
                 if bit == true {
-                    Count18_2
+                    True13False6
                 } else {
-                    Count17_3
+                    True12False7
                 }
             }
-            Count16_3 => {
+            True13False5 => {
                 if bit == true {
-                    Count17_3
+                    True14False5
                 } else {
-                    Count16_4
+                    True13False6
                 }
             }
-            Count15_4 => {
+            True14False4 => {
                 if bit == true {
-                    Count16_4
+                    True15False4
                 } else {
-                    Count15_5
+                    True14False5
                 }
             }
-            Count14_5 => {
+            True15False3 => {
                 if bit == true {
-                    Count15_5
+                    True16False3
                 } else {
-                    Count14_6
+                    True15False4
                 }
             }
-            Count13_6 => {
+            True16False2 => {
                 if bit == true {
-                    Count14_6
+                    True17False2
                 } else {
-                    Count13_7
+                    True16False3
                 }
             }
-            Count12_7 => {
+            True17False1 => {
                 if bit == true {
-                    Count13_7
+                    True18False1
                 } else {
-                    Count12_8
+                    True17False2
                 }
             }
-            Count11_8 => {
+            True18False0 => {
                 if bit == true {
-                    Count12_8
+                    True19False0
                 } else {
-                    Count11_9
+                    True18False1
                 }
             }
-            Count10_9 => {
-                if bit == true {
-                    Count11_9
+            True0False19 => {
+                if bit == false {
+                    True0False20
                 } else {
-                    Count10_10
+                    True1False19
                 }
             }
-            Count9_10 => {
+            True1False18 => {
                 if bit == false {
-                    Count9_11
+                    True1False19
                 } else {
-                    Count10_10
+                    True2False18
                 }
             }
-            Count8_11 => {
+            True2False17 => {
                 if bit == false {
-                    Count8_12
+                    True2False18
                 } else {
-                    Count9_11
+                    True3False17
                 }
             }
-            Count7_12 => {
+            True3False16 => {
                 if bit == false {
-                    Count7_13
+                    True3False17
                 } else {
-                    Count8_12
+                    True4False16
                 }
             }
-            Count6_13 => {
+            True4False15 => {
                 if bit == false {
-                    Count6_14
+                    True4False16
                 } else {
-                    Count7_13
+                    True5False15
                 }
             }
-            Count5_14 => {
+            True5False14 => {
                 if bit == false {
-                    Count5_15
+                    True5False15
                 } else {
-                    Count6_14
+                    True6False14
                 }
             }
-            Count4_15 => {
+            True6False13 => {
                 if bit == false {
-                    Count4_16
+                    True6False14
                 } else {
-                    Count5_15
+                    True7False13
                 }
             }
-            Count3_16 => {
+            True7False12 => {
                 if bit == false {
-                    Count3_17
+                    True7False13
                 } else {
-                    Count4_16
+                    True8False12
                 }
             }
-            Count2_17 => {
+            True8False11 => {
                 if bit == false {
-                    Count2_18
+                    True8False12
                 } else {
-                    Count3_17
+                    True9False11
                 }
             }
-            Count1_18 => {
+            True9False10 => {
                 if bit == false {
-                    Count1_19
+                    True9False11
                 } else {
-                    Count2_18
+                    True10False10
                 }
             }
-            Count0_19 => {
-                if bit == false {
-                    Count0_20
+            True10False9 => {
+                if bit == true {
+                    True11False9
+                } else {
+                    True10False10
+                }
+            }
+            True11False8 => {
+                if bit == true {
+                    True12False8
+                } else {
+                    True11False9
+                }
+            }
+            True12False7 => {
+                if bit == true {
+                    True13False7
+                } else {
+                    True12False8
+                }
+            }
+            True13False6 => {
+                if bit == true {
+                    True14False6
+                } else {
+                    True13False7
+                }
+            }
+            True14False5 => {
+                if bit == true {
+                    True15False5
+                } else {
+                    True14False6
+                }
+            }
+            True15False4 => {
+                if bit == true {
+                    True16False4
+                } else {
+                    True15False5
+                }
+            }
+            True16False3 => {
+                if bit == true {
+                    True17False3
+                } else {
+                    True16False4
+                }
+            }
+            True17False2 => {
+                if bit == true {
+                    True18False2
+                } else {
+                    True17False3
+                }
+            }
+            True18False1 => {
+                if bit == true {
+                    True19False1
                 } else {
-                    Count1_19
+                    True18False2
                 }
             }
-            Count20_0 => {
+            True19False0 => {
                 if bit == true {
+                    True20False0
+                } else {
+                    True19False1
+                }
+            }
+            True0False20 => {
+                if bit == false {
                     AllFalse4
                 } else {
-                    Count10_1
+                    True1False10
                 }
             }
-            Count19_1 => {
+            True1False19 => {
+                if bit == false {
+                    True1False10
+                } else {
+                    True1False10
+                }
+            }
+            True2False18 => {
+                if bit == false {
+                    True1False10
+                } else {
+                    True2False9
+                }
+            }
+            True3False17 => {
+                if bit == false {
+                    True2False9
+                } else {
+                    True2False9
+                }
+            }
+            True4False16 => {
+                if bit == false {
+                    True2False9
+                } else {
+                    True3False8
+                }
+            }
+            True5False15 => {
+                if bit == false {
+                    True3False8
+                } else {
+                    True3False8
+                }
+            }
+            True6False14 => {
+                if bit == false {
+                    True3False8
+                } else {
+                    True4False7
+                }
+            }
+            True7False13 => {
+                if bit == false {
+                    True4False7
+                } else {
+                    True4False7
+                }
+            }
+            True8False12 => {
+                if bit == false {
+                    True4False7
+                } else {
+                    True5False6
+                }
+            }
+            True9False11 => {
+                if bit == false {
+                    True5False6
+                } else {
+                    True5False6
+                }
+            }
+            True10False10 => {
+                if bit == false {
+                    True5False6
+                } else {
+                    True6False5
+                }
+            }
+            True11False9 => {
                 if bit == true {
-                    Count10_1
+                    True6False5
                 } else {
-                    Count10_1
+                    True6False5
                 }
             }
-            Count18_2 => {
+            True12False8 => {
                 if bit == true {
-                    Count10_1
+                    True7False4
                 } else {
-                    Count9_2
+                    True6False5
                 }
             }
-            Count17_3 => {
+            True13False7 => {
                 if bit == true {
-                    Count9_2
+                    True7False4
                 } else {
-                    Count9_2
+                    True7False4
                 }
             }
-            Count16_4 => {
+            True14False6 => {
                 if bit == true {
-                    Count9_2
+                    True8False3
                 } else {
-                    Count8_3
+                    True7False4
                 }
             }
-            Count15_5 => {
+            True15False5 => {
                 if bit == true {
-                    Count8_3
+                    True8False3
                 } else {
-                    Count8_3
+                    True8False3
                 }
             }
-            Count14_6 => {
+            True16False4 => {
                 if bit == true {
-                    Count8_3
+                    True9False2
                 } else {
-                    Count7_4
+                    True8False3
                 }
             }
-            Count13_7 => {
+            True17False3 => {
                 if bit == true {
-                    Count7_4
+                    True9False2
                 } else {
-                    Count7_4
+                    True9False2
                 }
             }
-            Count12_8 => {
+            True18False2 => {
                 if bit == true {
-                    Count7_4
+                    True10False1
                 } else {
-                    Count6_5
+                    True9False2
                 }
             }
-            Count11_9 => {
+            True19False1 => {
                 if bit == true {
-                    Count6_5
+                    True10False1
                 } else {
-                    Count6_5
+                    True10False1
                 }
             }
-            Count10_10 => {
-                if bit == false {
-                    Count6_5
-                } else {
-                    Count5_6
-                }
-            }
-            Count9_11 => {
-                if bit == false {
-                    Count5_6
-                } else {
-                    Count5_6
-                }
-            }
-            Count8_12 => {
-                if bit == false {
-                    Count4_7
-                } else {
-                    Count5_6
-                }
-            }
-            Count7_13 => {
-                if bit == false {
-                    Count4_7
-                } else {
-                    Count4_7
-                }
-            }
-            Count6_14 => {
-                if bit == false {
-                    Count3_8
-                } else {
-                    Count4_7
-                }
-            }
-            Count5_15 => {
-                if bit == false {
-                    Count3_8
-                } else {
-                    Count3_8
-                }
-            }
-            Count4_16 => {
-                if bit == false {
-                    Count2_9
-                } else {
-                    Count3_8
-                }
-            }
-            Count3_17 => {
-                if bit == false {
-                    Count2_9
-                } else {
-                    Count2_9
-                }
-            }
-            Count2_18 => {
-                if bit == false {
-                    Count1_10
-                } else {
-                    Count2_9
-                }
-            }
-            Count1_19 => {
-                if bit == false {
-                    Count1_10
-                } else {
-                    Count1_10
-                }
-            }
-            Count0_20 => {
-                if bit == false {
+            True20False0 => {
+                if bit == true {
                     AllTrue4
                 } else {
-                    Count1_10
+                    True10False1
                 }
             }
             AllFalse4 => {
@@ -2370,7 +2370,7 @@ impl BitContext {
                         AllFalse4
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue4 => {
@@ -2381,7 +2381,7 @@ impl BitContext {
                         AllTrue4
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse5 => {
@@ -2392,7 +2392,7 @@ impl BitContext {
                         AllFalse5
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue5 => {
@@ -2403,7 +2403,7 @@ impl BitContext {
                         AllTrue5
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse6 => {
@@ -2414,7 +2414,7 @@ impl BitContext {
                         AllFalse6
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue6 => {
@@ -2425,7 +2425,7 @@ impl BitContext {
                         AllTrue6
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse7 => {
@@ -2436,7 +2436,7 @@ impl BitContext {
                         AllFalse7
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue7 => {
@@ -2447,7 +2447,7 @@ impl BitContext {
                         AllTrue7
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse8 => {
@@ -2458,7 +2458,7 @@ impl BitContext {
                         AllFalse8
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue8 => {
@@ -2469,7 +2469,7 @@ impl BitContext {
                         AllTrue8
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse9 => {
@@ -2480,7 +2480,7 @@ impl BitContext {
                         AllFalse9
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue9 => {
@@ -2491,7 +2491,7 @@ impl BitContext {
                         AllTrue9
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse10 => {
@@ -2502,7 +2502,7 @@ impl BitContext {
                         AllFalse10
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue10 => {
@@ -2513,7 +2513,7 @@ impl BitContext {
                         AllTrue10
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse11 => {
@@ -2524,7 +2524,7 @@ impl BitContext {
                         AllFalse11
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue11 => {
@@ -2535,7 +2535,7 @@ impl BitContext {
                         AllTrue11
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse12 => {
@@ -2546,7 +2546,7 @@ impl BitContext {
                         AllFalse12
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue12 => {
@@ -2557,7 +2557,7 @@ impl BitContext {
                         AllTrue12
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse13 => {
@@ -2568,7 +2568,7 @@ impl BitContext {
                         AllFalse13
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue13 => {
@@ -2579,7 +2579,7 @@ impl BitContext {
                         AllTrue13
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse14 => {
@@ -2590,7 +2590,7 @@ impl BitContext {
                         AllFalse14
                     }
                 } else {
-                    Count16_1
+                    True1False16
                 }
             }
             AllTrue14 => {
@@ -2601,7 +2601,7 @@ impl BitContext {
                         AllTrue14
                     }
                 } else {
-                    Count1_16
+                    True16False1
                 }
             }
             AllFalse15 => {
