@@ -102,6 +102,34 @@ fn encode_size() {
         }
         measure_size(&bits, 1);
     }
+    measure_size(
+        &[
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, true, false,
+        ],
+        2,
+    );
+    measure_size(
+        &[
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, false,
+        ],
+        1,
+    );
+    measure_size(
+        &[
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, false, false, false, false,
+        ],
+        2,
+    );
+    measure_size(
+        &[
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, true, true, true, false, false, false, false, false,
+        ],
+        3,
+    );
     for i in 8..15 {
         let mut bits = Vec::new();
         for x in 0..i {
