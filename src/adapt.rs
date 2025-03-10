@@ -121,7 +121,7 @@ fn encode_size() {
             true, true, true, true, true, true, true, true, true, true, true, true, true, true,
             true, true, true, true, true, true, false, false, false, false,
         ],
-        2,
+        2, // wow, we just compressed 24 bits into 2 bytes thanks to correlation between the bits!
     );
     measure_size(
         &[
