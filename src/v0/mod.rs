@@ -3,10 +3,8 @@ use std::io::{Read, Write};
 
 pub use compactly_derive::EncodeV0 as Encode;
 
-pub mod adapt;
 pub mod arith;
 mod array;
-mod bit_context;
 mod bits;
 mod bools;
 mod byte;
