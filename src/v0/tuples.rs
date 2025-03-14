@@ -1,4 +1,4 @@
-use crate::{Encode, Reader, Writer};
+use super::{Encode, Reader, Writer};
 
 impl Encode for () {
     type Context = ();
@@ -45,7 +45,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -54,7 +54,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -70,7 +70,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -80,7 +80,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -103,7 +103,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -114,7 +114,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -141,7 +141,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -153,7 +153,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -182,7 +182,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -195,7 +195,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -234,7 +234,7 @@ impl<
 
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.0.encode(writer, &mut ctx.0)?;
@@ -248,7 +248,7 @@ impl<
     }
 
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -266,7 +266,7 @@ impl<
 
 #[test]
 fn sizes() {
-    use crate::assert_size;
+    use super::assert_size;
 
     assert_size!((false, false), 0);
     assert_size!((false, true), 1);

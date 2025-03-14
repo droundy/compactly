@@ -1,4 +1,4 @@
-use crate::{bits::Bits, Encode, URange};
+use super::{bits::Bits, Encode, URange};
 
 #[derive(Default)]
 pub struct CharContext {
@@ -13,7 +13,7 @@ impl Encode for char {
     type Context = CharContext;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut x = u32::from(*self);
@@ -39,7 +39,7 @@ impl Encode for char {
         }
     }
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_ascii)? {
@@ -67,7 +67,7 @@ impl Encode for String {
     type Context = Context;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.chars().count().encode(writer, &mut ctx.len)?;
@@ -77,7 +77,7 @@ impl Encode for String {
         Ok(())
     }
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = usize::decode(reader, &mut ctx.len)?;
@@ -91,7 +91,7 @@ impl Encode for String {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
+    use super::assert_bits;
 
     assert_bits!("".to_string(), 3);
     assert_bits!("a".to_string(), 11);

@@ -1,11 +1,11 @@
-use crate::Encode;
+use super::Encode;
 use std::io::{Read, Write};
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = (<usize as Encode>::Context, T::Context);
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.0)?;
@@ -15,7 +15,7 @@ impl<T: Encode> Encode for Vec<T> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let n = usize::decode(reader, &mut ctx.0)?;
@@ -28,7 +28,7 @@ impl<T: Encode> Encode for Vec<T> {
 }
 #[test]
 fn size() {
-    use crate::assert_size;
+    use super::assert_size;
     assert_size!(Vec::<usize>::new(), 1);
     for value in 0_usize..4 {
         assert_size!(vec![dbg!(value)], 1);

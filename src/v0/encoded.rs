@@ -1,16 +1,16 @@
-use crate::{Encode, Encoded, EncodingStrategy};
+use super::{Encode, Encoded, EncodingStrategy};
 
 impl<T, S: EncodingStrategy<T>> Encode for Encoded<T, S> {
     type Context = S::Context;
     fn encode<W: std::io::Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         S::encode(&self.value, writer, ctx)
     }
     fn decode<R: std::io::Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {

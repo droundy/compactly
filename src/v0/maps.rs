@@ -1,4 +1,4 @@
-use crate::Encode;
+use super::Encode;
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
@@ -24,7 +24,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V>;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -35,7 +35,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
@@ -52,7 +52,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
 
 #[test]
 fn hashmap() {
-    use crate::assert_size;
+    use super::assert_size;
     assert_size!(HashMap::<usize, usize>::new(), 1);
     assert_size!(HashMap::from([(0_usize, 0_usize)]), 1);
     // Sizes of larger hash maps are unpredictable because the values come out
@@ -63,7 +63,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
     type Context = MapContext<K, V>;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -74,7 +74,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
@@ -91,7 +91,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
 
 #[test]
 fn btreemap() {
-    use crate::assert_size;
+    use super::assert_size;
     assert_size!(BTreeMap::<usize, usize>::new(), 1);
     assert_size!(BTreeMap::from([(0_usize, 0_usize)]), 1);
     assert_size!(BTreeMap::from_iter((0_usize..2).map(|v| (v, v))), 3);

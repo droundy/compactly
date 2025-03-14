@@ -1,4 +1,4 @@
-use crate::Encode;
+use super::Encode;
 use cabac::traits::{CabacReader, CabacWriter};
 use cabac::vp8::VP8Context;
 use std::io::{Read, Write};
@@ -7,13 +7,13 @@ impl Encode for bool {
     type Context = VP8Context;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         writer.put(*self, ctx)
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         reader.get(ctx)
@@ -22,7 +22,7 @@ impl Encode for bool {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
+    use super::assert_bits;
     assert_bits!(true, 1);
     assert_bits!(false, 1);
     assert_bits!([false; 128], 8);

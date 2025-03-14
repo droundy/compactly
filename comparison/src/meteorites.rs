@@ -2,19 +2,25 @@ use std::collections::BTreeMap;
 
 const CSV: &str = include_str!("meteorites.csv"); // from NASA
 
-#[derive(Debug, PartialEq, PartialOrd, compactly::Encode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, PartialOrd, compactly::v0::Encode, serde::Serialize, serde::Deserialize,
+)]
 pub enum NameType {
     Valid,
     Relict,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, compactly::Encode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, PartialOrd, compactly::v0::Encode, serde::Serialize, serde::Deserialize,
+)]
 pub enum Fall {
     Fell,
     Found,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, compactly::Encode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, PartialOrd, compactly::v0::Encode, serde::Serialize, serde::Deserialize,
+)]
 pub struct Meteorite {
     name: String,
     nametype: NameType,
@@ -29,7 +35,9 @@ pub struct Meteorite {
     reclong: f32,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, compactly::Encode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, PartialEq, PartialOrd, compactly::v0::Encode, serde::Serialize, serde::Deserialize,
+)]
 pub struct MeteoriteData {
     nametype: NameType,
     fall: Fall,

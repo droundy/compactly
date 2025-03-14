@@ -1,4 +1,4 @@
-use crate::{Compact, Encode, EncodingStrategy, Small, URange};
+use super::{Compact, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 macro_rules! impl_uint {
@@ -21,7 +21,7 @@ macro_rules! impl_uint {
             type Context = $context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let mut am_leading = true;
@@ -37,7 +37,7 @@ macro_rules! impl_uint {
                 Ok(())
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let mut v = 0;
@@ -65,7 +65,7 @@ impl_uint!(u16, U16Context, 16);
 
 #[test]
 fn size_u64() {
-    use crate::assert_bits;
+    use super::assert_bits;
     for sz in 0..1024_u64 {
         println!("Trying with {sz}");
         assert_bits!(sz, 64);
@@ -85,7 +85,7 @@ fn size_u64() {
 
 #[test]
 fn size_u32() {
-    use crate::assert_bits;
+    use super::assert_bits;
     for sz in 0..32768_u32 {
         println!("Trying with {sz}");
         assert_bits!(sz, 32);
@@ -110,7 +110,7 @@ fn size_u32() {
 
 #[test]
 fn size_u16() {
-    use crate::assert_bits;
+    use super::assert_bits;
     for sz in 0..1_u16 {
         println!("Trying with {sz}");
         assert_bits!(sz, 16);
@@ -157,13 +157,13 @@ macro_rules! impl_compact {
             type Context = <Small as EncodingStrategy<$t>>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$t>>::encode(&self.0, writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 Ok(Compact(<Small as EncodingStrategy<$t>>::decode(
@@ -176,7 +176,7 @@ macro_rules! impl_compact {
             type Context = $context;
             fn encode<W: Write>(
                 value: &$t,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let uleading = value.leading_zeros() as usize;
@@ -191,7 +191,7 @@ macro_rules! impl_compact {
                 Ok(())
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 let leading_zeros =
@@ -222,7 +222,7 @@ impl_compact!(u16, U16Compact, 16);
 
 #[test]
 fn compact_u16() {
-    use crate::assert_bits;
+    use super::assert_bits;
     assert_bits!(Compact(0_u16), 5);
     assert_bits!(Compact(1_u16), 5);
     assert_bits!(Compact(2_u16), 5);
@@ -246,7 +246,7 @@ fn compact_u16() {
 
 #[test]
 fn compact_u32() {
-    use crate::assert_bits;
+    use super::assert_bits;
     assert_bits!(Compact(0_u32), 6);
     assert_bits!(Compact(1_u32), 6);
     assert_bits!(Compact(2_u32), 6);
@@ -268,7 +268,7 @@ fn compact_u32() {
     );
 
     for i in 0_u32..4096 {
-        assert_eq!(crate::encode(&Compact(i)), crate::encode_with(Small, &i));
+        assert_eq!(super::encode(&Compact(i)), super::encode_with(Small, &i));
     }
 }
 
@@ -278,13 +278,13 @@ macro_rules! impl_signed {
             type Context = <$unsigned as Encode>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let v = $unsigned::decode(reader, ctx)?;
@@ -296,13 +296,13 @@ macro_rules! impl_signed {
             type Context = <Small as EncodingStrategy<$signed>>::Context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$signed>>::encode(&self.0, writer, ctx)
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 Ok(Compact(<Small as EncodingStrategy<$signed>>::decode(
@@ -331,7 +331,7 @@ macro_rules! impl_signed {
             type Context = $context;
             fn encode<W: Write>(
                 value: &$signed,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 (*value < 0).encode(writer, &mut ctx.is_negative)?;
@@ -342,7 +342,7 @@ macro_rules! impl_signed {
                 }
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<$signed, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_negative)? {
@@ -365,7 +365,7 @@ impl_signed!(i64, u64, SignedI64Context);
 
 #[test]
 fn signed() {
-    use crate::assert_bits;
+    use super::assert_bits;
 
     assert_bits!(Compact(0_i32), 7);
     assert_bits!(Compact(1_i32), 7);

@@ -1,4 +1,4 @@
-use crate::{Compact, Encode, URange};
+use super::{Compact, Encode, URange};
 use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
@@ -12,7 +12,7 @@ impl Encode for usize {
     type Context = UsizeContext;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Ok(r) = URange::<4>::try_from(*self) {
@@ -24,7 +24,7 @@ impl Encode for usize {
         }
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.less_than_four)? {
@@ -38,8 +38,8 @@ impl Encode for usize {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
-    use crate::Compact;
+    use super::assert_bits;
+    use super::Compact;
     assert_bits!(Compact(0_u64), 7);
     assert_bits!(0_usize, 3);
     assert_bits!(Compact(1_u64), 7);

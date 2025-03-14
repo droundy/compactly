@@ -1,4 +1,4 @@
-use crate::{Encode, EncodingStrategy, LowCardinality};
+use super::{Encode, EncodingStrategy, LowCardinality};
 use std::{collections::HashMap, hash::Hash};
 
 pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
@@ -58,7 +58,7 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardi
 
 #[test]
 fn low_cardinality() {
-    use crate::{assert_bits, Encoded};
+    use super::{assert_bits, Encoded};
 
     let strings = [
         b"hello world, this is the very first string".to_vec(),

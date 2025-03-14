@@ -1,4 +1,4 @@
-use compactly::arith::Probability;
+use compactly::v0::arith::Probability;
 
 struct BitC {
     name: String,

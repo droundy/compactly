@@ -14,28 +14,28 @@ use std::{
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 trait Encoding: Debug + Clone + Copy + Default {
-    fn encode<T: compactly::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8>;
-    fn decode<T: compactly::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T;
+    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8>;
+    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Compactly;
 impl Encoding for Compactly {
-    fn encode<T: compactly::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        compactly::encode(value)
+    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+        compactly::v0::encode(value)
     }
-    fn decode<T: compactly::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
-        compactly::decode(bytes).unwrap()
+    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+        compactly::v0::decode(bytes).unwrap()
     }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct SerdeVar;
 impl Encoding for SerdeVar {
-    fn encode<T: compactly::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
         bincode::DefaultOptions::new().serialize(value).unwrap()
     }
-    fn decode<T: compactly::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
         bincode::DefaultOptions::new().deserialize(bytes).unwrap()
     }
 }
@@ -52,7 +52,7 @@ fn mem_allocated<T>(f: impl Fn() -> T) -> (T, usize) {
     }
 }
 
-fn bench_encoding<T: compactly::Encode + Serialize + DeserializeOwned>(
+fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
     name: &str,
     mut gen: impl FnMut() -> T,
 ) {
@@ -106,7 +106,7 @@ fn bench_encoding<T: compactly::Encode + Serialize + DeserializeOwned>(
     );
 }
 
-fn bench_scaling<T: compactly::Encode + Serialize + DeserializeOwned>(
+fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
     name: &str,
     mut gen: impl FnMut(usize) -> T,
 ) {
@@ -221,7 +221,9 @@ fn main() {
         set
     });
 
-    #[derive(compactly::Encode, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(
+        compactly::v0::Encode, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash,
+    )]
     enum ThreeOptions {
         A,
         B,

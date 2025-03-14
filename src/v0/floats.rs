@@ -1,4 +1,4 @@
-use crate::{Encode, EncodingStrategy, Small};
+use super::{Encode, EncodingStrategy, Small};
 use std::io::{Read, Write};
 
 macro_rules! impl_float {
@@ -23,7 +23,7 @@ macro_rules! impl_float {
             type Context = $context;
             fn encode<W: Write>(
                 &self,
-                writer: &mut crate::Writer<W>,
+                writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let intvalue = *self as $intty;
@@ -45,7 +45,7 @@ macro_rules! impl_float {
                 }
             }
             fn decode<R: Read>(
-                reader: &mut crate::Reader<R>,
+                reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_int)? {

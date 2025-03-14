@@ -1,4 +1,4 @@
-use crate::Encode;
+use super::Encode;
 use cabac::traits::{CabacReader, CabacWriter};
 use std::io::{Read, Write};
 
@@ -64,7 +64,7 @@ impl<const N: usize> Encode for URange<N> {
     type Context = URangeContext<N>;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
@@ -103,7 +103,7 @@ impl<const N: usize> Encode for URange<N> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
@@ -133,13 +133,13 @@ impl<const N: usize> Encode for URange<N> {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
+    use super::assert_bits;
     fn test_urange<const N: usize>() {
         for i in 0..N {
             let v = URange::<N>::new(i);
             println!("Testing URange::<{N}>::new({i})");
-            let encoded = crate::encode(&v);
-            let decoded = crate::decode::<URange<N>>(&encoded).unwrap();
+            let encoded = super::encode(&v);
+            let decoded = super::decode::<URange<N>>(&encoded).unwrap();
             assert_eq!(decoded, v);
         }
     }

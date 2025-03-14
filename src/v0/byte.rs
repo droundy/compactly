@@ -1,4 +1,4 @@
-use crate::Encode;
+use super::Encode;
 use cabac::{
     traits::{CabacReader, CabacWriter},
     vp8::VP8Context,
@@ -16,7 +16,7 @@ impl Encode for u8 {
     type Context = ByteContext;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
@@ -31,7 +31,7 @@ impl Encode for u8 {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
@@ -50,13 +50,13 @@ impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         (*self as u8).encode(writer, ctx)
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         <u8 as Encode>::decode(reader, ctx).map(|v| v as i8)
@@ -65,7 +65,7 @@ impl Encode for i8 {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
+    use super::assert_bits;
     assert_bits!(u8::MAX, 8);
     assert_bits!(0_u8, 8);
     for b in 3_u8..=255 {

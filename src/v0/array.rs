@@ -1,11 +1,11 @@
-use crate::Encode;
+use super::Encode;
 use std::io::{Read, Write};
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         for v in self {
@@ -14,7 +14,7 @@ impl<T: Encode, const N: usize> Encode for [T; N] {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut x = Vec::with_capacity(N);

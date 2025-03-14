@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use crate::Encode;
+use super::Encode;
 
 pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
@@ -41,7 +41,7 @@ impl<const N: usize> Encode for Bits<N> {
     type Context = BitsContext<N>;
     fn encode<W: Write>(
         &self,
-        writer: &mut crate::Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         debug_assert_eq!(N, 1 << Self::N_BITS);
@@ -57,7 +57,7 @@ impl<const N: usize> Encode for Bits<N> {
         Ok(())
     }
     fn decode<R: Read>(
-        reader: &mut crate::Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
@@ -76,7 +76,7 @@ impl<const N: usize> Encode for Bits<N> {
 
 #[test]
 fn size() {
-    use crate::assert_bits;
+    use super::assert_bits;
 
     assert_eq!(Bits::<4>::MAX, 3);
     assert_eq!(Bits::<8>::MAX, 7);

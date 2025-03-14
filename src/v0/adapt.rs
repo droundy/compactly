@@ -1,15 +1,15 @@
-use crate::bit_context::BitContext;
+use super::bit_context::BitContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Encoder {
-    arith: crate::arith::Encoder,
+    arith: super::arith::Encoder,
     rng: SplitMix64,
 }
 
 impl Encoder {
     pub fn new() -> Self {
         Self {
-            arith: crate::arith::Encoder::new(),
+            arith: super::arith::Encoder::new(),
             rng: SplitMix64::default(),
         }
     }
@@ -24,14 +24,14 @@ impl Encoder {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder {
-    arith: crate::arith::Decoder,
+    arith: super::arith::Decoder,
     rng: SplitMix64,
 }
 
 impl Decoder {
     pub fn new(bytes: Vec<u8>) -> Self {
         Self {
-            arith: crate::arith::Decoder::new(bytes),
+            arith: super::arith::Decoder::new(bytes),
             rng: SplitMix64::default(),
         }
     }
