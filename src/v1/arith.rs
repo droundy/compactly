@@ -235,6 +235,9 @@ impl Decoder {
             Ok(out) => out,
             Err(out) => {
                 self.value = 0;
+                for _ in 0..8 {
+                    self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
+                }
                 out
             }
         };
