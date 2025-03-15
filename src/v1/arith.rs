@@ -98,15 +98,23 @@ impl ArithState {
         } else {
             self.hi = split;
         }
-        None
+        if self.hi == self.lo {
+            let bytes = self.hi.to_be_bytes();
+            self.lo = 0;
+            self.hi = u64::MAX;
+            Some(bytes)
+        } else {
+            None
+        }
         // println!("encoding {prob} {shift} {value:?}   with split {split:016x} gives {self:x?}");
     }
 
-    pub fn decode(&mut self, prob: Probability, value: u64) -> bool {
+    /// Returns Err if the value needs to be entirely consumed.
+    pub fn decode(&mut self, prob: Probability, value: u64) -> Result<bool, bool> {
         if self.hi == self.lo + 1 {
             self.hi = u64::MAX;
             self.lo = 0;
-            return value == self.hi;
+            return Err(value == self.hi);
         }
         let split = self
             .split(prob)
@@ -118,7 +126,11 @@ impl ArithState {
         } else {
             self.hi = split;
         }
-        b
+        if self.lo == self.hi {
+            Err(b)
+        } else {
+            Ok(b)
+        }
     }
 
     fn split(self, Probability { prob, shift }: Probability) -> Option<u64> {
@@ -219,7 +231,13 @@ impl Decoder {
         }
     }
     pub fn decode(&mut self, p: Probability) -> bool {
-        let out = self.state.decode(p, self.value);
+        let out = match self.state.decode(p, self.value) {
+            Ok(out) => out,
+            Err(out) => {
+                self.value = 0;
+                out
+            }
+        };
         // println!("after decode: {:x?}", self.state);
         while let Some(_) = self.state.next_byte() {
             self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
@@ -235,26 +253,36 @@ pub struct Reader<R> {
     value: u64,
 }
 
+fn read64(read: &mut impl Read) -> Result<u64, std::io::Error> {
+    let mut bytes = [0; 8];
+    let mut bytes_to_read = bytes.as_mut_slice();
+    while !bytes_to_read.is_empty() {
+        let bytes_read = read.read(bytes_to_read)?;
+        if bytes_read == 0 {
+            // we have a small value and that is find, the remaining bytes are zero.
+            break;
+        }
+        bytes_to_read = &mut bytes_to_read[bytes_read..];
+    }
+    Ok(u64::from_be_bytes(bytes))
+}
+
 impl<R: Read> Reader<R> {
     pub fn new(mut read: R) -> std::io::Result<Self> {
-        let mut bytes = [0; 8];
-        let mut bytes_to_read = bytes.as_mut_slice();
-        while !bytes_to_read.is_empty() {
-            let bytes_read = read.read(bytes_to_read)?;
-            if bytes_read == 0 {
-                // we have a small value and that is find, the remaining bytes are zero.
-                break;
-            }
-            bytes_to_read = &mut bytes_to_read[bytes_read..];
-        }
         Ok(Self {
+            value: read64(&mut read)?,
             read,
             state: ArithState::default(),
-            value: u64::from_be_bytes(bytes),
         })
     }
     pub fn decode(&mut self, p: Probability) -> std::io::Result<bool> {
-        let out = self.state.decode(p, self.value);
+        let out = match self.state.decode(p, self.value) {
+            Ok(out) => out,
+            Err(out) => {
+                self.value = read64(&mut self.read)?;
+                out
+            }
+        };
         // println!("after decode: {:x?}", self.state);
         while let Some(_) = self.state.next_byte() {
             let mut byte = [0u8; 1];
@@ -298,7 +326,7 @@ mod tests {
             assert!(s.encode(p, value_bool).is_none());
             let value_chosen = s.lo + (rand::random::<u64>() % (s.hi - s.lo));
             let decoded = decoding_s.decode(p, value_chosen);
-            assert_eq!(decoded, value_bool);
+            assert_eq!(decoded, Ok(value_bool));
             assert_eq!(s, decoding_s);
         }
     }
