@@ -180,3 +180,30 @@ fn encode_size() {
         measure_size(&bits, 2);
     }
 }
+
+#[test]
+fn write_read_correctly() {
+    for _ in 0..10_000 {
+        let rand_bits = rand::random::<u128>();
+        let mut bits = [false; 128];
+        for i in 0..128 {
+            bits[i] = ((rand_bits >> i) & 1) == 1;
+        }
+        for length in 0..128 {
+            let mut context = BitContext::default();
+            let mut encoded = Vec::new();
+            let mut writer = Writer::new(&mut encoded);
+            for &bit in &bits[..length] {
+                writer.encode(bit, &mut context).unwrap();
+            }
+            writer.finish().unwrap();
+
+            let mut bytes = encoded.as_slice();
+            let mut reader = Reader::new(&mut bytes).unwrap();
+            let mut context = BitContext::default();
+            for i in 0..length {
+                assert_eq!(reader.decode(&mut context).unwrap(), bits[i]);
+            }
+        }
+    }
+}
