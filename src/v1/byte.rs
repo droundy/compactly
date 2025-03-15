@@ -1,14 +1,10 @@
 use super::Encode;
-use cabac::{
-    traits::{CabacReader, CabacWriter},
-    vp8::VP8Context,
-};
 use std::io::{Read, Write};
 
-pub struct ByteContext([VP8Context; 256]);
+pub struct ByteContext([<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
     fn default() -> Self {
-        ByteContext([VP8Context::new(); 256])
+        ByteContext([Default::default(); 256])
     }
 }
 
@@ -24,7 +20,7 @@ impl Encode for u8 {
         for i in 0..8 {
             let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = (*self >> (7 - i)) & 1 == 1;
-            writer.put(bit, ctx)?;
+            bit.encode(writer, ctx)?;
             filled_up += 1 << i;
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
@@ -38,7 +34,7 @@ impl Encode for u8 {
         let mut accumulated_value = 0;
         for i in 0..8 {
             let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = reader.get(ctx)?;
+            let bit = bool::decode(reader, ctx)?;
             filled_up += 1 << i;
             accumulated_value = 2 * accumulated_value + bit as usize;
         }

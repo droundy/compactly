@@ -1,22 +1,21 @@
+use super::bit_context::BitContext;
 use super::Encode;
-use cabac::traits::{CabacReader, CabacWriter};
-use cabac::vp8::VP8Context;
 use std::io::{Read, Write};
 
 impl Encode for bool {
-    type Context = VP8Context;
+    type Context = BitContext;
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        writer.put(*self, ctx)
+        writer.encode(*self, ctx)
     }
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        reader.get(ctx)
+        reader.decode(ctx)
     }
 }
 

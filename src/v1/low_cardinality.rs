@@ -25,7 +25,7 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardi
     type Context = CacheContext<T>;
     fn encode<W: std::io::Write>(
         value: &T,
-        writer: &mut cabac::vp8::VP8Writer<W>,
+        writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let looked_up = ctx.cached.get(value).copied();
@@ -38,7 +38,7 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardi
         }
     }
     fn decode<R: std::io::Read>(
-        reader: &mut cabac::vp8::VP8Reader<R>,
+        reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error> {
         let is_cached = bool::decode(reader, &mut ctx.is_cached)?;

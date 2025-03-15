@@ -1,4 +1,46 @@
 use super::bit_context::BitContext;
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Writer<W> {
+    arith: super::arith::Writer<W>,
+    rng: SplitMix64,
+}
+
+impl<W: std::io::Write> Writer<W> {
+    pub fn new(write: W) -> Self {
+        Self {
+            arith: super::arith::Writer::new(write),
+            rng: SplitMix64::default(),
+        }
+    }
+    pub fn encode(&mut self, value: bool, context: &mut BitContext) -> Result<(), std::io::Error> {
+        self.arith.encode(context.probability(), value)?;
+        *context = context.adapt(value, &mut self.rng);
+        Ok(())
+    }
+    pub fn finish(self) -> Result<(), std::io::Error> {
+        self.arith.finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Reader<R> {
+    arith: super::arith::Reader<R>,
+    rng: SplitMix64,
+}
+
+impl<R: std::io::Read> Reader<R> {
+    pub fn new(read: R) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            arith: super::arith::Reader::new(read)?,
+            rng: SplitMix64::default(),
+        })
+    }
+    pub fn decode(&mut self, context: &mut BitContext) -> Result<bool, std::io::Error> {
+        let bit = self.arith.decode(context.probability())?;
+        *context = context.adapt(bit, &mut self.rng);
+        Ok(bit)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Encoder {

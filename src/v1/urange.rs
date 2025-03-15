@@ -1,5 +1,4 @@
 use super::Encode;
-use cabac::traits::{CabacReader, CabacWriter};
 use std::io::{Read, Write};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -87,7 +86,7 @@ impl<const N: usize> Encode for URange<N> {
             //     filled_up + bits_chosen
             // );
             let ctx = ctx.index_mut(filled_up + bits_chosen);
-            writer.put(bit, ctx)?;
+            bit.encode(writer, ctx)?;
             filled_up += i;
             if bit {
                 bits_chosen += 1 << i;
@@ -114,7 +113,7 @@ impl<const N: usize> Encode for URange<N> {
         let mut i = 1;
         while accumulated_value + value_considered < N && possible_values_left > 1 {
             let ctx = ctx.index_mut(filled_up + bits_chosen);
-            let bit = reader.get(ctx)?;
+            let bit = bool::decode(reader, ctx)?;
             filled_up += i;
             if bit {
                 bits_chosen += 1 << i;

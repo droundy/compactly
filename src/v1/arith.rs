@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithState {
     lo: u64,
@@ -140,6 +142,39 @@ impl Encoder {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Writer<W> {
+    write: W,
+    state: ArithState,
+}
+
+impl<W: Write> Writer<W> {
+    pub fn new(write: W) -> Self {
+        Self {
+            write,
+            state: ArithState::default(),
+        }
+    }
+    pub fn encode(
+        &mut self,
+        probability_of_false: Probability,
+        value: bool,
+    ) -> std::io::Result<()> {
+        while let Some(byte) = self.state.next_byte() {
+            self.write.write(&[byte])?;
+        }
+        self.state.encode(probability_of_false, value);
+        Ok(())
+    }
+    pub fn finish(mut self) -> std::io::Result<()> {
+        while let Some(byte) = self.state.next_byte() {
+            self.write.write(&[byte])?;
+        }
+        self.write.write(&[self.state.last_byte()])?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder {
     bytes: Vec<u8>,
     state: ArithState,
@@ -166,6 +201,43 @@ impl Decoder {
             self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
         }
         out
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Reader<R> {
+    read: R,
+    state: ArithState,
+    value: u64,
+}
+
+impl<R: Read> Reader<R> {
+    pub fn new(mut read: R) -> std::io::Result<Self> {
+        let mut bytes = [0; 8];
+        let mut bytes_to_read = bytes.as_mut_slice();
+        while !bytes_to_read.is_empty() {
+            let bytes_read = read.read(bytes_to_read)?;
+            if bytes_read == 0 {
+                // we have a small value and that is find, the remaining bytes are zero.
+                break;
+            }
+            bytes_to_read = &mut bytes_to_read[bytes_read..];
+        }
+        Ok(Self {
+            read,
+            state: ArithState::default(),
+            value: u64::from_be_bytes(bytes),
+        })
+    }
+    pub fn decode(&mut self, p: Probability) -> std::io::Result<bool> {
+        let out = self.state.decode(p, self.value);
+        // println!("after decode: {:x?}", self.state);
+        while let Some(_) = self.state.next_byte() {
+            let mut byte = [0u8; 1];
+            self.read.read(&mut byte)?;
+            self.value = (self.value << 8) + byte[0] as u64;
+        }
+        Ok(out)
     }
 }
 
