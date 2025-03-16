@@ -43,48 +43,6 @@ impl<R: std::io::Read> Reader<R> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Encoder {
-    arith: super::arith::Encoder,
-    rng: SplitMix64,
-}
-
-impl Encoder {
-    pub fn new() -> Self {
-        Self {
-            arith: super::arith::Encoder::new(),
-            rng: SplitMix64::default(),
-        }
-    }
-    pub fn encode(&mut self, value: bool, context: &mut BitContext) {
-        self.arith.encode(context.probability(), value);
-        *context = context.adapt(value, &mut self.rng);
-    }
-    pub fn finish(self) -> Vec<u8> {
-        self.arith.finish()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Decoder {
-    arith: super::arith::Decoder,
-    rng: SplitMix64,
-}
-
-impl Decoder {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self {
-            arith: super::arith::Decoder::new(bytes),
-            rng: SplitMix64::default(),
-        }
-    }
-    pub fn decode(&mut self, context: &mut BitContext) -> bool {
-        let bit = self.arith.decode(context.probability());
-        *context = context.adapt(bit, &mut self.rng);
-        bit
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SplitMix64(u64);
 
 impl SplitMix64 {
@@ -107,26 +65,28 @@ impl Default for SplitMix64 {
 fn encode_size() {
     fn measure_size(bits: &[bool], expected_bytes: usize) {
         let mut context = BitContext::default();
-        let mut e = Encoder::new();
+        let mut encoded = Vec::new();
+        let mut e = Writer::new(&mut encoded);
         for bit in bits.iter().copied() {
             // println!(
             //     "Context is {context:?} with probability {}",
             //     context.probability()
             // );
-            e.encode(bit, &mut context);
+            e.encode(bit, &mut context).unwrap();
         }
-        let bytes = e.finish();
+        e.finish().unwrap();
         assert_eq!(
-            bytes.len(),
+            encoded.len(),
             expected_bytes,
             "For {bits:?} wrong size for {} bits",
             bits.len()
         );
         let mut decoded = Vec::new();
-        let mut decoder = Decoder::new(bytes.clone());
+        let mut encoded_slice = encoded.as_slice();
+        let mut decoder = Reader::new(&mut encoded_slice).unwrap();
         let mut decontext = BitContext::default();
         for _ in 0..bits.len() {
-            decoded.push(decoder.decode(&mut decontext));
+            decoded.push(decoder.decode(&mut decontext).unwrap());
         }
         assert_eq!(bits, decoded.as_slice());
     }
