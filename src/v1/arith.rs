@@ -293,7 +293,11 @@ impl<R: Read> Reader<R> {
             bytes_to_read = &mut bytes_to_read[bytes_read..];
         }
         let value = u64::from_be_bytes(bytes);
-        self.value = value + (self.value << (8 * sz));
+        if sz == 8 {
+            self.value = value;
+        } else {
+            self.value = value + (self.value << (8 * sz));
+        }
         Ok(())
     }
     pub fn new(mut read: R) -> std::io::Result<Self> {
