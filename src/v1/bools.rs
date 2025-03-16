@@ -26,8 +26,8 @@ fn size() {
     assert_bits!(false, 1);
     assert_bits!([false; 128], 5);
     assert_bits!([true; 2], 1);
-    assert_bits!([true; 3], 3);
+    assert_bits!([true; 3], 2);
     assert_bits!([true; 16], 4);
-    assert_bits!([true; 64], 6);
+    assert_bits!([true; 64], 5);
     assert_bits!([false, true], 3);
 }
