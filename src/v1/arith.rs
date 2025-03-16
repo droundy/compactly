@@ -117,9 +117,10 @@ impl ArithState {
     /// Returns bit and the number of bytes that need to be read.
     pub fn decode(&mut self, prob: Probability, value: u64) -> (bool, usize) {
         if self.hi == self.lo + 1 {
+            let bit = value == self.hi;
             self.hi = u64::MAX;
             self.lo = 0;
-            return (value == self.hi, 8);
+            return (bit, 8);
         }
         let split = self
             .split(prob)
@@ -304,6 +305,8 @@ impl<R: Read> Reader<R> {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+
     use super::*;
 
     fn rand_prob() -> (Probability, bool) {
@@ -315,6 +318,49 @@ mod tests {
 
     #[test]
     fn encode_decode_last_byte() {
+        fn test_state(original_s: ArithState) {
+            assert_eq!(
+                original_s.clone().ready_bytes().count,
+                0,
+                "state should already be regularized!"
+            );
+            assert!(original_s.hi > original_s.lo);
+            // println!("\noriginal_s is {original_s:x?}");
+            // println!("================================");
+            for value_bool in [false, true] {
+                let (p, _) = rand_prob();
+
+                let mut s = original_s;
+                let encoded_bytes = s.encode(p, value_bool);
+                // println!("state after encoding {value_bool:?} is {s:x?}");
+
+                let split = original_s.split(p).unwrap();
+
+                let values = if value_bool {
+                    let rand_value = || rand::thread_rng().gen_range(split + 1..=original_s.hi);
+                    vec![split + 1, original_s.hi, rand_value(), rand_value()]
+                } else {
+                    let rand_value = || rand::thread_rng().gen_range(original_s.lo..=split);
+                    vec![original_s.lo, split, rand_value(), rand_value()]
+                };
+                // println!("\nsplit is {split:x} and choice is {value_bool:?}");
+                for value in values {
+                    // println!("\n  value={value:x} for {original_s:x?} and {value_bool:?}");
+                    let mut decoding_s = original_s;
+                    let (decoded, sz) = decoding_s.decode(p, value);
+                    // println!("  after decoding {decoded:?} from {value:x} is {decoding_s:x?}");
+                    assert_eq!(sz, encoded_bytes.count);
+                    assert_eq!(decoded, value_bool);
+                    assert_eq!(s, decoding_s);
+                }
+            }
+        }
+
+        test_state(ArithState {
+            lo: u64::MAX / 2,
+            hi: u64::MAX / 2 + 1,
+        });
+
         let mut s = ArithState::default();
         for _ in 0..10_000 {
             // create a valid state
@@ -327,40 +373,7 @@ mod tests {
             assert!(s.hi > s.lo);
             s.ready_bytes();
             println!("after regularization s is {s:x?}");
-            assert!(s.hi > s.lo);
-            let original_s = s;
-            let (p, value_bool) = rand_prob();
-
-            let encoded_bytes = s.encode(p, value_bool);
-            println!("state after encoding is {s:x?}");
-
-            let split = original_s.split(p).unwrap();
-
-            let values = if value_bool {
-                vec![
-                    split + 1,
-                    original_s.hi,
-                    split + (rand::random::<u64>() % (original_s.hi - split)),
-                    split + (rand::random::<u64>() % (original_s.hi - split)),
-                    split + (rand::random::<u64>() % (original_s.hi - split)),
-                ]
-            } else {
-                vec![
-                    original_s.lo,
-                    split,
-                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
-                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
-                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
-                ]
-            };
-            for value in values {
-                println!("value={value:x} for {original_s:x?}");
-                let mut decoding_s = original_s;
-                let (decoded, sz) = decoding_s.decode(p, value);
-                assert_eq!(sz, encoded_bytes.count);
-                assert_eq!(decoded, value_bool);
-                assert_eq!(s, decoding_s);
-            }
+            test_state(s);
         }
     }
 
