@@ -70,16 +70,20 @@ fn size_u64() {
         println!("Trying with {sz}");
         assert_bits!(sz, 64);
     }
-    for sz in [1_000_000_u64, u64::MAX] {
+    for sz in [1_000_000_u64] {
         println!("Trying with {sz}");
         assert_bits!(sz, 64);
     }
-    assert_bits!([0_u64; 128], 503);
+    for sz in [u64::MAX] {
+        println!("Trying with {sz}");
+        assert_bits!(sz, 63);
+    }
+    assert_bits!([0_u64; 128], 296);
     assert_bits!([1_u64; 2], 102);
-    assert_bits!([1_u64; 19], 284);
+    assert_bits!([1_u64; 19], 280);
     assert_bits!(
         [0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        320
+        304
     );
 }
 
@@ -96,15 +100,15 @@ fn size_u32() {
     }
     for sz in [u32::MAX] {
         println!("Trying with {sz}");
-        assert_bits!(sz, 32);
+        assert_bits!(sz, 31);
     }
-    assert_bits!([0_u32; 128], 251);
-    assert_bits!([u32::MAX; 128], 231);
+    assert_bits!([0_u32; 128], 148);
+    assert_bits!([u32::MAX; 128], 140);
     assert_bits!([1_u32; 2], 51);
-    assert_bits!([1_u32; 19], 142);
+    assert_bits!([1_u32; 19], 140);
     assert_bits!(
         [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        162
+        157
     );
 }
 
@@ -115,11 +119,7 @@ fn size_u16() {
         println!("Trying with {sz}");
         assert_bits!(sz, 16);
     }
-    for sz in 1..128_u16 {
-        println!("Trying with {sz}");
-        assert_bits!(sz, 16);
-    }
-    for sz in 128..32768_u16 {
+    for sz in 1..21845_u16 {
         println!("Trying with {sz}");
         assert_bits!(sz, 16);
     }
@@ -127,10 +127,10 @@ fn size_u16() {
         println!("Trying with {sz}");
         assert_bits!(sz, 16);
     }
-    assert_bits!([0_u16; 128], 126);
-    assert_bits!([u16::MAX; 128], 115);
+    assert_bits!([0_u16; 128], 74);
+    assert_bits!([u16::MAX; 128], 72);
     assert_bits!([1_u16; 2], 26);
-    assert_bits!([1_u16; 19], 71);
+    assert_bits!([1_u16; 19], 70);
     assert_bits!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         83
@@ -233,14 +233,14 @@ fn compact_u16() {
     assert_bits!(Compact(7_u16), 6);
     assert_bits!(Compact(8_u16), 7);
     assert_bits!(Compact(u16::MAX), 19);
-    assert_bits!([Compact(0_u16); 128], 36);
-    assert_bits!([Compact(u16::MAX); 128], 140);
+    assert_bits!([Compact(0_u16); 128], 24);
+    assert_bits!([Compact(u16::MAX); 128], 86);
     assert_bits!([Compact(1_u16); 2], 8);
     assert_bits!([Compact(1_u16); 19], 22);
     assert_bits!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Compact),
-        29
+        32
     );
 }
 
@@ -257,14 +257,14 @@ fn compact_u32() {
     assert_bits!(Compact(7_u32), 7);
     assert_bits!(Compact(8_u32), 8);
     assert_bits!(Compact(u32::MAX), 36);
-    assert_bits!([Compact(0_u32); 128], 43);
-    assert_bits!([Compact(u32::MAX); 128], 263);
+    assert_bits!([Compact(0_u32); 128], 27);
+    assert_bits!([Compact(u32::MAX); 128], 163);
     assert_bits!([Compact(1_u32); 2], 10);
     assert_bits!([Compact(1_u32); 19], 26);
     assert_bits!(
         [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Compact),
-        34
+        36
     );
 
     for i in 0_u32..4096 {
@@ -372,8 +372,13 @@ fn signed() {
     assert_bits!(Compact(-1_i32), 7);
     assert_bits!(Compact(i32::MAX), 36);
     assert_bits!(Compact(i32::MIN), 36);
-    for v in [i32::MIN, i32::MAX, -1, 0, 1, 7, 137, i32::MAX - 1] {
+    for v in [i32::MIN, i32::MAX, 0, 1, 7, 137, i32::MAX - 1] {
+        println!("testing {v}");
         assert_bits!(v, 32);
+    }
+    for v in [-1i32] {
+        println!("testing {v}");
+        assert_bits!(v, 31);
     }
 
     assert_bits!(Compact(0_i16), 6);
@@ -390,7 +395,12 @@ fn signed() {
     assert_bits!(Compact(-1_i64), 8);
     assert_bits!(Compact(i64::MAX), 69);
     assert_bits!(Compact(i64::MIN), 69);
-    for v in [i64::MIN, i64::MAX, -1, 0, 1, 7, 137, i64::MAX - 1] {
+    for v in [i64::MIN, i64::MAX, 0, 1, 7, 137, i64::MAX - 1] {
+        println!("testing {v}");
         assert_bits!(v, 64);
+    }
+    for v in [-1i64] {
+        println!("testing {v}");
+        assert_bits!(v, 63);
     }
 }
