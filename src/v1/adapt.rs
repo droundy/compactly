@@ -190,18 +190,22 @@ fn write_read_correctly() {
             bits[i] = ((rand_bits >> i) & 1) == 1;
         }
         for length in 0..128 {
+            // println!("\nTesting with {length} bits.");
             let mut context = BitContext::default();
             let mut encoded = Vec::new();
             let mut writer = Writer::new(&mut encoded);
             for &bit in &bits[..length] {
+                // println!("Encoding {bit:?} with {context:x?}");
                 writer.encode(bit, &mut context).unwrap();
             }
             writer.finish().unwrap();
+            // println!("Encoded is {encoded:?}");
 
             let mut bytes = encoded.as_slice();
             let mut reader = Reader::new(&mut bytes).unwrap();
             let mut context = BitContext::default();
             for i in 0..length {
+                // println!("Decoding bit {i} with {context:x?}");
                 assert_eq!(reader.decode(&mut context).unwrap(), bits[i]);
             }
         }

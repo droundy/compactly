@@ -263,20 +263,6 @@ pub struct Reader<R> {
     value: u64,
 }
 
-fn read64(read: &mut impl Read) -> Result<u64, std::io::Error> {
-    let mut bytes = [0; 8];
-    let mut bytes_to_read = bytes.as_mut_slice();
-    while !bytes_to_read.is_empty() {
-        let bytes_read = read.read(bytes_to_read)?;
-        if bytes_read == 0 {
-            // we have a small value and that is find, the remaining bytes are zero.
-            break;
-        }
-        bytes_to_read = &mut bytes_to_read[bytes_read..];
-    }
-    Ok(u64::from_be_bytes(bytes))
-}
-
 impl<R: Read> Reader<R> {
     fn read_bytes(&mut self, sz: usize) -> Result<(), std::io::Error> {
         if sz == 0 {
@@ -300,9 +286,9 @@ impl<R: Read> Reader<R> {
         }
         Ok(())
     }
-    pub fn new(mut read: R) -> std::io::Result<Self> {
+    pub fn new(read: R) -> std::io::Result<Self> {
         let mut r = Self {
-            value: read64(&mut read)?,
+            value: 0,
             read,
             state: ArithState::default(),
         };
