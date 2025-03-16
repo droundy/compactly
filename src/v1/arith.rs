@@ -45,28 +45,39 @@ impl Default for ArithState {
 }
 
 impl ArithState {
-    pub fn next_byte(&mut self) -> Option<u8> {
-        let lo_byte = (self.lo >> 56) as u8;
-        let hi_byte = (self.hi >> 56) as u8;
-        debug_assert_ne!(self.lo, self.hi);
-        // #[cfg(test)]
-        // {
-        //     let width = self.hi - self.lo;
-        //     println!("width = {width:016x}");
-        //     println!("  min = {:016x}", u64::MAX >> 8);
-        //     println!("lo_byte {lo_byte:02x}");
-        //     println!("hi_byte {hi_byte:02x}");
-        // }
-        if lo_byte == hi_byte {
-            self.lo = self.lo << 8;
-            self.hi = self.hi << 8;
-            // #[cfg(test)]
-            // {
-            //     println!("next_byte resetting to {self:x?}");
-            // }
-            Some(lo_byte)
+    fn ready_bytes(&mut self) -> Bytes {
+        if self.hi == self.lo {
+            let bytes = self.hi.to_be_bytes();
+            self.lo = 0;
+            self.hi = u64::MAX;
+            Bytes { bytes, count: 8 }
         } else {
-            None
+            let mut bytes = Bytes::default();
+            for _ in 0..7 {
+                let lo_byte = (self.lo >> 56) as u8;
+                let hi_byte = (self.hi >> 56) as u8;
+                debug_assert_ne!(self.lo, self.hi);
+                // #[cfg(test)]
+                // {
+                //     let width = self.hi - self.lo;
+                //     println!("width = {width:016x}");
+                //     println!("  min = {:016x}", u64::MAX >> 8);
+                //     println!("lo_byte {lo_byte:02x}");
+                //     println!("hi_byte {hi_byte:02x}");
+                // }
+                if lo_byte == hi_byte {
+                    self.lo = self.lo << 8;
+                    self.hi = self.hi << 8;
+                    // #[cfg(test)]
+                    // {
+                    //     println!("next_byte resetting to {self:x?}");
+                    // }
+                    bytes.push(lo_byte);
+                } else {
+                    return bytes;
+                }
+            }
+            bytes
         }
     }
 
@@ -74,8 +85,9 @@ impl ArithState {
         (self.hi >> 56) as u8
     }
 
+    /// Returns a set of bytes to be written out.
     #[must_use]
-    pub fn encode(&mut self, prob: Probability, value: bool) -> Option<[u8; 8]> {
+    pub fn encode(&mut self, prob: Probability, value: bool) -> Bytes {
         if self.hi == self.lo + 1 {
             // special case that we need to handle differently.
             let bytes = if value {
@@ -85,7 +97,7 @@ impl ArithState {
             };
             self.lo = 0;
             self.hi = u64::MAX;
-            return Some(bytes);
+            return Bytes { bytes, count: 8 };
         }
         let split = self
             .split(prob)
@@ -98,23 +110,16 @@ impl ArithState {
         } else {
             self.hi = split;
         }
-        if self.hi == self.lo {
-            let bytes = self.hi.to_be_bytes();
-            self.lo = 0;
-            self.hi = u64::MAX;
-            Some(bytes)
-        } else {
-            None
-        }
+        self.ready_bytes()
         // println!("encoding {prob} {shift} {value:?}   with split {split:016x} gives {self:x?}");
     }
 
-    /// Returns Err if the value needs to be entirely consumed.
-    pub fn decode(&mut self, prob: Probability, value: u64) -> Result<bool, bool> {
+    /// Returns bit and the number of bytes that need to be read.
+    pub fn decode(&mut self, prob: Probability, value: u64) -> (bool, usize) {
         if self.hi == self.lo + 1 {
             self.hi = u64::MAX;
             self.lo = 0;
-            return Err(value == self.hi);
+            return (value == self.hi, 8);
         }
         let split = self
             .split(prob)
@@ -126,11 +131,7 @@ impl ArithState {
         } else {
             self.hi = split;
         }
-        if self.lo == self.hi {
-            Err(b)
-        } else {
-            Ok(b)
-        }
+        (b, self.ready_bytes().count)
     }
 
     fn split(self, Probability { prob, shift }: Probability) -> Option<u64> {
@@ -142,6 +143,34 @@ impl ArithState {
         } else {
             Some(self.lo + (width >> shift) * prob)
         }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Bytes {
+    bytes: [u8; 8],
+    count: usize,
+}
+
+impl Bytes {
+    fn push(&mut self, byte: u8) {
+        self.bytes[self.count] = byte;
+        self.count += 1;
+    }
+}
+
+impl std::ops::Deref for Bytes {
+    type Target = [u8];
+    fn deref(&self) -> &Self::Target {
+        &self.bytes[..self.count]
+    }
+}
+
+impl IntoIterator for Bytes {
+    type Item = u8;
+    type IntoIter = std::iter::Take<std::array::IntoIter<u8, 8>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.bytes.into_iter().take(self.count)
     }
 }
 
@@ -159,17 +188,10 @@ impl Encoder {
         }
     }
     pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
-        while let Some(byte) = self.state.next_byte() {
-            self.bytes.push(byte);
-        }
-        if let Some(bytes) = self.state.encode(probability_of_false, value) {
-            self.bytes.extend_from_slice(&bytes);
-        }
+        self.bytes
+            .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
     pub fn finish(mut self) -> Vec<u8> {
-        while let Some(byte) = self.state.next_byte() {
-            self.bytes.push(byte);
-        }
         self.bytes.push(self.state.last_byte());
         self.bytes
     }
@@ -193,18 +215,13 @@ impl<W: Write> Writer<W> {
         probability_of_false: Probability,
         value: bool,
     ) -> std::io::Result<()> {
-        while let Some(byte) = self.state.next_byte() {
-            self.write.write(&[byte])?;
-        }
-        if let Some(bytes) = self.state.encode(probability_of_false, value) {
+        let bytes = self.state.encode(probability_of_false, value);
+        if bytes.count > 0 {
             self.write.write(&bytes)?;
         }
         Ok(())
     }
     pub fn finish(mut self) -> std::io::Result<()> {
-        while let Some(byte) = self.state.next_byte() {
-            self.write.write(&[byte])?;
-        }
         self.write.write(&[self.state.last_byte()])?;
         Ok(())
     }
@@ -231,18 +248,8 @@ impl Decoder {
         }
     }
     pub fn decode(&mut self, p: Probability) -> bool {
-        let out = match self.state.decode(p, self.value) {
-            Ok(out) => out,
-            Err(out) => {
-                self.value = 0;
-                for _ in 0..8 {
-                    self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
-                }
-                out
-            }
-        };
-        // println!("after decode: {:x?}", self.state);
-        while let Some(_) = self.state.next_byte() {
+        let (out, sz) = self.state.decode(p, self.value);
+        for _ in 0..sz {
             self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
         }
         out
@@ -271,27 +278,36 @@ fn read64(read: &mut impl Read) -> Result<u64, std::io::Error> {
 }
 
 impl<R: Read> Reader<R> {
+    fn read_bytes(&mut self, sz: usize) -> Result<(), std::io::Error> {
+        if sz == 0 {
+            return Ok(());
+        }
+        let mut bytes = [0; 8];
+        let mut bytes_to_read = &mut bytes[(8 - sz)..];
+        while !bytes_to_read.is_empty() {
+            let bytes_read = self.read.read(bytes_to_read)?;
+            if bytes_read == 0 {
+                // we have a small value and that is find, the remaining bytes are zero.
+                break;
+            }
+            bytes_to_read = &mut bytes_to_read[bytes_read..];
+        }
+        let value = u64::from_be_bytes(bytes);
+        self.value = value + (self.value << (8 * sz));
+        Ok(())
+    }
     pub fn new(mut read: R) -> std::io::Result<Self> {
-        Ok(Self {
+        let mut r = Self {
             value: read64(&mut read)?,
             read,
             state: ArithState::default(),
-        })
+        };
+        r.read_bytes(8)?;
+        Ok(r)
     }
     pub fn decode(&mut self, p: Probability) -> std::io::Result<bool> {
-        let out = match self.state.decode(p, self.value) {
-            Ok(out) => out,
-            Err(out) => {
-                self.value = read64(&mut self.read)?;
-                out
-            }
-        };
-        // println!("after decode: {:x?}", self.state);
-        while let Some(_) = self.state.next_byte() {
-            let mut byte = [0u8; 1];
-            self.read.read(&mut byte)?;
-            self.value = (self.value << 8) + byte[0] as u64;
-        }
+        let (out, sz) = self.state.decode(p, self.value);
+        self.read_bytes(sz)?;
         Ok(out)
     }
 }
@@ -318,37 +334,71 @@ mod tests {
             }
             s.hi = s.lo + 1 + (rand::random::<u64>() % (u64::MAX - s.lo));
             println!("initially s is {s:x?}");
-            debug_assert!(s.hi > s.lo);
-            while let Some(b) = s.next_byte() {
-                println!("Got byte {b:x}");
-            }
+            assert!(s.hi > s.lo);
+            s.ready_bytes();
             println!("after regularization s is {s:x?}");
-            debug_assert!(s.hi > s.lo);
-            let mut decoding_s = s;
+            assert!(s.hi > s.lo);
+            let original_s = s;
             let (p, value_bool) = rand_prob();
-            assert!(s.encode(p, value_bool).is_none());
-            let value_chosen = s.lo + (rand::random::<u64>() % (s.hi - s.lo));
-            let decoded = decoding_s.decode(p, value_chosen);
-            assert_eq!(decoded, Ok(value_bool));
-            assert_eq!(s, decoding_s);
+
+            let encoded_bytes = s.encode(p, value_bool);
+            println!("state after encoding is {s:x?}");
+
+            let split = original_s.split(p).unwrap();
+
+            let values = if value_bool {
+                vec![
+                    split + 1,
+                    original_s.hi,
+                    split + (rand::random::<u64>() % (original_s.hi - split)),
+                    split + (rand::random::<u64>() % (original_s.hi - split)),
+                    split + (rand::random::<u64>() % (original_s.hi - split)),
+                ]
+            } else {
+                vec![
+                    original_s.lo,
+                    split,
+                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
+                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
+                    original_s.lo + (rand::random::<u64>() % (split - original_s.lo)),
+                ]
+            };
+            for value in values {
+                println!("value={value:x} for {original_s:x?}");
+                let mut decoding_s = original_s;
+                let (decoded, sz) = decoding_s.decode(p, value);
+                assert_eq!(sz, encoded_bytes.count);
+                assert_eq!(decoded, value_bool);
+                assert_eq!(s, decoding_s);
+            }
         }
     }
 
     #[test]
     fn zero_byte() {
         let mut s = ArithState::default();
-        for _ in 0..8 {
-            assert!(s
-                .encode(
+        for _ in 0..7 {
+            assert_eq!(
+                s.encode(
                     Probability {
                         prob: 127,
                         shift: 8,
                     },
                     false,
                 )
-                .is_none());
+                .count,
+                0
+            );
         }
-        assert_eq!(s.next_byte(), Some(0));
+        let bytes = s.encode(
+            Probability {
+                prob: 127,
+                shift: 8,
+            },
+            false,
+        );
+        assert_eq!(bytes.count, 1);
+        assert_eq!(bytes.bytes, [0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -362,18 +412,28 @@ mod tests {
             .map(|v| v >> 8),
             Some((u64::MAX / 2) >> 8)
         );
-        for _ in 0..9 {
-            assert!(s
-                .encode(
+        for _ in 0..8 {
+            assert_eq!(
+                s.encode(
                     Probability {
                         prob: 127,
                         shift: 8,
                     },
                     true,
                 )
-                .is_none());
+                .count,
+                0
+            );
         }
-        assert_eq!(s.next_byte(), Some(u8::MAX));
+        let bytes = s.encode(
+            Probability {
+                prob: 127,
+                shift: 8,
+            },
+            true,
+        );
+        assert_eq!(bytes.count, 1);
+        assert_eq!(bytes.bytes, [255, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
