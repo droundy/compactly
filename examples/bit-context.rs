@@ -186,7 +186,7 @@ impl BitContext {{
     println!(
         r"
     pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
-        match self {{"
+        match (bit, self) {{"
     );
 
     for BitC {
@@ -198,27 +198,22 @@ impl BitContext {{
     } in variants.iter().map(|b| b.bitc())
     {
         let likely_bit = probability.likely_bit();
+        let unlikely_bit = !likely_bit;
         if next_likely != name && prob_same.is_some() {
             let prob_same = prob_same.unwrap();
             println!(
-                "            {name} => {{
-                if bit == {likely_bit:?} {{
+                "            ({likely_bit:?}, {name}) => {{
                     if rng.next() < 0x{prob_same:016x} {{ {next_likely} }} else {{ {name} }}
-                }} else {{
+            }}"
+            );
+            println!(
+                "            ({unlikely_bit:?}, {name}) => {{
                     {next_unlikely}
-                }}
             }}"
             );
         } else {
-            println!(
-                "            {name} => {{
-                if bit == {likely_bit:?} {{
-                    {next_likely}
-                }} else {{
-                    {next_unlikely}
-                }}
-            }}"
-            );
+            println!("            ({likely_bit:?}, {name}) => {next_likely},");
+            println!("            ({unlikely_bit:?}, {name}) => {next_unlikely},");
         }
     }
 
