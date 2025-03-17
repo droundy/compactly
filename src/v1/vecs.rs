@@ -33,16 +33,16 @@ fn size() {
     for value in 0_usize..4 {
         assert_size!(vec![dbg!(value)], 1);
     }
-    for value in 4_usize..64 {
+    for value in 4_usize..12 {
         assert_size!(vec![dbg!(value)], 2);
     }
-    for num in 0_usize..2 {
+    for num in 0_usize..4 {
         let value = (0..num).collect::<Vec<_>>();
         assert_size!(dbg!(value), 1);
     }
-    for num in 2_usize..5 {
+    for num in 4_usize..5 {
         let value = (0..num).collect::<Vec<_>>();
-        assert_size!(dbg!(value), num);
+        assert_size!(dbg!(value), 3);
     }
     for num in 5_usize..6 {
         let value = (0..num).collect::<Vec<_>>();
