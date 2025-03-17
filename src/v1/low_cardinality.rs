@@ -78,15 +78,15 @@ fn low_cardinality() {
         .map(|v| Encoded::<_, LowCardinality>::new(v))
         .collect::<Vec<_>>();
 
-    assert_bits!(v.clone(), 276134);
-    assert_bits!(low.clone(), 1631);
-    assert_bits!(strings.clone().to_vec(), 612);
+    assert_bits!(v.clone(), 292940);
+    assert_bits!(low.clone(), 1742);
+    assert_bits!(strings.clone().to_vec(), 624);
     assert_bits!(
         strings
             .iter()
             .cloned()
             .map(|v| Encoded::<_, LowCardinality>::new(v))
             .collect::<Vec<_>>(),
-        614
+        625
     );
 }

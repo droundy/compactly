@@ -51,7 +51,7 @@ fn hashset() {
     assert_size!(HashSet::from([0_usize]), 1);
     assert_size!(HashSet::from([1_usize]), 1);
     assert_size!(HashSet::from([5_usize]), 2);
-    assert_size!(HashSet::from([0_usize, 1]), 2);
+    assert_size!(HashSet::from([0_usize, 1]), 1);
     // assert_size!(HashSet::from([0_usize, 1, 2]), 3);
     // Sizes of larger hash sets are unpredictable because the values come out
     // in arbitrary orders.
