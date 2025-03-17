@@ -266,22 +266,22 @@ impl<
 
 #[test]
 fn sizes() {
-    use super::assert_size;
+    use super::assert_bits;
 
-    assert_size!((false, false), 0);
-    assert_size!((false, true), 1);
-    assert_size!((true, true), 1);
-    assert_size!((true, false), 1);
+    assert_bits!((false, false), 2);
+    assert_bits!((false, true), 2);
+    assert_bits!((true, true), 2);
+    assert_bits!((true, false), 2);
 
-    assert_size!((true, true, true), 1);
+    assert_bits!((true, true, true), 3);
 
-    assert_size!((true, true, true, true), 1);
+    assert_bits!((true, true, true, true), 4);
 
-    assert_size!((true, true, true, true, true), 1);
+    assert_bits!((true, true, true, true, true), 5);
 
-    assert_size!((true, true, true, true, true, true), 1);
+    assert_bits!((true, true, true, true, true, true), 6);
 
-    assert_size!((true, true, true, true, true, true, true), 1);
+    assert_bits!((true, true, true, true, true, true, true), 7);
 
-    assert_size!((true, true, true, true, true, true, true, true), 2);
+    assert_bits!((true, true, true, true, true, true, true, true), 8);
 }
