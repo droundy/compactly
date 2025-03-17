@@ -5,7 +5,16 @@ use serde::{Deserialize, Serialize};
 const CSV: &str = include_str!("suicide.csv");
 
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, compactly::v0::Encode, Serialize, Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    compactly::v0::Encode,
+    compactly::v1::Encode,
+    Serialize,
+    Deserialize,
 )]
 pub struct Age {
     min: u8,
@@ -13,7 +22,16 @@ pub struct Age {
 }
 
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, compactly::v0::Encode, Serialize, Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    compactly::v0::Encode,
+    compactly::v1::Encode,
+    Serialize,
+    Deserialize,
 )]
 pub enum Sex {
     Male,
@@ -21,7 +39,16 @@ pub enum Sex {
 }
 
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, compactly::v0::Encode, Serialize, Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    compactly::v0::Encode,
+    compactly::v1::Encode,
+    Serialize,
+    Deserialize,
 )]
 pub enum Race {
     White,
@@ -31,7 +58,16 @@ pub enum Race {
 }
 
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, compactly::v0::Encode, Serialize, Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    compactly::v0::Encode,
+    compactly::v1::Encode,
+    Serialize,
+    Deserialize,
 )]
 pub struct SuicideFactors {
     sex: Sex,

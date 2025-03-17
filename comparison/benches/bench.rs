@@ -4,8 +4,14 @@ use scaling::bench;
 use serde::{de::DeserializeOwned, Serialize};
 
 trait Encoding: std::fmt::Debug + Clone + Copy + Default {
-    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8>;
-    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T;
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8>;
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T;
     const NAME: &str;
     fn name(self) -> String {
         Self::NAME.into()
@@ -13,14 +19,38 @@ trait Encoding: std::fmt::Debug + Clone + Copy + Default {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct Compactly;
-impl Encoding for Compactly {
-    const NAME: &str = "compactly";
-    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+struct CompactlyV0;
+impl Encoding for CompactlyV0 {
+    const NAME: &str = "compactly-v0";
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
         compactly::v0::encode(value)
     }
-    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T {
         compactly::v0::decode(bytes).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CompactlyV1;
+impl Encoding for CompactlyV1 {
+    const NAME: &str = "compactly-v1";
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
+        compactly::v1::encode(value)
+    }
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T {
+        compactly::v1::decode(bytes).unwrap()
     }
 }
 
@@ -28,10 +58,16 @@ impl Encoding for Compactly {
 struct BincodeVar;
 impl Encoding for BincodeVar {
     const NAME: &str = "bincode varint";
-    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
         bincode::DefaultOptions::new().serialize(value).unwrap()
     }
-    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T {
         bincode::DefaultOptions::new().deserialize(bytes).unwrap()
     }
 }
@@ -40,10 +76,16 @@ impl Encoding for BincodeVar {
 struct BincodeFix;
 impl Encoding for BincodeFix {
     const NAME: &str = "bincode fixint";
-    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
         bincode::serialize(value).unwrap()
     }
-    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T {
         bincode::deserialize(bytes).unwrap()
     }
 }
@@ -55,10 +97,16 @@ struct Zstd<E: Encoding> {
 }
 impl<E: Encoding> Encoding for Zstd<E> {
     const NAME: &str = "zstd other";
-    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
         zstd::bulk::compress(self.encoding.encode(value).as_slice(), self.level).unwrap()
     }
-    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> T {
         self.encoding.decode(
             zstd::bulk::decompress(bytes, 10_000_000)
                 .unwrap()
@@ -70,7 +118,10 @@ impl<E: Encoding> Encoding for Zstd<E> {
     }
 }
 
-fn bench_one<T: compactly::v0::Encode + Serialize + DeserializeOwned>(e: impl Encoding, value: &T) {
+fn bench_one<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+    e: impl Encoding,
+    value: &T,
+) {
     let encoding_ms = bench(|| e.encode(value)).ns_per_iter * 1e-6;
     let encoded = e.encode(value);
     let decoding_ms = bench(|| e.decode::<T>(encoded.as_slice())).ns_per_iter * 1e-6;
@@ -81,7 +132,10 @@ fn bench_one<T: compactly::v0::Encode + Serialize + DeserializeOwned>(e: impl En
     );
 }
 
-fn bench_all<T: compactly::v0::Encode + Serialize + DeserializeOwned>(name: &str, value: T) {
+fn bench_all<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
+    name: &str,
+    value: T,
+) {
     println!("{name}:");
     {
         let size = "size";
@@ -99,7 +153,8 @@ fn bench_all<T: compactly::v0::Encode + Serialize + DeserializeOwned>(name: &str
             "--------"
         );
     }
-    bench_one(Compactly, &value);
+    bench_one(CompactlyV0, &value);
+    bench_one(CompactlyV1, &value);
     bench_one(
         Zstd {
             encoding: BincodeVar,

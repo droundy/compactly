@@ -1,4 +1,4 @@
-pub use compactly_derive::EncodeV0 as Encode;
+pub use compactly_derive::EncodeV1 as Encode;
 use std::io::{Read, Write};
 
 pub mod adapt;
