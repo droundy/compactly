@@ -142,9 +142,9 @@ fn main() {
     }
 
     println!(
-        r"//! Generated with `cargo run --example bit-context > src/bit_context.rs`
-use crate::adapt::SplitMix64;
-use crate::arith::Probability;
+        r"//! Generated with `src/v1/bit-context.sh`
+use super::adapt::SplitMix64;
+use super::arith::Probability;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {{

@@ -1,4 +1,4 @@
-//! Generated with `cargo run --example bit-context > src/bit_context.rs`
+//! Generated with `src/v1/bit-context.sh`
 use super::adapt::SplitMix64;
 use super::arith::Probability;
 
