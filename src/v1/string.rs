@@ -98,7 +98,7 @@ fn size() {
     assert_bits!("A".to_string(), 11);
     assert_bits!("É".to_string(), 16);
     assert_bits!("😊".to_string(), 23);
-    assert_bits!("hello world".to_string(), 77);
-    assert_bits!("Hello world".to_string(), 79);
+    assert_bits!("hello world".to_string(), 76);
+    assert_bits!("Hello world".to_string(), 78);
     assert_bits!("hhhhhhhhhhh".to_string(), 38);
 }
