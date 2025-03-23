@@ -744,649 +744,2571 @@ impl BitContext {
     }
 
     pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {
-        match (bit, self) {
-            (false, True0False0) => True0False1,
-            (true, True0False0) => True1False0,
-            (false, True0False1) => True0False2,
-            (true, True0False1) => True1False1,
-            (true, True1False0) => True2False0,
-            (false, True1False0) => True1False1,
-            (false, True0False2) => True0False3,
-            (true, True0False2) => True1False2,
-            (false, True1False1) => True1False2,
-            (true, True1False1) => True2False1,
-            (true, True2False0) => True3False0,
-            (false, True2False0) => True2False1,
-            (false, True0False3) => True0False4,
-            (true, True0False3) => True1False3,
-            (false, True1False2) => True1False3,
-            (true, True1False2) => True2False2,
-            (true, True2False1) => True3False1,
-            (false, True2False1) => True2False2,
-            (true, True3False0) => True4False0,
-            (false, True3False0) => True3False1,
-            (false, True0False4) => True0False5,
-            (true, True0False4) => True1False4,
-            (false, True1False3) => True1False4,
-            (true, True1False3) => True2False3,
-            (false, True2False2) => True2False3,
-            (true, True2False2) => True3False2,
-            (true, True3False1) => True4False1,
-            (false, True3False1) => True3False2,
-            (true, True4False0) => True5False0,
-            (false, True4False0) => True4False1,
-            (false, True0False5) => True0False6,
-            (true, True0False5) => True1False5,
-            (false, True1False4) => True1False5,
-            (true, True1False4) => True2False4,
-            (false, True2False3) => True2False4,
-            (true, True2False3) => True3False3,
-            (true, True3False2) => True4False2,
-            (false, True3False2) => True3False3,
-            (true, True4False1) => True5False1,
-            (false, True4False1) => True4False2,
-            (true, True5False0) => True6False0,
-            (false, True5False0) => True5False1,
-            (false, True0False6) => True0False7,
-            (true, True0False6) => True1False6,
-            (false, True1False5) => True1False6,
-            (true, True1False5) => True2False5,
-            (false, True2False4) => True2False5,
-            (true, True2False4) => True3False4,
-            (false, True3False3) => True3False4,
-            (true, True3False3) => True4False3,
-            (true, True4False2) => True5False2,
-            (false, True4False2) => True4False3,
-            (true, True5False1) => True6False1,
-            (false, True5False1) => True5False2,
-            (true, True6False0) => True7False0,
-            (false, True6False0) => True6False1,
-            (false, True0False7) => True0False8,
-            (true, True0False7) => True1False7,
-            (false, True1False6) => True1False7,
-            (true, True1False6) => True2False6,
-            (false, True2False5) => True2False6,
-            (true, True2False5) => True3False5,
-            (false, True3False4) => True3False5,
-            (true, True3False4) => True4False4,
-            (true, True4False3) => True5False3,
-            (false, True4False3) => True4False4,
-            (true, True5False2) => True6False2,
-            (false, True5False2) => True5False3,
-            (true, True6False1) => True7False1,
-            (false, True6False1) => True6False2,
-            (true, True7False0) => True8False0,
-            (false, True7False0) => True7False1,
-            (false, True0False8) => True0False9,
-            (true, True0False8) => True1False8,
-            (false, True1False7) => True1False8,
-            (true, True1False7) => True2False7,
-            (false, True2False6) => True2False7,
-            (true, True2False6) => True3False6,
-            (false, True3False5) => True3False6,
-            (true, True3False5) => True4False5,
-            (false, True4False4) => True4False5,
-            (true, True4False4) => True5False4,
-            (true, True5False3) => True6False3,
-            (false, True5False3) => True5False4,
-            (true, True6False2) => True7False2,
-            (false, True6False2) => True6False3,
-            (true, True7False1) => True8False1,
-            (false, True7False1) => True7False2,
-            (true, True8False0) => True9False0,
-            (false, True8False0) => True8False1,
-            (false, True0False9) => True0False10,
-            (true, True0False9) => True1False9,
-            (false, True1False8) => True1False9,
-            (true, True1False8) => True2False8,
-            (false, True2False7) => True2False8,
-            (true, True2False7) => True3False7,
-            (false, True3False6) => True3False7,
-            (true, True3False6) => True4False6,
-            (false, True4False5) => True4False6,
-            (true, True4False5) => True5False5,
-            (true, True5False4) => True6False4,
-            (false, True5False4) => True5False5,
-            (true, True6False3) => True7False3,
-            (false, True6False3) => True6False4,
-            (true, True7False2) => True8False2,
-            (false, True7False2) => True7False3,
-            (true, True8False1) => True9False1,
-            (false, True8False1) => True8False2,
-            (true, True9False0) => True10False0,
-            (false, True9False0) => True9False1,
-            (false, True0False10) => True0False11,
-            (true, True0False10) => True1False10,
-            (false, True1False9) => True1False10,
-            (true, True1False9) => True2False9,
-            (false, True2False8) => True2False9,
-            (true, True2False8) => True3False8,
-            (false, True3False7) => True3False8,
-            (true, True3False7) => True4False7,
-            (false, True4False6) => True4False7,
-            (true, True4False6) => True5False6,
-            (false, True5False5) => True5False6,
-            (true, True5False5) => True6False5,
-            (true, True6False4) => True7False4,
-            (false, True6False4) => True6False5,
-            (true, True7False3) => True8False3,
-            (false, True7False3) => True7False4,
-            (true, True8False2) => True9False2,
-            (false, True8False2) => True8False3,
-            (true, True9False1) => True10False1,
-            (false, True9False1) => True9False2,
-            (true, True10False0) => True11False0,
-            (false, True10False0) => True10False1,
-            (false, True0False11) => True0False12,
-            (true, True0False11) => True1False11,
-            (false, True1False10) => True1False11,
-            (true, True1False10) => True2False10,
-            (false, True2False9) => True2False10,
-            (true, True2False9) => True3False9,
-            (false, True3False8) => True3False9,
-            (true, True3False8) => True4False8,
-            (false, True4False7) => True4False8,
-            (true, True4False7) => True5False7,
-            (false, True5False6) => True5False7,
-            (true, True5False6) => True6False6,
-            (true, True6False5) => True7False5,
-            (false, True6False5) => True6False6,
-            (true, True7False4) => True8False4,
-            (false, True7False4) => True7False5,
-            (true, True8False3) => True9False3,
-            (false, True8False3) => True8False4,
-            (true, True9False2) => True10False2,
-            (false, True9False2) => True9False3,
-            (true, True10False1) => True11False1,
-            (false, True10False1) => True10False2,
-            (true, True11False0) => True12False0,
-            (false, True11False0) => True11False1,
-            (false, True0False12) => True0False13,
-            (true, True0False12) => True1False12,
-            (false, True1False11) => True1False12,
-            (true, True1False11) => True2False11,
-            (false, True2False10) => True2False11,
-            (true, True2False10) => True3False10,
-            (false, True3False9) => True3False10,
-            (true, True3False9) => True4False9,
-            (false, True4False8) => True4False9,
-            (true, True4False8) => True5False8,
-            (false, True5False7) => True5False8,
-            (true, True5False7) => True6False7,
-            (false, True6False6) => True6False7,
-            (true, True6False6) => True7False6,
-            (true, True7False5) => True8False5,
-            (false, True7False5) => True7False6,
-            (true, True8False4) => True9False4,
-            (false, True8False4) => True8False5,
-            (true, True9False3) => True10False3,
-            (false, True9False3) => True9False4,
-            (true, True10False2) => True11False2,
-            (false, True10False2) => True10False3,
-            (true, True11False1) => True12False1,
-            (false, True11False1) => True11False2,
-            (true, True12False0) => True13False0,
-            (false, True12False0) => True12False1,
-            (false, True0False13) => True0False14,
-            (true, True0False13) => True1False13,
-            (false, True1False12) => True1False13,
-            (true, True1False12) => True2False12,
-            (false, True2False11) => True2False12,
-            (true, True2False11) => True3False11,
-            (false, True3False10) => True3False11,
-            (true, True3False10) => True4False10,
-            (false, True4False9) => True4False10,
-            (true, True4False9) => True5False9,
-            (false, True5False8) => True5False9,
-            (true, True5False8) => True6False8,
-            (false, True6False7) => True6False8,
-            (true, True6False7) => True7False7,
-            (true, True7False6) => True8False6,
-            (false, True7False6) => True7False7,
-            (true, True8False5) => True9False5,
-            (false, True8False5) => True8False6,
-            (true, True9False4) => True10False4,
-            (false, True9False4) => True9False5,
-            (true, True10False3) => True11False3,
-            (false, True10False3) => True10False4,
-            (true, True11False2) => True12False2,
-            (false, True11False2) => True11False3,
-            (true, True12False1) => True13False1,
-            (false, True12False1) => True12False2,
-            (true, True13False0) => True14False0,
-            (false, True13False0) => True13False1,
-            (false, True0False14) => True0False15,
-            (true, True0False14) => True1False14,
-            (false, True1False13) => True1False14,
-            (true, True1False13) => True2False13,
-            (false, True2False12) => True2False13,
-            (true, True2False12) => True3False12,
-            (false, True3False11) => True3False12,
-            (true, True3False11) => True4False11,
-            (false, True4False10) => True4False11,
-            (true, True4False10) => True5False10,
-            (false, True5False9) => True5False10,
-            (true, True5False9) => True6False9,
-            (false, True6False8) => True6False9,
-            (true, True6False8) => True7False8,
-            (false, True7False7) => True7False8,
-            (true, True7False7) => True8False7,
-            (true, True8False6) => True9False6,
-            (false, True8False6) => True8False7,
-            (true, True9False5) => True10False5,
-            (false, True9False5) => True9False6,
-            (true, True10False4) => True11False4,
-            (false, True10False4) => True10False5,
-            (true, True11False3) => True12False3,
-            (false, True11False3) => True11False4,
-            (true, True12False2) => True13False2,
-            (false, True12False2) => True12False3,
-            (true, True13False1) => True14False1,
-            (false, True13False1) => True13False2,
-            (true, True14False0) => True15False0,
-            (false, True14False0) => True14False1,
-            (false, True0False15) => True0False16,
-            (true, True0False15) => True1False15,
-            (false, True1False14) => True1False15,
-            (true, True1False14) => True2False14,
-            (false, True2False13) => True2False14,
-            (true, True2False13) => True3False13,
-            (false, True3False12) => True3False13,
-            (true, True3False12) => True4False12,
-            (false, True4False11) => True4False12,
-            (true, True4False11) => True5False11,
-            (false, True5False10) => True5False11,
-            (true, True5False10) => True6False10,
-            (false, True6False9) => True6False10,
-            (true, True6False9) => True7False9,
-            (false, True7False8) => True7False9,
-            (true, True7False8) => True8False8,
-            (true, True8False7) => True9False7,
-            (false, True8False7) => True8False8,
-            (true, True9False6) => True10False6,
-            (false, True9False6) => True9False7,
-            (true, True10False5) => True11False5,
-            (false, True10False5) => True10False6,
-            (true, True11False4) => True12False4,
-            (false, True11False4) => True11False5,
-            (true, True12False3) => True13False3,
-            (false, True12False3) => True12False4,
-            (true, True13False2) => True14False2,
-            (false, True13False2) => True13False3,
-            (true, True14False1) => True15False1,
-            (false, True14False1) => True14False2,
-            (true, True15False0) => True16False0,
-            (false, True15False0) => True15False1,
-            (false, True0False16) => True0False17,
-            (true, True0False16) => True1False16,
-            (false, True1False15) => True1False16,
-            (true, True1False15) => True2False15,
-            (false, True2False14) => True2False15,
-            (true, True2False14) => True3False14,
-            (false, True3False13) => True3False14,
-            (true, True3False13) => True4False13,
-            (false, True4False12) => True4False13,
-            (true, True4False12) => True5False12,
-            (false, True5False11) => True5False12,
-            (true, True5False11) => True6False11,
-            (false, True6False10) => True6False11,
-            (true, True6False10) => True7False10,
-            (false, True7False9) => True7False10,
-            (true, True7False9) => True8False9,
-            (false, True8False8) => True8False9,
-            (true, True8False8) => True9False8,
-            (true, True9False7) => True10False7,
-            (false, True9False7) => True9False8,
-            (true, True10False6) => True11False6,
-            (false, True10False6) => True10False7,
-            (true, True11False5) => True12False5,
-            (false, True11False5) => True11False6,
-            (true, True12False4) => True13False4,
-            (false, True12False4) => True12False5,
-            (true, True13False3) => True14False3,
-            (false, True13False3) => True13False4,
-            (true, True14False2) => True15False2,
-            (false, True14False2) => True14False3,
-            (true, True15False1) => True16False1,
-            (false, True15False1) => True15False2,
-            (true, True16False0) => True17False0,
-            (false, True16False0) => True16False1,
-            (false, True0False17) => True0False18,
-            (true, True0False17) => True1False17,
-            (false, True1False16) => True1False17,
-            (true, True1False16) => True2False16,
-            (false, True2False15) => True2False16,
-            (true, True2False15) => True3False15,
-            (false, True3False14) => True3False15,
-            (true, True3False14) => True4False14,
-            (false, True4False13) => True4False14,
-            (true, True4False13) => True5False13,
-            (false, True5False12) => True5False13,
-            (true, True5False12) => True6False12,
-            (false, True6False11) => True6False12,
-            (true, True6False11) => True7False11,
-            (false, True7False10) => True7False11,
-            (true, True7False10) => True8False10,
-            (false, True8False9) => True8False10,
-            (true, True8False9) => True9False9,
-            (true, True9False8) => True10False8,
-            (false, True9False8) => True9False9,
-            (true, True10False7) => True11False7,
-            (false, True10False7) => True10False8,
-            (true, True11False6) => True12False6,
-            (false, True11False6) => True11False7,
-            (true, True12False5) => True13False5,
-            (false, True12False5) => True12False6,
-            (true, True13False4) => True14False4,
-            (false, True13False4) => True13False5,
-            (true, True14False3) => True15False3,
-            (false, True14False3) => True14False4,
-            (true, True15False2) => True16False2,
-            (false, True15False2) => True15False3,
-            (true, True16False1) => True17False1,
-            (false, True16False1) => True16False2,
-            (true, True17False0) => True18False0,
-            (false, True17False0) => True17False1,
-            (false, True0False18) => True0False19,
-            (true, True0False18) => True1False18,
-            (false, True1False17) => True1False18,
-            (true, True1False17) => True2False17,
-            (false, True2False16) => True2False17,
-            (true, True2False16) => True3False16,
-            (false, True3False15) => True3False16,
-            (true, True3False15) => True4False15,
-            (false, True4False14) => True4False15,
-            (true, True4False14) => True5False14,
-            (false, True5False13) => True5False14,
-            (true, True5False13) => True6False13,
-            (false, True6False12) => True6False13,
-            (true, True6False12) => True7False12,
-            (false, True7False11) => True7False12,
-            (true, True7False11) => True8False11,
-            (false, True8False10) => True8False11,
-            (true, True8False10) => True9False10,
-            (false, True9False9) => True9False10,
-            (true, True9False9) => True10False9,
-            (true, True10False8) => True11False8,
-            (false, True10False8) => True10False9,
-            (true, True11False7) => True12False7,
-            (false, True11False7) => True11False8,
-            (true, True12False6) => True13False6,
-            (false, True12False6) => True12False7,
-            (true, True13False5) => True14False5,
-            (false, True13False5) => True13False6,
-            (true, True14False4) => True15False4,
-            (false, True14False4) => True14False5,
-            (true, True15False3) => True16False3,
-            (false, True15False3) => True15False4,
-            (true, True16False2) => True17False2,
-            (false, True16False2) => True16False3,
-            (true, True17False1) => True18False1,
-            (false, True17False1) => True17False2,
-            (true, True18False0) => True19False0,
-            (false, True18False0) => True18False1,
-            (false, True0False19) => True0False20,
-            (true, True0False19) => True1False19,
-            (false, True1False18) => True1False19,
-            (true, True1False18) => True2False18,
-            (false, True2False17) => True2False18,
-            (true, True2False17) => True3False17,
-            (false, True3False16) => True3False17,
-            (true, True3False16) => True4False16,
-            (false, True4False15) => True4False16,
-            (true, True4False15) => True5False15,
-            (false, True5False14) => True5False15,
-            (true, True5False14) => True6False14,
-            (false, True6False13) => True6False14,
-            (true, True6False13) => True7False13,
-            (false, True7False12) => True7False13,
-            (true, True7False12) => True8False12,
-            (false, True8False11) => True8False12,
-            (true, True8False11) => True9False11,
-            (false, True9False10) => True9False11,
-            (true, True9False10) => True10False10,
-            (true, True10False9) => True11False9,
-            (false, True10False9) => True10False10,
-            (true, True11False8) => True12False8,
-            (false, True11False8) => True11False9,
-            (true, True12False7) => True13False7,
-            (false, True12False7) => True12False8,
-            (true, True13False6) => True14False6,
-            (false, True13False6) => True13False7,
-            (true, True14False5) => True15False5,
-            (false, True14False5) => True14False6,
-            (true, True15False4) => True16False4,
-            (false, True15False4) => True15False5,
-            (true, True16False3) => True17False3,
-            (false, True16False3) => True16False4,
-            (true, True17False2) => True18False2,
-            (false, True17False2) => True17False3,
-            (true, True18False1) => True19False1,
-            (false, True18False1) => True18False2,
-            (true, True19False0) => True20False0,
-            (false, True19False0) => True19False1,
-            (false, True0False20) => AllFalse4,
-            (true, True0False20) => True1False10,
-            (false, True1False19) => True1False10,
-            (true, True1False19) => True1False10,
-            (false, True2False18) => True1False10,
-            (true, True2False18) => True2False9,
-            (false, True3False17) => True2False9,
-            (true, True3False17) => True2False9,
-            (false, True4False16) => True2False9,
-            (true, True4False16) => True3False8,
-            (false, True5False15) => True3False8,
-            (true, True5False15) => True3False8,
-            (false, True6False14) => True3False8,
-            (true, True6False14) => True4False7,
-            (false, True7False13) => True4False7,
-            (true, True7False13) => True4False7,
-            (false, True8False12) => True4False7,
-            (true, True8False12) => True5False6,
-            (false, True9False11) => True5False6,
-            (true, True9False11) => True5False6,
-            (false, True10False10) => True5False6,
-            (true, True10False10) => True6False5,
-            (true, True11False9) => True6False5,
-            (false, True11False9) => True6False5,
-            (true, True12False8) => True7False4,
-            (false, True12False8) => True6False5,
-            (true, True13False7) => True7False4,
-            (false, True13False7) => True7False4,
-            (true, True14False6) => True8False3,
-            (false, True14False6) => True7False4,
-            (true, True15False5) => True8False3,
-            (false, True15False5) => True8False3,
-            (true, True16False4) => True9False2,
-            (false, True16False4) => True8False3,
-            (true, True17False3) => True9False2,
-            (false, True17False3) => True9False2,
-            (true, True18False2) => True10False1,
-            (false, True18False2) => True9False2,
-            (true, True19False1) => True10False1,
-            (false, True19False1) => True10False1,
-            (true, True20False0) => AllTrue4,
-            (false, True20False0) => True10False1,
-            (false, AllFalse4) => {
-                if rng.next() < 0xf800000000000000 {
-                    AllFalse5
-                } else {
-                    AllFalse4
-                }
-            }
-            (true, AllFalse4) => True1False16,
-            (true, AllTrue4) => {
-                if rng.next() < 0xf800000000000000 {
-                    AllTrue5
-                } else {
-                    AllTrue4
-                }
-            }
-            (false, AllTrue4) => True16False1,
-            (false, AllFalse5) => {
-                if rng.next() < 0xfc00000000000000 {
-                    AllFalse6
-                } else {
-                    AllFalse5
-                }
-            }
-            (true, AllFalse5) => True1False16,
-            (true, AllTrue5) => {
-                if rng.next() < 0xfc00000000000000 {
-                    AllTrue6
-                } else {
-                    AllTrue5
-                }
-            }
-            (false, AllTrue5) => True16False1,
-            (false, AllFalse6) => {
-                if rng.next() < 0xfe00000000000000 {
-                    AllFalse7
-                } else {
-                    AllFalse6
-                }
-            }
-            (true, AllFalse6) => True1False16,
-            (true, AllTrue6) => {
-                if rng.next() < 0xfe00000000000000 {
-                    AllTrue7
-                } else {
-                    AllTrue6
-                }
-            }
-            (false, AllTrue6) => True16False1,
-            (false, AllFalse7) => {
-                if rng.next() < 0xff00000000000000 {
-                    AllFalse8
-                } else {
-                    AllFalse7
-                }
-            }
-            (true, AllFalse7) => True1False16,
-            (true, AllTrue7) => {
-                if rng.next() < 0xff00000000000000 {
-                    AllTrue8
-                } else {
-                    AllTrue7
-                }
-            }
-            (false, AllTrue7) => True16False1,
-            (false, AllFalse8) => {
-                if rng.next() < 0xff80000000000000 {
-                    AllFalse9
-                } else {
-                    AllFalse8
-                }
-            }
-            (true, AllFalse8) => True1False16,
-            (true, AllTrue8) => {
-                if rng.next() < 0xff80000000000000 {
-                    AllTrue9
-                } else {
-                    AllTrue8
-                }
-            }
-            (false, AllTrue8) => True16False1,
-            (false, AllFalse9) => {
-                if rng.next() < 0xffc0000000000000 {
-                    AllFalse10
-                } else {
-                    AllFalse9
-                }
-            }
-            (true, AllFalse9) => True1False16,
-            (true, AllTrue9) => {
-                if rng.next() < 0xffc0000000000000 {
-                    AllTrue10
-                } else {
-                    AllTrue9
-                }
-            }
-            (false, AllTrue9) => True16False1,
-            (false, AllFalse10) => {
-                if rng.next() < 0xffe0000000000000 {
-                    AllFalse11
-                } else {
-                    AllFalse10
-                }
-            }
-            (true, AllFalse10) => True1False16,
-            (true, AllTrue10) => {
-                if rng.next() < 0xffe0000000000000 {
-                    AllTrue11
-                } else {
-                    AllTrue10
-                }
-            }
-            (false, AllTrue10) => True16False1,
-            (false, AllFalse11) => {
-                if rng.next() < 0xfff0000000000000 {
-                    AllFalse12
-                } else {
-                    AllFalse11
-                }
-            }
-            (true, AllFalse11) => True1False16,
-            (true, AllTrue11) => {
-                if rng.next() < 0xfff0000000000000 {
-                    AllTrue12
-                } else {
-                    AllTrue11
-                }
-            }
-            (false, AllTrue11) => True16False1,
-            (false, AllFalse12) => {
-                if rng.next() < 0xfff8000000000000 {
-                    AllFalse13
-                } else {
-                    AllFalse12
-                }
-            }
-            (true, AllFalse12) => True1False16,
-            (true, AllTrue12) => {
-                if rng.next() < 0xfff8000000000000 {
-                    AllTrue13
-                } else {
-                    AllTrue12
-                }
-            }
-            (false, AllTrue12) => True16False1,
-            (false, AllFalse13) => {
-                if rng.next() < 0xfffc000000000000 {
-                    AllFalse14
-                } else {
-                    AllFalse13
-                }
-            }
-            (true, AllFalse13) => True1False16,
-            (true, AllTrue13) => {
-                if rng.next() < 0xfffc000000000000 {
-                    AllTrue14
-                } else {
-                    AllTrue13
-                }
-            }
-            (false, AllTrue13) => True16False1,
-            (false, AllFalse14) => {
-                if rng.next() < 0xfffe000000000000 {
-                    AllFalse15
-                } else {
-                    AllFalse14
-                }
-            }
-            (true, AllFalse14) => True1False16,
-            (true, AllTrue14) => {
-                if rng.next() < 0xfffe000000000000 {
-                    AllTrue15
-                } else {
-                    AllTrue14
-                }
-            }
-            (false, AllTrue14) => True16False1,
-            (false, AllFalse15) => AllFalse15,
-            (true, AllFalse15) => AllFalse15,
-            (true, AllTrue15) => AllTrue15,
-            (false, AllTrue15) => AllTrue15,
+        struct Outcome {
+            a: BitContext,
+            b: BitContext,
+            prob_a: u64,
+        }
+        const OUTCOMES: [Outcome; 2 * 255] = [
+            Outcome {
+                a: True0False1,
+                b: True0False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False2,
+                b: True0False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False1,
+                b: True1False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False3,
+                b: True0False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False2,
+                b: True1False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False1,
+                b: True2False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False4,
+                b: True0False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False3,
+                b: True1False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False2,
+                b: True2False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False1,
+                b: True3False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False5,
+                b: True0False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False4,
+                b: True1False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False3,
+                b: True2False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False2,
+                b: True3False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False1,
+                b: True4False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False6,
+                b: True0False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False5,
+                b: True1False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False4,
+                b: True2False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False3,
+                b: True3False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False2,
+                b: True4False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False1,
+                b: True5False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False7,
+                b: True0False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False6,
+                b: True1False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False5,
+                b: True2False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False4,
+                b: True3False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False3,
+                b: True4False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False2,
+                b: True5False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False1,
+                b: True6False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False8,
+                b: True0False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False7,
+                b: True1False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False6,
+                b: True2False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False5,
+                b: True3False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False4,
+                b: True4False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False3,
+                b: True5False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False2,
+                b: True6False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False1,
+                b: True7False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False9,
+                b: True0False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False8,
+                b: True1False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False7,
+                b: True2False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False6,
+                b: True3False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False5,
+                b: True4False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False4,
+                b: True5False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False3,
+                b: True6False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False2,
+                b: True7False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False1,
+                b: True8False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False10,
+                b: True0False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False9,
+                b: True1False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False8,
+                b: True2False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False7,
+                b: True3False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False6,
+                b: True4False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False5,
+                b: True5False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False4,
+                b: True6False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False3,
+                b: True7False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False2,
+                b: True8False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False1,
+                b: True9False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False11,
+                b: True0False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False12,
+                b: True0False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False11,
+                b: True1False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False10,
+                b: True2False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False9,
+                b: True3False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False8,
+                b: True4False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False7,
+                b: True5False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False6,
+                b: True6False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False5,
+                b: True7False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False4,
+                b: True8False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False3,
+                b: True9False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False2,
+                b: True10False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False1,
+                b: True11False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False13,
+                b: True0False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False12,
+                b: True1False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False11,
+                b: True2False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False10,
+                b: True3False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False9,
+                b: True4False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False8,
+                b: True5False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False7,
+                b: True6False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False6,
+                b: True7False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False5,
+                b: True8False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False4,
+                b: True9False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False3,
+                b: True10False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False2,
+                b: True11False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False1,
+                b: True12False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False14,
+                b: True0False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False13,
+                b: True1False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False12,
+                b: True2False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False11,
+                b: True3False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False10,
+                b: True4False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False9,
+                b: True5False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False8,
+                b: True6False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False7,
+                b: True7False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False6,
+                b: True8False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False5,
+                b: True9False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False4,
+                b: True10False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False3,
+                b: True11False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False2,
+                b: True12False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False1,
+                b: True13False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False15,
+                b: True0False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False14,
+                b: True1False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False13,
+                b: True2False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False12,
+                b: True3False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False11,
+                b: True4False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False10,
+                b: True5False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False9,
+                b: True6False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False8,
+                b: True7False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False7,
+                b: True8False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False6,
+                b: True9False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False5,
+                b: True10False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False4,
+                b: True11False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False3,
+                b: True12False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False2,
+                b: True13False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False1,
+                b: True14False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False16,
+                b: True0False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False15,
+                b: True1False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False14,
+                b: True2False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False13,
+                b: True3False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False12,
+                b: True4False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False11,
+                b: True5False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False10,
+                b: True6False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False9,
+                b: True7False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False8,
+                b: True8False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False7,
+                b: True9False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False6,
+                b: True10False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False5,
+                b: True11False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False4,
+                b: True12False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False3,
+                b: True13False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False2,
+                b: True14False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False1,
+                b: True15False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False17,
+                b: True0False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False15,
+                b: True2False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False14,
+                b: True3False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False13,
+                b: True4False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False12,
+                b: True5False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False11,
+                b: True6False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False10,
+                b: True7False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False9,
+                b: True8False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False8,
+                b: True9False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False7,
+                b: True10False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False6,
+                b: True11False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False5,
+                b: True12False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False4,
+                b: True13False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False3,
+                b: True14False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False2,
+                b: True15False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False18,
+                b: True0False18,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False17,
+                b: True1False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False16,
+                b: True2False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False15,
+                b: True3False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False14,
+                b: True4False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False13,
+                b: True5False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False12,
+                b: True6False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False11,
+                b: True7False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False10,
+                b: True8False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False9,
+                b: True9False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False8,
+                b: True10False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False7,
+                b: True11False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False6,
+                b: True12False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False5,
+                b: True13False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False4,
+                b: True14False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False3,
+                b: True15False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False2,
+                b: True16False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False1,
+                b: True17False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False19,
+                b: True0False19,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False18,
+                b: True1False18,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False17,
+                b: True2False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False16,
+                b: True3False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False15,
+                b: True4False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False14,
+                b: True5False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False13,
+                b: True6False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False12,
+                b: True7False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False11,
+                b: True8False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False10,
+                b: True9False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False9,
+                b: True10False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False8,
+                b: True11False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False7,
+                b: True12False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False6,
+                b: True13False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False5,
+                b: True14False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False4,
+                b: True15False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False3,
+                b: True16False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False2,
+                b: True17False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True18False1,
+                b: True18False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True0False20,
+                b: True0False20,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False19,
+                b: True1False19,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False18,
+                b: True2False18,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False17,
+                b: True3False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False16,
+                b: True4False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False15,
+                b: True5False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False14,
+                b: True6False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False13,
+                b: True7False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False12,
+                b: True8False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False11,
+                b: True9False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False10,
+                b: True10False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False9,
+                b: True11False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False8,
+                b: True12False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False7,
+                b: True13False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False6,
+                b: True14False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False5,
+                b: True15False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False4,
+                b: True16False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False3,
+                b: True17False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True18False2,
+                b: True18False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True19False1,
+                b: True19False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse4,
+                b: AllFalse4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse5,
+                b: AllFalse4,
+                prob_a: 0xf800000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse6,
+                b: AllFalse5,
+                prob_a: 0xfc00000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse7,
+                b: AllFalse6,
+                prob_a: 0xfe00000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse8,
+                b: AllFalse7,
+                prob_a: 0xff00000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse9,
+                b: AllFalse8,
+                prob_a: 0xff80000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse10,
+                b: AllFalse9,
+                prob_a: 0xffc0000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse11,
+                b: AllFalse10,
+                prob_a: 0xffe0000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse12,
+                b: AllFalse11,
+                prob_a: 0xfff0000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse13,
+                b: AllFalse12,
+                prob_a: 0xfff8000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse14,
+                b: AllFalse13,
+                prob_a: 0xfffc000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse15,
+                b: AllFalse14,
+                prob_a: 0xfffe000000000000,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllFalse15,
+                b: AllFalse15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue15,
+                b: AllTrue15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False0,
+                b: True1False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False1,
+                b: True1False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False0,
+                b: True2False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False2,
+                b: True1False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False1,
+                b: True2False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False0,
+                b: True3False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False3,
+                b: True1False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False2,
+                b: True2False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False1,
+                b: True3False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False0,
+                b: True4False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False4,
+                b: True1False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False3,
+                b: True2False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False2,
+                b: True3False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False1,
+                b: True4False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False0,
+                b: True5False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False5,
+                b: True1False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False4,
+                b: True2False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False3,
+                b: True3False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False2,
+                b: True4False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False1,
+                b: True5False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False0,
+                b: True6False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False6,
+                b: True1False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False5,
+                b: True2False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False4,
+                b: True3False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False3,
+                b: True4False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False2,
+                b: True5False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False1,
+                b: True6False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False0,
+                b: True7False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False7,
+                b: True1False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False6,
+                b: True2False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False5,
+                b: True3False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False4,
+                b: True4False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False3,
+                b: True5False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False2,
+                b: True6False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False1,
+                b: True7False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False0,
+                b: True8False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False8,
+                b: True1False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False7,
+                b: True2False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False6,
+                b: True3False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False5,
+                b: True4False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False4,
+                b: True5False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False3,
+                b: True6False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False2,
+                b: True7False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False1,
+                b: True8False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False0,
+                b: True9False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False9,
+                b: True1False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False8,
+                b: True2False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False7,
+                b: True3False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False6,
+                b: True4False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False5,
+                b: True5False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False4,
+                b: True6False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False3,
+                b: True7False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False2,
+                b: True8False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False1,
+                b: True9False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False0,
+                b: True10False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False0,
+                b: True11False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False11,
+                b: True1False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False10,
+                b: True2False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False9,
+                b: True3False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False8,
+                b: True4False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False7,
+                b: True5False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False6,
+                b: True6False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False5,
+                b: True7False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False4,
+                b: True8False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False3,
+                b: True9False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False2,
+                b: True10False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False1,
+                b: True11False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False0,
+                b: True12False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False12,
+                b: True1False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False11,
+                b: True2False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False10,
+                b: True3False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False9,
+                b: True4False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False8,
+                b: True5False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False7,
+                b: True6False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False6,
+                b: True7False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False5,
+                b: True8False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False4,
+                b: True9False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False3,
+                b: True10False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False2,
+                b: True11False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False1,
+                b: True12False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False0,
+                b: True13False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False13,
+                b: True1False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False12,
+                b: True2False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False11,
+                b: True3False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False10,
+                b: True4False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False9,
+                b: True5False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False8,
+                b: True6False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False7,
+                b: True7False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False6,
+                b: True8False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False5,
+                b: True9False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False4,
+                b: True10False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False3,
+                b: True11False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False2,
+                b: True12False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False1,
+                b: True13False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False0,
+                b: True14False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False14,
+                b: True1False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False13,
+                b: True2False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False12,
+                b: True3False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False11,
+                b: True4False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False10,
+                b: True5False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False9,
+                b: True6False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False8,
+                b: True7False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False7,
+                b: True8False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False6,
+                b: True9False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False5,
+                b: True10False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False4,
+                b: True11False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False3,
+                b: True12False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False2,
+                b: True13False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False1,
+                b: True14False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False0,
+                b: True15False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False15,
+                b: True1False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False14,
+                b: True2False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False13,
+                b: True3False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False12,
+                b: True4False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False11,
+                b: True5False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False10,
+                b: True6False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False9,
+                b: True7False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False8,
+                b: True8False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False7,
+                b: True9False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False6,
+                b: True10False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False5,
+                b: True11False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False4,
+                b: True12False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False3,
+                b: True13False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False2,
+                b: True14False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False1,
+                b: True15False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False0,
+                b: True16False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False15,
+                b: True2False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False14,
+                b: True3False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False13,
+                b: True4False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False12,
+                b: True5False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False11,
+                b: True6False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False10,
+                b: True7False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False9,
+                b: True8False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False8,
+                b: True9False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False7,
+                b: True10False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False6,
+                b: True11False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False5,
+                b: True12False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False4,
+                b: True13False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False3,
+                b: True14False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False2,
+                b: True15False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False1,
+                b: True16False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False0,
+                b: True17False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False17,
+                b: True1False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False16,
+                b: True2False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False15,
+                b: True3False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False14,
+                b: True4False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False13,
+                b: True5False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False12,
+                b: True6False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False11,
+                b: True7False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False10,
+                b: True8False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False9,
+                b: True9False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False8,
+                b: True10False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False7,
+                b: True11False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False6,
+                b: True12False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False5,
+                b: True13False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False4,
+                b: True14False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False3,
+                b: True15False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False2,
+                b: True16False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False1,
+                b: True17False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True18False0,
+                b: True18False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False18,
+                b: True1False18,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False17,
+                b: True2False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False16,
+                b: True3False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False15,
+                b: True4False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False14,
+                b: True5False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False13,
+                b: True6False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False12,
+                b: True7False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False11,
+                b: True8False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False10,
+                b: True9False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False9,
+                b: True10False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False8,
+                b: True11False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False7,
+                b: True12False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False6,
+                b: True13False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False5,
+                b: True14False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False4,
+                b: True15False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False3,
+                b: True16False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False2,
+                b: True17False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True18False1,
+                b: True18False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True19False0,
+                b: True19False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False19,
+                b: True1False19,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False18,
+                b: True2False18,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False17,
+                b: True3False17,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False16,
+                b: True4False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False15,
+                b: True5False15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False14,
+                b: True6False14,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False13,
+                b: True7False13,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False12,
+                b: True8False12,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False11,
+                b: True9False11,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False10,
+                b: True10False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True11False9,
+                b: True11False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True12False8,
+                b: True12False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True13False7,
+                b: True13False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True14False6,
+                b: True14False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True15False5,
+                b: True15False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True16False4,
+                b: True16False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True17False3,
+                b: True17False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True18False2,
+                b: True18False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True19False1,
+                b: True19False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True20False0,
+                b: True20False0,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False10,
+                b: True1False10,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True2False9,
+                b: True2False9,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True3False8,
+                b: True3False8,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True4False7,
+                b: True4False7,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True5False6,
+                b: True5False6,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True6False5,
+                b: True6False5,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True7False4,
+                b: True7False4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True8False3,
+                b: True8False3,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True9False2,
+                b: True9False2,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True10False1,
+                b: True10False1,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue4,
+                b: AllTrue4,
+                prob_a: 0,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue5,
+                b: AllTrue4,
+                prob_a: 0xf800000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue6,
+                b: AllTrue5,
+                prob_a: 0xfc00000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue7,
+                b: AllTrue6,
+                prob_a: 0xfe00000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue8,
+                b: AllTrue7,
+                prob_a: 0xff00000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue9,
+                b: AllTrue8,
+                prob_a: 0xff80000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue10,
+                b: AllTrue9,
+                prob_a: 0xffc0000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue11,
+                b: AllTrue10,
+                prob_a: 0xffe0000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue12,
+                b: AllTrue11,
+                prob_a: 0xfff0000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue13,
+                b: AllTrue12,
+                prob_a: 0xfff8000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue14,
+                b: AllTrue13,
+                prob_a: 0xfffc000000000000,
+            },
+            Outcome {
+                a: True1False16,
+                b: True1False16,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue15,
+                b: AllTrue14,
+                prob_a: 0xfffe000000000000,
+            },
+            Outcome {
+                a: AllFalse15,
+                b: AllFalse15,
+                prob_a: 0,
+            },
+            Outcome {
+                a: AllTrue15,
+                b: AllTrue15,
+                prob_a: 0,
+            },
+        ];
+        let idx = (self as usize) + (bit as usize) * 255;
+        let Outcome { a, b, prob_a } = OUTCOMES[idx];
+        if prob_a == 0 {
+            a
+        } else if rng.next() < prob_a {
+            a
+        } else {
+            b
         }
     }
 }

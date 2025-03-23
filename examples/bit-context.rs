@@ -165,6 +165,83 @@ fn print_adapt(variants: &[Bucket]) {
     );
 }
 
+fn lookup_adapt(variants: &[Bucket]) {
+    let sz = variants.len();
+    println!(
+        r"
+    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+        struct Outcome {{
+            a: BitContext,
+            b: BitContext,
+            prob_a: u64,
+        }}
+        const OUTCOMES: [Outcome; 2*{sz}] = ["
+    );
+
+    for BitC {
+        name,
+        probability,
+        next_likely,
+        next_unlikely,
+        prob_same,
+    } in variants.iter().map(|b| b.bitc())
+    {
+        let am_likely = !probability.likely_bit();
+        if am_likely {
+            if next_likely != name && prob_same.is_some() {
+                let prob_same = prob_same.unwrap();
+                println!(
+                    "            Outcome {{ a: {next_likely}, b: {name}, prob_a: 0x{prob_same:016x} }},"
+                );
+            } else {
+                println!(
+                    "            Outcome {{ a: {next_likely}, b: {next_likely}, prob_a: 0 }},"
+                );
+            }
+        } else {
+            println!(
+                "            Outcome {{ a: {next_unlikely}, b: {next_unlikely}, prob_a: 0 }},"
+            );
+        }
+    }
+
+    for BitC {
+        name,
+        probability,
+        next_likely,
+        next_unlikely,
+        prob_same,
+    } in variants.iter().map(|b| b.bitc())
+    {
+        let am_likely = probability.likely_bit();
+        if am_likely {
+            if next_likely != name && prob_same.is_some() {
+                let prob_same = prob_same.unwrap();
+                println!(
+                    "            Outcome {{ a: {next_likely}, b: {name}, prob_a: 0x{prob_same:016x} }},"
+                );
+            } else {
+                println!(
+                    "            Outcome {{ a: {next_likely}, b: {next_likely}, prob_a: 0 }},"
+                );
+            }
+        } else {
+            println!(
+                "            Outcome {{ a: {next_unlikely}, b: {next_unlikely}, prob_a: 0 }},"
+            );
+        }
+    }
+
+    println!(
+        "    ];
+                let idx = (self as usize) + (bit as usize)*{sz};
+       let Outcome {{ a, b, prob_a }} = OUTCOMES[idx];
+       if prob_a == 0 {{ a }} else if rng.next() < prob_a {{ a}} else {{b}}"
+    );
+
+    println!("}}");
+}
+
 const MAX_COUNT: usize = 21;
 const MIN_ALL: usize = MAX_COUNT.ilog2() as usize;
 const MAX_ALL: usize = 15;
@@ -224,7 +301,11 @@ impl BitContext {{
 }}"
     );
 
-    print_adapt(&variants);
+    if std::env::args().any(|a| a == "--lookup") {
+        lookup_adapt(&variants);
+    } else {
+        print_adapt(&variants);
+    }
 
     println!("}}");
 
