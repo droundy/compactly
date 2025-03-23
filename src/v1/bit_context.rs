@@ -265,482 +265,483 @@ use BitContext::*;
 
 impl BitContext {
     pub fn probability(self) -> Probability {
-        match self {
-            True0False0 => Probability { prob: 2, shift: 2 },
-            True0False1 => Probability { prob: 85, shift: 7 },
-            True1False0 => Probability { prob: 85, shift: 8 },
-            True0False2 => Probability { prob: 3, shift: 2 },
-            True1False1 => Probability { prob: 2, shift: 2 },
-            True2False0 => Probability { prob: 1, shift: 2 },
-            True0False3 => Probability { prob: 51, shift: 6 },
-            True1False2 => Probability { prob: 85, shift: 7 },
-            True2False1 => Probability { prob: 85, shift: 8 },
-            True3False0 => Probability { prob: 51, shift: 8 },
-            True0False4 => Probability {
+        const LOOKUP: [Probability; 255] = [
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 85, shift: 7 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 3, shift: 2 },
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 51, shift: 6 },
+            Probability { prob: 85, shift: 7 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 51, shift: 8 },
+            Probability {
                 prob: 213,
                 shift: 8,
             },
-            True1False3 => Probability { prob: 3, shift: 2 },
-            True2False2 => Probability { prob: 2, shift: 2 },
-            True3False1 => Probability { prob: 1, shift: 2 },
-            True4False0 => Probability { prob: 21, shift: 7 },
-            True0False5 => Probability {
+            Probability { prob: 3, shift: 2 },
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 21, shift: 7 },
+            Probability {
                 prob: 219,
                 shift: 8,
             },
-            True1False4 => Probability { prob: 51, shift: 6 },
-            True2False3 => Probability {
+            Probability { prob: 51, shift: 6 },
+            Probability {
                 prob: 153,
                 shift: 8,
             },
-            True3False2 => Probability { prob: 51, shift: 7 },
-            True4False1 => Probability { prob: 51, shift: 8 },
-            True5False0 => Probability { prob: 9, shift: 6 },
-            True0False6 => Probability { prob: 7, shift: 3 },
-            True1False5 => Probability {
+            Probability { prob: 51, shift: 7 },
+            Probability { prob: 51, shift: 8 },
+            Probability { prob: 9, shift: 6 },
+            Probability { prob: 7, shift: 3 },
+            Probability {
                 prob: 213,
                 shift: 8,
             },
-            True2False4 => Probability { prob: 85, shift: 7 },
-            True3False3 => Probability { prob: 2, shift: 2 },
-            True4False2 => Probability { prob: 85, shift: 8 },
-            True5False1 => Probability { prob: 21, shift: 7 },
-            True6False0 => Probability { prob: 1, shift: 3 },
-            True0False7 => Probability {
+            Probability { prob: 85, shift: 7 },
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 21, shift: 7 },
+            Probability { prob: 1, shift: 3 },
+            Probability {
                 prob: 227,
                 shift: 8,
             },
-            True1False6 => Probability {
+            Probability {
                 prob: 219,
                 shift: 8,
             },
-            True2False5 => Probability { prob: 91, shift: 7 },
-            True3False4 => Probability { prob: 73, shift: 7 },
-            True4False3 => Probability {
+            Probability { prob: 91, shift: 7 },
+            Probability { prob: 73, shift: 7 },
+            Probability {
                 prob: 109,
                 shift: 8,
             },
-            True5False2 => Probability { prob: 73, shift: 8 },
-            True6False1 => Probability { prob: 9, shift: 6 },
-            True7False0 => Probability { prob: 7, shift: 6 },
-            True0False8 => Probability {
+            Probability { prob: 73, shift: 8 },
+            Probability { prob: 9, shift: 6 },
+            Probability { prob: 7, shift: 6 },
+            Probability {
                 prob: 115,
                 shift: 7,
             },
-            True1False7 => Probability { prob: 7, shift: 3 },
-            True2False6 => Probability { prob: 3, shift: 2 },
-            True3False5 => Probability { prob: 5, shift: 3 },
-            True4False4 => Probability { prob: 2, shift: 2 },
-            True5False3 => Probability { prob: 3, shift: 3 },
-            True6False2 => Probability { prob: 1, shift: 2 },
-            True7False1 => Probability { prob: 1, shift: 3 },
-            True8False0 => Probability { prob: 25, shift: 8 },
-            True0False9 => Probability { prob: 29, shift: 5 },
-            True1False8 => Probability {
+            Probability { prob: 7, shift: 3 },
+            Probability { prob: 3, shift: 2 },
+            Probability { prob: 5, shift: 3 },
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 3, shift: 3 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 1, shift: 3 },
+            Probability { prob: 25, shift: 8 },
+            Probability { prob: 29, shift: 5 },
+            Probability {
                 prob: 227,
                 shift: 8,
             },
-            True2False7 => Probability {
+            Probability {
                 prob: 199,
                 shift: 8,
             },
-            True3False6 => Probability { prob: 85, shift: 7 },
-            True4False5 => Probability { prob: 71, shift: 7 },
-            True5False4 => Probability {
+            Probability { prob: 85, shift: 7 },
+            Probability { prob: 71, shift: 7 },
+            Probability {
                 prob: 113,
                 shift: 8,
             },
-            True6False3 => Probability { prob: 85, shift: 8 },
-            True7False2 => Probability { prob: 7, shift: 5 },
-            True8False1 => Probability { prob: 7, shift: 6 },
-            True9False0 => Probability { prob: 23, shift: 8 },
-            True0False10 => Probability {
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 7, shift: 5 },
+            Probability { prob: 7, shift: 6 },
+            Probability { prob: 23, shift: 8 },
+            Probability {
                 prob: 117,
                 shift: 7,
             },
-            True1False9 => Probability {
+            Probability {
                 prob: 115,
                 shift: 7,
             },
-            True2False8 => Probability { prob: 51, shift: 6 },
-            True3False7 => Probability {
+            Probability { prob: 51, shift: 6 },
+            Probability {
                 prob: 179,
                 shift: 8,
             },
-            True4False6 => Probability {
+            Probability {
                 prob: 153,
                 shift: 8,
             },
-            True5False5 => Probability { prob: 2, shift: 2 },
-            True6False4 => Probability { prob: 51, shift: 7 },
-            True7False3 => Probability { prob: 19, shift: 6 },
-            True8False2 => Probability { prob: 51, shift: 8 },
-            True9False1 => Probability { prob: 25, shift: 8 },
-            True10False0 => Probability { prob: 21, shift: 8 },
-            True0False11 => Probability { prob: 59, shift: 6 },
-            True1False10 => Probability { prob: 29, shift: 5 },
-            True2False9 => Probability {
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 51, shift: 7 },
+            Probability { prob: 19, shift: 6 },
+            Probability { prob: 51, shift: 8 },
+            Probability { prob: 25, shift: 8 },
+            Probability { prob: 21, shift: 8 },
+            Probability { prob: 59, shift: 6 },
+            Probability { prob: 29, shift: 5 },
+            Probability {
                 prob: 209,
                 shift: 8,
             },
-            True3False8 => Probability { prob: 93, shift: 7 },
-            True4False7 => Probability { prob: 81, shift: 7 },
-            True5False6 => Probability {
+            Probability { prob: 93, shift: 7 },
+            Probability { prob: 81, shift: 7 },
+            Probability {
                 prob: 139,
                 shift: 8,
             },
-            True6False5 => Probability { prob: 29, shift: 6 },
-            True7False4 => Probability { prob: 93, shift: 8 },
-            True8False3 => Probability { prob: 69, shift: 8 },
-            True9False2 => Probability { prob: 23, shift: 7 },
-            True10False1 => Probability { prob: 23, shift: 8 },
-            True11False0 => Probability { prob: 19, shift: 8 },
-            True0False12 => Probability {
+            Probability { prob: 29, shift: 6 },
+            Probability { prob: 93, shift: 8 },
+            Probability { prob: 69, shift: 8 },
+            Probability { prob: 23, shift: 7 },
+            Probability { prob: 23, shift: 8 },
+            Probability { prob: 19, shift: 8 },
+            Probability {
                 prob: 237,
                 shift: 8,
             },
-            True1False11 => Probability {
+            Probability {
                 prob: 117,
                 shift: 7,
             },
-            True2False10 => Probability {
+            Probability {
                 prob: 213,
                 shift: 8,
             },
-            True3False9 => Probability { prob: 3, shift: 2 },
-            True4False8 => Probability { prob: 85, shift: 7 },
-            True5False7 => Probability {
+            Probability { prob: 3, shift: 2 },
+            Probability { prob: 85, shift: 7 },
+            Probability {
                 prob: 149,
                 shift: 8,
             },
-            True6False6 => Probability { prob: 2, shift: 2 },
-            True7False5 => Probability { prob: 53, shift: 7 },
-            True8False4 => Probability { prob: 85, shift: 8 },
-            True9False3 => Probability { prob: 1, shift: 2 },
-            True10False2 => Probability { prob: 21, shift: 7 },
-            True11False1 => Probability { prob: 21, shift: 8 },
-            True12False0 => Probability { prob: 9, shift: 7 },
-            True0False13 => Probability {
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 53, shift: 7 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 21, shift: 7 },
+            Probability { prob: 21, shift: 8 },
+            Probability { prob: 9, shift: 7 },
+            Probability {
                 prob: 119,
                 shift: 7,
             },
-            True1False12 => Probability { prob: 59, shift: 6 },
-            True2False11 => Probability { prob: 27, shift: 5 },
-            True3False10 => Probability { prob: 49, shift: 6 },
-            True4False9 => Probability {
+            Probability { prob: 59, shift: 6 },
+            Probability { prob: 27, shift: 5 },
+            Probability { prob: 49, shift: 6 },
+            Probability {
                 prob: 177,
                 shift: 8,
             },
-            True5False8 => Probability {
+            Probability {
                 prob: 157,
                 shift: 8,
             },
-            True6False7 => Probability {
+            Probability {
                 prob: 137,
                 shift: 8,
             },
-            True7False6 => Probability { prob: 59, shift: 7 },
-            True8False5 => Probability { prob: 49, shift: 7 },
-            True9False4 => Probability { prob: 39, shift: 7 },
-            True10False3 => Probability { prob: 59, shift: 8 },
-            True11False2 => Probability { prob: 39, shift: 8 },
-            True12False1 => Probability { prob: 19, shift: 8 },
-            True13False0 => Probability { prob: 17, shift: 8 },
-            True0False14 => Probability { prob: 15, shift: 4 },
-            True1False13 => Probability {
+            Probability { prob: 59, shift: 7 },
+            Probability { prob: 49, shift: 7 },
+            Probability { prob: 39, shift: 7 },
+            Probability { prob: 59, shift: 8 },
+            Probability { prob: 39, shift: 8 },
+            Probability { prob: 19, shift: 8 },
+            Probability { prob: 17, shift: 8 },
+            Probability { prob: 15, shift: 4 },
+            Probability {
                 prob: 237,
                 shift: 8,
             },
-            True2False12 => Probability {
+            Probability {
                 prob: 219,
                 shift: 8,
             },
-            True3False11 => Probability {
+            Probability {
                 prob: 201,
                 shift: 8,
             },
-            True4False10 => Probability { prob: 91, shift: 7 },
-            True5False9 => Probability { prob: 41, shift: 6 },
-            True6False8 => Probability { prob: 73, shift: 7 },
-            True7False7 => Probability { prob: 2, shift: 2 },
-            True8False6 => Probability {
+            Probability { prob: 91, shift: 7 },
+            Probability { prob: 41, shift: 6 },
+            Probability { prob: 73, shift: 7 },
+            Probability { prob: 2, shift: 2 },
+            Probability {
                 prob: 109,
                 shift: 8,
             },
-            True9False5 => Probability { prob: 91, shift: 8 },
-            True10False4 => Probability { prob: 73, shift: 8 },
-            True11False3 => Probability { prob: 27, shift: 7 },
-            True12False2 => Probability { prob: 9, shift: 6 },
-            True13False1 => Probability { prob: 9, shift: 7 },
-            True14False0 => Probability { prob: 1, shift: 4 },
-            True0False15 => Probability { prob: 15, shift: 4 },
-            True1False14 => Probability {
+            Probability { prob: 91, shift: 8 },
+            Probability { prob: 73, shift: 8 },
+            Probability { prob: 27, shift: 7 },
+            Probability { prob: 9, shift: 6 },
+            Probability { prob: 9, shift: 7 },
+            Probability { prob: 1, shift: 4 },
+            Probability { prob: 15, shift: 4 },
+            Probability {
                 prob: 119,
                 shift: 7,
             },
-            True2False13 => Probability {
+            Probability {
                 prob: 221,
                 shift: 8,
             },
-            True3False12 => Probability { prob: 51, shift: 6 },
-            True4False11 => Probability {
+            Probability { prob: 51, shift: 6 },
+            Probability {
                 prob: 187,
                 shift: 8,
             },
-            True5False10 => Probability { prob: 85, shift: 7 },
-            True6False9 => Probability {
+            Probability { prob: 85, shift: 7 },
+            Probability {
                 prob: 153,
                 shift: 8,
             },
-            True7False8 => Probability { prob: 17, shift: 5 },
-            True8False7 => Probability {
+            Probability { prob: 17, shift: 5 },
+            Probability {
                 prob: 119,
                 shift: 8,
             },
-            True9False6 => Probability { prob: 51, shift: 7 },
-            True10False5 => Probability { prob: 85, shift: 8 },
-            True11False4 => Probability { prob: 17, shift: 6 },
-            True12False3 => Probability { prob: 51, shift: 8 },
-            True13False2 => Probability { prob: 17, shift: 7 },
-            True14False1 => Probability { prob: 17, shift: 8 },
-            True15False0 => Probability { prob: 15, shift: 8 },
-            True0False16 => Probability {
+            Probability { prob: 51, shift: 7 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 17, shift: 6 },
+            Probability { prob: 51, shift: 8 },
+            Probability { prob: 17, shift: 7 },
+            Probability { prob: 17, shift: 8 },
+            Probability { prob: 15, shift: 8 },
+            Probability {
                 prob: 241,
                 shift: 8,
             },
-            True1False15 => Probability { prob: 15, shift: 4 },
-            True2False14 => Probability { prob: 7, shift: 3 },
-            True3False13 => Probability { prob: 13, shift: 4 },
-            True4False12 => Probability { prob: 3, shift: 2 },
-            True5False11 => Probability { prob: 11, shift: 4 },
-            True6False10 => Probability { prob: 5, shift: 3 },
-            True7False9 => Probability { prob: 9, shift: 4 },
-            True8False8 => Probability { prob: 2, shift: 2 },
-            True9False7 => Probability { prob: 7, shift: 4 },
-            True10False6 => Probability { prob: 3, shift: 3 },
-            True11False5 => Probability { prob: 5, shift: 4 },
-            True12False4 => Probability { prob: 1, shift: 2 },
-            True13False3 => Probability { prob: 3, shift: 4 },
-            True14False2 => Probability { prob: 1, shift: 3 },
-            True15False1 => Probability { prob: 1, shift: 4 },
-            True16False0 => Probability { prob: 7, shift: 7 },
-            True0False17 => Probability {
+            Probability { prob: 15, shift: 4 },
+            Probability { prob: 7, shift: 3 },
+            Probability { prob: 13, shift: 4 },
+            Probability { prob: 3, shift: 2 },
+            Probability { prob: 11, shift: 4 },
+            Probability { prob: 5, shift: 3 },
+            Probability { prob: 9, shift: 4 },
+            Probability { prob: 2, shift: 2 },
+            Probability { prob: 7, shift: 4 },
+            Probability { prob: 3, shift: 3 },
+            Probability { prob: 5, shift: 4 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 3, shift: 4 },
+            Probability { prob: 1, shift: 3 },
+            Probability { prob: 1, shift: 4 },
+            Probability { prob: 7, shift: 7 },
+            Probability {
                 prob: 121,
                 shift: 7,
             },
-            True1False16 => Probability { prob: 15, shift: 4 },
-            True2False15 => Probability {
+            Probability { prob: 15, shift: 4 },
+            Probability {
                 prob: 225,
                 shift: 8,
             },
-            True3False14 => Probability {
+            Probability {
                 prob: 105,
                 shift: 7,
             },
-            True4False13 => Probability {
+            Probability {
                 prob: 195,
                 shift: 8,
             },
-            True5False12 => Probability { prob: 45, shift: 6 },
-            True6False11 => Probability {
+            Probability { prob: 45, shift: 6 },
+            Probability {
                 prob: 165,
                 shift: 8,
             },
-            True7False10 => Probability { prob: 75, shift: 7 },
-            True8False9 => Probability {
+            Probability { prob: 75, shift: 7 },
+            Probability {
                 prob: 135,
                 shift: 8,
             },
-            True9False8 => Probability { prob: 15, shift: 5 },
-            True10False7 => Probability {
+            Probability { prob: 15, shift: 5 },
+            Probability {
                 prob: 105,
                 shift: 8,
             },
-            True11False6 => Probability { prob: 45, shift: 7 },
-            True12False5 => Probability { prob: 75, shift: 8 },
-            True13False4 => Probability { prob: 15, shift: 6 },
-            True14False3 => Probability { prob: 45, shift: 8 },
-            True15False2 => Probability { prob: 15, shift: 7 },
-            True16False1 => Probability { prob: 15, shift: 8 },
-            True17False0 => Probability { prob: 13, shift: 8 },
-            True0False18 => Probability {
+            Probability { prob: 45, shift: 7 },
+            Probability { prob: 75, shift: 8 },
+            Probability { prob: 15, shift: 6 },
+            Probability { prob: 45, shift: 8 },
+            Probability { prob: 15, shift: 7 },
+            Probability { prob: 15, shift: 8 },
+            Probability { prob: 13, shift: 8 },
+            Probability {
                 prob: 243,
                 shift: 8,
             },
-            True1False17 => Probability {
+            Probability {
                 prob: 241,
                 shift: 8,
             },
-            True2False16 => Probability {
+            Probability {
                 prob: 227,
                 shift: 8,
             },
-            True3False15 => Probability {
+            Probability {
                 prob: 213,
                 shift: 8,
             },
-            True4False14 => Probability {
+            Probability {
                 prob: 199,
                 shift: 8,
             },
-            True5False13 => Probability { prob: 23, shift: 5 },
-            True6False12 => Probability { prob: 85, shift: 7 },
-            True7False11 => Probability { prob: 39, shift: 6 },
-            True8False10 => Probability { prob: 71, shift: 7 },
-            True9False9 => Probability { prob: 2, shift: 2 },
-            True10False8 => Probability {
+            Probability { prob: 23, shift: 5 },
+            Probability { prob: 85, shift: 7 },
+            Probability { prob: 39, shift: 6 },
+            Probability { prob: 71, shift: 7 },
+            Probability { prob: 2, shift: 2 },
+            Probability {
                 prob: 113,
                 shift: 8,
             },
-            True11False7 => Probability { prob: 99, shift: 8 },
-            True12False6 => Probability { prob: 85, shift: 8 },
-            True13False5 => Probability { prob: 71, shift: 8 },
-            True14False4 => Probability { prob: 7, shift: 5 },
-            True15False3 => Probability { prob: 21, shift: 7 },
-            True16False2 => Probability { prob: 7, shift: 6 },
-            True17False1 => Probability { prob: 7, shift: 7 },
-            True18False0 => Probability { prob: 3, shift: 6 },
-            True0False19 => Probability {
+            Probability { prob: 99, shift: 8 },
+            Probability { prob: 85, shift: 8 },
+            Probability { prob: 71, shift: 8 },
+            Probability { prob: 7, shift: 5 },
+            Probability { prob: 21, shift: 7 },
+            Probability { prob: 7, shift: 6 },
+            Probability { prob: 7, shift: 7 },
+            Probability { prob: 3, shift: 6 },
+            Probability {
                 prob: 243,
                 shift: 8,
             },
-            True1False18 => Probability {
+            Probability {
                 prob: 121,
                 shift: 7,
             },
-            True2False17 => Probability {
+            Probability {
                 prob: 229,
                 shift: 8,
             },
-            True3False16 => Probability {
+            Probability {
                 prob: 215,
                 shift: 8,
             },
-            True4False15 => Probability {
+            Probability {
                 prob: 101,
                 shift: 7,
             },
-            True5False14 => Probability { prob: 47, shift: 6 },
-            True6False13 => Probability {
+            Probability { prob: 47, shift: 6 },
+            Probability {
                 prob: 175,
                 shift: 8,
             },
-            True7False12 => Probability {
+            Probability {
                 prob: 161,
                 shift: 8,
             },
-            True8False11 => Probability { prob: 37, shift: 6 },
-            True9False10 => Probability { prob: 67, shift: 7 },
-            True10False9 => Probability {
+            Probability { prob: 37, shift: 6 },
+            Probability { prob: 67, shift: 7 },
+            Probability {
                 prob: 121,
                 shift: 8,
             },
-            True11False8 => Probability {
+            Probability {
                 prob: 107,
                 shift: 8,
             },
-            True12False7 => Probability { prob: 47, shift: 7 },
-            True13False6 => Probability { prob: 5, shift: 4 },
-            True14False5 => Probability { prob: 67, shift: 8 },
-            True15False4 => Probability { prob: 53, shift: 8 },
-            True16False3 => Probability { prob: 5, shift: 5 },
-            True17False2 => Probability { prob: 13, shift: 7 },
-            True18False1 => Probability { prob: 13, shift: 8 },
-            True19False0 => Probability { prob: 3, shift: 6 },
-            True0False20 => Probability { prob: 61, shift: 6 },
-            True1False19 => Probability {
+            Probability { prob: 47, shift: 7 },
+            Probability { prob: 5, shift: 4 },
+            Probability { prob: 67, shift: 8 },
+            Probability { prob: 53, shift: 8 },
+            Probability { prob: 5, shift: 5 },
+            Probability { prob: 13, shift: 7 },
+            Probability { prob: 13, shift: 8 },
+            Probability { prob: 3, shift: 6 },
+            Probability { prob: 61, shift: 6 },
+            Probability {
                 prob: 243,
                 shift: 8,
             },
-            True2False18 => Probability {
+            Probability {
                 prob: 115,
                 shift: 7,
             },
-            True3False17 => Probability {
+            Probability {
                 prob: 217,
                 shift: 8,
             },
-            True4False16 => Probability { prob: 51, shift: 6 },
-            True5False15 => Probability { prob: 3, shift: 2 },
-            True6False14 => Probability {
+            Probability { prob: 51, shift: 6 },
+            Probability { prob: 3, shift: 2 },
+            Probability {
                 prob: 179,
                 shift: 8,
             },
-            True7False13 => Probability { prob: 83, shift: 7 },
-            True8False12 => Probability {
+            Probability { prob: 83, shift: 7 },
+            Probability {
                 prob: 153,
                 shift: 8,
             },
-            True9False11 => Probability { prob: 35, shift: 6 },
-            True10False10 => Probability { prob: 2, shift: 2 },
-            True11False9 => Probability {
+            Probability { prob: 35, shift: 6 },
+            Probability { prob: 2, shift: 2 },
+            Probability {
                 prob: 115,
                 shift: 8,
             },
-            True12False8 => Probability { prob: 51, shift: 7 },
-            True13False7 => Probability { prob: 89, shift: 8 },
-            True14False6 => Probability { prob: 19, shift: 6 },
-            True15False5 => Probability { prob: 1, shift: 2 },
-            True16False4 => Probability { prob: 51, shift: 8 },
-            True17False3 => Probability { prob: 19, shift: 7 },
-            True18False2 => Probability { prob: 25, shift: 8 },
-            True19False1 => Probability { prob: 3, shift: 6 },
-            True20False0 => Probability { prob: 11, shift: 8 },
-            AllFalse4 => Probability { prob: 31, shift: 5 },
-            AllTrue4 => Probability { prob: 1, shift: 5 },
-            AllFalse5 => Probability { prob: 63, shift: 6 },
-            AllTrue5 => Probability { prob: 1, shift: 6 },
-            AllFalse6 => Probability {
+            Probability { prob: 51, shift: 7 },
+            Probability { prob: 89, shift: 8 },
+            Probability { prob: 19, shift: 6 },
+            Probability { prob: 1, shift: 2 },
+            Probability { prob: 51, shift: 8 },
+            Probability { prob: 19, shift: 7 },
+            Probability { prob: 25, shift: 8 },
+            Probability { prob: 3, shift: 6 },
+            Probability { prob: 11, shift: 8 },
+            Probability { prob: 31, shift: 5 },
+            Probability { prob: 1, shift: 5 },
+            Probability { prob: 63, shift: 6 },
+            Probability { prob: 1, shift: 6 },
+            Probability {
                 prob: 127,
                 shift: 7,
             },
-            AllTrue6 => Probability { prob: 1, shift: 7 },
-            AllFalse7 => Probability {
+            Probability { prob: 1, shift: 7 },
+            Probability {
                 prob: 255,
                 shift: 8,
             },
-            AllTrue7 => Probability { prob: 1, shift: 8 },
-            AllFalse8 => Probability {
+            Probability { prob: 1, shift: 8 },
+            Probability {
                 prob: 511,
                 shift: 9,
             },
-            AllTrue8 => Probability { prob: 1, shift: 9 },
-            AllFalse9 => Probability {
+            Probability { prob: 1, shift: 9 },
+            Probability {
                 prob: 1023,
                 shift: 10,
             },
-            AllTrue9 => Probability { prob: 1, shift: 10 },
-            AllFalse10 => Probability {
+            Probability { prob: 1, shift: 10 },
+            Probability {
                 prob: 2047,
                 shift: 11,
             },
-            AllTrue10 => Probability { prob: 1, shift: 11 },
-            AllFalse11 => Probability {
+            Probability { prob: 1, shift: 11 },
+            Probability {
                 prob: 4095,
                 shift: 12,
             },
-            AllTrue11 => Probability { prob: 1, shift: 12 },
-            AllFalse12 => Probability {
+            Probability { prob: 1, shift: 12 },
+            Probability {
                 prob: 8191,
                 shift: 13,
             },
-            AllTrue12 => Probability { prob: 1, shift: 13 },
-            AllFalse13 => Probability {
+            Probability { prob: 1, shift: 13 },
+            Probability {
                 prob: 16383,
                 shift: 14,
             },
-            AllTrue13 => Probability { prob: 1, shift: 14 },
-            AllFalse14 => Probability {
+            Probability { prob: 1, shift: 14 },
+            Probability {
                 prob: 32767,
                 shift: 15,
             },
-            AllTrue14 => Probability { prob: 1, shift: 15 },
-            AllFalse15 => Probability {
+            Probability { prob: 1, shift: 15 },
+            Probability {
                 prob: 65535,
                 shift: 16,
             },
-            AllTrue15 => Probability { prob: 1, shift: 16 },
-        }
+            Probability { prob: 1, shift: 16 },
+        ];
+        LOOKUP[self as usize]
     }
 
     pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {

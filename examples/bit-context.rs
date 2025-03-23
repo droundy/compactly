@@ -144,22 +144,21 @@ fn probability(variants: &[Bucket]) {
 }
 
 fn lookup_probability(variants: &[Bucket]) {
+    let sz = variants.len();
     println!(
         r"pub fn probability(self) -> Probability {{
-        match self {{"
+        const LOOKUP: [Probability; {sz}] = ["
     );
 
-    for BitC {
-        name, probability, ..
-    } in variants.iter().map(|b| b.bitc())
-    {
-        println!("        {name} => {probability:?},")
+    for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
+        println!("        {probability:?},")
     }
-
     println!(
-        r"    }}
-}}"
+        "];
+    LOOKUP[self as usize]"
     );
+
+    println!(r"}}");
 }
 
 fn print_adapt(variants: &[Bucket]) {
@@ -327,6 +326,7 @@ impl BitContext {{"
 
     if std::env::args().any(|a| a == "--lookup") {
         lookup_probability(&variants);
+        // probability(&variants);
         lookup_adapt(&variants);
     } else {
         probability(&variants);
