@@ -46,13 +46,14 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
 
 #[test]
 fn hashset() {
-    use super::assert_size;
+    use super::{assert_bits, assert_size};
     assert_size!(HashSet::<usize>::new(), 1);
     assert_size!(HashSet::from([0_usize]), 1);
     assert_size!(HashSet::from([1_usize]), 1);
     assert_size!(HashSet::from([5_usize]), 2);
-    assert_size!(HashSet::from([0_usize, 1]), 1);
+    assert_bits!(HashSet::from([true, false]), 6);
     // assert_size!(HashSet::from([0_usize, 1, 2]), 3);
+    // assert_size!(HashSet::from([0_usize, 1]), 1);
     // Sizes of larger hash sets are unpredictable because the values come out
     // in arbitrary orders.
 }
