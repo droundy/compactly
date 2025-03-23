@@ -124,6 +124,47 @@ impl Bucket {
     }
 }
 
+fn print_adapt(variants: &[Bucket]) {
+    println!(
+        r"
+    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+        match (bit, self) {{"
+    );
+
+    for BitC {
+        name,
+        probability,
+        next_likely,
+        next_unlikely,
+        prob_same,
+    } in variants.iter().map(|b| b.bitc())
+    {
+        let likely_bit = probability.likely_bit();
+        let unlikely_bit = !likely_bit;
+        if next_likely != name && prob_same.is_some() {
+            let prob_same = prob_same.unwrap();
+            println!(
+                "            ({likely_bit:?}, {name}) => {{
+                    if rng.next() < 0x{prob_same:016x} {{ {next_likely} }} else {{ {name} }}
+            }}"
+            );
+            println!(
+                "            ({unlikely_bit:?}, {name}) => {{
+                    {next_unlikely}
+            }}"
+            );
+        } else {
+            println!("            ({likely_bit:?}, {name}) => {next_likely},");
+            println!("            ({unlikely_bit:?}, {name}) => {next_unlikely},");
+        }
+    }
+
+    println!(
+        r"        }}
+ }}"
+    );
+}
+
 const MAX_COUNT: usize = 21;
 const MIN_ALL: usize = MAX_COUNT.ilog2() as usize;
 const MAX_ALL: usize = 15;
@@ -183,46 +224,9 @@ impl BitContext {{
 }}"
     );
 
-    println!(
-        r"
-    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
-        match (bit, self) {{"
-    );
+    print_adapt(&variants);
 
-    for BitC {
-        name,
-        probability,
-        next_likely,
-        next_unlikely,
-        prob_same,
-    } in variants.iter().map(|b| b.bitc())
-    {
-        let likely_bit = probability.likely_bit();
-        let unlikely_bit = !likely_bit;
-        if next_likely != name && prob_same.is_some() {
-            let prob_same = prob_same.unwrap();
-            println!(
-                "            ({likely_bit:?}, {name}) => {{
-                    if rng.next() < 0x{prob_same:016x} {{ {next_likely} }} else {{ {name} }}
-            }}"
-            );
-            println!(
-                "            ({unlikely_bit:?}, {name}) => {{
-                    {next_unlikely}
-            }}"
-            );
-        } else {
-            println!("            ({likely_bit:?}, {name}) => {next_likely},");
-            println!("            ({unlikely_bit:?}, {name}) => {next_unlikely},");
-        }
-    }
-
-    println!(r"        }}");
-
-    println!(
-        r"    }}
-}}"
-    );
+    println!("}}");
 
     println!(r"// Count of variants: {}", variants.len());
 }
