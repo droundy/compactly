@@ -10,6 +10,7 @@ macro_rules! impl_float {
             context: [<bool as Encode>::Context; $bits],
         }
         impl Default for $context {
+            #[inline]
             fn default() -> Self {
                 Self {
                     is_int: Default::default(),
@@ -21,6 +22,7 @@ macro_rules! impl_float {
 
         impl Encode for $t {
             type Context = $context;
+            #[inline]
             fn encode<W: Write>(
                 &self,
                 writer: &mut super::Writer<W>,
@@ -44,6 +46,7 @@ macro_rules! impl_float {
                     Ok(())
                 }
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,

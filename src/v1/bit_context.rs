@@ -264,6 +264,7 @@ pub enum BitContext {
 use BitContext::*;
 
 impl BitContext {
+    #[inline]
     pub fn probability(self) -> Probability {
         const LOOKUP: [Probability; 255] = [
             Probability { prob: 2, shift: 2 },
@@ -744,6 +745,7 @@ impl BitContext {
         LOOKUP[self as usize]
     }
 
+    #[inline]
     pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {
         struct Outcome {
             a: BitContext,

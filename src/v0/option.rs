@@ -5,6 +5,7 @@ pub struct OptionContext<T: Encode> {
     value: T::Context,
 }
 impl<T: Encode> Default for OptionContext<T> {
+    #[inline]
     fn default() -> Self {
         Self {
             is_some: Default::default(),
@@ -14,6 +15,7 @@ impl<T: Encode> Default for OptionContext<T> {
 }
 impl<T: Encode> Encode for Option<T> {
     type Context = OptionContext<T>;
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -26,6 +28,7 @@ impl<T: Encode> Encode for Option<T> {
             false.encode(writer, &mut ctx.is_some)
         }
     }
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

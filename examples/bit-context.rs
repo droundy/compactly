@@ -126,7 +126,7 @@ impl Bucket {
 
 fn probability(variants: &[Bucket]) {
     println!(
-        r"pub fn probability(self) -> Probability {{
+        r"#[inline] pub fn probability(self) -> Probability {{
         match self {{"
     );
 
@@ -146,7 +146,7 @@ fn probability(variants: &[Bucket]) {
 fn lookup_probability(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
-        r"pub fn probability(self) -> Probability {{
+        r"#[inline] pub fn probability(self) -> Probability {{
         const LOOKUP: [Probability; {sz}] = ["
     );
 
@@ -164,7 +164,7 @@ fn lookup_probability(variants: &[Bucket]) {
 fn print_adapt(variants: &[Bucket]) {
     println!(
         r"
-    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+    #[inline] pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
         match (bit, self) {{"
     );
 
@@ -206,7 +206,7 @@ fn lookup_adapt(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
         r"
-    pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+    #[inline] pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
         struct Outcome {{
             a: BitContext,
             b: BitContext,

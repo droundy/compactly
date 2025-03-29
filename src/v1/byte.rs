@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 pub struct ByteContext([<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
+    #[inline]
     fn default() -> Self {
         ByteContext([Default::default(); 256])
     }
@@ -10,6 +11,7 @@ impl Default for ByteContext {
 
 impl Encode for u8 {
     type Context = ByteContext;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -26,6 +28,7 @@ impl Encode for u8 {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -44,6 +47,7 @@ impl Encode for u8 {
 
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -51,6 +55,7 @@ impl Encode for i8 {
     ) -> Result<(), std::io::Error> {
         (*self as u8).encode(writer, ctx)
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

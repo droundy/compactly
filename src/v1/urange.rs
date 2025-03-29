@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 pub struct URange<const N: usize>(usize);
 
 impl<const N: usize> URange<N> {
+    #[inline]
     pub const fn new(value: usize) -> Self {
         if value < N {
             URange(value)
@@ -15,6 +16,7 @@ impl<const N: usize> URange<N> {
 }
 
 impl<const N: usize> From<URange<N>> for usize {
+    #[inline]
     fn from(value: URange<N>) -> Self {
         value.0
     }
@@ -22,6 +24,7 @@ impl<const N: usize> From<URange<N>> for usize {
 
 impl<const N: usize> TryFrom<usize> for URange<N> {
     type Error = ();
+    #[inline]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         if value < N {
             Ok(URange(value))
@@ -39,6 +42,7 @@ pub struct URangeContext<const N: usize> {
 }
 
 impl<const N: usize> URangeContext<N> {
+    #[inline]
     fn index_mut(&mut self, index: usize) -> &mut <bool as Encode>::Context {
         if self.bits.len() <= index {
             self.bits.reserve(index - self.bits.len());
@@ -50,6 +54,7 @@ impl<const N: usize> URangeContext<N> {
     }
 }
 
+#[inline]
 fn half(i: usize) -> usize {
     let half = i / 2;
     if half > 1 {
@@ -61,6 +66,7 @@ fn half(i: usize) -> usize {
 
 impl<const N: usize> Encode for URange<N> {
     type Context = URangeContext<N>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -101,6 +107,7 @@ impl<const N: usize> Encode for URange<N> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

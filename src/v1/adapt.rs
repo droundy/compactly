@@ -12,11 +12,13 @@ impl<W: std::io::Write> Writer<W> {
             rng: SplitMix64::default(),
         }
     }
+    #[inline]
     pub fn encode(&mut self, value: bool, context: &mut BitContext) -> Result<(), std::io::Error> {
         self.arith.encode(context.probability(), value)?;
         *context = context.adapt(value, &mut self.rng);
         Ok(())
     }
+    #[inline]
     pub fn finish(self) -> Result<(), std::io::Error> {
         self.arith.finish()
     }
@@ -35,6 +37,7 @@ impl<R: std::io::Read> Reader<R> {
             rng: SplitMix64::default(),
         })
     }
+    #[inline]
     pub fn decode(&mut self, context: &mut BitContext) -> Result<bool, std::io::Error> {
         let bit = self.arith.decode(context.probability())?;
         *context = context.adapt(bit, &mut self.rng);

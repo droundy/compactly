@@ -9,6 +9,7 @@ macro_rules! impl_uint {
             context: [<bool as Encode>::Context; $bits],
         }
         impl Default for $context {
+            #[inline]
             fn default() -> Self {
                 Self {
                     leading_zero: [Default::default(); $bits],
@@ -19,6 +20,7 @@ macro_rules! impl_uint {
 
         impl Encode for $t {
             type Context = $context;
+            #[inline]
             fn encode<W: Write>(
                 &self,
                 writer: &mut super::Writer<W>,
@@ -36,6 +38,7 @@ macro_rules! impl_uint {
                 }
                 Ok(())
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
@@ -145,6 +148,7 @@ macro_rules! impl_compact {
             context: [<bool as Encode>::Context; $bits],
         }
         impl Default for $context {
+            #[inline]
             fn default() -> Self {
                 Self {
                     leading_zeros: Default::default(),
@@ -155,6 +159,7 @@ macro_rules! impl_compact {
 
         impl Encode for Compact<$t> {
             type Context = <Small as EncodingStrategy<$t>>::Context;
+            #[inline]
             fn encode<W: Write>(
                 &self,
                 writer: &mut super::Writer<W>,
@@ -162,6 +167,7 @@ macro_rules! impl_compact {
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$t>>::encode(&self.0, writer, ctx)
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
@@ -174,6 +180,7 @@ macro_rules! impl_compact {
 
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
+            #[inline]
             fn encode<W: Write>(
                 value: &$t,
                 writer: &mut super::Writer<W>,
@@ -190,6 +197,7 @@ macro_rules! impl_compact {
                 }
                 Ok(())
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
@@ -276,6 +284,7 @@ macro_rules! impl_signed {
     ($signed:ident, $unsigned:ident, $context:ident) => {
         impl Encode for $signed {
             type Context = <$unsigned as Encode>::Context;
+            #[inline]
             fn encode<W: Write>(
                 &self,
                 writer: &mut super::Writer<W>,
@@ -283,6 +292,7 @@ macro_rules! impl_signed {
             ) -> Result<(), std::io::Error> {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
@@ -294,6 +304,7 @@ macro_rules! impl_signed {
 
         impl Encode for Compact<$signed> {
             type Context = <Small as EncodingStrategy<$signed>>::Context;
+            #[inline]
             fn encode<W: Write>(
                 &self,
                 writer: &mut super::Writer<W>,
@@ -301,6 +312,7 @@ macro_rules! impl_signed {
             ) -> Result<(), std::io::Error> {
                 <Small as EncodingStrategy<$signed>>::encode(&self.0, writer, ctx)
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
@@ -318,6 +330,7 @@ macro_rules! impl_signed {
             negative: <Small as EncodingStrategy<$unsigned>>::Context,
         }
         impl Default for $context {
+            #[inline]
             fn default() -> Self {
                 Self {
                     is_negative: Default::default(),
@@ -329,6 +342,7 @@ macro_rules! impl_signed {
 
         impl EncodingStrategy<$signed> for Small {
             type Context = $context;
+            #[inline]
             fn encode<W: Write>(
                 value: &$signed,
                 writer: &mut super::Writer<W>,
@@ -341,6 +355,7 @@ macro_rules! impl_signed {
                     Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
                 }
             }
+            #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,

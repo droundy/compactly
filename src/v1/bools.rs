@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 impl Encode for bool {
     type Context = BitContext;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -11,6 +12,7 @@ impl Encode for bool {
     ) -> Result<(), std::io::Error> {
         writer.encode(*self, ctx)
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

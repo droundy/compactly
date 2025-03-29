@@ -11,6 +11,7 @@ pub struct CharContext {
 
 impl Encode for char {
     type Context = CharContext;
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -38,6 +39,7 @@ impl Encode for char {
             Ok(())
         }
     }
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -65,6 +67,7 @@ pub struct Context {
 
 impl Encode for String {
     type Context = Context;
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -76,6 +79,7 @@ impl Encode for String {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

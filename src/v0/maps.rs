@@ -11,6 +11,7 @@ pub struct MapContext<K: Encode, V: Encode> {
     value: V::Context,
 }
 impl<K: Encode, V: Encode> Default for MapContext<K, V> {
+    #[inline]
     fn default() -> Self {
         Self {
             len: Default::default(),
@@ -22,6 +23,7 @@ impl<K: Encode, V: Encode> Default for MapContext<K, V> {
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -34,6 +36,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -61,6 +64,7 @@ fn hashmap() {
 
 impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
     type Context = MapContext<K, V>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -73,6 +77,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

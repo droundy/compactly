@@ -20,6 +20,7 @@ impl<const N: usize> From<Bits<N>> for u8 {
 impl<const N: usize> Bits<N> {
     const MAX: u8 = (N - 1) as u8;
     const N_BITS: u32 = N.ilog2();
+    #[inline]
     pub fn take_from(source: &mut u32) -> Self {
         let value = (*source as u8) & Self::MAX;
         *source = *source >> Self::N_BITS;
@@ -28,6 +29,7 @@ impl<const N: usize> Bits<N> {
 }
 impl<const N: usize> TryFrom<u8> for Bits<N> {
     type Error = ();
+    #[inline]
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         if value <= Self::MAX {
             Ok(Self { value })
@@ -39,6 +41,7 @@ impl<const N: usize> TryFrom<u8> for Bits<N> {
 
 impl<const N: usize> Encode for Bits<N> {
     type Context = BitsContext<N>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -56,6 +59,7 @@ impl<const N: usize> Encode for Bits<N> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

@@ -106,11 +106,13 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) ->
 pub struct Compact<T>(T);
 impl<T> std::ops::Deref for Compact<T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 impl<T> std::ops::DerefMut for Compact<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

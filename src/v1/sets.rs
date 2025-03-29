@@ -10,6 +10,7 @@ pub struct SetContext<T: Encode> {
     values: T::Context,
 }
 impl<T: Encode> Default for SetContext<T> {
+    #[inline]
     fn default() -> Self {
         Self {
             len: Default::default(),
@@ -20,6 +21,7 @@ impl<T: Encode> Default for SetContext<T> {
 
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -31,6 +33,7 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -60,6 +63,7 @@ fn hashset() {
 
 impl<T: Encode + Ord> Encode for BTreeSet<T> {
     type Context = SetContext<T>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -71,6 +75,7 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -93,6 +98,7 @@ pub struct CompactU64Set {
 
 impl Encode for Compact<BTreeSet<u64>> {
     type Context = CompactU64Set;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -110,6 +116,7 @@ impl Encode for Compact<BTreeSet<u64>> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

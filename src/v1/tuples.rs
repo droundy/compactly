@@ -2,6 +2,7 @@ use super::{Encode, Reader, Writer};
 
 impl Encode for () {
     type Context = ();
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         _writer: &mut Writer<W>,
@@ -9,6 +10,7 @@ impl Encode for () {
     ) -> Result<(), std::io::Error> {
         Ok(())
     }
+    #[inline]
     fn decode<R: std::io::Read>(
         _reader: &mut Reader<R>,
         _ctx: &mut Self::Context,
@@ -20,6 +22,7 @@ impl Encode for () {
 impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     type Context = (T1::Context, T2::Context);
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut Writer<W>,
@@ -29,6 +32,7 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
         self.1.encode(writer, &mut ctx.1)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut Reader<R>,
         ctx: &mut Self::Context,
@@ -43,6 +47,7 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
 impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     type Context = (T1::Context, T2::Context, T3::Context);
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -53,6 +58,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
         self.2.encode(writer, &mut ctx.2)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -68,6 +74,7 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
 impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4) {
     type Context = (T1::Context, T2::Context, T3::Context, T4::Context);
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -79,6 +86,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
         self.3.encode(writer, &mut ctx.3)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -101,6 +109,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
         T5::Context,
     );
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -113,6 +122,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
         self.4.encode(writer, &mut ctx.4)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -139,6 +149,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
         T6::Context,
     );
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -152,6 +163,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
         self.5.encode(writer, &mut ctx.5)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -180,6 +192,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
         T7::Context,
     );
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -194,6 +207,7 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
         self.6.encode(writer, &mut ctx.6)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
@@ -232,6 +246,7 @@ impl<
         T8::Context,
     );
 
+    #[inline]
     fn encode<W: std::io::Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -247,6 +262,7 @@ impl<
         self.7.encode(writer, &mut ctx.7)
     }
 
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

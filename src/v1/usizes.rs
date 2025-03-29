@@ -10,6 +10,7 @@ pub struct UsizeContext {
 
 impl Encode for usize {
     type Context = UsizeContext;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -23,6 +24,7 @@ impl Encode for usize {
             Compact((*self - 4) as u64).encode(writer, &mut ctx.big)
         }
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

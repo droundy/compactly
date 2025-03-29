@@ -13,9 +13,11 @@ pub struct Probability {
 }
 
 impl Probability {
+    #[inline]
     pub fn likely_bit(&self) -> bool {
         self.prob < (1 << (self.shift - 1))
     }
+    #[inline]
     pub fn as_f64(self) -> f64 {
         self.prob as f64 / (1_u64 << self.shift) as f64
     }
@@ -36,6 +38,7 @@ fn likely_bit() {
 }
 
 impl Default for ArithState {
+    #[inline]
     fn default() -> Self {
         ArithState {
             lo: 0,
@@ -45,6 +48,7 @@ impl Default for ArithState {
 }
 
 impl ArithState {
+    #[inline]
     fn ready_bytes(&mut self) -> Bytes {
         if self.hi == self.lo {
             let bytes = self.hi.to_be_bytes();
@@ -81,12 +85,14 @@ impl ArithState {
         }
     }
 
+    #[inline]
     pub fn last_byte(self) -> u8 {
         (self.hi >> 56) as u8
     }
 
     /// Returns a set of bytes to be written out.
     #[must_use]
+    #[inline]
     pub fn encode(&mut self, prob: Probability, value: bool) -> Bytes {
         if self.hi == self.lo + 1 {
             // special case that we need to handle differently.
@@ -115,6 +121,7 @@ impl ArithState {
     }
 
     /// Returns bit and the number of bytes that need to be read.
+    #[inline]
     pub fn decode(&mut self, prob: Probability, value: u64) -> (bool, usize) {
         if self.hi == self.lo + 1 {
             let bit = value == self.hi;
@@ -135,6 +142,7 @@ impl ArithState {
         (b, self.ready_bytes().count)
     }
 
+    #[inline]
     fn split(self, Probability { prob, shift }: Probability) -> Option<u64> {
         debug_assert!(prob < 1 << shift);
         debug_assert!(self.hi > self.lo);
@@ -154,6 +162,7 @@ pub struct Bytes {
 }
 
 impl Bytes {
+    #[inline]
     fn push(&mut self, byte: u8) {
         self.bytes[self.count] = byte;
         self.count += 1;
@@ -162,6 +171,7 @@ impl Bytes {
 
 impl std::ops::Deref for Bytes {
     type Target = [u8];
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.bytes[..self.count]
     }
@@ -170,6 +180,7 @@ impl std::ops::Deref for Bytes {
 impl IntoIterator for Bytes {
     type Item = u8;
     type IntoIter = std::iter::Take<std::array::IntoIter<u8, 8>>;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.bytes.into_iter().take(self.count)
     }
@@ -188,10 +199,12 @@ impl Encoder {
             state: ArithState::default(),
         }
     }
+    #[inline]
     pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
+    #[inline]
     pub fn finish(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
         self.bytes
@@ -211,6 +224,7 @@ impl<W: Write> Writer<W> {
             state: ArithState::default(),
         }
     }
+    #[inline]
     pub fn encode(
         &mut self,
         probability_of_false: Probability,
@@ -222,6 +236,7 @@ impl<W: Write> Writer<W> {
         }
         Ok(())
     }
+    #[inline]
     pub fn finish(mut self) -> std::io::Result<()> {
         self.write.write(&[self.state.last_byte()])?;
         Ok(())
@@ -248,6 +263,7 @@ impl Decoder {
             value,
         }
     }
+    #[inline]
     pub fn decode(&mut self, p: Probability) -> bool {
         let (out, sz) = self.state.decode(p, self.value);
         for _ in 0..sz {
@@ -265,6 +281,7 @@ pub struct Reader<R> {
 }
 
 impl<R: Read> Reader<R> {
+    #[inline]
     fn read_bytes(&mut self, sz: usize) -> Result<(), std::io::Error> {
         if sz == 0 {
             return Ok(());
@@ -296,6 +313,7 @@ impl<R: Read> Reader<R> {
         r.read_bytes(8)?;
         Ok(r)
     }
+    #[inline]
     pub fn decode(&mut self, p: Probability) -> std::io::Result<bool> {
         let (out, sz) = self.state.decode(p, self.value);
         self.read_bytes(sz)?;

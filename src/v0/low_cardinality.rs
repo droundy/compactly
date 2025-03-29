@@ -10,6 +10,7 @@ pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
 }
 
 impl<T: Encode + Clone + Hash + PartialEq + Eq> Default for CacheContext<T> {
+    #[inline]
     fn default() -> Self {
         Self {
             cached: HashMap::new(),
@@ -23,6 +24,7 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> Default for CacheContext<T> {
 
 impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardinality {
     type Context = CacheContext<T>;
+    #[inline]
     fn encode<W: std::io::Write>(
         value: &T,
         writer: &mut cabac::vp8::VP8Writer<W>,
@@ -37,6 +39,7 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardi
             value.encode(writer, &mut ctx.context)
         }
     }
+    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut cabac::vp8::VP8Reader<R>,
         ctx: &mut Self::Context,

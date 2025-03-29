@@ -61,6 +61,7 @@ fn hashmap() {
 
 impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
     type Context = MapContext<K, V>;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -73,6 +74,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

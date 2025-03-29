@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = (<usize as Encode>::Context, T::Context);
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -14,6 +15,7 @@ impl<T: Encode> Encode for Vec<T> {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

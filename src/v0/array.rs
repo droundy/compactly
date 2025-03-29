@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -13,6 +14,7 @@ impl<T: Encode, const N: usize> Encode for [T; N] {
         }
         Ok(())
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,

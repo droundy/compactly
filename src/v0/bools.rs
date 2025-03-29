@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 
 impl Encode for bool {
     type Context = VP8Context;
+    #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -12,6 +13,7 @@ impl Encode for bool {
     ) -> Result<(), std::io::Error> {
         writer.put(*self, ctx)
     }
+    #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
