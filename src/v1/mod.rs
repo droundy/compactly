@@ -79,8 +79,7 @@ pub struct Encoded<T, S: EncodingStrategy<T>> {
 /// A strategy for encoding values that are small.
 ///
 /// e.g. if there are integers then they should be small integers.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Small;
+pub use crate::v0::Small;
 
 /// A strategy for encoding values that are often repeated.
 ///

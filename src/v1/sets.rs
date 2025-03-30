@@ -1,4 +1,4 @@
-use super::{Compact, Encode};
+use super::{Compact, Encode, EncodingStrategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
@@ -133,6 +133,44 @@ impl Encode for Compact<BTreeSet<u64>> {
             }
         }
         Ok(Compact(out))
+    }
+}
+
+impl EncodingStrategy<BTreeSet<u64>> for super::Small {
+    type Context = CompactU64Set;
+    fn encode<W: Write>(
+        value: &BTreeSet<u64>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.len().encode(writer, &mut ctx.size)?;
+        let mut iter = value.iter().copied();
+        if let Some(mut prev) = iter.next() {
+            Compact(prev).encode(writer, &mut ctx.first)?;
+            for v in iter {
+                let diff = Compact(v - prev);
+                diff.encode(writer, &mut ctx.diff)?;
+                prev = v;
+            }
+        }
+        Ok(())
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<u64>, std::io::Error> {
+        let mut out = BTreeSet::new();
+        let len = usize::decode(reader, &mut ctx.size)?;
+        if len > 0 {
+            let Compact(mut prev) = Compact::<u64>::decode(reader, &mut ctx.first)?;
+            out.insert(prev);
+            for _ in 1..len {
+                let Compact(diff) = Compact::<u64>::decode(reader, &mut ctx.diff)?;
+                prev += diff;
+                out.insert(prev);
+            }
+        }
+        Ok(out)
     }
 }
 
