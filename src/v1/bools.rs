@@ -1,5 +1,5 @@
-use super::bit_context::BitContext;
 use super::Encode;
+use super::{bit_context::BitContext, EncodeCorrelated};
 use std::io::{Read, Write};
 
 impl Encode for bool {
@@ -18,6 +18,37 @@ impl Encode for bool {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         reader.decode(ctx)
+    }
+}
+
+impl EncodeCorrelated for bool {
+    fn correlated_encode<W: Write>(
+        &self,
+        writer: &mut super::Writer<W>,
+        base_ctx: &mut <Self as Encode>::Context,
+        correlated_ctx: &mut <Self as Encode>::Context,
+    ) -> Result<(), std::io::Error> {
+        let (ctx, extra) = if *correlated_ctx >= BitContext::CONFIDENT {
+            (correlated_ctx, base_ctx)
+        } else {
+            (base_ctx, correlated_ctx)
+        };
+        extra.adapt(*self);
+        self.encode(writer, ctx)
+    }
+    fn correlated_decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        base_ctx: &mut <Self as Encode>::Context,
+        correlated_ctx: &mut <Self as Encode>::Context,
+    ) -> Result<Self, std::io::Error> {
+        let (ctx, extra) = if *correlated_ctx >= BitContext::CONFIDENT {
+            (correlated_ctx, base_ctx)
+        } else {
+            (base_ctx, correlated_ctx)
+        };
+        let bit = Self::decode(reader, ctx)?;
+        extra.adapt(bit);
+        Ok(bit)
     }
 }
 

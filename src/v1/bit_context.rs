@@ -1,6 +1,10 @@
 //! Generated with `src/v1/bit-context.sh`
 use super::arith::Probability;
 
+impl BitContext {
+    pub const CONFIDENT: Self = True0False4;
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {
     #[default]

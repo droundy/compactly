@@ -8,6 +8,7 @@ mod bit_context;
 mod bits;
 mod bools;
 mod byte;
+mod correlated;
 mod encoded;
 mod floats;
 mod ints;
@@ -23,6 +24,7 @@ mod vecs;
 
 pub use adapt::{Reader, Writer};
 pub use arith::Probability;
+pub use correlated::{Correlated, EncodeCorrelated};
 pub use urange::URange;
 
 pub trait Encode: Sized {

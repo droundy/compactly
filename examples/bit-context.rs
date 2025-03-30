@@ -163,6 +163,7 @@ fn lookup_adapt(variants: &[Bucket]) {
 }
 
 const MAX_COUNT: usize = 81;
+const COUNT_FOR_CONFIDENCE: usize = 4;
 
 fn main() {
     let mut variants = Vec::new();
@@ -173,10 +174,23 @@ fn main() {
         }
     }
 
+    let confident_name = Bucket::Count {
+        trues: 0,
+        falses: COUNT_FOR_CONFIDENCE,
+    }
+    .bitc()
+    .name;
     println!(
         r"//! Generated with `src/v1/bit-context.sh`
 use super::arith::Probability;
 
+impl BitContext {{
+pub const CONFIDENT: Self = {confident_name};
+    }}
+"
+    );
+    println!(
+        r"
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {{
     #[default]"

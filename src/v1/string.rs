@@ -59,6 +59,43 @@ impl Encode for char {
     }
 }
 
+// impl super::EncodeCorrelated for char {
+//     fn correlated_encode<W: std::io::Write>(
+//         &self,
+//         writer: &mut super::Writer<W>,
+//         base_ctx: &mut <Self as Encode>::Context,
+//         correlated_ctx: &mut <Self as Encode>::Context,
+//     ) -> Result<(), std::io::Error> {
+//         let mut x = u32::from(*self);
+//         let is_ascii = x < 128;
+//         is_ascii.correlated_encode(writer, &mut base_ctx.is_ascii, &mut correlated_ctx.is_ascii)?;
+//         if is_ascii {
+//             Bits::<128>::take_from(&mut x).encode(writer, &mut ctx.ascii)
+//         } else {
+//             let n_chunks = if x < 32 * 64 {
+//                 0
+//             } else if x < 32 * 64 * 64 {
+//                 1
+//             } else {
+//                 2
+//             };
+//             let n_chunks = URange::<3>::try_from(n_chunks).unwrap();
+//             n_chunks.encode(writer, &mut ctx.n_chunks)?;
+//             Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1)?;
+//             for i in 0_usize..1 + usize::from(n_chunks) {
+//                 Bits::<64>::take_from(&mut x).encode(writer, &mut ctx.chunks[i])?;
+//             }
+//             Ok(())
+//         }
+//     }
+//     fn correlated_decode<R: std::io::Read>(
+//         reader: &mut super::Reader<R>,
+//         base_ctx: &mut <Self as Encode>::Context,
+//         correlated_ctx: &mut <Self as Encode>::Context,
+//     ) -> Result<Self, std::io::Error> {
+//     }
+// }
+
 #[derive(Default)]
 pub struct Context {
     len: <usize as Encode>::Context,
