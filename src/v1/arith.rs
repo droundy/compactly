@@ -72,39 +72,32 @@ impl Default for ArithState {
 impl ArithState {
     #[inline]
     fn ready_bytes(&mut self) -> Bytes {
-        if self.hi == self.lo {
-            let bytes = self.hi.to_be_bytes();
-            self.lo = 0;
-            self.hi = u64::MAX;
-            Bytes { bytes, count: 8 }
-        } else {
-            let mut bytes = Bytes::default();
-            for _ in 0..7 {
-                let lo_byte = (self.lo >> 56) as u8;
-                let hi_byte = (self.hi >> 56) as u8;
-                debug_assert_ne!(self.lo, self.hi);
+        let mut bytes = Bytes::default();
+        for _ in 0..8 {
+            let lo_byte = (self.lo >> 56) as u8;
+            let hi_byte = (self.hi >> 56) as u8;
+            debug_assert_ne!(self.lo, self.hi);
+            // #[cfg(test)]
+            // {
+            //     let width = self.hi - self.lo;
+            //     println!("width = {width:016x}");
+            //     println!("  min = {:016x}", u64::MAX >> 8);
+            //     println!("lo_byte {lo_byte:02x}");
+            //     println!("hi_byte {hi_byte:02x}");
+            // }
+            if lo_byte == hi_byte {
+                self.lo = self.lo << 8;
+                self.hi = self.hi << 8;
                 // #[cfg(test)]
                 // {
-                //     let width = self.hi - self.lo;
-                //     println!("width = {width:016x}");
-                //     println!("  min = {:016x}", u64::MAX >> 8);
-                //     println!("lo_byte {lo_byte:02x}");
-                //     println!("hi_byte {hi_byte:02x}");
+                //     println!("next_byte resetting to {self:x?}");
                 // }
-                if lo_byte == hi_byte {
-                    self.lo = self.lo << 8;
-                    self.hi = self.hi << 8;
-                    // #[cfg(test)]
-                    // {
-                    //     println!("next_byte resetting to {self:x?}");
-                    // }
-                    bytes.push(lo_byte);
-                } else {
-                    return bytes;
-                }
+                bytes.push(lo_byte);
+            } else {
+                return bytes;
             }
-            bytes
         }
+        bytes
     }
 
     #[inline]
