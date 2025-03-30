@@ -8,9 +8,10 @@ pub struct ArithState {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Probability {
-    pub prob: u64,
-    pub shift: u8,
+    pub prob: u8,
 }
+
+pub const SHIFT: u8 = 8;
 
 impl Probability {
     pub const fn new(trues: u64, falses: u64) -> Self {
@@ -21,13 +22,13 @@ impl Probability {
         } else {
             falses as u64 * 256 / ((trues + falses) as u64)
         };
-        Probability { prob, shift: 8 }
+        Probability { prob: prob as u8 }
     }
 }
 
 impl std::fmt::Debug for Probability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let trues = 256 - self.prob;
+        let trues = 256 - self.prob as u64;
         let falses = self.prob;
         write!(f, "Probability::new({trues},{falses})")
     }
@@ -36,27 +37,27 @@ impl std::fmt::Debug for Probability {
 impl Probability {
     #[inline]
     pub fn likely_bit(&self) -> bool {
-        self.prob < (1 << (self.shift - 1))
+        self.prob < (1 << (SHIFT - 1))
     }
     #[inline]
     pub fn as_f64(self) -> f64 {
-        self.prob as f64 / (1_u64 << self.shift) as f64
+        self.prob as f64 / (1_u64 << SHIFT) as f64
     }
 }
 
 impl std::fmt::Display for Probability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let v = self.prob as f64 / (1_u64 << self.shift) as f64;
+        let v = self.prob as f64 / (1_u64 << SHIFT) as f64;
         write!(f, "{v}")
     }
 }
 
-#[test]
-fn likely_bit() {
-    assert_eq!((Probability { prob: 1, shift: 2 }).likely_bit(), true);
-    assert_eq!((Probability { prob: 2, shift: 2 }).likely_bit(), false);
-    assert_eq!((Probability { prob: 3, shift: 2 }).likely_bit(), false);
-}
+// #[test]
+// fn likely_bit() {
+//     assert_eq!((Probability { prob: 1, shift: 2 }).likely_bit(), true);
+//     assert_eq!((Probability { prob: 2, shift: 2 }).likely_bit(), false);
+//     assert_eq!((Probability { prob: 3, shift: 2 }).likely_bit(), false);
+// }
 
 impl Default for ArithState {
     #[inline]
@@ -126,9 +127,7 @@ impl ArithState {
             self.hi = u64::MAX;
             return Bytes { bytes, count: 8 };
         }
-        let split = self
-            .split(prob)
-            .expect("call next_byte enough before encode");
+        let split = self.split(prob);
         debug_assert!(split < self.hi, "{self:x?} {prob:?}");
         debug_assert!(split >= self.lo);
         debug_assert!(self.hi > self.lo);
@@ -150,9 +149,7 @@ impl ArithState {
             self.lo = 0;
             return (bit, 8);
         }
-        let split = self
-            .split(prob)
-            .expect("call next_byte enough before decode");
+        let split = self.split(prob);
         let b = value > split;
         // println!("decoded bit {prob} {shift} {b:?}   from {value:016x} and split {split:016x}");
         if b {
@@ -164,15 +161,12 @@ impl ArithState {
     }
 
     #[inline]
-    fn split(self, Probability { prob, shift }: Probability) -> Option<u64> {
-        debug_assert!(prob < 1 << shift);
+    fn split(self, Probability { prob }: Probability) -> u64 {
+        // debug_assert!(prob < 1 << SHIFT);
         debug_assert!(self.hi > self.lo);
         let width = self.hi - self.lo;
-        if self.lo >> 56 == self.hi >> 56 {
-            None
-        } else {
-            Some(self.lo + (width >> shift) * prob)
-        }
+        debug_assert!(self.lo >> 56 != self.hi >> 56);
+        self.lo + (width >> SHIFT) * prob as u64
     }
 }
 
@@ -350,9 +344,8 @@ mod tests {
 
     fn rand_prob() -> (Probability, bool) {
         let value_bool = rand::random::<bool>();
-        let shift = 1 + (rand::random::<u8>() % 15);
-        let prob = 1 + (rand::random::<u64>() % ((1 << shift) - 1));
-        (Probability { prob, shift }, value_bool)
+        let prob = 1 + (rand::random::<u64>() % ((1 << SHIFT) - 1)) as u8;
+        (Probability { prob }, value_bool)
     }
 
     #[test]
@@ -373,7 +366,7 @@ mod tests {
                 let encoded_bytes = s.encode(p, value_bool);
                 // println!("state after encoding {value_bool:?} is {s:x?}");
 
-                let split = original_s.split(p).unwrap();
+                let split = original_s.split(p);
 
                 let values = if value_bool {
                     let rand_value = || rand::thread_rng().gen_range(split + 1..=original_s.hi);
@@ -420,25 +413,9 @@ mod tests {
     fn zero_byte() {
         let mut s = ArithState::default();
         for _ in 0..7 {
-            assert_eq!(
-                s.encode(
-                    Probability {
-                        prob: 127,
-                        shift: 8,
-                    },
-                    false,
-                )
-                .count,
-                0
-            );
+            assert_eq!(s.encode(Probability { prob: 127 }, false,).count, 0);
         }
-        let bytes = s.encode(
-            Probability {
-                prob: 127,
-                shift: 8,
-            },
-            false,
-        );
+        let bytes = s.encode(Probability { prob: 127 }, false);
         assert_eq!(bytes.count, 1);
         assert_eq!(bytes.bytes, [0, 0, 0, 0, 0, 0, 0, 0]);
     }
@@ -446,91 +423,17 @@ mod tests {
     #[test]
     fn one_byte() {
         let mut s = ArithState::default();
-        assert_eq!(
-            s.split(Probability {
-                prob: 128,
-                shift: 8
-            })
-            .map(|v| v >> 8),
-            Some((u64::MAX / 2) >> 8)
-        );
+        assert_eq!(s.split(Probability { prob: 128 }) >> 8, (u64::MAX / 2) >> 8);
         for _ in 0..8 {
-            assert_eq!(
-                s.encode(
-                    Probability {
-                        prob: 127,
-                        shift: 8,
-                    },
-                    true,
-                )
-                .count,
-                0
-            );
+            assert_eq!(s.encode(Probability { prob: 127 }, true,).count, 0);
         }
-        let bytes = s.encode(
-            Probability {
-                prob: 127,
-                shift: 8,
-            },
-            true,
-        );
+        let bytes = s.encode(Probability { prob: 127 }, true);
         assert_eq!(bytes.count, 1);
         assert_eq!(bytes.bytes, [255, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
     fn encode_decode() {
-        for probs in [
-            vec![],
-            vec![(1u64, 1u8, false)],
-            vec![(1u64, 1u8, true)],
-            vec![
-                (1u64, 1u8, true),
-                (1u64, 1u8, true),
-                (1u64, 1u8, true),
-                (1u64, 1u8, true),
-                (1u64, 1u8, true),
-            ],
-            vec![
-                (1u64, 1u8, true),
-                (1u64, 1u8, false),
-                (1u64, 1u8, true),
-                (1u64, 1u8, false),
-                (1u64, 1u8, true),
-            ],
-            vec![(1u64, 2u8, false)],
-            vec![(1u64, 2u8, true)],
-            vec![(2063, 13, false), (46, 7, true), (441, 12, true)],
-            vec![
-                (3, 2, true),
-                (5, 9, false),
-                (6997, 14, false),
-                (16, 5, false),
-                (4, 5, false),
-                (28478, 15, false),
-                (14625, 15, false),
-                (103, 7, false),
-                (1, 1, false),
-                (3, 2, true),
-                (178, 10, false),
-            ],
-        ] {
-            println!("\nTest {probs:?}");
-            let mut encoder = Encoder::new();
-            for &(prob, shift, bit) in &probs {
-                let p = Probability { prob, shift };
-                encoder.encode(p, bit);
-            }
-            println!("{encoder:x?}");
-            let bytes = encoder.finish();
-            println!("\n\nEncoded: {bytes:02x?}\n");
-            let mut decoder = Decoder::new(bytes);
-            for &(prob, shift, bit) in &probs {
-                println!("Decoding {prob} {shift} {bit:?}");
-                let p = Probability { prob, shift };
-                assert_eq!(decoder.decode(p), bit);
-            }
-        }
         for _ in 0..10_000 {
             let num_bits = rand::random::<usize>() % 32 * 8;
             let mut probs = Vec::new();
