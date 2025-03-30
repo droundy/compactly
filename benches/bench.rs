@@ -40,6 +40,19 @@ impl Encoding for SerdeVar {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ZstdSerdeVar;
+impl Encoding for ZstdSerdeVar {
+    fn encode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+        let v = bincode::DefaultOptions::new().serialize(value).unwrap();
+        zstd::bulk::compress(v.as_slice(), 3).unwrap()
+    }
+    fn decode<T: compactly::v0::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+        let v = zstd::bulk::decompress(bytes, 10_000_000).unwrap();
+        bincode::DefaultOptions::new().deserialize(&v).unwrap()
+    }
+}
+
 fn mem_allocated<T>(f: impl Fn() -> T) -> (T, usize) {
     let reg = Region::new(&GLOBAL);
     let v = f();
@@ -57,10 +70,16 @@ fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
     mut gen: impl FnMut() -> T,
 ) {
     if name.len() <= 11 {
-        println!("{:11}:{:>13} {:>13}", name, "compactly", "bincode",);
+        println!(
+            "{:11}:{:>13} {:>13} {:>13}",
+            name, "compactly", "bincode", "zstd"
+        );
     } else {
         println!("\n{}", name);
-        println!("{:11}:{:>13} {:>13}", "", "compactly", "bincode",);
+        println!(
+            "{:11}:{:>13} {:>13} {:>13}",
+            "", "compactly", "bincode", "zstd"
+        );
     }
 
     print_times(
@@ -68,6 +87,7 @@ fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
         &[
             bench_gen_env(&mut gen, |value| Compactly.encode(value)).ns_per_iter,
             bench_gen_env(&mut gen, |value| SerdeVar.encode(value)).ns_per_iter,
+            bench_gen_env(&mut gen, |value| ZstdSerdeVar.encode(value)).ns_per_iter,
         ],
     );
     print_times(
@@ -83,6 +103,11 @@ fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
                 |bytes| SerdeVar.decode::<T>(bytes),
             )
             .ns_per_iter,
+            bench_gen_env(
+                || ZstdSerdeVar.encode(&gen()),
+                |bytes| ZstdSerdeVar.decode::<T>(bytes),
+            )
+            .ns_per_iter,
         ],
     );
     macro_rules! get_size {
@@ -93,7 +118,14 @@ fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
                 / 3.0
         };
     }
-    print_sizes("", &[get_size!(Compactly), get_size!(SerdeVar)]);
+    print_sizes(
+        "",
+        &[
+            get_size!(Compactly),
+            get_size!(SerdeVar),
+            get_size!(ZstdSerdeVar),
+        ],
+    );
     macro_rules! decoding_mem {
         ($encoding:ident) => {{
             let encoded = $encoding.encode(&gen());
@@ -102,7 +134,11 @@ fn bench_encoding<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
     }
     print_sizes(
         "decoding",
-        &[decoding_mem!(Compactly), decoding_mem!(SerdeVar)],
+        &[
+            decoding_mem!(Compactly),
+            decoding_mem!(SerdeVar),
+            decoding_mem!(ZstdSerdeVar),
+        ],
     );
 }
 
@@ -111,10 +147,16 @@ fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
     mut gen: impl FnMut(usize) -> T,
 ) {
     if name.len() <= 11 {
-        println!("{:11}:{:>13} {:>13}", name, "compactly", "bincode",);
+        println!(
+            "{:11}:{:>13} {:>13} {:>13}",
+            name, "compactly", "bincode", "zstd"
+        );
     } else {
         println!("\n{}", name);
-        println!("{:11}:{:>13} {:>13}", "", "compactly", "bincode",);
+        println!(
+            "{:11}:{:>13} {:>13} {:>13}",
+            "", "compactly", "bincode", "zstd"
+        );
     }
 
     print_scalings(
@@ -122,6 +164,7 @@ fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
         &[
             bench_scaling_gen(&mut gen, |value| Compactly.encode(value), 5).scaling,
             bench_scaling_gen(&mut gen, |value| SerdeVar.encode(value), 5).scaling,
+            bench_scaling_gen(&mut gen, |value| ZstdSerdeVar.encode(value), 5).scaling,
         ],
     );
     print_scalings(
@@ -139,6 +182,12 @@ fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
                 5,
             )
             .scaling,
+            bench_scaling_gen(
+                |n| ZstdSerdeVar.encode(&gen(n)),
+                |bytes| ZstdSerdeVar.decode::<T>(bytes),
+                5,
+            )
+            .scaling,
         ],
     );
     macro_rules! get_size {
@@ -149,7 +198,14 @@ fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
                 / 10.0
         };
     }
-    print_sizes("", &[get_size!(Compactly), get_size!(SerdeVar)]);
+    print_sizes(
+        "",
+        &[
+            get_size!(Compactly),
+            get_size!(SerdeVar),
+            get_size!(ZstdSerdeVar),
+        ],
+    );
     macro_rules! decoding_mem {
         ($encoding:ident) => {{
             let encoded = $encoding.encode(&gen(1024));
@@ -157,8 +213,12 @@ fn bench_scaling<T: compactly::v0::Encode + Serialize + DeserializeOwned>(
         }};
     }
     print_sizes(
-        "decoding",
-        &[decoding_mem!(Compactly), decoding_mem!(SerdeVar)],
+        "decode mem",
+        &[
+            decoding_mem!(Compactly),
+            decoding_mem!(SerdeVar),
+            decoding_mem!(ZstdSerdeVar),
+        ],
     );
 }
 
