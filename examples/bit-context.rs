@@ -105,7 +105,7 @@ fn lookup_probability(variants: &[Bucket]) {
 fn print_adapt(variants: &[Bucket]) {
     println!(
         r"
-    #[inline] pub fn adapt(self, bit: bool, rng: &mut SplitMix64) -> Self {{
+    #[inline] pub fn adapt(self, bit: bool) -> Self {{
         match (bit, self) {{"
     );
 
@@ -132,7 +132,7 @@ fn lookup_adapt(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
         r"
-    #[inline] pub fn adapt(self, bit: bool, _rng: &mut SplitMix64) -> Self {{
+    #[inline] pub fn adapt(self, bit: bool) -> Self {{
         const OUTCOMES: [BitContext; 2*{sz}] = ["
     );
 
@@ -184,14 +184,9 @@ fn main() {
             variants.push(Bucket::Count { trues, falses })
         }
     }
-    // for same in MIN_ALL..MAX_ALL + 1 {
-    //     variants.push(Bucket::AllFalse(same));
-    //     variants.push(Bucket::AllTrue(same));
-    // }
 
     println!(
         r"//! Generated with `src/v1/bit-context.sh`
-use super::adapt::SplitMix64;
 use super::arith::Probability;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

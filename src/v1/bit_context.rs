@@ -1,5 +1,4 @@
 //! Generated with `src/v1/bit-context.sh`
-use super::adapt::SplitMix64;
 use super::arith::Probability;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -3770,7 +3769,7 @@ impl BitContext {
     }
 
     #[inline]
-    pub fn adapt(self, bit: bool, _rng: &mut SplitMix64) -> Self {
+    pub fn adapt(self, bit: bool) -> Self {
         const OUTCOMES: [BitContext; 2 * 1275] = [
             True0False1,
             True0False2,

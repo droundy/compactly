@@ -2,20 +2,18 @@ use super::bit_context::BitContext;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Writer<W> {
     arith: super::arith::Writer<W>,
-    rng: SplitMix64,
 }
 
 impl<W: std::io::Write> Writer<W> {
     pub fn new(write: W) -> Self {
         Self {
             arith: super::arith::Writer::new(write),
-            rng: SplitMix64::default(),
         }
     }
     #[inline]
     pub fn encode(&mut self, value: bool, context: &mut BitContext) -> Result<(), std::io::Error> {
         self.arith.encode(context.probability(), value)?;
-        *context = context.adapt(value, &mut self.rng);
+        *context = context.adapt(value);
         Ok(())
     }
     #[inline]
@@ -27,40 +25,19 @@ impl<W: std::io::Write> Writer<W> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Reader<R> {
     arith: super::arith::Reader<R>,
-    rng: SplitMix64,
 }
 
 impl<R: std::io::Read> Reader<R> {
     pub fn new(read: R) -> Result<Self, std::io::Error> {
         Ok(Self {
             arith: super::arith::Reader::new(read)?,
-            rng: SplitMix64::default(),
         })
     }
     #[inline]
     pub fn decode(&mut self, context: &mut BitContext) -> Result<bool, std::io::Error> {
         let bit = self.arith.decode(context.probability())?;
-        *context = context.adapt(bit, &mut self.rng);
+        *context = context.adapt(bit);
         Ok(bit)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SplitMix64(u64);
-
-impl SplitMix64 {
-    pub fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e3779b97f4a7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
-        z ^ (z >> 31)
-    }
-}
-
-impl Default for SplitMix64 {
-    fn default() -> Self {
-        Self(137)
     }
 }
 
