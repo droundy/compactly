@@ -162,7 +162,7 @@ fn lookup_adapt(variants: &[Bucket]) {
     println!("}}");
 }
 
-const MAX_COUNT: usize = 50;
+const MAX_COUNT: usize = 81;
 
 fn main() {
     let mut variants = Vec::new();
