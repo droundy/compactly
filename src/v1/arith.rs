@@ -6,10 +6,31 @@ pub struct ArithState {
     hi: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Probability {
     pub prob: u64,
     pub shift: u8,
+}
+
+impl Probability {
+    pub const fn new(trues: u64, falses: u64) -> Self {
+        let prob = if falses == 0 {
+            1 * 256 / ((2 + trues) as u64)
+        } else if trues == 0 {
+            (1 + falses) as u64 * 256 / ((2 + falses) as u64)
+        } else {
+            falses as u64 * 256 / ((trues + falses) as u64)
+        };
+        Probability { prob, shift: 8 }
+    }
+}
+
+impl std::fmt::Debug for Probability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let trues = 256 - self.prob;
+        let falses = self.prob;
+        write!(f, "Probability::new({trues},{falses})")
+    }
 }
 
 impl Probability {

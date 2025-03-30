@@ -4,1281 +4,1281 @@ use super::arith::Probability;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BitContext {
     #[default]
-    True0False0, // Probability { prob: 2, shift: 2 } = 0.5
-    True0False1,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    True1False0,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    True0False2,   // Probability { prob: 3, shift: 2 } = 0.75
-    True1False1,   // Probability { prob: 2, shift: 2 } = 0.5
-    True2False0,   // Probability { prob: 1, shift: 2 } = 0.25
-    True0False3,   // Probability { prob: 51, shift: 6 } = 0.796875
-    True1False2,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    True2False1,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    True3False0,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    True0False4,   // Probability { prob: 213, shift: 8 } = 0.83203125
-    True1False3,   // Probability { prob: 3, shift: 2 } = 0.75
-    True2False2,   // Probability { prob: 2, shift: 2 } = 0.5
-    True3False1,   // Probability { prob: 1, shift: 2 } = 0.25
-    True4False0,   // Probability { prob: 21, shift: 7 } = 0.1640625
-    True0False5,   // Probability { prob: 219, shift: 8 } = 0.85546875
-    True1False4,   // Probability { prob: 51, shift: 6 } = 0.796875
-    True2False3,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    True3False2,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    True4False1,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    True5False0,   // Probability { prob: 9, shift: 6 } = 0.140625
-    True0False6,   // Probability { prob: 7, shift: 3 } = 0.875
-    True1False5,   // Probability { prob: 213, shift: 8 } = 0.83203125
-    True2False4,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    True3False3,   // Probability { prob: 2, shift: 2 } = 0.5
-    True4False2,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    True5False1,   // Probability { prob: 21, shift: 7 } = 0.1640625
-    True6False0,   // Probability { prob: 1, shift: 3 } = 0.125
-    True0False7,   // Probability { prob: 227, shift: 8 } = 0.88671875
-    True1False6,   // Probability { prob: 219, shift: 8 } = 0.85546875
-    True2False5,   // Probability { prob: 91, shift: 7 } = 0.7109375
-    True3False4,   // Probability { prob: 73, shift: 7 } = 0.5703125
-    True4False3,   // Probability { prob: 109, shift: 8 } = 0.42578125
-    True5False2,   // Probability { prob: 73, shift: 8 } = 0.28515625
-    True6False1,   // Probability { prob: 9, shift: 6 } = 0.140625
-    True7False0,   // Probability { prob: 7, shift: 6 } = 0.109375
-    True0False8,   // Probability { prob: 115, shift: 7 } = 0.8984375
-    True1False7,   // Probability { prob: 7, shift: 3 } = 0.875
-    True2False6,   // Probability { prob: 3, shift: 2 } = 0.75
-    True3False5,   // Probability { prob: 5, shift: 3 } = 0.625
-    True4False4,   // Probability { prob: 2, shift: 2 } = 0.5
-    True5False3,   // Probability { prob: 3, shift: 3 } = 0.375
-    True6False2,   // Probability { prob: 1, shift: 2 } = 0.25
-    True7False1,   // Probability { prob: 1, shift: 3 } = 0.125
-    True8False0,   // Probability { prob: 25, shift: 8 } = 0.09765625
-    True0False9,   // Probability { prob: 29, shift: 5 } = 0.90625
-    True1False8,   // Probability { prob: 227, shift: 8 } = 0.88671875
-    True2False7,   // Probability { prob: 199, shift: 8 } = 0.77734375
-    True3False6,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    True4False5,   // Probability { prob: 71, shift: 7 } = 0.5546875
-    True5False4,   // Probability { prob: 113, shift: 8 } = 0.44140625
-    True6False3,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    True7False2,   // Probability { prob: 7, shift: 5 } = 0.21875
-    True8False1,   // Probability { prob: 7, shift: 6 } = 0.109375
-    True9False0,   // Probability { prob: 23, shift: 8 } = 0.08984375
-    True0False10,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True1False9,   // Probability { prob: 115, shift: 7 } = 0.8984375
-    True2False8,   // Probability { prob: 51, shift: 6 } = 0.796875
-    True3False7,   // Probability { prob: 179, shift: 8 } = 0.69921875
-    True4False6,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    True5False5,   // Probability { prob: 2, shift: 2 } = 0.5
-    True6False4,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    True7False3,   // Probability { prob: 19, shift: 6 } = 0.296875
-    True8False2,   // Probability { prob: 51, shift: 8 } = 0.19921875
-    True9False1,   // Probability { prob: 25, shift: 8 } = 0.09765625
-    True10False0,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True0False11,  // Probability { prob: 59, shift: 6 } = 0.921875
-    True1False10,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True2False9,   // Probability { prob: 209, shift: 8 } = 0.81640625
-    True3False8,   // Probability { prob: 93, shift: 7 } = 0.7265625
-    True4False7,   // Probability { prob: 81, shift: 7 } = 0.6328125
-    True5False6,   // Probability { prob: 139, shift: 8 } = 0.54296875
-    True6False5,   // Probability { prob: 29, shift: 6 } = 0.453125
-    True7False4,   // Probability { prob: 93, shift: 8 } = 0.36328125
-    True8False3,   // Probability { prob: 69, shift: 8 } = 0.26953125
-    True9False2,   // Probability { prob: 23, shift: 7 } = 0.1796875
-    True10False1,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    True11False0,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    True0False12,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True1False11,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True2False10,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True3False9,   // Probability { prob: 3, shift: 2 } = 0.75
-    True4False8,   // Probability { prob: 85, shift: 7 } = 0.6640625
-    True5False7,   // Probability { prob: 149, shift: 8 } = 0.58203125
-    True6False6,   // Probability { prob: 2, shift: 2 } = 0.5
-    True7False5,   // Probability { prob: 53, shift: 7 } = 0.4140625
-    True8False4,   // Probability { prob: 85, shift: 8 } = 0.33203125
-    True9False3,   // Probability { prob: 1, shift: 2 } = 0.25
-    True10False2,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True11False1,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True12False0,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True0False13,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True1False12,  // Probability { prob: 59, shift: 6 } = 0.921875
-    True2False11,  // Probability { prob: 27, shift: 5 } = 0.84375
-    True3False10,  // Probability { prob: 49, shift: 6 } = 0.765625
-    True4False9,   // Probability { prob: 177, shift: 8 } = 0.69140625
-    True5False8,   // Probability { prob: 157, shift: 8 } = 0.61328125
-    True6False7,   // Probability { prob: 137, shift: 8 } = 0.53515625
-    True7False6,   // Probability { prob: 59, shift: 7 } = 0.4609375
-    True8False5,   // Probability { prob: 49, shift: 7 } = 0.3828125
-    True9False4,   // Probability { prob: 39, shift: 7 } = 0.3046875
-    True10False3,  // Probability { prob: 59, shift: 8 } = 0.23046875
-    True11False2,  // Probability { prob: 39, shift: 8 } = 0.15234375
-    True12False1,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    True13False0,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True0False14,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True1False13,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True2False12,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True3False11,  // Probability { prob: 201, shift: 8 } = 0.78515625
-    True4False10,  // Probability { prob: 91, shift: 7 } = 0.7109375
-    True5False9,   // Probability { prob: 41, shift: 6 } = 0.640625
-    True6False8,   // Probability { prob: 73, shift: 7 } = 0.5703125
-    True7False7,   // Probability { prob: 2, shift: 2 } = 0.5
-    True8False6,   // Probability { prob: 109, shift: 8 } = 0.42578125
-    True9False5,   // Probability { prob: 91, shift: 8 } = 0.35546875
-    True10False4,  // Probability { prob: 73, shift: 8 } = 0.28515625
-    True11False3,  // Probability { prob: 27, shift: 7 } = 0.2109375
-    True12False2,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True13False1,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True14False0,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True0False15,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True1False14,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True2False13,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True3False12,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True4False11,  // Probability { prob: 187, shift: 8 } = 0.73046875
-    True5False10,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    True6False9,   // Probability { prob: 153, shift: 8 } = 0.59765625
-    True7False8,   // Probability { prob: 17, shift: 5 } = 0.53125
-    True8False7,   // Probability { prob: 119, shift: 8 } = 0.46484375
-    True9False6,   // Probability { prob: 51, shift: 7 } = 0.3984375
-    True10False5,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    True11False4,  // Probability { prob: 17, shift: 6 } = 0.265625
-    True12False3,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True13False2,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True14False1,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True15False0,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    True0False16,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    True1False15,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True2False14,  // Probability { prob: 7, shift: 3 } = 0.875
-    True3False13,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True4False12,  // Probability { prob: 3, shift: 2 } = 0.75
-    True5False11,  // Probability { prob: 11, shift: 4 } = 0.6875
-    True6False10,  // Probability { prob: 5, shift: 3 } = 0.625
-    True7False9,   // Probability { prob: 9, shift: 4 } = 0.5625
-    True8False8,   // Probability { prob: 2, shift: 2 } = 0.5
-    True9False7,   // Probability { prob: 7, shift: 4 } = 0.4375
-    True10False6,  // Probability { prob: 3, shift: 3 } = 0.375
-    True11False5,  // Probability { prob: 5, shift: 4 } = 0.3125
-    True12False4,  // Probability { prob: 1, shift: 2 } = 0.25
-    True13False3,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True14False2,  // Probability { prob: 1, shift: 3 } = 0.125
-    True15False1,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True16False0,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    True0False17,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    True1False16,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True2False15,  // Probability { prob: 225, shift: 8 } = 0.87890625
-    True3False14,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    True4False13,  // Probability { prob: 195, shift: 8 } = 0.76171875
-    True5False12,  // Probability { prob: 45, shift: 6 } = 0.703125
-    True6False11,  // Probability { prob: 165, shift: 8 } = 0.64453125
-    True7False10,  // Probability { prob: 75, shift: 7 } = 0.5859375
-    True8False9,   // Probability { prob: 135, shift: 8 } = 0.52734375
-    True9False8,   // Probability { prob: 15, shift: 5 } = 0.46875
-    True10False7,  // Probability { prob: 105, shift: 8 } = 0.41015625
-    True11False6,  // Probability { prob: 45, shift: 7 } = 0.3515625
-    True12False5,  // Probability { prob: 75, shift: 8 } = 0.29296875
-    True13False4,  // Probability { prob: 15, shift: 6 } = 0.234375
-    True14False3,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    True15False2,  // Probability { prob: 15, shift: 7 } = 0.1171875
-    True16False1,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    True17False0,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    True0False18,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True1False17,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    True2False16,  // Probability { prob: 227, shift: 8 } = 0.88671875
-    True3False15,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True4False14,  // Probability { prob: 199, shift: 8 } = 0.77734375
-    True5False13,  // Probability { prob: 23, shift: 5 } = 0.71875
-    True6False12,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    True7False11,  // Probability { prob: 39, shift: 6 } = 0.609375
-    True8False10,  // Probability { prob: 71, shift: 7 } = 0.5546875
-    True9False9,   // Probability { prob: 2, shift: 2 } = 0.5
-    True10False8,  // Probability { prob: 113, shift: 8 } = 0.44140625
-    True11False7,  // Probability { prob: 99, shift: 8 } = 0.38671875
-    True12False6,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    True13False5,  // Probability { prob: 71, shift: 8 } = 0.27734375
-    True14False4,  // Probability { prob: 7, shift: 5 } = 0.21875
-    True15False3,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True16False2,  // Probability { prob: 7, shift: 6 } = 0.109375
-    True17False1,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    True18False0,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True0False19,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True1False18,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    True2False17,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True3False16,  // Probability { prob: 215, shift: 8 } = 0.83984375
-    True4False15,  // Probability { prob: 101, shift: 7 } = 0.7890625
-    True5False14,  // Probability { prob: 47, shift: 6 } = 0.734375
-    True6False13,  // Probability { prob: 175, shift: 8 } = 0.68359375
-    True7False12,  // Probability { prob: 161, shift: 8 } = 0.62890625
-    True8False11,  // Probability { prob: 37, shift: 6 } = 0.578125
-    True9False10,  // Probability { prob: 67, shift: 7 } = 0.5234375
-    True10False9,  // Probability { prob: 121, shift: 8 } = 0.47265625
-    True11False8,  // Probability { prob: 107, shift: 8 } = 0.41796875
-    True12False7,  // Probability { prob: 47, shift: 7 } = 0.3671875
-    True13False6,  // Probability { prob: 5, shift: 4 } = 0.3125
-    True14False5,  // Probability { prob: 67, shift: 8 } = 0.26171875
-    True15False4,  // Probability { prob: 53, shift: 8 } = 0.20703125
-    True16False3,  // Probability { prob: 5, shift: 5 } = 0.15625
-    True17False2,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True18False1,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    True19False0,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True0False20,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True1False19,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True2False18,  // Probability { prob: 115, shift: 7 } = 0.8984375
-    True3False17,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    True4False16,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True5False15,  // Probability { prob: 3, shift: 2 } = 0.75
-    True6False14,  // Probability { prob: 179, shift: 8 } = 0.69921875
-    True7False13,  // Probability { prob: 83, shift: 7 } = 0.6484375
-    True8False12,  // Probability { prob: 153, shift: 8 } = 0.59765625
-    True9False11,  // Probability { prob: 35, shift: 6 } = 0.546875
-    True10False10, // Probability { prob: 2, shift: 2 } = 0.5
-    True11False9,  // Probability { prob: 115, shift: 8 } = 0.44921875
-    True12False8,  // Probability { prob: 51, shift: 7 } = 0.3984375
-    True13False7,  // Probability { prob: 89, shift: 8 } = 0.34765625
-    True14False6,  // Probability { prob: 19, shift: 6 } = 0.296875
-    True15False5,  // Probability { prob: 1, shift: 2 } = 0.25
-    True16False4,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True17False3,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    True18False2,  // Probability { prob: 25, shift: 8 } = 0.09765625
-    True19False1,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True20False0,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True0False21,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True1False20,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True2False19,  // Probability { prob: 231, shift: 8 } = 0.90234375
-    True3False18,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True4False17,  // Probability { prob: 207, shift: 8 } = 0.80859375
-    True5False16,  // Probability { prob: 195, shift: 8 } = 0.76171875
-    True6False15,  // Probability { prob: 91, shift: 7 } = 0.7109375
-    True7False14,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    True8False13,  // Probability { prob: 79, shift: 7 } = 0.6171875
-    True9False12,  // Probability { prob: 73, shift: 7 } = 0.5703125
-    True10False11, // Probability { prob: 67, shift: 7 } = 0.5234375
-    True11False10, // Probability { prob: 121, shift: 8 } = 0.47265625
-    True12False9,  // Probability { prob: 109, shift: 8 } = 0.42578125
-    True13False8,  // Probability { prob: 97, shift: 8 } = 0.37890625
-    True14False7,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    True15False6,  // Probability { prob: 73, shift: 8 } = 0.28515625
-    True16False5,  // Probability { prob: 15, shift: 6 } = 0.234375
-    True17False4,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True18False3,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True19False2,  // Probability { prob: 3, shift: 5 } = 0.09375
-    True20False1,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True21False0,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True0False22,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True1False21,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True2False20,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True3False19,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True4False18,  // Probability { prob: 209, shift: 8 } = 0.81640625
-    True5False17,  // Probability { prob: 197, shift: 8 } = 0.76953125
-    True6False16,  // Probability { prob: 93, shift: 7 } = 0.7265625
-    True7False15,  // Probability { prob: 87, shift: 7 } = 0.6796875
-    True8False14,  // Probability { prob: 81, shift: 7 } = 0.6328125
-    True9False13,  // Probability { prob: 151, shift: 8 } = 0.58984375
-    True10False12, // Probability { prob: 139, shift: 8 } = 0.54296875
-    True11False11, // Probability { prob: 2, shift: 2 } = 0.5
-    True12False10, // Probability { prob: 29, shift: 6 } = 0.453125
-    True13False9,  // Probability { prob: 13, shift: 5 } = 0.40625
-    True14False8,  // Probability { prob: 93, shift: 8 } = 0.36328125
-    True15False7,  // Probability { prob: 81, shift: 8 } = 0.31640625
-    True16False6,  // Probability { prob: 69, shift: 8 } = 0.26953125
-    True17False5,  // Probability { prob: 29, shift: 7 } = 0.2265625
-    True18False4,  // Probability { prob: 23, shift: 7 } = 0.1796875
-    True19False3,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True20False2,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    True21False1,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True22False0,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True0False23,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True1False22,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True2False21,  // Probability { prob: 233, shift: 8 } = 0.91015625
-    True3False20,  // Probability { prob: 111, shift: 7 } = 0.8671875
-    True4False19,  // Probability { prob: 211, shift: 8 } = 0.82421875
-    True5False18,  // Probability { prob: 25, shift: 5 } = 0.78125
-    True6False17,  // Probability { prob: 189, shift: 8 } = 0.73828125
-    True7False16,  // Probability { prob: 89, shift: 7 } = 0.6953125
-    True8False15,  // Probability { prob: 83, shift: 7 } = 0.6484375
-    True9False14,  // Probability { prob: 155, shift: 8 } = 0.60546875
-    True10False13, // Probability { prob: 9, shift: 4 } = 0.5625
-    True11False12, // Probability { prob: 133, shift: 8 } = 0.51953125
-    True12False11, // Probability { prob: 61, shift: 7 } = 0.4765625
-    True13False10, // Probability { prob: 111, shift: 8 } = 0.43359375
-    True14False9,  // Probability { prob: 25, shift: 6 } = 0.390625
-    True15False8,  // Probability { prob: 89, shift: 8 } = 0.34765625
-    True16False7,  // Probability { prob: 77, shift: 8 } = 0.30078125
-    True17False6,  // Probability { prob: 33, shift: 7 } = 0.2578125
-    True18False5,  // Probability { prob: 55, shift: 8 } = 0.21484375
-    True19False4,  // Probability { prob: 11, shift: 6 } = 0.171875
-    True20False3,  // Probability { prob: 33, shift: 8 } = 0.12890625
-    True21False2,  // Probability { prob: 11, shift: 7 } = 0.0859375
-    True22False1,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True23False0,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True0False24,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True1False23,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True2False22,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True3False21,  // Probability { prob: 7, shift: 3 } = 0.875
-    True4False20,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True5False19,  // Probability { prob: 101, shift: 7 } = 0.7890625
-    True6False18,  // Probability { prob: 3, shift: 2 } = 0.75
-    True7False17,  // Probability { prob: 181, shift: 8 } = 0.70703125
-    True8False16,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    True9False15,  // Probability { prob: 5, shift: 3 } = 0.625
-    True10False14, // Probability { prob: 149, shift: 8 } = 0.58203125
-    True11False13, // Probability { prob: 69, shift: 7 } = 0.5390625
-    True12False12, // Probability { prob: 2, shift: 2 } = 0.5
-    True13False11, // Probability { prob: 117, shift: 8 } = 0.45703125
-    True14False10, // Probability { prob: 53, shift: 7 } = 0.4140625
-    True15False9,  // Probability { prob: 3, shift: 3 } = 0.375
-    True16False8,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    True17False7,  // Probability { prob: 37, shift: 7 } = 0.2890625
-    True18False6,  // Probability { prob: 1, shift: 2 } = 0.25
-    True19False5,  // Probability { prob: 53, shift: 8 } = 0.20703125
-    True20False4,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True21False3,  // Probability { prob: 1, shift: 3 } = 0.125
-    True22False2,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True23False1,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True24False0,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True0False25,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True1False24,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True2False23,  // Probability { prob: 235, shift: 8 } = 0.91796875
-    True3False22,  // Probability { prob: 225, shift: 8 } = 0.87890625
-    True4False21,  // Probability { prob: 215, shift: 8 } = 0.83984375
-    True5False20,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True6False19,  // Probability { prob: 97, shift: 7 } = 0.7578125
-    True7False18,  // Probability { prob: 23, shift: 5 } = 0.71875
-    True8False17,  // Probability { prob: 87, shift: 7 } = 0.6796875
-    True9False16,  // Probability { prob: 163, shift: 8 } = 0.63671875
-    True10False15, // Probability { prob: 153, shift: 8 } = 0.59765625
-    True11False14, // Probability { prob: 143, shift: 8 } = 0.55859375
-    True12False13, // Probability { prob: 133, shift: 8 } = 0.51953125
-    True13False12, // Probability { prob: 61, shift: 7 } = 0.4765625
-    True14False11, // Probability { prob: 7, shift: 4 } = 0.4375
-    True15False10, // Probability { prob: 51, shift: 7 } = 0.3984375
-    True16False9,  // Probability { prob: 23, shift: 6 } = 0.359375
-    True17False8,  // Probability { prob: 81, shift: 8 } = 0.31640625
-    True18False7,  // Probability { prob: 71, shift: 8 } = 0.27734375
-    True19False6,  // Probability { prob: 61, shift: 8 } = 0.23828125
-    True20False5,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True21False4,  // Probability { prob: 5, shift: 5 } = 0.15625
-    True22False3,  // Probability { prob: 15, shift: 7 } = 0.1171875
-    True23False2,  // Probability { prob: 5, shift: 6 } = 0.078125
-    True24False1,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True25False0,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True0False26,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True1False25,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True2False24,  // Probability { prob: 59, shift: 6 } = 0.921875
-    True3False23,  // Probability { prob: 113, shift: 7 } = 0.8828125
-    True4False22,  // Probability { prob: 27, shift: 5 } = 0.84375
-    True5False21,  // Probability { prob: 103, shift: 7 } = 0.8046875
-    True6False20,  // Probability { prob: 49, shift: 6 } = 0.765625
-    True7False19,  // Probability { prob: 187, shift: 8 } = 0.73046875
-    True8False18,  // Probability { prob: 177, shift: 8 } = 0.69140625
-    True9False17,  // Probability { prob: 167, shift: 8 } = 0.65234375
-    True10False16, // Probability { prob: 157, shift: 8 } = 0.61328125
-    True11False15, // Probability { prob: 147, shift: 8 } = 0.57421875
-    True12False14, // Probability { prob: 137, shift: 8 } = 0.53515625
-    True13False13, // Probability { prob: 2, shift: 2 } = 0.5
-    True14False12, // Probability { prob: 59, shift: 7 } = 0.4609375
-    True15False11, // Probability { prob: 27, shift: 6 } = 0.421875
-    True16False10, // Probability { prob: 49, shift: 7 } = 0.3828125
-    True17False9,  // Probability { prob: 11, shift: 5 } = 0.34375
-    True18False8,  // Probability { prob: 39, shift: 7 } = 0.3046875
-    True19False7,  // Probability { prob: 17, shift: 6 } = 0.265625
-    True20False6,  // Probability { prob: 59, shift: 8 } = 0.23046875
-    True21False5,  // Probability { prob: 49, shift: 8 } = 0.19140625
-    True22False4,  // Probability { prob: 39, shift: 8 } = 0.15234375
-    True23False3,  // Probability { prob: 29, shift: 8 } = 0.11328125
-    True24False2,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    True25False1,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True26False0,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True0False27,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True1False26,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True2False25,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True3False24,  // Probability { prob: 227, shift: 8 } = 0.88671875
-    True4False23,  // Probability { prob: 109, shift: 7 } = 0.8515625
-    True5False22,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True6False21,  // Probability { prob: 199, shift: 8 } = 0.77734375
-    True7False20,  // Probability { prob: 189, shift: 8 } = 0.73828125
-    True8False19,  // Probability { prob: 45, shift: 6 } = 0.703125
-    True9False18,  // Probability { prob: 85, shift: 7 } = 0.6640625
-    True10False17, // Probability { prob: 161, shift: 8 } = 0.62890625
-    True11False16, // Probability { prob: 151, shift: 8 } = 0.58984375
-    True12False15, // Probability { prob: 71, shift: 7 } = 0.5546875
-    True13False14, // Probability { prob: 33, shift: 6 } = 0.515625
-    True14False13, // Probability { prob: 123, shift: 8 } = 0.48046875
-    True15False12, // Probability { prob: 113, shift: 8 } = 0.44140625
-    True16False11, // Probability { prob: 13, shift: 5 } = 0.40625
-    True17False10, // Probability { prob: 47, shift: 7 } = 0.3671875
-    True18False9,  // Probability { prob: 85, shift: 8 } = 0.33203125
-    True19False8,  // Probability { prob: 75, shift: 8 } = 0.29296875
-    True20False7,  // Probability { prob: 33, shift: 7 } = 0.2578125
-    True21False6,  // Probability { prob: 7, shift: 5 } = 0.21875
-    True22False5,  // Probability { prob: 47, shift: 8 } = 0.18359375
-    True23False4,  // Probability { prob: 37, shift: 8 } = 0.14453125
-    True24False3,  // Probability { prob: 7, shift: 6 } = 0.109375
-    True25False2,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True26False1,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True27False0,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True0False28,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True1False27,  // Probability { prob: 123, shift: 7 } = 0.9609375
-    True2False26,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True3False25,  // Probability { prob: 57, shift: 6 } = 0.890625
-    True4False24,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True5False23,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    True6False22,  // Probability { prob: 201, shift: 8 } = 0.78515625
-    True7False21,  // Probability { prob: 3, shift: 2 } = 0.75
-    True8False20,  // Probability { prob: 91, shift: 7 } = 0.7109375
-    True9False19,  // Probability { prob: 173, shift: 8 } = 0.67578125
-    True10False18, // Probability { prob: 41, shift: 6 } = 0.640625
-    True11False17, // Probability { prob: 155, shift: 8 } = 0.60546875
-    True12False16, // Probability { prob: 73, shift: 7 } = 0.5703125
-    True13False15, // Probability { prob: 137, shift: 8 } = 0.53515625
-    True14False14, // Probability { prob: 2, shift: 2 } = 0.5
-    True15False13, // Probability { prob: 59, shift: 7 } = 0.4609375
-    True16False12, // Probability { prob: 109, shift: 8 } = 0.42578125
-    True17False11, // Probability { prob: 25, shift: 6 } = 0.390625
-    True18False10, // Probability { prob: 91, shift: 8 } = 0.35546875
-    True19False9,  // Probability { prob: 41, shift: 7 } = 0.3203125
-    True20False8,  // Probability { prob: 73, shift: 8 } = 0.28515625
-    True21False7,  // Probability { prob: 1, shift: 2 } = 0.25
-    True22False6,  // Probability { prob: 27, shift: 7 } = 0.2109375
-    True23False5,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    True24False4,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True25False3,  // Probability { prob: 27, shift: 8 } = 0.10546875
-    True26False2,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True27False1,  // Probability { prob: 9, shift: 8 } = 0.03515625
-    True28False0,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True0False29,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True1False28,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True2False27,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True3False26,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True4False25,  // Probability { prob: 55, shift: 6 } = 0.859375
-    True5False24,  // Probability { prob: 211, shift: 8 } = 0.82421875
-    True6False23,  // Probability { prob: 203, shift: 8 } = 0.79296875
-    True7False22,  // Probability { prob: 97, shift: 7 } = 0.7578125
-    True8False21,  // Probability { prob: 185, shift: 8 } = 0.72265625
-    True9False20,  // Probability { prob: 11, shift: 4 } = 0.6875
-    True10False19, // Probability { prob: 167, shift: 8 } = 0.65234375
-    True11False18, // Probability { prob: 79, shift: 7 } = 0.6171875
-    True12False17, // Probability { prob: 75, shift: 7 } = 0.5859375
-    True13False16, // Probability { prob: 141, shift: 8 } = 0.55078125
-    True14False15, // Probability { prob: 33, shift: 6 } = 0.515625
-    True15False14, // Probability { prob: 123, shift: 8 } = 0.48046875
-    True16False13, // Probability { prob: 57, shift: 7 } = 0.4453125
-    True17False12, // Probability { prob: 105, shift: 8 } = 0.41015625
-    True18False11, // Probability { prob: 97, shift: 8 } = 0.37890625
-    True19False10, // Probability { prob: 11, shift: 5 } = 0.34375
-    True20False9,  // Probability { prob: 79, shift: 8 } = 0.30859375
-    True21False8,  // Probability { prob: 35, shift: 7 } = 0.2734375
-    True22False7,  // Probability { prob: 61, shift: 8 } = 0.23828125
-    True23False6,  // Probability { prob: 13, shift: 6 } = 0.203125
-    True24False5,  // Probability { prob: 11, shift: 6 } = 0.171875
-    True25False4,  // Probability { prob: 35, shift: 8 } = 0.13671875
-    True26False3,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True27False2,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True28False1,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True29False0,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True0False30,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True1False29,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True2False28,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True3False27,  // Probability { prob: 115, shift: 7 } = 0.8984375
-    True4False26,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True5False25,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True6False24,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True7False23,  // Probability { prob: 49, shift: 6 } = 0.765625
-    True8False22,  // Probability { prob: 187, shift: 8 } = 0.73046875
-    True9False21,  // Probability { prob: 179, shift: 8 } = 0.69921875
-    True10False20, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True11False19, // Probability { prob: 81, shift: 7 } = 0.6328125
-    True12False18, // Probability { prob: 153, shift: 8 } = 0.59765625
-    True13False17, // Probability { prob: 145, shift: 8 } = 0.56640625
-    True14False16, // Probability { prob: 17, shift: 5 } = 0.53125
-    True15False15, // Probability { prob: 2, shift: 2 } = 0.5
-    True16False14, // Probability { prob: 119, shift: 8 } = 0.46484375
-    True17False13, // Probability { prob: 55, shift: 7 } = 0.4296875
-    True18False12, // Probability { prob: 51, shift: 7 } = 0.3984375
-    True19False11, // Probability { prob: 93, shift: 8 } = 0.36328125
-    True20False10, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True21False9,  // Probability { prob: 19, shift: 6 } = 0.296875
-    True22False8,  // Probability { prob: 17, shift: 6 } = 0.265625
-    True23False7,  // Probability { prob: 59, shift: 8 } = 0.23046875
-    True24False6,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True25False5,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True26False4,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True27False3,  // Probability { prob: 25, shift: 8 } = 0.09765625
-    True28False2,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True29False1,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True30False0,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True0False31,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True1False30,  // Probability { prob: 247, shift: 8 } = 0.96484375
-    True2False29,  // Probability { prob: 239, shift: 8 } = 0.93359375
-    True3False28,  // Probability { prob: 231, shift: 8 } = 0.90234375
-    True4False27,  // Probability { prob: 111, shift: 7 } = 0.8671875
-    True5False26,  // Probability { prob: 107, shift: 7 } = 0.8359375
-    True6False25,  // Probability { prob: 103, shift: 7 } = 0.8046875
-    True7False24,  // Probability { prob: 99, shift: 7 } = 0.7734375
-    True8False23,  // Probability { prob: 189, shift: 8 } = 0.73828125
-    True9False22,  // Probability { prob: 181, shift: 8 } = 0.70703125
-    True10False21, // Probability { prob: 173, shift: 8 } = 0.67578125
-    True11False20, // Probability { prob: 165, shift: 8 } = 0.64453125
-    True12False19, // Probability { prob: 39, shift: 6 } = 0.609375
-    True13False18, // Probability { prob: 37, shift: 6 } = 0.578125
-    True14False17, // Probability { prob: 35, shift: 6 } = 0.546875
-    True15False16, // Probability { prob: 33, shift: 6 } = 0.515625
-    True16False15, // Probability { prob: 123, shift: 8 } = 0.48046875
-    True17False14, // Probability { prob: 115, shift: 8 } = 0.44921875
-    True18False13, // Probability { prob: 107, shift: 8 } = 0.41796875
-    True19False12, // Probability { prob: 99, shift: 8 } = 0.38671875
-    True20False11, // Probability { prob: 45, shift: 7 } = 0.3515625
-    True21False10, // Probability { prob: 41, shift: 7 } = 0.3203125
-    True22False9,  // Probability { prob: 37, shift: 7 } = 0.2890625
-    True23False8,  // Probability { prob: 33, shift: 7 } = 0.2578125
-    True24False7,  // Probability { prob: 57, shift: 8 } = 0.22265625
-    True25False6,  // Probability { prob: 49, shift: 8 } = 0.19140625
-    True26False5,  // Probability { prob: 41, shift: 8 } = 0.16015625
-    True27False4,  // Probability { prob: 33, shift: 8 } = 0.12890625
-    True28False3,  // Probability { prob: 3, shift: 5 } = 0.09375
-    True29False2,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True30False1,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True31False0,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True0False32,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True1False31,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True2False30,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True3False29,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True4False28,  // Probability { prob: 7, shift: 3 } = 0.875
-    True5False27,  // Probability { prob: 27, shift: 5 } = 0.84375
-    True6False26,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True7False25,  // Probability { prob: 25, shift: 5 } = 0.78125
-    True8False24,  // Probability { prob: 3, shift: 2 } = 0.75
-    True9False23,  // Probability { prob: 23, shift: 5 } = 0.71875
-    True10False22, // Probability { prob: 11, shift: 4 } = 0.6875
-    True11False21, // Probability { prob: 21, shift: 5 } = 0.65625
-    True12False20, // Probability { prob: 5, shift: 3 } = 0.625
-    True13False19, // Probability { prob: 19, shift: 5 } = 0.59375
-    True14False18, // Probability { prob: 9, shift: 4 } = 0.5625
-    True15False17, // Probability { prob: 17, shift: 5 } = 0.53125
-    True16False16, // Probability { prob: 2, shift: 2 } = 0.5
-    True17False15, // Probability { prob: 15, shift: 5 } = 0.46875
-    True18False14, // Probability { prob: 7, shift: 4 } = 0.4375
-    True19False13, // Probability { prob: 13, shift: 5 } = 0.40625
-    True20False12, // Probability { prob: 3, shift: 3 } = 0.375
-    True21False11, // Probability { prob: 11, shift: 5 } = 0.34375
-    True22False10, // Probability { prob: 5, shift: 4 } = 0.3125
-    True23False9,  // Probability { prob: 9, shift: 5 } = 0.28125
-    True24False8,  // Probability { prob: 1, shift: 2 } = 0.25
-    True25False7,  // Probability { prob: 7, shift: 5 } = 0.21875
-    True26False6,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True27False5,  // Probability { prob: 5, shift: 5 } = 0.15625
-    True28False4,  // Probability { prob: 1, shift: 3 } = 0.125
-    True29False3,  // Probability { prob: 3, shift: 5 } = 0.09375
-    True30False2,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True31False1,  // Probability { prob: 1, shift: 5 } = 0.03125
-    True32False0,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True0False33,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True1False32,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True2False31,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True3False30,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True4False29,  // Probability { prob: 7, shift: 3 } = 0.875
-    True5False28,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    True6False27,  // Probability { prob: 209, shift: 8 } = 0.81640625
-    True7False26,  // Probability { prob: 201, shift: 8 } = 0.78515625
-    True8False25,  // Probability { prob: 193, shift: 8 } = 0.75390625
-    True9False24,  // Probability { prob: 93, shift: 7 } = 0.7265625
-    True10False23, // Probability { prob: 89, shift: 7 } = 0.6953125
-    True11False22, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True12False21, // Probability { prob: 81, shift: 7 } = 0.6328125
-    True13False20, // Probability { prob: 155, shift: 8 } = 0.60546875
-    True14False19, // Probability { prob: 147, shift: 8 } = 0.57421875
-    True15False18, // Probability { prob: 139, shift: 8 } = 0.54296875
-    True16False17, // Probability { prob: 131, shift: 8 } = 0.51171875
-    True17False16, // Probability { prob: 31, shift: 6 } = 0.484375
-    True18False15, // Probability { prob: 29, shift: 6 } = 0.453125
-    True19False14, // Probability { prob: 27, shift: 6 } = 0.421875
-    True20False13, // Probability { prob: 25, shift: 6 } = 0.390625
-    True21False12, // Probability { prob: 93, shift: 8 } = 0.36328125
-    True22False11, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True23False10, // Probability { prob: 77, shift: 8 } = 0.30078125
-    True24False9,  // Probability { prob: 69, shift: 8 } = 0.26953125
-    True25False8,  // Probability { prob: 31, shift: 7 } = 0.2421875
-    True26False7,  // Probability { prob: 27, shift: 7 } = 0.2109375
-    True27False6,  // Probability { prob: 23, shift: 7 } = 0.1796875
-    True28False5,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    True29False4,  // Probability { prob: 31, shift: 8 } = 0.12109375
-    True30False3,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    True31False2,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    True32False1,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True33False0,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True0False34,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True1False33,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True2False32,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True3False31,  // Probability { prob: 233, shift: 8 } = 0.91015625
-    True4False30,  // Probability { prob: 225, shift: 8 } = 0.87890625
-    True5False29,  // Probability { prob: 109, shift: 7 } = 0.8515625
-    True6False28,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    True7False27,  // Probability { prob: 203, shift: 8 } = 0.79296875
-    True8False26,  // Probability { prob: 195, shift: 8 } = 0.76171875
-    True9False25,  // Probability { prob: 47, shift: 6 } = 0.734375
-    True10False24, // Probability { prob: 45, shift: 6 } = 0.703125
-    True11False23, // Probability { prob: 173, shift: 8 } = 0.67578125
-    True12False22, // Probability { prob: 165, shift: 8 } = 0.64453125
-    True13False21, // Probability { prob: 79, shift: 7 } = 0.6171875
-    True14False20, // Probability { prob: 75, shift: 7 } = 0.5859375
-    True15False19, // Probability { prob: 143, shift: 8 } = 0.55859375
-    True16False18, // Probability { prob: 135, shift: 8 } = 0.52734375
-    True17False17, // Probability { prob: 2, shift: 2 } = 0.5
-    True18False16, // Probability { prob: 15, shift: 5 } = 0.46875
-    True19False15, // Probability { prob: 7, shift: 4 } = 0.4375
-    True20False14, // Probability { prob: 105, shift: 8 } = 0.41015625
-    True21False13, // Probability { prob: 97, shift: 8 } = 0.37890625
-    True22False12, // Probability { prob: 45, shift: 7 } = 0.3515625
-    True23False11, // Probability { prob: 41, shift: 7 } = 0.3203125
-    True24False10, // Probability { prob: 75, shift: 8 } = 0.29296875
-    True25False9,  // Probability { prob: 67, shift: 8 } = 0.26171875
-    True26False8,  // Probability { prob: 15, shift: 6 } = 0.234375
-    True27False7,  // Probability { prob: 13, shift: 6 } = 0.203125
-    True28False6,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    True29False5,  // Probability { prob: 37, shift: 8 } = 0.14453125
-    True30False4,  // Probability { prob: 15, shift: 7 } = 0.1171875
-    True31False3,  // Probability { prob: 11, shift: 7 } = 0.0859375
-    True32False2,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    True33False1,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True34False0,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True0False35,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False34,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True2False33,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    True3False32,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True4False31,  // Probability { prob: 113, shift: 7 } = 0.8828125
-    True5False30,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True6False29,  // Probability { prob: 53, shift: 6 } = 0.828125
-    True7False28,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True8False27,  // Probability { prob: 197, shift: 8 } = 0.76953125
-    True9False26,  // Probability { prob: 95, shift: 7 } = 0.7421875
-    True10False25, // Probability { prob: 91, shift: 7 } = 0.7109375
-    True11False24, // Probability { prob: 175, shift: 8 } = 0.68359375
-    True12False23, // Probability { prob: 21, shift: 5 } = 0.65625
-    True13False22, // Probability { prob: 5, shift: 3 } = 0.625
-    True14False21, // Probability { prob: 153, shift: 8 } = 0.59765625
-    True15False20, // Probability { prob: 73, shift: 7 } = 0.5703125
-    True16False19, // Probability { prob: 69, shift: 7 } = 0.5390625
-    True17False18, // Probability { prob: 131, shift: 8 } = 0.51171875
-    True18False17, // Probability { prob: 31, shift: 6 } = 0.484375
-    True19False16, // Probability { prob: 117, shift: 8 } = 0.45703125
-    True20False15, // Probability { prob: 109, shift: 8 } = 0.42578125
-    True21False14, // Probability { prob: 51, shift: 7 } = 0.3984375
-    True22False13, // Probability { prob: 95, shift: 8 } = 0.37109375
-    True23False12, // Probability { prob: 87, shift: 8 } = 0.33984375
-    True24False11, // Probability { prob: 5, shift: 4 } = 0.3125
-    True25False10, // Probability { prob: 73, shift: 8 } = 0.28515625
-    True26False9,  // Probability { prob: 65, shift: 8 } = 0.25390625
-    True27False8,  // Probability { prob: 29, shift: 7 } = 0.2265625
-    True28False7,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True29False6,  // Probability { prob: 43, shift: 8 } = 0.16796875
-    True30False5,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True31False4,  // Probability { prob: 29, shift: 8 } = 0.11328125
-    True32False3,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True33False2,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    True34False1,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True35False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False36,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False35,  // Probability { prob: 31, shift: 5 } = 0.96875
-    True2False34,  // Probability { prob: 241, shift: 8 } = 0.94140625
-    True3False33,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True4False32,  // Probability { prob: 227, shift: 8 } = 0.88671875
-    True5False31,  // Probability { prob: 55, shift: 6 } = 0.859375
-    True6False30,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True7False29,  // Probability { prob: 103, shift: 7 } = 0.8046875
-    True8False28,  // Probability { prob: 199, shift: 8 } = 0.77734375
-    True9False27,  // Probability { prob: 3, shift: 2 } = 0.75
-    True10False26, // Probability { prob: 23, shift: 5 } = 0.71875
-    True11False25, // Probability { prob: 177, shift: 8 } = 0.69140625
-    True12False24, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True13False23, // Probability { prob: 163, shift: 8 } = 0.63671875
-    True14False22, // Probability { prob: 39, shift: 6 } = 0.609375
-    True15False21, // Probability { prob: 149, shift: 8 } = 0.58203125
-    True16False20, // Probability { prob: 71, shift: 7 } = 0.5546875
-    True17False19, // Probability { prob: 135, shift: 8 } = 0.52734375
-    True18False18, // Probability { prob: 2, shift: 2 } = 0.5
-    True19False17, // Probability { prob: 15, shift: 5 } = 0.46875
-    True20False16, // Probability { prob: 113, shift: 8 } = 0.44140625
-    True21False15, // Probability { prob: 53, shift: 7 } = 0.4140625
-    True22False14, // Probability { prob: 99, shift: 8 } = 0.38671875
-    True23False13, // Probability { prob: 23, shift: 6 } = 0.359375
-    True24False12, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True25False11, // Probability { prob: 39, shift: 7 } = 0.3046875
-    True26False10, // Probability { prob: 71, shift: 8 } = 0.27734375
-    True27False9,  // Probability { prob: 1, shift: 2 } = 0.25
-    True28False8,  // Probability { prob: 7, shift: 5 } = 0.21875
-    True29False7,  // Probability { prob: 49, shift: 8 } = 0.19140625
-    True30False6,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True31False5,  // Probability { prob: 35, shift: 8 } = 0.13671875
-    True32False4,  // Probability { prob: 7, shift: 6 } = 0.109375
-    True33False3,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True34False2,  // Probability { prob: 7, shift: 7 } = 0.0546875
-    True35False1,  // Probability { prob: 7, shift: 8 } = 0.02734375
-    True36False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False37,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False36,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False35,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    True3False34,  // Probability { prob: 235, shift: 8 } = 0.91796875
-    True4False33,  // Probability { prob: 57, shift: 6 } = 0.890625
-    True5False32,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True6False31,  // Probability { prob: 107, shift: 7 } = 0.8359375
-    True7False30,  // Probability { prob: 207, shift: 8 } = 0.80859375
-    True8False29,  // Probability { prob: 25, shift: 5 } = 0.78125
-    True9False28,  // Probability { prob: 193, shift: 8 } = 0.75390625
-    True10False27, // Probability { prob: 93, shift: 7 } = 0.7265625
-    True11False26, // Probability { prob: 179, shift: 8 } = 0.69921875
-    True12False25, // Probability { prob: 43, shift: 6 } = 0.671875
-    True13False24, // Probability { prob: 83, shift: 7 } = 0.6484375
-    True14False23, // Probability { prob: 159, shift: 8 } = 0.62109375
-    True15False22, // Probability { prob: 19, shift: 5 } = 0.59375
-    True16False21, // Probability { prob: 145, shift: 8 } = 0.56640625
-    True17False20, // Probability { prob: 69, shift: 7 } = 0.5390625
-    True18False19, // Probability { prob: 131, shift: 8 } = 0.51171875
-    True19False18, // Probability { prob: 31, shift: 6 } = 0.484375
-    True20False17, // Probability { prob: 117, shift: 8 } = 0.45703125
-    True21False16, // Probability { prob: 55, shift: 7 } = 0.4296875
-    True22False15, // Probability { prob: 103, shift: 8 } = 0.40234375
-    True23False14, // Probability { prob: 3, shift: 3 } = 0.375
-    True24False13, // Probability { prob: 89, shift: 8 } = 0.34765625
-    True25False12, // Probability { prob: 83, shift: 8 } = 0.32421875
-    True26False11, // Probability { prob: 19, shift: 6 } = 0.296875
-    True27False10, // Probability { prob: 69, shift: 8 } = 0.26953125
-    True28False9,  // Probability { prob: 31, shift: 7 } = 0.2421875
-    True29False8,  // Probability { prob: 55, shift: 8 } = 0.21484375
-    True30False7,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True31False6,  // Probability { prob: 41, shift: 8 } = 0.16015625
-    True32False5,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True33False4,  // Probability { prob: 27, shift: 8 } = 0.10546875
-    True34False3,  // Probability { prob: 5, shift: 6 } = 0.078125
-    True35False2,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    True36False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True37False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False38,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False37,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False36,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    True3False35,  // Probability { prob: 235, shift: 8 } = 0.91796875
-    True4False34,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True5False33,  // Probability { prob: 111, shift: 7 } = 0.8671875
-    True6False32,  // Probability { prob: 215, shift: 8 } = 0.83984375
-    True7False31,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True8False30,  // Probability { prob: 101, shift: 7 } = 0.7890625
-    True9False29,  // Probability { prob: 195, shift: 8 } = 0.76171875
-    True10False28, // Probability { prob: 47, shift: 6 } = 0.734375
-    True11False27, // Probability { prob: 181, shift: 8 } = 0.70703125
-    True12False26, // Probability { prob: 175, shift: 8 } = 0.68359375
-    True13False25, // Probability { prob: 21, shift: 5 } = 0.65625
-    True14False24, // Probability { prob: 161, shift: 8 } = 0.62890625
-    True15False23, // Probability { prob: 77, shift: 7 } = 0.6015625
-    True16False22, // Probability { prob: 37, shift: 6 } = 0.578125
-    True17False21, // Probability { prob: 141, shift: 8 } = 0.55078125
-    True18False20, // Probability { prob: 67, shift: 7 } = 0.5234375
-    True19False19, // Probability { prob: 2, shift: 2 } = 0.5
-    True20False18, // Probability { prob: 121, shift: 8 } = 0.47265625
-    True21False17, // Probability { prob: 57, shift: 7 } = 0.4453125
-    True22False16, // Probability { prob: 107, shift: 8 } = 0.41796875
-    True23False15, // Probability { prob: 101, shift: 8 } = 0.39453125
-    True24False14, // Probability { prob: 47, shift: 7 } = 0.3671875
-    True25False13, // Probability { prob: 87, shift: 8 } = 0.33984375
-    True26False12, // Probability { prob: 5, shift: 4 } = 0.3125
-    True27False11, // Probability { prob: 37, shift: 7 } = 0.2890625
-    True28False10, // Probability { prob: 67, shift: 8 } = 0.26171875
-    True29False9,  // Probability { prob: 15, shift: 6 } = 0.234375
-    True30False8,  // Probability { prob: 53, shift: 8 } = 0.20703125
-    True31False7,  // Probability { prob: 47, shift: 8 } = 0.18359375
-    True32False6,  // Probability { prob: 5, shift: 5 } = 0.15625
-    True33False5,  // Probability { prob: 33, shift: 8 } = 0.12890625
-    True34False4,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True35False3,  // Probability { prob: 5, shift: 6 } = 0.078125
-    True36False2,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    True37False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True38False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False39,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False38,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False37,  // Probability { prob: 121, shift: 7 } = 0.9453125
-    True3False36,  // Probability { prob: 59, shift: 6 } = 0.921875
-    True4False35,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True5False34,  // Probability { prob: 223, shift: 8 } = 0.87109375
-    True6False33,  // Probability { prob: 27, shift: 5 } = 0.84375
-    True7False32,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    True8False31,  // Probability { prob: 203, shift: 8 } = 0.79296875
-    True9False30,  // Probability { prob: 49, shift: 6 } = 0.765625
-    True10False29, // Probability { prob: 95, shift: 7 } = 0.7421875
-    True11False28, // Probability { prob: 183, shift: 8 } = 0.71484375
-    True12False27, // Probability { prob: 177, shift: 8 } = 0.69140625
-    True13False26, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True14False25, // Probability { prob: 41, shift: 6 } = 0.640625
-    True15False24, // Probability { prob: 157, shift: 8 } = 0.61328125
-    True16False23, // Probability { prob: 75, shift: 7 } = 0.5859375
-    True17False22, // Probability { prob: 9, shift: 4 } = 0.5625
-    True18False21, // Probability { prob: 137, shift: 8 } = 0.53515625
-    True19False20, // Probability { prob: 131, shift: 8 } = 0.51171875
-    True20False19, // Probability { prob: 31, shift: 6 } = 0.484375
-    True21False18, // Probability { prob: 59, shift: 7 } = 0.4609375
-    True22False17, // Probability { prob: 111, shift: 8 } = 0.43359375
-    True23False16, // Probability { prob: 105, shift: 8 } = 0.41015625
-    True24False15, // Probability { prob: 49, shift: 7 } = 0.3828125
-    True25False14, // Probability { prob: 91, shift: 8 } = 0.35546875
-    True26False13, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True27False12, // Probability { prob: 39, shift: 7 } = 0.3046875
-    True28False11, // Probability { prob: 9, shift: 5 } = 0.28125
-    True29False10, // Probability { prob: 65, shift: 8 } = 0.25390625
-    True30False9,  // Probability { prob: 59, shift: 8 } = 0.23046875
-    True31False8,  // Probability { prob: 13, shift: 6 } = 0.203125
-    True32False7,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    True33False6,  // Probability { prob: 39, shift: 8 } = 0.15234375
-    True34False5,  // Probability { prob: 1, shift: 3 } = 0.125
-    True35False4,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True36False3,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    True37False2,  // Probability { prob: 13, shift: 8 } = 0.05078125
-    True38False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True39False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False40,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True1False39,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False38,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True3False37,  // Probability { prob: 59, shift: 6 } = 0.921875
-    True4False36,  // Probability { prob: 115, shift: 7 } = 0.8984375
-    True5False35,  // Probability { prob: 7, shift: 3 } = 0.875
-    True6False34,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    True7False33,  // Probability { prob: 211, shift: 8 } = 0.82421875
-    True8False32,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True9False31,  // Probability { prob: 99, shift: 7 } = 0.7734375
-    True10False30, // Probability { prob: 3, shift: 2 } = 0.75
-    True11False29, // Probability { prob: 185, shift: 8 } = 0.72265625
-    True12False28, // Probability { prob: 179, shift: 8 } = 0.69921875
-    True13False27, // Probability { prob: 43, shift: 6 } = 0.671875
-    True14False26, // Probability { prob: 83, shift: 7 } = 0.6484375
-    True15False25, // Probability { prob: 5, shift: 3 } = 0.625
-    True16False24, // Probability { prob: 153, shift: 8 } = 0.59765625
-    True17False23, // Probability { prob: 147, shift: 8 } = 0.57421875
-    True18False22, // Probability { prob: 35, shift: 6 } = 0.546875
-    True19False21, // Probability { prob: 67, shift: 7 } = 0.5234375
-    True20False20, // Probability { prob: 2, shift: 2 } = 0.5
-    True21False19, // Probability { prob: 121, shift: 8 } = 0.47265625
-    True22False18, // Probability { prob: 115, shift: 8 } = 0.44921875
-    True23False17, // Probability { prob: 27, shift: 6 } = 0.421875
-    True24False16, // Probability { prob: 51, shift: 7 } = 0.3984375
-    True25False15, // Probability { prob: 3, shift: 3 } = 0.375
-    True26False14, // Probability { prob: 89, shift: 8 } = 0.34765625
-    True27False13, // Probability { prob: 83, shift: 8 } = 0.32421875
-    True28False12, // Probability { prob: 19, shift: 6 } = 0.296875
-    True29False11, // Probability { prob: 35, shift: 7 } = 0.2734375
-    True30False10, // Probability { prob: 1, shift: 2 } = 0.25
-    True31False9,  // Probability { prob: 57, shift: 8 } = 0.22265625
-    True32False8,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True33False7,  // Probability { prob: 11, shift: 6 } = 0.171875
-    True34False6,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    True35False5,  // Probability { prob: 1, shift: 3 } = 0.125
-    True36False4,  // Probability { prob: 25, shift: 8 } = 0.09765625
-    True37False3,  // Probability { prob: 19, shift: 8 } = 0.07421875
-    True38False2,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True39False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True40False0,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True0False41,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False40,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False39,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True3False38,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True4False37,  // Probability { prob: 231, shift: 8 } = 0.90234375
-    True5False36,  // Probability { prob: 7, shift: 3 } = 0.875
-    True6False35,  // Probability { prob: 109, shift: 7 } = 0.8515625
-    True7False34,  // Probability { prob: 53, shift: 6 } = 0.828125
-    True8False33,  // Probability { prob: 103, shift: 7 } = 0.8046875
-    True9False32,  // Probability { prob: 199, shift: 8 } = 0.77734375
-    True10False31, // Probability { prob: 193, shift: 8 } = 0.75390625
-    True11False30, // Probability { prob: 187, shift: 8 } = 0.73046875
-    True12False29, // Probability { prob: 181, shift: 8 } = 0.70703125
-    True13False28, // Probability { prob: 87, shift: 7 } = 0.6796875
-    True14False27, // Probability { prob: 21, shift: 5 } = 0.65625
-    True15False26, // Probability { prob: 81, shift: 7 } = 0.6328125
-    True16False25, // Probability { prob: 39, shift: 6 } = 0.609375
-    True17False24, // Probability { prob: 149, shift: 8 } = 0.58203125
-    True18False23, // Probability { prob: 143, shift: 8 } = 0.55859375
-    True19False22, // Probability { prob: 137, shift: 8 } = 0.53515625
-    True20False21, // Probability { prob: 131, shift: 8 } = 0.51171875
-    True21False20, // Probability { prob: 31, shift: 6 } = 0.484375
-    True22False19, // Probability { prob: 59, shift: 7 } = 0.4609375
-    True23False18, // Probability { prob: 7, shift: 4 } = 0.4375
-    True24False17, // Probability { prob: 53, shift: 7 } = 0.4140625
-    True25False16, // Probability { prob: 99, shift: 8 } = 0.38671875
-    True26False15, // Probability { prob: 93, shift: 8 } = 0.36328125
-    True27False14, // Probability { prob: 87, shift: 8 } = 0.33984375
-    True28False13, // Probability { prob: 81, shift: 8 } = 0.31640625
-    True29False12, // Probability { prob: 37, shift: 7 } = 0.2890625
-    True30False11, // Probability { prob: 17, shift: 6 } = 0.265625
-    True31False10, // Probability { prob: 31, shift: 7 } = 0.2421875
-    True32False9,  // Probability { prob: 7, shift: 5 } = 0.21875
-    True33False8,  // Probability { prob: 49, shift: 8 } = 0.19140625
-    True34False7,  // Probability { prob: 43, shift: 8 } = 0.16796875
-    True35False6,  // Probability { prob: 37, shift: 8 } = 0.14453125
-    True36False5,  // Probability { prob: 31, shift: 8 } = 0.12109375
-    True37False4,  // Probability { prob: 3, shift: 5 } = 0.09375
-    True38False3,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True39False2,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True40False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True41False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False42,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False41,  // Probability { prob: 249, shift: 8 } = 0.97265625
-    True2False40,  // Probability { prob: 243, shift: 8 } = 0.94921875
-    True3False39,  // Probability { prob: 237, shift: 8 } = 0.92578125
-    True4False38,  // Probability { prob: 231, shift: 8 } = 0.90234375
-    True5False37,  // Probability { prob: 225, shift: 8 } = 0.87890625
-    True6False36,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True7False35,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True8False34,  // Probability { prob: 207, shift: 8 } = 0.80859375
-    True9False33,  // Probability { prob: 201, shift: 8 } = 0.78515625
-    True10False32, // Probability { prob: 195, shift: 8 } = 0.76171875
-    True11False31, // Probability { prob: 47, shift: 6 } = 0.734375
-    True12False30, // Probability { prob: 91, shift: 7 } = 0.7109375
-    True13False29, // Probability { prob: 11, shift: 4 } = 0.6875
-    True14False28, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True15False27, // Probability { prob: 41, shift: 6 } = 0.640625
-    True16False26, // Probability { prob: 79, shift: 7 } = 0.6171875
-    True17False25, // Probability { prob: 19, shift: 5 } = 0.59375
-    True18False24, // Probability { prob: 73, shift: 7 } = 0.5703125
-    True19False23, // Probability { prob: 35, shift: 6 } = 0.546875
-    True20False22, // Probability { prob: 67, shift: 7 } = 0.5234375
-    True21False21, // Probability { prob: 2, shift: 2 } = 0.5
-    True22False20, // Probability { prob: 121, shift: 8 } = 0.47265625
-    True23False19, // Probability { prob: 115, shift: 8 } = 0.44921875
-    True24False18, // Probability { prob: 109, shift: 8 } = 0.42578125
-    True25False17, // Probability { prob: 103, shift: 8 } = 0.40234375
-    True26False16, // Probability { prob: 97, shift: 8 } = 0.37890625
-    True27False15, // Probability { prob: 91, shift: 8 } = 0.35546875
-    True28False14, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True29False13, // Probability { prob: 79, shift: 8 } = 0.30859375
-    True30False12, // Probability { prob: 73, shift: 8 } = 0.28515625
-    True31False11, // Probability { prob: 67, shift: 8 } = 0.26171875
-    True32False10, // Probability { prob: 15, shift: 6 } = 0.234375
-    True33False9,  // Probability { prob: 27, shift: 7 } = 0.2109375
-    True34False8,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True35False7,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True36False6,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True37False5,  // Probability { prob: 15, shift: 7 } = 0.1171875
-    True38False4,  // Probability { prob: 3, shift: 5 } = 0.09375
-    True39False3,  // Probability { prob: 9, shift: 7 } = 0.0703125
-    True40False2,  // Probability { prob: 3, shift: 6 } = 0.046875
-    True41False1,  // Probability { prob: 3, shift: 7 } = 0.0234375
-    True42False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False43,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False42,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False41,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True3False40,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True4False39,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True5False38,  // Probability { prob: 113, shift: 7 } = 0.8828125
-    True6False37,  // Probability { prob: 55, shift: 6 } = 0.859375
-    True7False36,  // Probability { prob: 107, shift: 7 } = 0.8359375
-    True8False35,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True9False34,  // Probability { prob: 101, shift: 7 } = 0.7890625
-    True10False33, // Probability { prob: 49, shift: 6 } = 0.765625
-    True11False32, // Probability { prob: 95, shift: 7 } = 0.7421875
-    True12False31, // Probability { prob: 23, shift: 5 } = 0.71875
-    True13False30, // Probability { prob: 89, shift: 7 } = 0.6953125
-    True14False29, // Probability { prob: 43, shift: 6 } = 0.671875
-    True15False28, // Probability { prob: 83, shift: 7 } = 0.6484375
-    True16False27, // Probability { prob: 5, shift: 3 } = 0.625
-    True17False26, // Probability { prob: 77, shift: 7 } = 0.6015625
-    True18False25, // Probability { prob: 37, shift: 6 } = 0.578125
-    True19False24, // Probability { prob: 71, shift: 7 } = 0.5546875
-    True20False23, // Probability { prob: 17, shift: 5 } = 0.53125
-    True21False22, // Probability { prob: 65, shift: 7 } = 0.5078125
-    True22False21, // Probability { prob: 125, shift: 8 } = 0.48828125
-    True23False20, // Probability { prob: 119, shift: 8 } = 0.46484375
-    True24False19, // Probability { prob: 113, shift: 8 } = 0.44140625
-    True25False18, // Probability { prob: 107, shift: 8 } = 0.41796875
-    True26False17, // Probability { prob: 101, shift: 8 } = 0.39453125
-    True27False16, // Probability { prob: 95, shift: 8 } = 0.37109375
-    True28False15, // Probability { prob: 89, shift: 8 } = 0.34765625
-    True29False14, // Probability { prob: 83, shift: 8 } = 0.32421875
-    True30False13, // Probability { prob: 77, shift: 8 } = 0.30078125
-    True31False12, // Probability { prob: 71, shift: 8 } = 0.27734375
-    True32False11, // Probability { prob: 65, shift: 8 } = 0.25390625
-    True33False10, // Probability { prob: 59, shift: 8 } = 0.23046875
-    True34False9,  // Probability { prob: 53, shift: 8 } = 0.20703125
-    True35False8,  // Probability { prob: 47, shift: 8 } = 0.18359375
-    True36False7,  // Probability { prob: 41, shift: 8 } = 0.16015625
-    True37False6,  // Probability { prob: 35, shift: 8 } = 0.13671875
-    True38False5,  // Probability { prob: 29, shift: 8 } = 0.11328125
-    True39False4,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    True40False3,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True41False2,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True42False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True43False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False44,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False43,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False42,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True3False41,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True4False40,  // Probability { prob: 29, shift: 5 } = 0.90625
-    True5False39,  // Probability { prob: 113, shift: 7 } = 0.8828125
-    True6False38,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True7False37,  // Probability { prob: 215, shift: 8 } = 0.83984375
-    True8False36,  // Probability { prob: 209, shift: 8 } = 0.81640625
-    True9False35,  // Probability { prob: 203, shift: 8 } = 0.79296875
-    True10False34, // Probability { prob: 197, shift: 8 } = 0.76953125
-    True11False33, // Probability { prob: 3, shift: 2 } = 0.75
-    True12False32, // Probability { prob: 93, shift: 7 } = 0.7265625
-    True13False31, // Probability { prob: 45, shift: 6 } = 0.703125
-    True14False30, // Probability { prob: 87, shift: 7 } = 0.6796875
-    True15False29, // Probability { prob: 21, shift: 5 } = 0.65625
-    True16False28, // Probability { prob: 81, shift: 7 } = 0.6328125
-    True17False27, // Probability { prob: 157, shift: 8 } = 0.61328125
-    True18False26, // Probability { prob: 151, shift: 8 } = 0.58984375
-    True19False25, // Probability { prob: 145, shift: 8 } = 0.56640625
-    True20False24, // Probability { prob: 139, shift: 8 } = 0.54296875
-    True21False23, // Probability { prob: 133, shift: 8 } = 0.51953125
-    True22False22, // Probability { prob: 2, shift: 2 } = 0.5
-    True23False21, // Probability { prob: 61, shift: 7 } = 0.4765625
-    True24False20, // Probability { prob: 29, shift: 6 } = 0.453125
-    True25False19, // Probability { prob: 55, shift: 7 } = 0.4296875
-    True26False18, // Probability { prob: 13, shift: 5 } = 0.40625
-    True27False17, // Probability { prob: 49, shift: 7 } = 0.3828125
-    True28False16, // Probability { prob: 93, shift: 8 } = 0.36328125
-    True29False15, // Probability { prob: 87, shift: 8 } = 0.33984375
-    True30False14, // Probability { prob: 81, shift: 8 } = 0.31640625
-    True31False13, // Probability { prob: 75, shift: 8 } = 0.29296875
-    True32False12, // Probability { prob: 69, shift: 8 } = 0.26953125
-    True33False11, // Probability { prob: 1, shift: 2 } = 0.25
-    True34False10, // Probability { prob: 29, shift: 7 } = 0.2265625
-    True35False9,  // Probability { prob: 13, shift: 6 } = 0.203125
-    True36False8,  // Probability { prob: 23, shift: 7 } = 0.1796875
-    True37False7,  // Probability { prob: 5, shift: 5 } = 0.15625
-    True38False6,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True39False5,  // Probability { prob: 29, shift: 8 } = 0.11328125
-    True40False4,  // Probability { prob: 23, shift: 8 } = 0.08984375
-    True41False3,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True42False2,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True43False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True44False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False45,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False44,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False43,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True3False42,  // Probability { prob: 119, shift: 7 } = 0.9296875
-    True4False41,  // Probability { prob: 233, shift: 8 } = 0.91015625
-    True5False40,  // Probability { prob: 227, shift: 8 } = 0.88671875
-    True6False39,  // Probability { prob: 221, shift: 8 } = 0.86328125
-    True7False38,  // Probability { prob: 27, shift: 5 } = 0.84375
-    True8False37,  // Probability { prob: 105, shift: 7 } = 0.8203125
-    True9False36,  // Probability { prob: 51, shift: 6 } = 0.796875
-    True10False35, // Probability { prob: 199, shift: 8 } = 0.77734375
-    True11False34, // Probability { prob: 193, shift: 8 } = 0.75390625
-    True12False33, // Probability { prob: 187, shift: 8 } = 0.73046875
-    True13False32, // Probability { prob: 91, shift: 7 } = 0.7109375
-    True14False31, // Probability { prob: 11, shift: 4 } = 0.6875
-    True15False30, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True16False29, // Probability { prob: 41, shift: 6 } = 0.640625
-    True17False28, // Probability { prob: 159, shift: 8 } = 0.62109375
-    True18False27, // Probability { prob: 153, shift: 8 } = 0.59765625
-    True19False26, // Probability { prob: 147, shift: 8 } = 0.57421875
-    True20False25, // Probability { prob: 71, shift: 7 } = 0.5546875
-    True21False24, // Probability { prob: 17, shift: 5 } = 0.53125
-    True22False23, // Probability { prob: 65, shift: 7 } = 0.5078125
-    True23False22, // Probability { prob: 125, shift: 8 } = 0.48828125
-    True24False21, // Probability { prob: 119, shift: 8 } = 0.46484375
-    True25False20, // Probability { prob: 113, shift: 8 } = 0.44140625
-    True26False19, // Probability { prob: 27, shift: 6 } = 0.421875
-    True27False18, // Probability { prob: 51, shift: 7 } = 0.3984375
-    True28False17, // Probability { prob: 3, shift: 3 } = 0.375
-    True29False16, // Probability { prob: 91, shift: 8 } = 0.35546875
-    True30False15, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True31False14, // Probability { prob: 79, shift: 8 } = 0.30859375
-    True32False13, // Probability { prob: 73, shift: 8 } = 0.28515625
-    True33False12, // Probability { prob: 17, shift: 6 } = 0.265625
-    True34False11, // Probability { prob: 31, shift: 7 } = 0.2421875
-    True35False10, // Probability { prob: 7, shift: 5 } = 0.21875
-    True36False9,  // Probability { prob: 51, shift: 8 } = 0.19921875
-    True37False8,  // Probability { prob: 45, shift: 8 } = 0.17578125
-    True38False7,  // Probability { prob: 39, shift: 8 } = 0.15234375
-    True39False6,  // Probability { prob: 17, shift: 7 } = 0.1328125
-    True40False5,  // Probability { prob: 7, shift: 6 } = 0.109375
-    True41False4,  // Probability { prob: 11, shift: 7 } = 0.0859375
-    True42False3,  // Probability { prob: 17, shift: 8 } = 0.06640625
-    True43False2,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True44False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True45False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False46,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False45,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False44,  // Probability { prob: 61, shift: 6 } = 0.953125
-    True3False43,  // Probability { prob: 239, shift: 8 } = 0.93359375
-    True4False42,  // Probability { prob: 233, shift: 8 } = 0.91015625
-    True5False41,  // Probability { prob: 57, shift: 6 } = 0.890625
-    True6False40,  // Probability { prob: 111, shift: 7 } = 0.8671875
-    True7False39,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    True8False38,  // Probability { prob: 211, shift: 8 } = 0.82421875
-    True9False37,  // Probability { prob: 205, shift: 8 } = 0.80078125
-    True10False36, // Probability { prob: 25, shift: 5 } = 0.78125
-    True11False35, // Probability { prob: 97, shift: 7 } = 0.7578125
-    True12False34, // Probability { prob: 189, shift: 8 } = 0.73828125
-    True13False33, // Probability { prob: 183, shift: 8 } = 0.71484375
-    True14False32, // Probability { prob: 89, shift: 7 } = 0.6953125
-    True15False31, // Probability { prob: 43, shift: 6 } = 0.671875
-    True16False30, // Probability { prob: 83, shift: 7 } = 0.6484375
-    True17False29, // Probability { prob: 161, shift: 8 } = 0.62890625
-    True18False28, // Probability { prob: 155, shift: 8 } = 0.60546875
-    True19False27, // Probability { prob: 75, shift: 7 } = 0.5859375
-    True20False26, // Probability { prob: 9, shift: 4 } = 0.5625
-    True21False25, // Probability { prob: 139, shift: 8 } = 0.54296875
-    True22False24, // Probability { prob: 133, shift: 8 } = 0.51953125
-    True23False23, // Probability { prob: 2, shift: 2 } = 0.5
-    True24False22, // Probability { prob: 61, shift: 7 } = 0.4765625
-    True25False21, // Probability { prob: 29, shift: 6 } = 0.453125
-    True26False20, // Probability { prob: 111, shift: 8 } = 0.43359375
-    True27False19, // Probability { prob: 105, shift: 8 } = 0.41015625
-    True28False18, // Probability { prob: 25, shift: 6 } = 0.390625
-    True29False17, // Probability { prob: 47, shift: 7 } = 0.3671875
-    True30False16, // Probability { prob: 89, shift: 8 } = 0.34765625
-    True31False15, // Probability { prob: 83, shift: 8 } = 0.32421875
-    True32False14, // Probability { prob: 77, shift: 8 } = 0.30078125
-    True33False13, // Probability { prob: 9, shift: 5 } = 0.28125
-    True34False12, // Probability { prob: 33, shift: 7 } = 0.2578125
-    True35False11, // Probability { prob: 61, shift: 8 } = 0.23828125
-    True36False10, // Probability { prob: 55, shift: 8 } = 0.21484375
-    True37False9,  // Probability { prob: 25, shift: 7 } = 0.1953125
-    True38False8,  // Probability { prob: 11, shift: 6 } = 0.171875
-    True39False7,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    True40False6,  // Probability { prob: 33, shift: 8 } = 0.12890625
-    True41False5,  // Probability { prob: 27, shift: 8 } = 0.10546875
-    True42False4,  // Probability { prob: 11, shift: 7 } = 0.0859375
-    True43False3,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True44False2,  // Probability { prob: 11, shift: 8 } = 0.04296875
-    True45False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True46False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False47,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False46,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False45,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True3False44,  // Probability { prob: 239, shift: 8 } = 0.93359375
-    True4False43,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True5False42,  // Probability { prob: 57, shift: 6 } = 0.890625
-    True6False41,  // Probability { prob: 223, shift: 8 } = 0.87109375
-    True7False40,  // Probability { prob: 217, shift: 8 } = 0.84765625
-    True8False39,  // Probability { prob: 53, shift: 6 } = 0.828125
-    True9False38,  // Probability { prob: 103, shift: 7 } = 0.8046875
-    True10False37, // Probability { prob: 201, shift: 8 } = 0.78515625
-    True11False36, // Probability { prob: 49, shift: 6 } = 0.765625
-    True12False35, // Probability { prob: 95, shift: 7 } = 0.7421875
-    True13False34, // Probability { prob: 185, shift: 8 } = 0.72265625
-    True14False33, // Probability { prob: 179, shift: 8 } = 0.69921875
-    True15False32, // Probability { prob: 87, shift: 7 } = 0.6796875
-    True16False31, // Probability { prob: 21, shift: 5 } = 0.65625
-    True17False30, // Probability { prob: 163, shift: 8 } = 0.63671875
-    True18False29, // Probability { prob: 157, shift: 8 } = 0.61328125
-    True19False28, // Probability { prob: 19, shift: 5 } = 0.59375
-    True20False27, // Probability { prob: 147, shift: 8 } = 0.57421875
-    True21False26, // Probability { prob: 141, shift: 8 } = 0.55078125
-    True22False25, // Probability { prob: 17, shift: 5 } = 0.53125
-    True23False24, // Probability { prob: 65, shift: 7 } = 0.5078125
-    True24False23, // Probability { prob: 125, shift: 8 } = 0.48828125
-    True25False22, // Probability { prob: 119, shift: 8 } = 0.46484375
-    True26False21, // Probability { prob: 57, shift: 7 } = 0.4453125
-    True27False20, // Probability { prob: 27, shift: 6 } = 0.421875
-    True28False19, // Probability { prob: 103, shift: 8 } = 0.40234375
-    True29False18, // Probability { prob: 49, shift: 7 } = 0.3828125
-    True30False17, // Probability { prob: 23, shift: 6 } = 0.359375
-    True31False16, // Probability { prob: 87, shift: 8 } = 0.33984375
-    True32False15, // Probability { prob: 81, shift: 8 } = 0.31640625
-    True33False14, // Probability { prob: 19, shift: 6 } = 0.296875
-    True34False13, // Probability { prob: 35, shift: 7 } = 0.2734375
-    True35False12, // Probability { prob: 65, shift: 8 } = 0.25390625
-    True36False11, // Probability { prob: 59, shift: 8 } = 0.23046875
-    True37False10, // Probability { prob: 27, shift: 7 } = 0.2109375
-    True38False9,  // Probability { prob: 49, shift: 8 } = 0.19140625
-    True39False8,  // Probability { prob: 43, shift: 8 } = 0.16796875
-    True40False7,  // Probability { prob: 19, shift: 7 } = 0.1484375
-    True41False6,  // Probability { prob: 1, shift: 3 } = 0.125
-    True42False5,  // Probability { prob: 27, shift: 8 } = 0.10546875
-    True43False4,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True44False3,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True45False2,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True46False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True47False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False48,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False47,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False46,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True3False45,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True4False44,  // Probability { prob: 117, shift: 7 } = 0.9140625
-    True5False43,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True6False42,  // Probability { prob: 7, shift: 3 } = 0.875
-    True7False41,  // Probability { prob: 109, shift: 7 } = 0.8515625
-    True8False40,  // Probability { prob: 213, shift: 8 } = 0.83203125
-    True9False39,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True10False38, // Probability { prob: 101, shift: 7 } = 0.7890625
-    True11False37, // Probability { prob: 197, shift: 8 } = 0.76953125
-    True12False36, // Probability { prob: 3, shift: 2 } = 0.75
-    True13False35, // Probability { prob: 93, shift: 7 } = 0.7265625
-    True14False34, // Probability { prob: 181, shift: 8 } = 0.70703125
-    True15False33, // Probability { prob: 11, shift: 4 } = 0.6875
-    True16False32, // Probability { prob: 85, shift: 7 } = 0.6640625
-    True17False31, // Probability { prob: 165, shift: 8 } = 0.64453125
-    True18False30, // Probability { prob: 5, shift: 3 } = 0.625
-    True19False29, // Probability { prob: 77, shift: 7 } = 0.6015625
-    True20False28, // Probability { prob: 149, shift: 8 } = 0.58203125
-    True21False27, // Probability { prob: 9, shift: 4 } = 0.5625
-    True22False26, // Probability { prob: 69, shift: 7 } = 0.5390625
-    True23False25, // Probability { prob: 133, shift: 8 } = 0.51953125
-    True24False24, // Probability { prob: 2, shift: 2 } = 0.5
-    True25False23, // Probability { prob: 61, shift: 7 } = 0.4765625
-    True26False22, // Probability { prob: 117, shift: 8 } = 0.45703125
-    True27False21, // Probability { prob: 7, shift: 4 } = 0.4375
-    True28False20, // Probability { prob: 53, shift: 7 } = 0.4140625
-    True29False19, // Probability { prob: 101, shift: 8 } = 0.39453125
-    True30False18, // Probability { prob: 3, shift: 3 } = 0.375
-    True31False17, // Probability { prob: 45, shift: 7 } = 0.3515625
-    True32False16, // Probability { prob: 85, shift: 8 } = 0.33203125
-    True33False15, // Probability { prob: 5, shift: 4 } = 0.3125
-    True34False14, // Probability { prob: 37, shift: 7 } = 0.2890625
-    True35False13, // Probability { prob: 69, shift: 8 } = 0.26953125
-    True36False12, // Probability { prob: 1, shift: 2 } = 0.25
-    True37False11, // Probability { prob: 29, shift: 7 } = 0.2265625
-    True38False10, // Probability { prob: 53, shift: 8 } = 0.20703125
-    True39False9,  // Probability { prob: 3, shift: 4 } = 0.1875
-    True40False8,  // Probability { prob: 21, shift: 7 } = 0.1640625
-    True41False7,  // Probability { prob: 37, shift: 8 } = 0.14453125
-    True42False6,  // Probability { prob: 1, shift: 3 } = 0.125
-    True43False5,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True44False4,  // Probability { prob: 21, shift: 8 } = 0.08203125
-    True45False3,  // Probability { prob: 1, shift: 4 } = 0.0625
-    True46False2,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True47False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True48False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True0False49,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True1False48,  // Probability { prob: 125, shift: 7 } = 0.9765625
-    True2False47,  // Probability { prob: 245, shift: 8 } = 0.95703125
-    True3False46,  // Probability { prob: 15, shift: 4 } = 0.9375
-    True4False45,  // Probability { prob: 235, shift: 8 } = 0.91796875
-    True5False44,  // Probability { prob: 229, shift: 8 } = 0.89453125
-    True6False43,  // Probability { prob: 7, shift: 3 } = 0.875
-    True7False42,  // Probability { prob: 219, shift: 8 } = 0.85546875
-    True8False41,  // Probability { prob: 107, shift: 7 } = 0.8359375
-    True9False40,  // Probability { prob: 13, shift: 4 } = 0.8125
-    True10False39, // Probability { prob: 203, shift: 8 } = 0.79296875
-    True11False38, // Probability { prob: 99, shift: 7 } = 0.7734375
-    True12False37, // Probability { prob: 193, shift: 8 } = 0.75390625
-    True13False36, // Probability { prob: 47, shift: 6 } = 0.734375
-    True14False35, // Probability { prob: 91, shift: 7 } = 0.7109375
-    True15False34, // Probability { prob: 177, shift: 8 } = 0.69140625
-    True16False33, // Probability { prob: 43, shift: 6 } = 0.671875
-    True17False32, // Probability { prob: 167, shift: 8 } = 0.65234375
-    True18False31, // Probability { prob: 161, shift: 8 } = 0.62890625
-    True19False30, // Probability { prob: 39, shift: 6 } = 0.609375
-    True20False29, // Probability { prob: 151, shift: 8 } = 0.58984375
-    True21False28, // Probability { prob: 73, shift: 7 } = 0.5703125
-    True22False27, // Probability { prob: 141, shift: 8 } = 0.55078125
-    True23False26, // Probability { prob: 135, shift: 8 } = 0.52734375
-    True24False25, // Probability { prob: 65, shift: 7 } = 0.5078125
-    True25False24, // Probability { prob: 125, shift: 8 } = 0.48828125
-    True26False23, // Probability { prob: 15, shift: 5 } = 0.46875
-    True27False22, // Probability { prob: 57, shift: 7 } = 0.4453125
-    True28False21, // Probability { prob: 109, shift: 8 } = 0.42578125
-    True29False20, // Probability { prob: 13, shift: 5 } = 0.40625
-    True30False19, // Probability { prob: 99, shift: 8 } = 0.38671875
-    True31False18, // Probability { prob: 47, shift: 7 } = 0.3671875
-    True32False17, // Probability { prob: 11, shift: 5 } = 0.34375
-    True33False16, // Probability { prob: 83, shift: 8 } = 0.32421875
-    True34False15, // Probability { prob: 39, shift: 7 } = 0.3046875
-    True35False14, // Probability { prob: 73, shift: 8 } = 0.28515625
-    True36False13, // Probability { prob: 67, shift: 8 } = 0.26171875
-    True37False12, // Probability { prob: 31, shift: 7 } = 0.2421875
-    True38False11, // Probability { prob: 57, shift: 8 } = 0.22265625
-    True39False10, // Probability { prob: 13, shift: 6 } = 0.203125
-    True40False9,  // Probability { prob: 47, shift: 8 } = 0.18359375
-    True41False8,  // Probability { prob: 41, shift: 8 } = 0.16015625
-    True42False7,  // Probability { prob: 9, shift: 6 } = 0.140625
-    True43False6,  // Probability { prob: 31, shift: 8 } = 0.12109375
-    True44False5,  // Probability { prob: 13, shift: 7 } = 0.1015625
-    True45False4,  // Probability { prob: 5, shift: 6 } = 0.078125
-    True46False3,  // Probability { prob: 15, shift: 8 } = 0.05859375
-    True47False2,  // Probability { prob: 5, shift: 7 } = 0.0390625
-    True48False1,  // Probability { prob: 5, shift: 8 } = 0.01953125
-    True49False0,  // Probability { prob: 5, shift: 8 } = 0.01953125
+    True0False0, // Probability::new(128,128) = 0.5
+    True0False1,   // Probability::new(86,170) = 0.6640625
+    True1False0,   // Probability::new(171,85) = 0.33203125
+    True0False2,   // Probability::new(64,192) = 0.75
+    True1False1,   // Probability::new(128,128) = 0.5
+    True2False0,   // Probability::new(192,64) = 0.25
+    True0False3,   // Probability::new(52,204) = 0.796875
+    True1False2,   // Probability::new(86,170) = 0.6640625
+    True2False1,   // Probability::new(171,85) = 0.33203125
+    True3False0,   // Probability::new(205,51) = 0.19921875
+    True0False4,   // Probability::new(43,213) = 0.83203125
+    True1False3,   // Probability::new(64,192) = 0.75
+    True2False2,   // Probability::new(128,128) = 0.5
+    True3False1,   // Probability::new(192,64) = 0.25
+    True4False0,   // Probability::new(214,42) = 0.1640625
+    True0False5,   // Probability::new(37,219) = 0.85546875
+    True1False4,   // Probability::new(52,204) = 0.796875
+    True2False3,   // Probability::new(103,153) = 0.59765625
+    True3False2,   // Probability::new(154,102) = 0.3984375
+    True4False1,   // Probability::new(205,51) = 0.19921875
+    True5False0,   // Probability::new(220,36) = 0.140625
+    True0False6,   // Probability::new(32,224) = 0.875
+    True1False5,   // Probability::new(43,213) = 0.83203125
+    True2False4,   // Probability::new(86,170) = 0.6640625
+    True3False3,   // Probability::new(128,128) = 0.5
+    True4False2,   // Probability::new(171,85) = 0.33203125
+    True5False1,   // Probability::new(214,42) = 0.1640625
+    True6False0,   // Probability::new(224,32) = 0.125
+    True0False7,   // Probability::new(29,227) = 0.88671875
+    True1False6,   // Probability::new(37,219) = 0.85546875
+    True2False5,   // Probability::new(74,182) = 0.7109375
+    True3False4,   // Probability::new(110,146) = 0.5703125
+    True4False3,   // Probability::new(147,109) = 0.42578125
+    True5False2,   // Probability::new(183,73) = 0.28515625
+    True6False1,   // Probability::new(220,36) = 0.140625
+    True7False0,   // Probability::new(228,28) = 0.109375
+    True0False8,   // Probability::new(26,230) = 0.8984375
+    True1False7,   // Probability::new(32,224) = 0.875
+    True2False6,   // Probability::new(64,192) = 0.75
+    True3False5,   // Probability::new(96,160) = 0.625
+    True4False4,   // Probability::new(128,128) = 0.5
+    True5False3,   // Probability::new(160,96) = 0.375
+    True6False2,   // Probability::new(192,64) = 0.25
+    True7False1,   // Probability::new(224,32) = 0.125
+    True8False0,   // Probability::new(231,25) = 0.09765625
+    True0False9,   // Probability::new(24,232) = 0.90625
+    True1False8,   // Probability::new(29,227) = 0.88671875
+    True2False7,   // Probability::new(57,199) = 0.77734375
+    True3False6,   // Probability::new(86,170) = 0.6640625
+    True4False5,   // Probability::new(114,142) = 0.5546875
+    True5False4,   // Probability::new(143,113) = 0.44140625
+    True6False3,   // Probability::new(171,85) = 0.33203125
+    True7False2,   // Probability::new(200,56) = 0.21875
+    True8False1,   // Probability::new(228,28) = 0.109375
+    True9False0,   // Probability::new(233,23) = 0.08984375
+    True0False10,  // Probability::new(22,234) = 0.9140625
+    True1False9,   // Probability::new(26,230) = 0.8984375
+    True2False8,   // Probability::new(52,204) = 0.796875
+    True3False7,   // Probability::new(77,179) = 0.69921875
+    True4False6,   // Probability::new(103,153) = 0.59765625
+    True5False5,   // Probability::new(128,128) = 0.5
+    True6False4,   // Probability::new(154,102) = 0.3984375
+    True7False3,   // Probability::new(180,76) = 0.296875
+    True8False2,   // Probability::new(205,51) = 0.19921875
+    True9False1,   // Probability::new(231,25) = 0.09765625
+    True10False0,  // Probability::new(235,21) = 0.08203125
+    True0False11,  // Probability::new(20,236) = 0.921875
+    True1False10,  // Probability::new(24,232) = 0.90625
+    True2False9,   // Probability::new(47,209) = 0.81640625
+    True3False8,   // Probability::new(70,186) = 0.7265625
+    True4False7,   // Probability::new(94,162) = 0.6328125
+    True5False6,   // Probability::new(117,139) = 0.54296875
+    True6False5,   // Probability::new(140,116) = 0.453125
+    True7False4,   // Probability::new(163,93) = 0.36328125
+    True8False3,   // Probability::new(187,69) = 0.26953125
+    True9False2,   // Probability::new(210,46) = 0.1796875
+    True10False1,  // Probability::new(233,23) = 0.08984375
+    True11False0,  // Probability::new(237,19) = 0.07421875
+    True0False12,  // Probability::new(19,237) = 0.92578125
+    True1False11,  // Probability::new(22,234) = 0.9140625
+    True2False10,  // Probability::new(43,213) = 0.83203125
+    True3False9,   // Probability::new(64,192) = 0.75
+    True4False8,   // Probability::new(86,170) = 0.6640625
+    True5False7,   // Probability::new(107,149) = 0.58203125
+    True6False6,   // Probability::new(128,128) = 0.5
+    True7False5,   // Probability::new(150,106) = 0.4140625
+    True8False4,   // Probability::new(171,85) = 0.33203125
+    True9False3,   // Probability::new(192,64) = 0.25
+    True10False2,  // Probability::new(214,42) = 0.1640625
+    True11False1,  // Probability::new(235,21) = 0.08203125
+    True12False0,  // Probability::new(238,18) = 0.0703125
+    True0False13,  // Probability::new(18,238) = 0.9296875
+    True1False12,  // Probability::new(20,236) = 0.921875
+    True2False11,  // Probability::new(40,216) = 0.84375
+    True3False10,  // Probability::new(60,196) = 0.765625
+    True4False9,   // Probability::new(79,177) = 0.69140625
+    True5False8,   // Probability::new(99,157) = 0.61328125
+    True6False7,   // Probability::new(119,137) = 0.53515625
+    True7False6,   // Probability::new(138,118) = 0.4609375
+    True8False5,   // Probability::new(158,98) = 0.3828125
+    True9False4,   // Probability::new(178,78) = 0.3046875
+    True10False3,  // Probability::new(197,59) = 0.23046875
+    True11False2,  // Probability::new(217,39) = 0.15234375
+    True12False1,  // Probability::new(237,19) = 0.07421875
+    True13False0,  // Probability::new(239,17) = 0.06640625
+    True0False14,  // Probability::new(16,240) = 0.9375
+    True1False13,  // Probability::new(19,237) = 0.92578125
+    True2False12,  // Probability::new(37,219) = 0.85546875
+    True3False11,  // Probability::new(55,201) = 0.78515625
+    True4False10,  // Probability::new(74,182) = 0.7109375
+    True5False9,   // Probability::new(92,164) = 0.640625
+    True6False8,   // Probability::new(110,146) = 0.5703125
+    True7False7,   // Probability::new(128,128) = 0.5
+    True8False6,   // Probability::new(147,109) = 0.42578125
+    True9False5,   // Probability::new(165,91) = 0.35546875
+    True10False4,  // Probability::new(183,73) = 0.28515625
+    True11False3,  // Probability::new(202,54) = 0.2109375
+    True12False2,  // Probability::new(220,36) = 0.140625
+    True13False1,  // Probability::new(238,18) = 0.0703125
+    True14False0,  // Probability::new(240,16) = 0.0625
+    True0False15,  // Probability::new(16,240) = 0.9375
+    True1False14,  // Probability::new(18,238) = 0.9296875
+    True2False13,  // Probability::new(35,221) = 0.86328125
+    True3False12,  // Probability::new(52,204) = 0.796875
+    True4False11,  // Probability::new(69,187) = 0.73046875
+    True5False10,  // Probability::new(86,170) = 0.6640625
+    True6False9,   // Probability::new(103,153) = 0.59765625
+    True7False8,   // Probability::new(120,136) = 0.53125
+    True8False7,   // Probability::new(137,119) = 0.46484375
+    True9False6,   // Probability::new(154,102) = 0.3984375
+    True10False5,  // Probability::new(171,85) = 0.33203125
+    True11False4,  // Probability::new(188,68) = 0.265625
+    True12False3,  // Probability::new(205,51) = 0.19921875
+    True13False2,  // Probability::new(222,34) = 0.1328125
+    True14False1,  // Probability::new(239,17) = 0.06640625
+    True15False0,  // Probability::new(241,15) = 0.05859375
+    True0False16,  // Probability::new(15,241) = 0.94140625
+    True1False15,  // Probability::new(16,240) = 0.9375
+    True2False14,  // Probability::new(32,224) = 0.875
+    True3False13,  // Probability::new(48,208) = 0.8125
+    True4False12,  // Probability::new(64,192) = 0.75
+    True5False11,  // Probability::new(80,176) = 0.6875
+    True6False10,  // Probability::new(96,160) = 0.625
+    True7False9,   // Probability::new(112,144) = 0.5625
+    True8False8,   // Probability::new(128,128) = 0.5
+    True9False7,   // Probability::new(144,112) = 0.4375
+    True10False6,  // Probability::new(160,96) = 0.375
+    True11False5,  // Probability::new(176,80) = 0.3125
+    True12False4,  // Probability::new(192,64) = 0.25
+    True13False3,  // Probability::new(208,48) = 0.1875
+    True14False2,  // Probability::new(224,32) = 0.125
+    True15False1,  // Probability::new(240,16) = 0.0625
+    True16False0,  // Probability::new(242,14) = 0.0546875
+    True0False17,  // Probability::new(14,242) = 0.9453125
+    True1False16,  // Probability::new(16,240) = 0.9375
+    True2False15,  // Probability::new(31,225) = 0.87890625
+    True3False14,  // Probability::new(46,210) = 0.8203125
+    True4False13,  // Probability::new(61,195) = 0.76171875
+    True5False12,  // Probability::new(76,180) = 0.703125
+    True6False11,  // Probability::new(91,165) = 0.64453125
+    True7False10,  // Probability::new(106,150) = 0.5859375
+    True8False9,   // Probability::new(121,135) = 0.52734375
+    True9False8,   // Probability::new(136,120) = 0.46875
+    True10False7,  // Probability::new(151,105) = 0.41015625
+    True11False6,  // Probability::new(166,90) = 0.3515625
+    True12False5,  // Probability::new(181,75) = 0.29296875
+    True13False4,  // Probability::new(196,60) = 0.234375
+    True14False3,  // Probability::new(211,45) = 0.17578125
+    True15False2,  // Probability::new(226,30) = 0.1171875
+    True16False1,  // Probability::new(241,15) = 0.05859375
+    True17False0,  // Probability::new(243,13) = 0.05078125
+    True0False18,  // Probability::new(13,243) = 0.94921875
+    True1False17,  // Probability::new(15,241) = 0.94140625
+    True2False16,  // Probability::new(29,227) = 0.88671875
+    True3False15,  // Probability::new(43,213) = 0.83203125
+    True4False14,  // Probability::new(57,199) = 0.77734375
+    True5False13,  // Probability::new(72,184) = 0.71875
+    True6False12,  // Probability::new(86,170) = 0.6640625
+    True7False11,  // Probability::new(100,156) = 0.609375
+    True8False10,  // Probability::new(114,142) = 0.5546875
+    True9False9,   // Probability::new(128,128) = 0.5
+    True10False8,  // Probability::new(143,113) = 0.44140625
+    True11False7,  // Probability::new(157,99) = 0.38671875
+    True12False6,  // Probability::new(171,85) = 0.33203125
+    True13False5,  // Probability::new(185,71) = 0.27734375
+    True14False4,  // Probability::new(200,56) = 0.21875
+    True15False3,  // Probability::new(214,42) = 0.1640625
+    True16False2,  // Probability::new(228,28) = 0.109375
+    True17False1,  // Probability::new(242,14) = 0.0546875
+    True18False0,  // Probability::new(244,12) = 0.046875
+    True0False19,  // Probability::new(13,243) = 0.94921875
+    True1False18,  // Probability::new(14,242) = 0.9453125
+    True2False17,  // Probability::new(27,229) = 0.89453125
+    True3False16,  // Probability::new(41,215) = 0.83984375
+    True4False15,  // Probability::new(54,202) = 0.7890625
+    True5False14,  // Probability::new(68,188) = 0.734375
+    True6False13,  // Probability::new(81,175) = 0.68359375
+    True7False12,  // Probability::new(95,161) = 0.62890625
+    True8False11,  // Probability::new(108,148) = 0.578125
+    True9False10,  // Probability::new(122,134) = 0.5234375
+    True10False9,  // Probability::new(135,121) = 0.47265625
+    True11False8,  // Probability::new(149,107) = 0.41796875
+    True12False7,  // Probability::new(162,94) = 0.3671875
+    True13False6,  // Probability::new(176,80) = 0.3125
+    True14False5,  // Probability::new(189,67) = 0.26171875
+    True15False4,  // Probability::new(203,53) = 0.20703125
+    True16False3,  // Probability::new(216,40) = 0.15625
+    True17False2,  // Probability::new(230,26) = 0.1015625
+    True18False1,  // Probability::new(243,13) = 0.05078125
+    True19False0,  // Probability::new(244,12) = 0.046875
+    True0False20,  // Probability::new(12,244) = 0.953125
+    True1False19,  // Probability::new(13,243) = 0.94921875
+    True2False18,  // Probability::new(26,230) = 0.8984375
+    True3False17,  // Probability::new(39,217) = 0.84765625
+    True4False16,  // Probability::new(52,204) = 0.796875
+    True5False15,  // Probability::new(64,192) = 0.75
+    True6False14,  // Probability::new(77,179) = 0.69921875
+    True7False13,  // Probability::new(90,166) = 0.6484375
+    True8False12,  // Probability::new(103,153) = 0.59765625
+    True9False11,  // Probability::new(116,140) = 0.546875
+    True10False10, // Probability::new(128,128) = 0.5
+    True11False9,  // Probability::new(141,115) = 0.44921875
+    True12False8,  // Probability::new(154,102) = 0.3984375
+    True13False7,  // Probability::new(167,89) = 0.34765625
+    True14False6,  // Probability::new(180,76) = 0.296875
+    True15False5,  // Probability::new(192,64) = 0.25
+    True16False4,  // Probability::new(205,51) = 0.19921875
+    True17False3,  // Probability::new(218,38) = 0.1484375
+    True18False2,  // Probability::new(231,25) = 0.09765625
+    True19False1,  // Probability::new(244,12) = 0.046875
+    True20False0,  // Probability::new(245,11) = 0.04296875
+    True0False21,  // Probability::new(12,244) = 0.953125
+    True1False20,  // Probability::new(13,243) = 0.94921875
+    True2False19,  // Probability::new(25,231) = 0.90234375
+    True3False18,  // Probability::new(37,219) = 0.85546875
+    True4False17,  // Probability::new(49,207) = 0.80859375
+    True5False16,  // Probability::new(61,195) = 0.76171875
+    True6False15,  // Probability::new(74,182) = 0.7109375
+    True7False14,  // Probability::new(86,170) = 0.6640625
+    True8False13,  // Probability::new(98,158) = 0.6171875
+    True9False12,  // Probability::new(110,146) = 0.5703125
+    True10False11, // Probability::new(122,134) = 0.5234375
+    True11False10, // Probability::new(135,121) = 0.47265625
+    True12False9,  // Probability::new(147,109) = 0.42578125
+    True13False8,  // Probability::new(159,97) = 0.37890625
+    True14False7,  // Probability::new(171,85) = 0.33203125
+    True15False6,  // Probability::new(183,73) = 0.28515625
+    True16False5,  // Probability::new(196,60) = 0.234375
+    True17False4,  // Probability::new(208,48) = 0.1875
+    True18False3,  // Probability::new(220,36) = 0.140625
+    True19False2,  // Probability::new(232,24) = 0.09375
+    True20False1,  // Probability::new(244,12) = 0.046875
+    True21False0,  // Probability::new(245,11) = 0.04296875
+    True0False22,  // Probability::new(11,245) = 0.95703125
+    True1False21,  // Probability::new(12,244) = 0.953125
+    True2False20,  // Probability::new(24,232) = 0.90625
+    True3False19,  // Probability::new(35,221) = 0.86328125
+    True4False18,  // Probability::new(47,209) = 0.81640625
+    True5False17,  // Probability::new(59,197) = 0.76953125
+    True6False16,  // Probability::new(70,186) = 0.7265625
+    True7False15,  // Probability::new(82,174) = 0.6796875
+    True8False14,  // Probability::new(94,162) = 0.6328125
+    True9False13,  // Probability::new(105,151) = 0.58984375
+    True10False12, // Probability::new(117,139) = 0.54296875
+    True11False11, // Probability::new(128,128) = 0.5
+    True12False10, // Probability::new(140,116) = 0.453125
+    True13False9,  // Probability::new(152,104) = 0.40625
+    True14False8,  // Probability::new(163,93) = 0.36328125
+    True15False7,  // Probability::new(175,81) = 0.31640625
+    True16False6,  // Probability::new(187,69) = 0.26953125
+    True17False5,  // Probability::new(198,58) = 0.2265625
+    True18False4,  // Probability::new(210,46) = 0.1796875
+    True19False3,  // Probability::new(222,34) = 0.1328125
+    True20False2,  // Probability::new(233,23) = 0.08984375
+    True21False1,  // Probability::new(245,11) = 0.04296875
+    True22False0,  // Probability::new(246,10) = 0.0390625
+    True0False23,  // Probability::new(11,245) = 0.95703125
+    True1False22,  // Probability::new(12,244) = 0.953125
+    True2False21,  // Probability::new(23,233) = 0.91015625
+    True3False20,  // Probability::new(34,222) = 0.8671875
+    True4False19,  // Probability::new(45,211) = 0.82421875
+    True5False18,  // Probability::new(56,200) = 0.78125
+    True6False17,  // Probability::new(67,189) = 0.73828125
+    True7False16,  // Probability::new(78,178) = 0.6953125
+    True8False15,  // Probability::new(90,166) = 0.6484375
+    True9False14,  // Probability::new(101,155) = 0.60546875
+    True10False13, // Probability::new(112,144) = 0.5625
+    True11False12, // Probability::new(123,133) = 0.51953125
+    True12False11, // Probability::new(134,122) = 0.4765625
+    True13False10, // Probability::new(145,111) = 0.43359375
+    True14False9,  // Probability::new(156,100) = 0.390625
+    True15False8,  // Probability::new(167,89) = 0.34765625
+    True16False7,  // Probability::new(179,77) = 0.30078125
+    True17False6,  // Probability::new(190,66) = 0.2578125
+    True18False5,  // Probability::new(201,55) = 0.21484375
+    True19False4,  // Probability::new(212,44) = 0.171875
+    True20False3,  // Probability::new(223,33) = 0.12890625
+    True21False2,  // Probability::new(234,22) = 0.0859375
+    True22False1,  // Probability::new(245,11) = 0.04296875
+    True23False0,  // Probability::new(246,10) = 0.0390625
+    True0False24,  // Probability::new(10,246) = 0.9609375
+    True1False23,  // Probability::new(11,245) = 0.95703125
+    True2False22,  // Probability::new(22,234) = 0.9140625
+    True3False21,  // Probability::new(32,224) = 0.875
+    True4False20,  // Probability::new(43,213) = 0.83203125
+    True5False19,  // Probability::new(54,202) = 0.7890625
+    True6False18,  // Probability::new(64,192) = 0.75
+    True7False17,  // Probability::new(75,181) = 0.70703125
+    True8False16,  // Probability::new(86,170) = 0.6640625
+    True9False15,  // Probability::new(96,160) = 0.625
+    True10False14, // Probability::new(107,149) = 0.58203125
+    True11False13, // Probability::new(118,138) = 0.5390625
+    True12False12, // Probability::new(128,128) = 0.5
+    True13False11, // Probability::new(139,117) = 0.45703125
+    True14False10, // Probability::new(150,106) = 0.4140625
+    True15False9,  // Probability::new(160,96) = 0.375
+    True16False8,  // Probability::new(171,85) = 0.33203125
+    True17False7,  // Probability::new(182,74) = 0.2890625
+    True18False6,  // Probability::new(192,64) = 0.25
+    True19False5,  // Probability::new(203,53) = 0.20703125
+    True20False4,  // Probability::new(214,42) = 0.1640625
+    True21False3,  // Probability::new(224,32) = 0.125
+    True22False2,  // Probability::new(235,21) = 0.08203125
+    True23False1,  // Probability::new(246,10) = 0.0390625
+    True24False0,  // Probability::new(247,9) = 0.03515625
+    True0False25,  // Probability::new(10,246) = 0.9609375
+    True1False24,  // Probability::new(11,245) = 0.95703125
+    True2False23,  // Probability::new(21,235) = 0.91796875
+    True3False22,  // Probability::new(31,225) = 0.87890625
+    True4False21,  // Probability::new(41,215) = 0.83984375
+    True5False20,  // Probability::new(52,204) = 0.796875
+    True6False19,  // Probability::new(62,194) = 0.7578125
+    True7False18,  // Probability::new(72,184) = 0.71875
+    True8False17,  // Probability::new(82,174) = 0.6796875
+    True9False16,  // Probability::new(93,163) = 0.63671875
+    True10False15, // Probability::new(103,153) = 0.59765625
+    True11False14, // Probability::new(113,143) = 0.55859375
+    True12False13, // Probability::new(123,133) = 0.51953125
+    True13False12, // Probability::new(134,122) = 0.4765625
+    True14False11, // Probability::new(144,112) = 0.4375
+    True15False10, // Probability::new(154,102) = 0.3984375
+    True16False9,  // Probability::new(164,92) = 0.359375
+    True17False8,  // Probability::new(175,81) = 0.31640625
+    True18False7,  // Probability::new(185,71) = 0.27734375
+    True19False6,  // Probability::new(195,61) = 0.23828125
+    True20False5,  // Probability::new(205,51) = 0.19921875
+    True21False4,  // Probability::new(216,40) = 0.15625
+    True22False3,  // Probability::new(226,30) = 0.1171875
+    True23False2,  // Probability::new(236,20) = 0.078125
+    True24False1,  // Probability::new(246,10) = 0.0390625
+    True25False0,  // Probability::new(247,9) = 0.03515625
+    True0False26,  // Probability::new(10,246) = 0.9609375
+    True1False25,  // Probability::new(10,246) = 0.9609375
+    True2False24,  // Probability::new(20,236) = 0.921875
+    True3False23,  // Probability::new(30,226) = 0.8828125
+    True4False22,  // Probability::new(40,216) = 0.84375
+    True5False21,  // Probability::new(50,206) = 0.8046875
+    True6False20,  // Probability::new(60,196) = 0.765625
+    True7False19,  // Probability::new(69,187) = 0.73046875
+    True8False18,  // Probability::new(79,177) = 0.69140625
+    True9False17,  // Probability::new(89,167) = 0.65234375
+    True10False16, // Probability::new(99,157) = 0.61328125
+    True11False15, // Probability::new(109,147) = 0.57421875
+    True12False14, // Probability::new(119,137) = 0.53515625
+    True13False13, // Probability::new(128,128) = 0.5
+    True14False12, // Probability::new(138,118) = 0.4609375
+    True15False11, // Probability::new(148,108) = 0.421875
+    True16False10, // Probability::new(158,98) = 0.3828125
+    True17False9,  // Probability::new(168,88) = 0.34375
+    True18False8,  // Probability::new(178,78) = 0.3046875
+    True19False7,  // Probability::new(188,68) = 0.265625
+    True20False6,  // Probability::new(197,59) = 0.23046875
+    True21False5,  // Probability::new(207,49) = 0.19140625
+    True22False4,  // Probability::new(217,39) = 0.15234375
+    True23False3,  // Probability::new(227,29) = 0.11328125
+    True24False2,  // Probability::new(237,19) = 0.07421875
+    True25False1,  // Probability::new(247,9) = 0.03515625
+    True26False0,  // Probability::new(247,9) = 0.03515625
+    True0False27,  // Probability::new(9,247) = 0.96484375
+    True1False26,  // Probability::new(10,246) = 0.9609375
+    True2False25,  // Probability::new(19,237) = 0.92578125
+    True3False24,  // Probability::new(29,227) = 0.88671875
+    True4False23,  // Probability::new(38,218) = 0.8515625
+    True5False22,  // Probability::new(48,208) = 0.8125
+    True6False21,  // Probability::new(57,199) = 0.77734375
+    True7False20,  // Probability::new(67,189) = 0.73828125
+    True8False19,  // Probability::new(76,180) = 0.703125
+    True9False18,  // Probability::new(86,170) = 0.6640625
+    True10False17, // Probability::new(95,161) = 0.62890625
+    True11False16, // Probability::new(105,151) = 0.58984375
+    True12False15, // Probability::new(114,142) = 0.5546875
+    True13False14, // Probability::new(124,132) = 0.515625
+    True14False13, // Probability::new(133,123) = 0.48046875
+    True15False12, // Probability::new(143,113) = 0.44140625
+    True16False11, // Probability::new(152,104) = 0.40625
+    True17False10, // Probability::new(162,94) = 0.3671875
+    True18False9,  // Probability::new(171,85) = 0.33203125
+    True19False8,  // Probability::new(181,75) = 0.29296875
+    True20False7,  // Probability::new(190,66) = 0.2578125
+    True21False6,  // Probability::new(200,56) = 0.21875
+    True22False5,  // Probability::new(209,47) = 0.18359375
+    True23False4,  // Probability::new(219,37) = 0.14453125
+    True24False3,  // Probability::new(228,28) = 0.109375
+    True25False2,  // Probability::new(238,18) = 0.0703125
+    True26False1,  // Probability::new(247,9) = 0.03515625
+    True27False0,  // Probability::new(248,8) = 0.03125
+    True0False28,  // Probability::new(9,247) = 0.96484375
+    True1False27,  // Probability::new(10,246) = 0.9609375
+    True2False26,  // Probability::new(19,237) = 0.92578125
+    True3False25,  // Probability::new(28,228) = 0.890625
+    True4False24,  // Probability::new(37,219) = 0.85546875
+    True5False23,  // Probability::new(46,210) = 0.8203125
+    True6False22,  // Probability::new(55,201) = 0.78515625
+    True7False21,  // Probability::new(64,192) = 0.75
+    True8False20,  // Probability::new(74,182) = 0.7109375
+    True9False19,  // Probability::new(83,173) = 0.67578125
+    True10False18, // Probability::new(92,164) = 0.640625
+    True11False17, // Probability::new(101,155) = 0.60546875
+    True12False16, // Probability::new(110,146) = 0.5703125
+    True13False15, // Probability::new(119,137) = 0.53515625
+    True14False14, // Probability::new(128,128) = 0.5
+    True15False13, // Probability::new(138,118) = 0.4609375
+    True16False12, // Probability::new(147,109) = 0.42578125
+    True17False11, // Probability::new(156,100) = 0.390625
+    True18False10, // Probability::new(165,91) = 0.35546875
+    True19False9,  // Probability::new(174,82) = 0.3203125
+    True20False8,  // Probability::new(183,73) = 0.28515625
+    True21False7,  // Probability::new(192,64) = 0.25
+    True22False6,  // Probability::new(202,54) = 0.2109375
+    True23False5,  // Probability::new(211,45) = 0.17578125
+    True24False4,  // Probability::new(220,36) = 0.140625
+    True25False3,  // Probability::new(229,27) = 0.10546875
+    True26False2,  // Probability::new(238,18) = 0.0703125
+    True27False1,  // Probability::new(247,9) = 0.03515625
+    True28False0,  // Probability::new(248,8) = 0.03125
+    True0False29,  // Probability::new(9,247) = 0.96484375
+    True1False28,  // Probability::new(9,247) = 0.96484375
+    True2False27,  // Probability::new(18,238) = 0.9296875
+    True3False26,  // Probability::new(27,229) = 0.89453125
+    True4False25,  // Probability::new(36,220) = 0.859375
+    True5False24,  // Probability::new(45,211) = 0.82421875
+    True6False23,  // Probability::new(53,203) = 0.79296875
+    True7False22,  // Probability::new(62,194) = 0.7578125
+    True8False21,  // Probability::new(71,185) = 0.72265625
+    True9False20,  // Probability::new(80,176) = 0.6875
+    True10False19, // Probability::new(89,167) = 0.65234375
+    True11False18, // Probability::new(98,158) = 0.6171875
+    True12False17, // Probability::new(106,150) = 0.5859375
+    True13False16, // Probability::new(115,141) = 0.55078125
+    True14False15, // Probability::new(124,132) = 0.515625
+    True15False14, // Probability::new(133,123) = 0.48046875
+    True16False13, // Probability::new(142,114) = 0.4453125
+    True17False12, // Probability::new(151,105) = 0.41015625
+    True18False11, // Probability::new(159,97) = 0.37890625
+    True19False10, // Probability::new(168,88) = 0.34375
+    True20False9,  // Probability::new(177,79) = 0.30859375
+    True21False8,  // Probability::new(186,70) = 0.2734375
+    True22False7,  // Probability::new(195,61) = 0.23828125
+    True23False6,  // Probability::new(204,52) = 0.203125
+    True24False5,  // Probability::new(212,44) = 0.171875
+    True25False4,  // Probability::new(221,35) = 0.13671875
+    True26False3,  // Probability::new(230,26) = 0.1015625
+    True27False2,  // Probability::new(239,17) = 0.06640625
+    True28False1,  // Probability::new(248,8) = 0.03125
+    True29False0,  // Probability::new(248,8) = 0.03125
+    True0False30,  // Probability::new(8,248) = 0.96875
+    True1False29,  // Probability::new(9,247) = 0.96484375
+    True2False28,  // Probability::new(18,238) = 0.9296875
+    True3False27,  // Probability::new(26,230) = 0.8984375
+    True4False26,  // Probability::new(35,221) = 0.86328125
+    True5False25,  // Probability::new(43,213) = 0.83203125
+    True6False24,  // Probability::new(52,204) = 0.796875
+    True7False23,  // Probability::new(60,196) = 0.765625
+    True8False22,  // Probability::new(69,187) = 0.73046875
+    True9False21,  // Probability::new(77,179) = 0.69921875
+    True10False20, // Probability::new(86,170) = 0.6640625
+    True11False19, // Probability::new(94,162) = 0.6328125
+    True12False18, // Probability::new(103,153) = 0.59765625
+    True13False17, // Probability::new(111,145) = 0.56640625
+    True14False16, // Probability::new(120,136) = 0.53125
+    True15False15, // Probability::new(128,128) = 0.5
+    True16False14, // Probability::new(137,119) = 0.46484375
+    True17False13, // Probability::new(146,110) = 0.4296875
+    True18False12, // Probability::new(154,102) = 0.3984375
+    True19False11, // Probability::new(163,93) = 0.36328125
+    True20False10, // Probability::new(171,85) = 0.33203125
+    True21False9,  // Probability::new(180,76) = 0.296875
+    True22False8,  // Probability::new(188,68) = 0.265625
+    True23False7,  // Probability::new(197,59) = 0.23046875
+    True24False6,  // Probability::new(205,51) = 0.19921875
+    True25False5,  // Probability::new(214,42) = 0.1640625
+    True26False4,  // Probability::new(222,34) = 0.1328125
+    True27False3,  // Probability::new(231,25) = 0.09765625
+    True28False2,  // Probability::new(239,17) = 0.06640625
+    True29False1,  // Probability::new(248,8) = 0.03125
+    True30False0,  // Probability::new(248,8) = 0.03125
+    True0False31,  // Probability::new(8,248) = 0.96875
+    True1False30,  // Probability::new(9,247) = 0.96484375
+    True2False29,  // Probability::new(17,239) = 0.93359375
+    True3False28,  // Probability::new(25,231) = 0.90234375
+    True4False27,  // Probability::new(34,222) = 0.8671875
+    True5False26,  // Probability::new(42,214) = 0.8359375
+    True6False25,  // Probability::new(50,206) = 0.8046875
+    True7False24,  // Probability::new(58,198) = 0.7734375
+    True8False23,  // Probability::new(67,189) = 0.73828125
+    True9False22,  // Probability::new(75,181) = 0.70703125
+    True10False21, // Probability::new(83,173) = 0.67578125
+    True11False20, // Probability::new(91,165) = 0.64453125
+    True12False19, // Probability::new(100,156) = 0.609375
+    True13False18, // Probability::new(108,148) = 0.578125
+    True14False17, // Probability::new(116,140) = 0.546875
+    True15False16, // Probability::new(124,132) = 0.515625
+    True16False15, // Probability::new(133,123) = 0.48046875
+    True17False14, // Probability::new(141,115) = 0.44921875
+    True18False13, // Probability::new(149,107) = 0.41796875
+    True19False12, // Probability::new(157,99) = 0.38671875
+    True20False11, // Probability::new(166,90) = 0.3515625
+    True21False10, // Probability::new(174,82) = 0.3203125
+    True22False9,  // Probability::new(182,74) = 0.2890625
+    True23False8,  // Probability::new(190,66) = 0.2578125
+    True24False7,  // Probability::new(199,57) = 0.22265625
+    True25False6,  // Probability::new(207,49) = 0.19140625
+    True26False5,  // Probability::new(215,41) = 0.16015625
+    True27False4,  // Probability::new(223,33) = 0.12890625
+    True28False3,  // Probability::new(232,24) = 0.09375
+    True29False2,  // Probability::new(240,16) = 0.0625
+    True30False1,  // Probability::new(248,8) = 0.03125
+    True31False0,  // Probability::new(249,7) = 0.02734375
+    True0False32,  // Probability::new(8,248) = 0.96875
+    True1False31,  // Probability::new(8,248) = 0.96875
+    True2False30,  // Probability::new(16,240) = 0.9375
+    True3False29,  // Probability::new(24,232) = 0.90625
+    True4False28,  // Probability::new(32,224) = 0.875
+    True5False27,  // Probability::new(40,216) = 0.84375
+    True6False26,  // Probability::new(48,208) = 0.8125
+    True7False25,  // Probability::new(56,200) = 0.78125
+    True8False24,  // Probability::new(64,192) = 0.75
+    True9False23,  // Probability::new(72,184) = 0.71875
+    True10False22, // Probability::new(80,176) = 0.6875
+    True11False21, // Probability::new(88,168) = 0.65625
+    True12False20, // Probability::new(96,160) = 0.625
+    True13False19, // Probability::new(104,152) = 0.59375
+    True14False18, // Probability::new(112,144) = 0.5625
+    True15False17, // Probability::new(120,136) = 0.53125
+    True16False16, // Probability::new(128,128) = 0.5
+    True17False15, // Probability::new(136,120) = 0.46875
+    True18False14, // Probability::new(144,112) = 0.4375
+    True19False13, // Probability::new(152,104) = 0.40625
+    True20False12, // Probability::new(160,96) = 0.375
+    True21False11, // Probability::new(168,88) = 0.34375
+    True22False10, // Probability::new(176,80) = 0.3125
+    True23False9,  // Probability::new(184,72) = 0.28125
+    True24False8,  // Probability::new(192,64) = 0.25
+    True25False7,  // Probability::new(200,56) = 0.21875
+    True26False6,  // Probability::new(208,48) = 0.1875
+    True27False5,  // Probability::new(216,40) = 0.15625
+    True28False4,  // Probability::new(224,32) = 0.125
+    True29False3,  // Probability::new(232,24) = 0.09375
+    True30False2,  // Probability::new(240,16) = 0.0625
+    True31False1,  // Probability::new(248,8) = 0.03125
+    True32False0,  // Probability::new(249,7) = 0.02734375
+    True0False33,  // Probability::new(8,248) = 0.96875
+    True1False32,  // Probability::new(8,248) = 0.96875
+    True2False31,  // Probability::new(16,240) = 0.9375
+    True3False30,  // Probability::new(24,232) = 0.90625
+    True4False29,  // Probability::new(32,224) = 0.875
+    True5False28,  // Probability::new(39,217) = 0.84765625
+    True6False27,  // Probability::new(47,209) = 0.81640625
+    True7False26,  // Probability::new(55,201) = 0.78515625
+    True8False25,  // Probability::new(63,193) = 0.75390625
+    True9False24,  // Probability::new(70,186) = 0.7265625
+    True10False23, // Probability::new(78,178) = 0.6953125
+    True11False22, // Probability::new(86,170) = 0.6640625
+    True12False21, // Probability::new(94,162) = 0.6328125
+    True13False20, // Probability::new(101,155) = 0.60546875
+    True14False19, // Probability::new(109,147) = 0.57421875
+    True15False18, // Probability::new(117,139) = 0.54296875
+    True16False17, // Probability::new(125,131) = 0.51171875
+    True17False16, // Probability::new(132,124) = 0.484375
+    True18False15, // Probability::new(140,116) = 0.453125
+    True19False14, // Probability::new(148,108) = 0.421875
+    True20False13, // Probability::new(156,100) = 0.390625
+    True21False12, // Probability::new(163,93) = 0.36328125
+    True22False11, // Probability::new(171,85) = 0.33203125
+    True23False10, // Probability::new(179,77) = 0.30078125
+    True24False9,  // Probability::new(187,69) = 0.26953125
+    True25False8,  // Probability::new(194,62) = 0.2421875
+    True26False7,  // Probability::new(202,54) = 0.2109375
+    True27False6,  // Probability::new(210,46) = 0.1796875
+    True28False5,  // Probability::new(218,38) = 0.1484375
+    True29False4,  // Probability::new(225,31) = 0.12109375
+    True30False3,  // Probability::new(233,23) = 0.08984375
+    True31False2,  // Probability::new(241,15) = 0.05859375
+    True32False1,  // Probability::new(249,7) = 0.02734375
+    True33False0,  // Probability::new(249,7) = 0.02734375
+    True0False34,  // Probability::new(8,248) = 0.96875
+    True1False33,  // Probability::new(8,248) = 0.96875
+    True2False32,  // Probability::new(16,240) = 0.9375
+    True3False31,  // Probability::new(23,233) = 0.91015625
+    True4False30,  // Probability::new(31,225) = 0.87890625
+    True5False29,  // Probability::new(38,218) = 0.8515625
+    True6False28,  // Probability::new(46,210) = 0.8203125
+    True7False27,  // Probability::new(53,203) = 0.79296875
+    True8False26,  // Probability::new(61,195) = 0.76171875
+    True9False25,  // Probability::new(68,188) = 0.734375
+    True10False24, // Probability::new(76,180) = 0.703125
+    True11False23, // Probability::new(83,173) = 0.67578125
+    True12False22, // Probability::new(91,165) = 0.64453125
+    True13False21, // Probability::new(98,158) = 0.6171875
+    True14False20, // Probability::new(106,150) = 0.5859375
+    True15False19, // Probability::new(113,143) = 0.55859375
+    True16False18, // Probability::new(121,135) = 0.52734375
+    True17False17, // Probability::new(128,128) = 0.5
+    True18False16, // Probability::new(136,120) = 0.46875
+    True19False15, // Probability::new(144,112) = 0.4375
+    True20False14, // Probability::new(151,105) = 0.41015625
+    True21False13, // Probability::new(159,97) = 0.37890625
+    True22False12, // Probability::new(166,90) = 0.3515625
+    True23False11, // Probability::new(174,82) = 0.3203125
+    True24False10, // Probability::new(181,75) = 0.29296875
+    True25False9,  // Probability::new(189,67) = 0.26171875
+    True26False8,  // Probability::new(196,60) = 0.234375
+    True27False7,  // Probability::new(204,52) = 0.203125
+    True28False6,  // Probability::new(211,45) = 0.17578125
+    True29False5,  // Probability::new(219,37) = 0.14453125
+    True30False4,  // Probability::new(226,30) = 0.1171875
+    True31False3,  // Probability::new(234,22) = 0.0859375
+    True32False2,  // Probability::new(241,15) = 0.05859375
+    True33False1,  // Probability::new(249,7) = 0.02734375
+    True34False0,  // Probability::new(249,7) = 0.02734375
+    True0False35,  // Probability::new(7,249) = 0.97265625
+    True1False34,  // Probability::new(8,248) = 0.96875
+    True2False33,  // Probability::new(15,241) = 0.94140625
+    True3False32,  // Probability::new(22,234) = 0.9140625
+    True4False31,  // Probability::new(30,226) = 0.8828125
+    True5False30,  // Probability::new(37,219) = 0.85546875
+    True6False29,  // Probability::new(44,212) = 0.828125
+    True7False28,  // Probability::new(52,204) = 0.796875
+    True8False27,  // Probability::new(59,197) = 0.76953125
+    True9False26,  // Probability::new(66,190) = 0.7421875
+    True10False25, // Probability::new(74,182) = 0.7109375
+    True11False24, // Probability::new(81,175) = 0.68359375
+    True12False23, // Probability::new(88,168) = 0.65625
+    True13False22, // Probability::new(96,160) = 0.625
+    True14False21, // Probability::new(103,153) = 0.59765625
+    True15False20, // Probability::new(110,146) = 0.5703125
+    True16False19, // Probability::new(118,138) = 0.5390625
+    True17False18, // Probability::new(125,131) = 0.51171875
+    True18False17, // Probability::new(132,124) = 0.484375
+    True19False16, // Probability::new(139,117) = 0.45703125
+    True20False15, // Probability::new(147,109) = 0.42578125
+    True21False14, // Probability::new(154,102) = 0.3984375
+    True22False13, // Probability::new(161,95) = 0.37109375
+    True23False12, // Probability::new(169,87) = 0.33984375
+    True24False11, // Probability::new(176,80) = 0.3125
+    True25False10, // Probability::new(183,73) = 0.28515625
+    True26False9,  // Probability::new(191,65) = 0.25390625
+    True27False8,  // Probability::new(198,58) = 0.2265625
+    True28False7,  // Probability::new(205,51) = 0.19921875
+    True29False6,  // Probability::new(213,43) = 0.16796875
+    True30False5,  // Probability::new(220,36) = 0.140625
+    True31False4,  // Probability::new(227,29) = 0.11328125
+    True32False3,  // Probability::new(235,21) = 0.08203125
+    True33False2,  // Probability::new(242,14) = 0.0546875
+    True34False1,  // Probability::new(249,7) = 0.02734375
+    True35False0,  // Probability::new(250,6) = 0.0234375
+    True0False36,  // Probability::new(7,249) = 0.97265625
+    True1False35,  // Probability::new(8,248) = 0.96875
+    True2False34,  // Probability::new(15,241) = 0.94140625
+    True3False33,  // Probability::new(22,234) = 0.9140625
+    True4False32,  // Probability::new(29,227) = 0.88671875
+    True5False31,  // Probability::new(36,220) = 0.859375
+    True6False30,  // Probability::new(43,213) = 0.83203125
+    True7False29,  // Probability::new(50,206) = 0.8046875
+    True8False28,  // Probability::new(57,199) = 0.77734375
+    True9False27,  // Probability::new(64,192) = 0.75
+    True10False26, // Probability::new(72,184) = 0.71875
+    True11False25, // Probability::new(79,177) = 0.69140625
+    True12False24, // Probability::new(86,170) = 0.6640625
+    True13False23, // Probability::new(93,163) = 0.63671875
+    True14False22, // Probability::new(100,156) = 0.609375
+    True15False21, // Probability::new(107,149) = 0.58203125
+    True16False20, // Probability::new(114,142) = 0.5546875
+    True17False19, // Probability::new(121,135) = 0.52734375
+    True18False18, // Probability::new(128,128) = 0.5
+    True19False17, // Probability::new(136,120) = 0.46875
+    True20False16, // Probability::new(143,113) = 0.44140625
+    True21False15, // Probability::new(150,106) = 0.4140625
+    True22False14, // Probability::new(157,99) = 0.38671875
+    True23False13, // Probability::new(164,92) = 0.359375
+    True24False12, // Probability::new(171,85) = 0.33203125
+    True25False11, // Probability::new(178,78) = 0.3046875
+    True26False10, // Probability::new(185,71) = 0.27734375
+    True27False9,  // Probability::new(192,64) = 0.25
+    True28False8,  // Probability::new(200,56) = 0.21875
+    True29False7,  // Probability::new(207,49) = 0.19140625
+    True30False6,  // Probability::new(214,42) = 0.1640625
+    True31False5,  // Probability::new(221,35) = 0.13671875
+    True32False4,  // Probability::new(228,28) = 0.109375
+    True33False3,  // Probability::new(235,21) = 0.08203125
+    True34False2,  // Probability::new(242,14) = 0.0546875
+    True35False1,  // Probability::new(249,7) = 0.02734375
+    True36False0,  // Probability::new(250,6) = 0.0234375
+    True0False37,  // Probability::new(7,249) = 0.97265625
+    True1False36,  // Probability::new(7,249) = 0.97265625
+    True2False35,  // Probability::new(14,242) = 0.9453125
+    True3False34,  // Probability::new(21,235) = 0.91796875
+    True4False33,  // Probability::new(28,228) = 0.890625
+    True5False32,  // Probability::new(35,221) = 0.86328125
+    True6False31,  // Probability::new(42,214) = 0.8359375
+    True7False30,  // Probability::new(49,207) = 0.80859375
+    True8False29,  // Probability::new(56,200) = 0.78125
+    True9False28,  // Probability::new(63,193) = 0.75390625
+    True10False27, // Probability::new(70,186) = 0.7265625
+    True11False26, // Probability::new(77,179) = 0.69921875
+    True12False25, // Probability::new(84,172) = 0.671875
+    True13False24, // Probability::new(90,166) = 0.6484375
+    True14False23, // Probability::new(97,159) = 0.62109375
+    True15False22, // Probability::new(104,152) = 0.59375
+    True16False21, // Probability::new(111,145) = 0.56640625
+    True17False20, // Probability::new(118,138) = 0.5390625
+    True18False19, // Probability::new(125,131) = 0.51171875
+    True19False18, // Probability::new(132,124) = 0.484375
+    True20False17, // Probability::new(139,117) = 0.45703125
+    True21False16, // Probability::new(146,110) = 0.4296875
+    True22False15, // Probability::new(153,103) = 0.40234375
+    True23False14, // Probability::new(160,96) = 0.375
+    True24False13, // Probability::new(167,89) = 0.34765625
+    True25False12, // Probability::new(173,83) = 0.32421875
+    True26False11, // Probability::new(180,76) = 0.296875
+    True27False10, // Probability::new(187,69) = 0.26953125
+    True28False9,  // Probability::new(194,62) = 0.2421875
+    True29False8,  // Probability::new(201,55) = 0.21484375
+    True30False7,  // Probability::new(208,48) = 0.1875
+    True31False6,  // Probability::new(215,41) = 0.16015625
+    True32False5,  // Probability::new(222,34) = 0.1328125
+    True33False4,  // Probability::new(229,27) = 0.10546875
+    True34False3,  // Probability::new(236,20) = 0.078125
+    True35False2,  // Probability::new(243,13) = 0.05078125
+    True36False1,  // Probability::new(250,6) = 0.0234375
+    True37False0,  // Probability::new(250,6) = 0.0234375
+    True0False38,  // Probability::new(7,249) = 0.97265625
+    True1False37,  // Probability::new(7,249) = 0.97265625
+    True2False36,  // Probability::new(14,242) = 0.9453125
+    True3False35,  // Probability::new(21,235) = 0.91796875
+    True4False34,  // Probability::new(27,229) = 0.89453125
+    True5False33,  // Probability::new(34,222) = 0.8671875
+    True6False32,  // Probability::new(41,215) = 0.83984375
+    True7False31,  // Probability::new(48,208) = 0.8125
+    True8False30,  // Probability::new(54,202) = 0.7890625
+    True9False29,  // Probability::new(61,195) = 0.76171875
+    True10False28, // Probability::new(68,188) = 0.734375
+    True11False27, // Probability::new(75,181) = 0.70703125
+    True12False26, // Probability::new(81,175) = 0.68359375
+    True13False25, // Probability::new(88,168) = 0.65625
+    True14False24, // Probability::new(95,161) = 0.62890625
+    True15False23, // Probability::new(102,154) = 0.6015625
+    True16False22, // Probability::new(108,148) = 0.578125
+    True17False21, // Probability::new(115,141) = 0.55078125
+    True18False20, // Probability::new(122,134) = 0.5234375
+    True19False19, // Probability::new(128,128) = 0.5
+    True20False18, // Probability::new(135,121) = 0.47265625
+    True21False17, // Probability::new(142,114) = 0.4453125
+    True22False16, // Probability::new(149,107) = 0.41796875
+    True23False15, // Probability::new(155,101) = 0.39453125
+    True24False14, // Probability::new(162,94) = 0.3671875
+    True25False13, // Probability::new(169,87) = 0.33984375
+    True26False12, // Probability::new(176,80) = 0.3125
+    True27False11, // Probability::new(182,74) = 0.2890625
+    True28False10, // Probability::new(189,67) = 0.26171875
+    True29False9,  // Probability::new(196,60) = 0.234375
+    True30False8,  // Probability::new(203,53) = 0.20703125
+    True31False7,  // Probability::new(209,47) = 0.18359375
+    True32False6,  // Probability::new(216,40) = 0.15625
+    True33False5,  // Probability::new(223,33) = 0.12890625
+    True34False4,  // Probability::new(230,26) = 0.1015625
+    True35False3,  // Probability::new(236,20) = 0.078125
+    True36False2,  // Probability::new(243,13) = 0.05078125
+    True37False1,  // Probability::new(250,6) = 0.0234375
+    True38False0,  // Probability::new(250,6) = 0.0234375
+    True0False39,  // Probability::new(7,249) = 0.97265625
+    True1False38,  // Probability::new(7,249) = 0.97265625
+    True2False37,  // Probability::new(14,242) = 0.9453125
+    True3False36,  // Probability::new(20,236) = 0.921875
+    True4False35,  // Probability::new(27,229) = 0.89453125
+    True5False34,  // Probability::new(33,223) = 0.87109375
+    True6False33,  // Probability::new(40,216) = 0.84375
+    True7False32,  // Probability::new(46,210) = 0.8203125
+    True8False31,  // Probability::new(53,203) = 0.79296875
+    True9False30,  // Probability::new(60,196) = 0.765625
+    True10False29, // Probability::new(66,190) = 0.7421875
+    True11False28, // Probability::new(73,183) = 0.71484375
+    True12False27, // Probability::new(79,177) = 0.69140625
+    True13False26, // Probability::new(86,170) = 0.6640625
+    True14False25, // Probability::new(92,164) = 0.640625
+    True15False24, // Probability::new(99,157) = 0.61328125
+    True16False23, // Probability::new(106,150) = 0.5859375
+    True17False22, // Probability::new(112,144) = 0.5625
+    True18False21, // Probability::new(119,137) = 0.53515625
+    True19False20, // Probability::new(125,131) = 0.51171875
+    True20False19, // Probability::new(132,124) = 0.484375
+    True21False18, // Probability::new(138,118) = 0.4609375
+    True22False17, // Probability::new(145,111) = 0.43359375
+    True23False16, // Probability::new(151,105) = 0.41015625
+    True24False15, // Probability::new(158,98) = 0.3828125
+    True25False14, // Probability::new(165,91) = 0.35546875
+    True26False13, // Probability::new(171,85) = 0.33203125
+    True27False12, // Probability::new(178,78) = 0.3046875
+    True28False11, // Probability::new(184,72) = 0.28125
+    True29False10, // Probability::new(191,65) = 0.25390625
+    True30False9,  // Probability::new(197,59) = 0.23046875
+    True31False8,  // Probability::new(204,52) = 0.203125
+    True32False7,  // Probability::new(211,45) = 0.17578125
+    True33False6,  // Probability::new(217,39) = 0.15234375
+    True34False5,  // Probability::new(224,32) = 0.125
+    True35False4,  // Probability::new(230,26) = 0.1015625
+    True36False3,  // Probability::new(237,19) = 0.07421875
+    True37False2,  // Probability::new(243,13) = 0.05078125
+    True38False1,  // Probability::new(250,6) = 0.0234375
+    True39False0,  // Probability::new(250,6) = 0.0234375
+    True0False40,  // Probability::new(7,249) = 0.97265625
+    True1False39,  // Probability::new(7,249) = 0.97265625
+    True2False38,  // Probability::new(13,243) = 0.94921875
+    True3False37,  // Probability::new(20,236) = 0.921875
+    True4False36,  // Probability::new(26,230) = 0.8984375
+    True5False35,  // Probability::new(32,224) = 0.875
+    True6False34,  // Probability::new(39,217) = 0.84765625
+    True7False33,  // Probability::new(45,211) = 0.82421875
+    True8False32,  // Probability::new(52,204) = 0.796875
+    True9False31,  // Probability::new(58,198) = 0.7734375
+    True10False30, // Probability::new(64,192) = 0.75
+    True11False29, // Probability::new(71,185) = 0.72265625
+    True12False28, // Probability::new(77,179) = 0.69921875
+    True13False27, // Probability::new(84,172) = 0.671875
+    True14False26, // Probability::new(90,166) = 0.6484375
+    True15False25, // Probability::new(96,160) = 0.625
+    True16False24, // Probability::new(103,153) = 0.59765625
+    True17False23, // Probability::new(109,147) = 0.57421875
+    True18False22, // Probability::new(116,140) = 0.546875
+    True19False21, // Probability::new(122,134) = 0.5234375
+    True20False20, // Probability::new(128,128) = 0.5
+    True21False19, // Probability::new(135,121) = 0.47265625
+    True22False18, // Probability::new(141,115) = 0.44921875
+    True23False17, // Probability::new(148,108) = 0.421875
+    True24False16, // Probability::new(154,102) = 0.3984375
+    True25False15, // Probability::new(160,96) = 0.375
+    True26False14, // Probability::new(167,89) = 0.34765625
+    True27False13, // Probability::new(173,83) = 0.32421875
+    True28False12, // Probability::new(180,76) = 0.296875
+    True29False11, // Probability::new(186,70) = 0.2734375
+    True30False10, // Probability::new(192,64) = 0.25
+    True31False9,  // Probability::new(199,57) = 0.22265625
+    True32False8,  // Probability::new(205,51) = 0.19921875
+    True33False7,  // Probability::new(212,44) = 0.171875
+    True34False6,  // Probability::new(218,38) = 0.1484375
+    True35False5,  // Probability::new(224,32) = 0.125
+    True36False4,  // Probability::new(231,25) = 0.09765625
+    True37False3,  // Probability::new(237,19) = 0.07421875
+    True38False2,  // Probability::new(244,12) = 0.046875
+    True39False1,  // Probability::new(250,6) = 0.0234375
+    True40False0,  // Probability::new(250,6) = 0.0234375
+    True0False41,  // Probability::new(6,250) = 0.9765625
+    True1False40,  // Probability::new(7,249) = 0.97265625
+    True2False39,  // Probability::new(13,243) = 0.94921875
+    True3False38,  // Probability::new(19,237) = 0.92578125
+    True4False37,  // Probability::new(25,231) = 0.90234375
+    True5False36,  // Probability::new(32,224) = 0.875
+    True6False35,  // Probability::new(38,218) = 0.8515625
+    True7False34,  // Probability::new(44,212) = 0.828125
+    True8False33,  // Probability::new(50,206) = 0.8046875
+    True9False32,  // Probability::new(57,199) = 0.77734375
+    True10False31, // Probability::new(63,193) = 0.75390625
+    True11False30, // Probability::new(69,187) = 0.73046875
+    True12False29, // Probability::new(75,181) = 0.70703125
+    True13False28, // Probability::new(82,174) = 0.6796875
+    True14False27, // Probability::new(88,168) = 0.65625
+    True15False26, // Probability::new(94,162) = 0.6328125
+    True16False25, // Probability::new(100,156) = 0.609375
+    True17False24, // Probability::new(107,149) = 0.58203125
+    True18False23, // Probability::new(113,143) = 0.55859375
+    True19False22, // Probability::new(119,137) = 0.53515625
+    True20False21, // Probability::new(125,131) = 0.51171875
+    True21False20, // Probability::new(132,124) = 0.484375
+    True22False19, // Probability::new(138,118) = 0.4609375
+    True23False18, // Probability::new(144,112) = 0.4375
+    True24False17, // Probability::new(150,106) = 0.4140625
+    True25False16, // Probability::new(157,99) = 0.38671875
+    True26False15, // Probability::new(163,93) = 0.36328125
+    True27False14, // Probability::new(169,87) = 0.33984375
+    True28False13, // Probability::new(175,81) = 0.31640625
+    True29False12, // Probability::new(182,74) = 0.2890625
+    True30False11, // Probability::new(188,68) = 0.265625
+    True31False10, // Probability::new(194,62) = 0.2421875
+    True32False9,  // Probability::new(200,56) = 0.21875
+    True33False8,  // Probability::new(207,49) = 0.19140625
+    True34False7,  // Probability::new(213,43) = 0.16796875
+    True35False6,  // Probability::new(219,37) = 0.14453125
+    True36False5,  // Probability::new(225,31) = 0.12109375
+    True37False4,  // Probability::new(232,24) = 0.09375
+    True38False3,  // Probability::new(238,18) = 0.0703125
+    True39False2,  // Probability::new(244,12) = 0.046875
+    True40False1,  // Probability::new(250,6) = 0.0234375
+    True41False0,  // Probability::new(251,5) = 0.01953125
+    True0False42,  // Probability::new(6,250) = 0.9765625
+    True1False41,  // Probability::new(7,249) = 0.97265625
+    True2False40,  // Probability::new(13,243) = 0.94921875
+    True3False39,  // Probability::new(19,237) = 0.92578125
+    True4False38,  // Probability::new(25,231) = 0.90234375
+    True5False37,  // Probability::new(31,225) = 0.87890625
+    True6False36,  // Probability::new(37,219) = 0.85546875
+    True7False35,  // Probability::new(43,213) = 0.83203125
+    True8False34,  // Probability::new(49,207) = 0.80859375
+    True9False33,  // Probability::new(55,201) = 0.78515625
+    True10False32, // Probability::new(61,195) = 0.76171875
+    True11False31, // Probability::new(68,188) = 0.734375
+    True12False30, // Probability::new(74,182) = 0.7109375
+    True13False29, // Probability::new(80,176) = 0.6875
+    True14False28, // Probability::new(86,170) = 0.6640625
+    True15False27, // Probability::new(92,164) = 0.640625
+    True16False26, // Probability::new(98,158) = 0.6171875
+    True17False25, // Probability::new(104,152) = 0.59375
+    True18False24, // Probability::new(110,146) = 0.5703125
+    True19False23, // Probability::new(116,140) = 0.546875
+    True20False22, // Probability::new(122,134) = 0.5234375
+    True21False21, // Probability::new(128,128) = 0.5
+    True22False20, // Probability::new(135,121) = 0.47265625
+    True23False19, // Probability::new(141,115) = 0.44921875
+    True24False18, // Probability::new(147,109) = 0.42578125
+    True25False17, // Probability::new(153,103) = 0.40234375
+    True26False16, // Probability::new(159,97) = 0.37890625
+    True27False15, // Probability::new(165,91) = 0.35546875
+    True28False14, // Probability::new(171,85) = 0.33203125
+    True29False13, // Probability::new(177,79) = 0.30859375
+    True30False12, // Probability::new(183,73) = 0.28515625
+    True31False11, // Probability::new(189,67) = 0.26171875
+    True32False10, // Probability::new(196,60) = 0.234375
+    True33False9,  // Probability::new(202,54) = 0.2109375
+    True34False8,  // Probability::new(208,48) = 0.1875
+    True35False7,  // Probability::new(214,42) = 0.1640625
+    True36False6,  // Probability::new(220,36) = 0.140625
+    True37False5,  // Probability::new(226,30) = 0.1171875
+    True38False4,  // Probability::new(232,24) = 0.09375
+    True39False3,  // Probability::new(238,18) = 0.0703125
+    True40False2,  // Probability::new(244,12) = 0.046875
+    True41False1,  // Probability::new(250,6) = 0.0234375
+    True42False0,  // Probability::new(251,5) = 0.01953125
+    True0False43,  // Probability::new(6,250) = 0.9765625
+    True1False42,  // Probability::new(6,250) = 0.9765625
+    True2False41,  // Probability::new(12,244) = 0.953125
+    True3False40,  // Probability::new(18,238) = 0.9296875
+    True4False39,  // Probability::new(24,232) = 0.90625
+    True5False38,  // Probability::new(30,226) = 0.8828125
+    True6False37,  // Probability::new(36,220) = 0.859375
+    True7False36,  // Probability::new(42,214) = 0.8359375
+    True8False35,  // Probability::new(48,208) = 0.8125
+    True9False34,  // Probability::new(54,202) = 0.7890625
+    True10False33, // Probability::new(60,196) = 0.765625
+    True11False32, // Probability::new(66,190) = 0.7421875
+    True12False31, // Probability::new(72,184) = 0.71875
+    True13False30, // Probability::new(78,178) = 0.6953125
+    True14False29, // Probability::new(84,172) = 0.671875
+    True15False28, // Probability::new(90,166) = 0.6484375
+    True16False27, // Probability::new(96,160) = 0.625
+    True17False26, // Probability::new(102,154) = 0.6015625
+    True18False25, // Probability::new(108,148) = 0.578125
+    True19False24, // Probability::new(114,142) = 0.5546875
+    True20False23, // Probability::new(120,136) = 0.53125
+    True21False22, // Probability::new(126,130) = 0.5078125
+    True22False21, // Probability::new(131,125) = 0.48828125
+    True23False20, // Probability::new(137,119) = 0.46484375
+    True24False19, // Probability::new(143,113) = 0.44140625
+    True25False18, // Probability::new(149,107) = 0.41796875
+    True26False17, // Probability::new(155,101) = 0.39453125
+    True27False16, // Probability::new(161,95) = 0.37109375
+    True28False15, // Probability::new(167,89) = 0.34765625
+    True29False14, // Probability::new(173,83) = 0.32421875
+    True30False13, // Probability::new(179,77) = 0.30078125
+    True31False12, // Probability::new(185,71) = 0.27734375
+    True32False11, // Probability::new(191,65) = 0.25390625
+    True33False10, // Probability::new(197,59) = 0.23046875
+    True34False9,  // Probability::new(203,53) = 0.20703125
+    True35False8,  // Probability::new(209,47) = 0.18359375
+    True36False7,  // Probability::new(215,41) = 0.16015625
+    True37False6,  // Probability::new(221,35) = 0.13671875
+    True38False5,  // Probability::new(227,29) = 0.11328125
+    True39False4,  // Probability::new(233,23) = 0.08984375
+    True40False3,  // Probability::new(239,17) = 0.06640625
+    True41False2,  // Probability::new(245,11) = 0.04296875
+    True42False1,  // Probability::new(251,5) = 0.01953125
+    True43False0,  // Probability::new(251,5) = 0.01953125
+    True0False44,  // Probability::new(6,250) = 0.9765625
+    True1False43,  // Probability::new(6,250) = 0.9765625
+    True2False42,  // Probability::new(12,244) = 0.953125
+    True3False41,  // Probability::new(18,238) = 0.9296875
+    True4False40,  // Probability::new(24,232) = 0.90625
+    True5False39,  // Probability::new(30,226) = 0.8828125
+    True6False38,  // Probability::new(35,221) = 0.86328125
+    True7False37,  // Probability::new(41,215) = 0.83984375
+    True8False36,  // Probability::new(47,209) = 0.81640625
+    True9False35,  // Probability::new(53,203) = 0.79296875
+    True10False34, // Probability::new(59,197) = 0.76953125
+    True11False33, // Probability::new(64,192) = 0.75
+    True12False32, // Probability::new(70,186) = 0.7265625
+    True13False31, // Probability::new(76,180) = 0.703125
+    True14False30, // Probability::new(82,174) = 0.6796875
+    True15False29, // Probability::new(88,168) = 0.65625
+    True16False28, // Probability::new(94,162) = 0.6328125
+    True17False27, // Probability::new(99,157) = 0.61328125
+    True18False26, // Probability::new(105,151) = 0.58984375
+    True19False25, // Probability::new(111,145) = 0.56640625
+    True20False24, // Probability::new(117,139) = 0.54296875
+    True21False23, // Probability::new(123,133) = 0.51953125
+    True22False22, // Probability::new(128,128) = 0.5
+    True23False21, // Probability::new(134,122) = 0.4765625
+    True24False20, // Probability::new(140,116) = 0.453125
+    True25False19, // Probability::new(146,110) = 0.4296875
+    True26False18, // Probability::new(152,104) = 0.40625
+    True27False17, // Probability::new(158,98) = 0.3828125
+    True28False16, // Probability::new(163,93) = 0.36328125
+    True29False15, // Probability::new(169,87) = 0.33984375
+    True30False14, // Probability::new(175,81) = 0.31640625
+    True31False13, // Probability::new(181,75) = 0.29296875
+    True32False12, // Probability::new(187,69) = 0.26953125
+    True33False11, // Probability::new(192,64) = 0.25
+    True34False10, // Probability::new(198,58) = 0.2265625
+    True35False9,  // Probability::new(204,52) = 0.203125
+    True36False8,  // Probability::new(210,46) = 0.1796875
+    True37False7,  // Probability::new(216,40) = 0.15625
+    True38False6,  // Probability::new(222,34) = 0.1328125
+    True39False5,  // Probability::new(227,29) = 0.11328125
+    True40False4,  // Probability::new(233,23) = 0.08984375
+    True41False3,  // Probability::new(239,17) = 0.06640625
+    True42False2,  // Probability::new(245,11) = 0.04296875
+    True43False1,  // Probability::new(251,5) = 0.01953125
+    True44False0,  // Probability::new(251,5) = 0.01953125
+    True0False45,  // Probability::new(6,250) = 0.9765625
+    True1False44,  // Probability::new(6,250) = 0.9765625
+    True2False43,  // Probability::new(12,244) = 0.953125
+    True3False42,  // Probability::new(18,238) = 0.9296875
+    True4False41,  // Probability::new(23,233) = 0.91015625
+    True5False40,  // Probability::new(29,227) = 0.88671875
+    True6False39,  // Probability::new(35,221) = 0.86328125
+    True7False38,  // Probability::new(40,216) = 0.84375
+    True8False37,  // Probability::new(46,210) = 0.8203125
+    True9False36,  // Probability::new(52,204) = 0.796875
+    True10False35, // Probability::new(57,199) = 0.77734375
+    True11False34, // Probability::new(63,193) = 0.75390625
+    True12False33, // Probability::new(69,187) = 0.73046875
+    True13False32, // Probability::new(74,182) = 0.7109375
+    True14False31, // Probability::new(80,176) = 0.6875
+    True15False30, // Probability::new(86,170) = 0.6640625
+    True16False29, // Probability::new(92,164) = 0.640625
+    True17False28, // Probability::new(97,159) = 0.62109375
+    True18False27, // Probability::new(103,153) = 0.59765625
+    True19False26, // Probability::new(109,147) = 0.57421875
+    True20False25, // Probability::new(114,142) = 0.5546875
+    True21False24, // Probability::new(120,136) = 0.53125
+    True22False23, // Probability::new(126,130) = 0.5078125
+    True23False22, // Probability::new(131,125) = 0.48828125
+    True24False21, // Probability::new(137,119) = 0.46484375
+    True25False20, // Probability::new(143,113) = 0.44140625
+    True26False19, // Probability::new(148,108) = 0.421875
+    True27False18, // Probability::new(154,102) = 0.3984375
+    True28False17, // Probability::new(160,96) = 0.375
+    True29False16, // Probability::new(165,91) = 0.35546875
+    True30False15, // Probability::new(171,85) = 0.33203125
+    True31False14, // Probability::new(177,79) = 0.30859375
+    True32False13, // Probability::new(183,73) = 0.28515625
+    True33False12, // Probability::new(188,68) = 0.265625
+    True34False11, // Probability::new(194,62) = 0.2421875
+    True35False10, // Probability::new(200,56) = 0.21875
+    True36False9,  // Probability::new(205,51) = 0.19921875
+    True37False8,  // Probability::new(211,45) = 0.17578125
+    True38False7,  // Probability::new(217,39) = 0.15234375
+    True39False6,  // Probability::new(222,34) = 0.1328125
+    True40False5,  // Probability::new(228,28) = 0.109375
+    True41False4,  // Probability::new(234,22) = 0.0859375
+    True42False3,  // Probability::new(239,17) = 0.06640625
+    True43False2,  // Probability::new(245,11) = 0.04296875
+    True44False1,  // Probability::new(251,5) = 0.01953125
+    True45False0,  // Probability::new(251,5) = 0.01953125
+    True0False46,  // Probability::new(6,250) = 0.9765625
+    True1False45,  // Probability::new(6,250) = 0.9765625
+    True2False44,  // Probability::new(12,244) = 0.953125
+    True3False43,  // Probability::new(17,239) = 0.93359375
+    True4False42,  // Probability::new(23,233) = 0.91015625
+    True5False41,  // Probability::new(28,228) = 0.890625
+    True6False40,  // Probability::new(34,222) = 0.8671875
+    True7False39,  // Probability::new(39,217) = 0.84765625
+    True8False38,  // Probability::new(45,211) = 0.82421875
+    True9False37,  // Probability::new(51,205) = 0.80078125
+    True10False36, // Probability::new(56,200) = 0.78125
+    True11False35, // Probability::new(62,194) = 0.7578125
+    True12False34, // Probability::new(67,189) = 0.73828125
+    True13False33, // Probability::new(73,183) = 0.71484375
+    True14False32, // Probability::new(78,178) = 0.6953125
+    True15False31, // Probability::new(84,172) = 0.671875
+    True16False30, // Probability::new(90,166) = 0.6484375
+    True17False29, // Probability::new(95,161) = 0.62890625
+    True18False28, // Probability::new(101,155) = 0.60546875
+    True19False27, // Probability::new(106,150) = 0.5859375
+    True20False26, // Probability::new(112,144) = 0.5625
+    True21False25, // Probability::new(117,139) = 0.54296875
+    True22False24, // Probability::new(123,133) = 0.51953125
+    True23False23, // Probability::new(128,128) = 0.5
+    True24False22, // Probability::new(134,122) = 0.4765625
+    True25False21, // Probability::new(140,116) = 0.453125
+    True26False20, // Probability::new(145,111) = 0.43359375
+    True27False19, // Probability::new(151,105) = 0.41015625
+    True28False18, // Probability::new(156,100) = 0.390625
+    True29False17, // Probability::new(162,94) = 0.3671875
+    True30False16, // Probability::new(167,89) = 0.34765625
+    True31False15, // Probability::new(173,83) = 0.32421875
+    True32False14, // Probability::new(179,77) = 0.30078125
+    True33False13, // Probability::new(184,72) = 0.28125
+    True34False12, // Probability::new(190,66) = 0.2578125
+    True35False11, // Probability::new(195,61) = 0.23828125
+    True36False10, // Probability::new(201,55) = 0.21484375
+    True37False9,  // Probability::new(206,50) = 0.1953125
+    True38False8,  // Probability::new(212,44) = 0.171875
+    True39False7,  // Probability::new(218,38) = 0.1484375
+    True40False6,  // Probability::new(223,33) = 0.12890625
+    True41False5,  // Probability::new(229,27) = 0.10546875
+    True42False4,  // Probability::new(234,22) = 0.0859375
+    True43False3,  // Probability::new(240,16) = 0.0625
+    True44False2,  // Probability::new(245,11) = 0.04296875
+    True45False1,  // Probability::new(251,5) = 0.01953125
+    True46False0,  // Probability::new(251,5) = 0.01953125
+    True0False47,  // Probability::new(6,250) = 0.9765625
+    True1False46,  // Probability::new(6,250) = 0.9765625
+    True2False45,  // Probability::new(11,245) = 0.95703125
+    True3False44,  // Probability::new(17,239) = 0.93359375
+    True4False43,  // Probability::new(22,234) = 0.9140625
+    True5False42,  // Probability::new(28,228) = 0.890625
+    True6False41,  // Probability::new(33,223) = 0.87109375
+    True7False40,  // Probability::new(39,217) = 0.84765625
+    True8False39,  // Probability::new(44,212) = 0.828125
+    True9False38,  // Probability::new(50,206) = 0.8046875
+    True10False37, // Probability::new(55,201) = 0.78515625
+    True11False36, // Probability::new(60,196) = 0.765625
+    True12False35, // Probability::new(66,190) = 0.7421875
+    True13False34, // Probability::new(71,185) = 0.72265625
+    True14False33, // Probability::new(77,179) = 0.69921875
+    True15False32, // Probability::new(82,174) = 0.6796875
+    True16False31, // Probability::new(88,168) = 0.65625
+    True17False30, // Probability::new(93,163) = 0.63671875
+    True18False29, // Probability::new(99,157) = 0.61328125
+    True19False28, // Probability::new(104,152) = 0.59375
+    True20False27, // Probability::new(109,147) = 0.57421875
+    True21False26, // Probability::new(115,141) = 0.55078125
+    True22False25, // Probability::new(120,136) = 0.53125
+    True23False24, // Probability::new(126,130) = 0.5078125
+    True24False23, // Probability::new(131,125) = 0.48828125
+    True25False22, // Probability::new(137,119) = 0.46484375
+    True26False21, // Probability::new(142,114) = 0.4453125
+    True27False20, // Probability::new(148,108) = 0.421875
+    True28False19, // Probability::new(153,103) = 0.40234375
+    True29False18, // Probability::new(158,98) = 0.3828125
+    True30False17, // Probability::new(164,92) = 0.359375
+    True31False16, // Probability::new(169,87) = 0.33984375
+    True32False15, // Probability::new(175,81) = 0.31640625
+    True33False14, // Probability::new(180,76) = 0.296875
+    True34False13, // Probability::new(186,70) = 0.2734375
+    True35False12, // Probability::new(191,65) = 0.25390625
+    True36False11, // Probability::new(197,59) = 0.23046875
+    True37False10, // Probability::new(202,54) = 0.2109375
+    True38False9,  // Probability::new(207,49) = 0.19140625
+    True39False8,  // Probability::new(213,43) = 0.16796875
+    True40False7,  // Probability::new(218,38) = 0.1484375
+    True41False6,  // Probability::new(224,32) = 0.125
+    True42False5,  // Probability::new(229,27) = 0.10546875
+    True43False4,  // Probability::new(235,21) = 0.08203125
+    True44False3,  // Probability::new(240,16) = 0.0625
+    True45False2,  // Probability::new(246,10) = 0.0390625
+    True46False1,  // Probability::new(251,5) = 0.01953125
+    True47False0,  // Probability::new(251,5) = 0.01953125
+    True0False48,  // Probability::new(6,250) = 0.9765625
+    True1False47,  // Probability::new(6,250) = 0.9765625
+    True2False46,  // Probability::new(11,245) = 0.95703125
+    True3False45,  // Probability::new(16,240) = 0.9375
+    True4False44,  // Probability::new(22,234) = 0.9140625
+    True5False43,  // Probability::new(27,229) = 0.89453125
+    True6False42,  // Probability::new(32,224) = 0.875
+    True7False41,  // Probability::new(38,218) = 0.8515625
+    True8False40,  // Probability::new(43,213) = 0.83203125
+    True9False39,  // Probability::new(48,208) = 0.8125
+    True10False38, // Probability::new(54,202) = 0.7890625
+    True11False37, // Probability::new(59,197) = 0.76953125
+    True12False36, // Probability::new(64,192) = 0.75
+    True13False35, // Probability::new(70,186) = 0.7265625
+    True14False34, // Probability::new(75,181) = 0.70703125
+    True15False33, // Probability::new(80,176) = 0.6875
+    True16False32, // Probability::new(86,170) = 0.6640625
+    True17False31, // Probability::new(91,165) = 0.64453125
+    True18False30, // Probability::new(96,160) = 0.625
+    True19False29, // Probability::new(102,154) = 0.6015625
+    True20False28, // Probability::new(107,149) = 0.58203125
+    True21False27, // Probability::new(112,144) = 0.5625
+    True22False26, // Probability::new(118,138) = 0.5390625
+    True23False25, // Probability::new(123,133) = 0.51953125
+    True24False24, // Probability::new(128,128) = 0.5
+    True25False23, // Probability::new(134,122) = 0.4765625
+    True26False22, // Probability::new(139,117) = 0.45703125
+    True27False21, // Probability::new(144,112) = 0.4375
+    True28False20, // Probability::new(150,106) = 0.4140625
+    True29False19, // Probability::new(155,101) = 0.39453125
+    True30False18, // Probability::new(160,96) = 0.375
+    True31False17, // Probability::new(166,90) = 0.3515625
+    True32False16, // Probability::new(171,85) = 0.33203125
+    True33False15, // Probability::new(176,80) = 0.3125
+    True34False14, // Probability::new(182,74) = 0.2890625
+    True35False13, // Probability::new(187,69) = 0.26953125
+    True36False12, // Probability::new(192,64) = 0.25
+    True37False11, // Probability::new(198,58) = 0.2265625
+    True38False10, // Probability::new(203,53) = 0.20703125
+    True39False9,  // Probability::new(208,48) = 0.1875
+    True40False8,  // Probability::new(214,42) = 0.1640625
+    True41False7,  // Probability::new(219,37) = 0.14453125
+    True42False6,  // Probability::new(224,32) = 0.125
+    True43False5,  // Probability::new(230,26) = 0.1015625
+    True44False4,  // Probability::new(235,21) = 0.08203125
+    True45False3,  // Probability::new(240,16) = 0.0625
+    True46False2,  // Probability::new(246,10) = 0.0390625
+    True47False1,  // Probability::new(251,5) = 0.01953125
+    True48False0,  // Probability::new(251,5) = 0.01953125
+    True0False49,  // Probability::new(6,250) = 0.9765625
+    True1False48,  // Probability::new(6,250) = 0.9765625
+    True2False47,  // Probability::new(11,245) = 0.95703125
+    True3False46,  // Probability::new(16,240) = 0.9375
+    True4False45,  // Probability::new(21,235) = 0.91796875
+    True5False44,  // Probability::new(27,229) = 0.89453125
+    True6False43,  // Probability::new(32,224) = 0.875
+    True7False42,  // Probability::new(37,219) = 0.85546875
+    True8False41,  // Probability::new(42,214) = 0.8359375
+    True9False40,  // Probability::new(48,208) = 0.8125
+    True10False39, // Probability::new(53,203) = 0.79296875
+    True11False38, // Probability::new(58,198) = 0.7734375
+    True12False37, // Probability::new(63,193) = 0.75390625
+    True13False36, // Probability::new(68,188) = 0.734375
+    True14False35, // Probability::new(74,182) = 0.7109375
+    True15False34, // Probability::new(79,177) = 0.69140625
+    True16False33, // Probability::new(84,172) = 0.671875
+    True17False32, // Probability::new(89,167) = 0.65234375
+    True18False31, // Probability::new(95,161) = 0.62890625
+    True19False30, // Probability::new(100,156) = 0.609375
+    True20False29, // Probability::new(105,151) = 0.58984375
+    True21False28, // Probability::new(110,146) = 0.5703125
+    True22False27, // Probability::new(115,141) = 0.55078125
+    True23False26, // Probability::new(121,135) = 0.52734375
+    True24False25, // Probability::new(126,130) = 0.5078125
+    True25False24, // Probability::new(131,125) = 0.48828125
+    True26False23, // Probability::new(136,120) = 0.46875
+    True27False22, // Probability::new(142,114) = 0.4453125
+    True28False21, // Probability::new(147,109) = 0.42578125
+    True29False20, // Probability::new(152,104) = 0.40625
+    True30False19, // Probability::new(157,99) = 0.38671875
+    True31False18, // Probability::new(162,94) = 0.3671875
+    True32False17, // Probability::new(168,88) = 0.34375
+    True33False16, // Probability::new(173,83) = 0.32421875
+    True34False15, // Probability::new(178,78) = 0.3046875
+    True35False14, // Probability::new(183,73) = 0.28515625
+    True36False13, // Probability::new(189,67) = 0.26171875
+    True37False12, // Probability::new(194,62) = 0.2421875
+    True38False11, // Probability::new(199,57) = 0.22265625
+    True39False10, // Probability::new(204,52) = 0.203125
+    True40False9,  // Probability::new(209,47) = 0.18359375
+    True41False8,  // Probability::new(215,41) = 0.16015625
+    True42False7,  // Probability::new(220,36) = 0.140625
+    True43False6,  // Probability::new(225,31) = 0.12109375
+    True44False5,  // Probability::new(230,26) = 0.1015625
+    True45False4,  // Probability::new(236,20) = 0.078125
+    True46False3,  // Probability::new(241,15) = 0.05859375
+    True47False2,  // Probability::new(246,10) = 0.0390625
+    True48False1,  // Probability::new(251,5) = 0.01953125
+    True49False0,  // Probability::new(251,5) = 0.01953125
 }
 use BitContext::*;
 
@@ -1286,2484 +1286,1281 @@ impl BitContext {
     #[inline]
     pub fn probability(self) -> Probability {
         const LOOKUP: [Probability; 1275] = [
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 51, shift: 6 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 51, shift: 8 },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 21, shift: 7 },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 1, shift: 3 },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability { prob: 91, shift: 7 },
-            Probability { prob: 73, shift: 7 },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 7, shift: 6 },
-            Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 5, shift: 3 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 25, shift: 8 },
-            Probability { prob: 29, shift: 5 },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 71, shift: 7 },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 7, shift: 6 },
-            Probability { prob: 23, shift: 8 },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 25, shift: 8 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 59, shift: 6 },
-            Probability { prob: 29, shift: 5 },
-            Probability {
-                prob: 209,
-                shift: 8,
-            },
-            Probability { prob: 93, shift: 7 },
-            Probability { prob: 81, shift: 7 },
-            Probability {
-                prob: 139,
-                shift: 8,
-            },
-            Probability { prob: 29, shift: 6 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 23, shift: 7 },
-            Probability { prob: 23, shift: 8 },
-            Probability { prob: 19, shift: 8 },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 85, shift: 7 },
-            Probability {
-                prob: 149,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 53, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 9, shift: 7 },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability { prob: 59, shift: 6 },
-            Probability { prob: 27, shift: 5 },
-            Probability { prob: 49, shift: 6 },
-            Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Probability { prob: 59, shift: 7 },
-            Probability { prob: 49, shift: 7 },
-            Probability { prob: 39, shift: 7 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 39, shift: 8 },
-            Probability { prob: 19, shift: 8 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Probability { prob: 91, shift: 7 },
-            Probability { prob: 41, shift: 6 },
-            Probability { prob: 73, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 91, shift: 8 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 27, shift: 7 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 9, shift: 7 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability { prob: 17, shift: 5 },
-            Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 17, shift: 6 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 15, shift: 8 },
-            Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Probability { prob: 15, shift: 4 },
-            Probability { prob: 7, shift: 3 },
-            Probability { prob: 13, shift: 4 },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 11, shift: 4 },
-            Probability { prob: 5, shift: 3 },
-            Probability { prob: 9, shift: 4 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 7, shift: 4 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 7, shift: 7 },
-            Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 225,
-                shift: 8,
-            },
-            Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Probability { prob: 45, shift: 6 },
-            Probability {
-                prob: 165,
-                shift: 8,
-            },
-            Probability { prob: 75, shift: 7 },
-            Probability {
-                prob: 135,
-                shift: 8,
-            },
-            Probability { prob: 15, shift: 5 },
-            Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Probability { prob: 45, shift: 7 },
-            Probability { prob: 75, shift: 8 },
-            Probability { prob: 15, shift: 6 },
-            Probability { prob: 45, shift: 8 },
-            Probability { prob: 15, shift: 7 },
-            Probability { prob: 15, shift: 8 },
-            Probability { prob: 13, shift: 8 },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability { prob: 23, shift: 5 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 39, shift: 6 },
-            Probability { prob: 71, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability { prob: 99, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 71, shift: 8 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 7, shift: 6 },
-            Probability { prob: 7, shift: 7 },
-            Probability { prob: 3, shift: 6 },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability {
-                prob: 215,
-                shift: 8,
-            },
-            Probability {
-                prob: 101,
-                shift: 7,
-            },
-            Probability { prob: 47, shift: 6 },
-            Probability {
-                prob: 175,
-                shift: 8,
-            },
-            Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Probability { prob: 37, shift: 6 },
-            Probability { prob: 67, shift: 7 },
-            Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Probability {
-                prob: 107,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 7 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 67, shift: 8 },
-            Probability { prob: 53, shift: 8 },
-            Probability { prob: 5, shift: 5 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 13, shift: 8 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Probability {
-                prob: 217,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability { prob: 3, shift: 2 },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability { prob: 83, shift: 7 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability { prob: 35, shift: 6 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 115,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 19, shift: 7 },
-            Probability { prob: 25, shift: 8 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 231,
-                shift: 8,
-            },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability {
-                prob: 207,
-                shift: 8,
-            },
-            Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Probability { prob: 91, shift: 7 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 79, shift: 7 },
-            Probability { prob: 73, shift: 7 },
-            Probability { prob: 67, shift: 7 },
-            Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 97, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 15, shift: 6 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 3, shift: 5 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 11, shift: 8 },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability { prob: 29, shift: 5 },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability {
-                prob: 209,
-                shift: 8,
-            },
-            Probability {
-                prob: 197,
-                shift: 8,
-            },
-            Probability { prob: 93, shift: 7 },
-            Probability { prob: 87, shift: 7 },
-            Probability { prob: 81, shift: 7 },
-            Probability {
-                prob: 151,
-                shift: 8,
-            },
-            Probability {
-                prob: 139,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 29, shift: 6 },
-            Probability { prob: 13, shift: 5 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 81, shift: 8 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 29, shift: 7 },
-            Probability { prob: 23, shift: 7 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 23, shift: 8 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 7 },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 233,
-                shift: 8,
-            },
-            Probability {
-                prob: 111,
-                shift: 7,
-            },
-            Probability {
-                prob: 211,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 5 },
-            Probability {
-                prob: 189,
-                shift: 8,
-            },
-            Probability { prob: 89, shift: 7 },
-            Probability { prob: 83, shift: 7 },
-            Probability {
-                prob: 155,
-                shift: 8,
-            },
-            Probability { prob: 9, shift: 4 },
-            Probability {
-                prob: 133,
-                shift: 8,
-            },
-            Probability { prob: 61, shift: 7 },
-            Probability {
-                prob: 111,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 6 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 77, shift: 8 },
-            Probability { prob: 33, shift: 7 },
-            Probability { prob: 55, shift: 8 },
-            Probability { prob: 11, shift: 6 },
-            Probability { prob: 33, shift: 8 },
-            Probability { prob: 11, shift: 7 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 7 },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability {
-                prob: 101,
-                shift: 7,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability {
-                prob: 181,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 5, shift: 3 },
-            Probability {
-                prob: 149,
-                shift: 8,
-            },
-            Probability { prob: 69, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 117,
-                shift: 8,
-            },
-            Probability { prob: 53, shift: 7 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 37, shift: 7 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 53, shift: 8 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 5, shift: 7 },
-            Probability { prob: 9, shift: 8 },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability {
-                prob: 235,
-                shift: 8,
-            },
-            Probability {
-                prob: 225,
-                shift: 8,
-            },
-            Probability {
-                prob: 215,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability { prob: 97, shift: 7 },
-            Probability { prob: 23, shift: 5 },
-            Probability { prob: 87, shift: 7 },
-            Probability {
-                prob: 163,
-                shift: 8,
-            },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability {
-                prob: 143,
-                shift: 8,
-            },
-            Probability {
-                prob: 133,
-                shift: 8,
-            },
-            Probability { prob: 61, shift: 7 },
-            Probability { prob: 7, shift: 4 },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 23, shift: 6 },
-            Probability { prob: 81, shift: 8 },
-            Probability { prob: 71, shift: 8 },
-            Probability { prob: 61, shift: 8 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 5, shift: 5 },
-            Probability { prob: 15, shift: 7 },
-            Probability { prob: 5, shift: 6 },
-            Probability { prob: 5, shift: 7 },
-            Probability { prob: 9, shift: 8 },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability { prob: 59, shift: 6 },
-            Probability {
-                prob: 113,
-                shift: 7,
-            },
-            Probability { prob: 27, shift: 5 },
-            Probability {
-                prob: 103,
-                shift: 7,
-            },
-            Probability { prob: 49, shift: 6 },
-            Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Probability {
-                prob: 167,
-                shift: 8,
-            },
-            Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Probability {
-                prob: 147,
-                shift: 8,
-            },
-            Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 59, shift: 7 },
-            Probability { prob: 27, shift: 6 },
-            Probability { prob: 49, shift: 7 },
-            Probability { prob: 11, shift: 5 },
-            Probability { prob: 39, shift: 7 },
-            Probability { prob: 17, shift: 6 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 49, shift: 8 },
-            Probability { prob: 39, shift: 8 },
-            Probability { prob: 29, shift: 8 },
-            Probability { prob: 19, shift: 8 },
-            Probability { prob: 9, shift: 8 },
-            Probability { prob: 9, shift: 8 },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability {
-                prob: 109,
-                shift: 7,
-            },
-            Probability { prob: 13, shift: 4 },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability {
-                prob: 189,
-                shift: 8,
-            },
-            Probability { prob: 45, shift: 6 },
-            Probability { prob: 85, shift: 7 },
-            Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Probability {
-                prob: 151,
-                shift: 8,
-            },
-            Probability { prob: 71, shift: 7 },
-            Probability { prob: 33, shift: 6 },
-            Probability {
-                prob: 123,
-                shift: 8,
-            },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability { prob: 13, shift: 5 },
-            Probability { prob: 47, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 75, shift: 8 },
-            Probability { prob: 33, shift: 7 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 47, shift: 8 },
-            Probability { prob: 37, shift: 8 },
-            Probability { prob: 7, shift: 6 },
-            Probability { prob: 9, shift: 7 },
-            Probability { prob: 9, shift: 8 },
-            Probability { prob: 1, shift: 5 },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 123,
-                shift: 7,
-            },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 6 },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 91, shift: 7 },
-            Probability {
-                prob: 173,
-                shift: 8,
-            },
-            Probability { prob: 41, shift: 6 },
-            Probability {
-                prob: 155,
-                shift: 8,
-            },
-            Probability { prob: 73, shift: 7 },
-            Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 59, shift: 7 },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 6 },
-            Probability { prob: 91, shift: 8 },
-            Probability { prob: 41, shift: 7 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 27, shift: 7 },
-            Probability { prob: 45, shift: 8 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 27, shift: 8 },
-            Probability { prob: 9, shift: 7 },
-            Probability { prob: 9, shift: 8 },
-            Probability { prob: 1, shift: 5 },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability { prob: 55, shift: 6 },
-            Probability {
-                prob: 211,
-                shift: 8,
-            },
-            Probability {
-                prob: 203,
-                shift: 8,
-            },
-            Probability { prob: 97, shift: 7 },
-            Probability {
-                prob: 185,
-                shift: 8,
-            },
-            Probability { prob: 11, shift: 4 },
-            Probability {
-                prob: 167,
-                shift: 8,
-            },
-            Probability { prob: 79, shift: 7 },
-            Probability { prob: 75, shift: 7 },
-            Probability {
-                prob: 141,
-                shift: 8,
-            },
-            Probability { prob: 33, shift: 6 },
-            Probability {
-                prob: 123,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 7 },
-            Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Probability { prob: 97, shift: 8 },
-            Probability { prob: 11, shift: 5 },
-            Probability { prob: 79, shift: 8 },
-            Probability { prob: 35, shift: 7 },
-            Probability { prob: 61, shift: 8 },
-            Probability { prob: 13, shift: 6 },
-            Probability { prob: 11, shift: 6 },
-            Probability { prob: 35, shift: 8 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 31, shift: 5 },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability { prob: 49, shift: 6 },
-            Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 81, shift: 7 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability {
-                prob: 145,
-                shift: 8,
-            },
-            Probability { prob: 17, shift: 5 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Probability { prob: 55, shift: 7 },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 17, shift: 6 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 25, shift: 8 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 31, shift: 5 },
-            Probability {
-                prob: 247,
-                shift: 8,
-            },
-            Probability {
-                prob: 239,
-                shift: 8,
-            },
-            Probability {
-                prob: 231,
-                shift: 8,
-            },
-            Probability {
-                prob: 111,
-                shift: 7,
-            },
-            Probability {
-                prob: 107,
-                shift: 7,
-            },
-            Probability {
-                prob: 103,
-                shift: 7,
-            },
-            Probability { prob: 99, shift: 7 },
-            Probability {
-                prob: 189,
-                shift: 8,
-            },
-            Probability {
-                prob: 181,
-                shift: 8,
-            },
-            Probability {
-                prob: 173,
-                shift: 8,
-            },
-            Probability {
-                prob: 165,
-                shift: 8,
-            },
-            Probability { prob: 39, shift: 6 },
-            Probability { prob: 37, shift: 6 },
-            Probability { prob: 35, shift: 6 },
-            Probability { prob: 33, shift: 6 },
-            Probability {
-                prob: 123,
-                shift: 8,
-            },
-            Probability {
-                prob: 115,
-                shift: 8,
-            },
-            Probability {
-                prob: 107,
-                shift: 8,
-            },
-            Probability { prob: 99, shift: 8 },
-            Probability { prob: 45, shift: 7 },
-            Probability { prob: 41, shift: 7 },
-            Probability { prob: 37, shift: 7 },
-            Probability { prob: 33, shift: 7 },
-            Probability { prob: 57, shift: 8 },
-            Probability { prob: 49, shift: 8 },
-            Probability { prob: 41, shift: 8 },
-            Probability { prob: 33, shift: 8 },
-            Probability { prob: 3, shift: 5 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 15, shift: 4 },
-            Probability { prob: 29, shift: 5 },
-            Probability { prob: 7, shift: 3 },
-            Probability { prob: 27, shift: 5 },
-            Probability { prob: 13, shift: 4 },
-            Probability { prob: 25, shift: 5 },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 23, shift: 5 },
-            Probability { prob: 11, shift: 4 },
-            Probability { prob: 21, shift: 5 },
-            Probability { prob: 5, shift: 3 },
-            Probability { prob: 19, shift: 5 },
-            Probability { prob: 9, shift: 4 },
-            Probability { prob: 17, shift: 5 },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 15, shift: 5 },
-            Probability { prob: 7, shift: 4 },
-            Probability { prob: 13, shift: 5 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 11, shift: 5 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 9, shift: 5 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 5, shift: 5 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 3, shift: 5 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 1, shift: 5 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 15, shift: 4 },
-            Probability { prob: 29, shift: 5 },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 217,
-                shift: 8,
-            },
-            Probability {
-                prob: 209,
-                shift: 8,
-            },
-            Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Probability {
-                prob: 193,
-                shift: 8,
-            },
-            Probability { prob: 93, shift: 7 },
-            Probability { prob: 89, shift: 7 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 81, shift: 7 },
-            Probability {
-                prob: 155,
-                shift: 8,
-            },
-            Probability {
-                prob: 147,
-                shift: 8,
-            },
-            Probability {
-                prob: 139,
-                shift: 8,
-            },
-            Probability {
-                prob: 131,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 6 },
-            Probability { prob: 29, shift: 6 },
-            Probability { prob: 27, shift: 6 },
-            Probability { prob: 25, shift: 6 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 77, shift: 8 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 31, shift: 7 },
-            Probability { prob: 27, shift: 7 },
-            Probability { prob: 23, shift: 7 },
-            Probability { prob: 19, shift: 7 },
-            Probability { prob: 31, shift: 8 },
-            Probability { prob: 23, shift: 8 },
-            Probability { prob: 15, shift: 8 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 31, shift: 5 },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 233,
-                shift: 8,
-            },
-            Probability {
-                prob: 225,
-                shift: 8,
-            },
-            Probability {
-                prob: 109,
-                shift: 7,
-            },
-            Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Probability {
-                prob: 203,
-                shift: 8,
-            },
-            Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 6 },
-            Probability { prob: 45, shift: 6 },
-            Probability {
-                prob: 173,
-                shift: 8,
-            },
-            Probability {
-                prob: 165,
-                shift: 8,
-            },
-            Probability { prob: 79, shift: 7 },
-            Probability { prob: 75, shift: 7 },
-            Probability {
-                prob: 143,
-                shift: 8,
-            },
-            Probability {
-                prob: 135,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 15, shift: 5 },
-            Probability { prob: 7, shift: 4 },
-            Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Probability { prob: 97, shift: 8 },
-            Probability { prob: 45, shift: 7 },
-            Probability { prob: 41, shift: 7 },
-            Probability { prob: 75, shift: 8 },
-            Probability { prob: 67, shift: 8 },
-            Probability { prob: 15, shift: 6 },
-            Probability { prob: 13, shift: 6 },
-            Probability { prob: 45, shift: 8 },
-            Probability { prob: 37, shift: 8 },
-            Probability { prob: 15, shift: 7 },
-            Probability { prob: 11, shift: 7 },
-            Probability { prob: 15, shift: 8 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 7, shift: 8 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 5 },
-            Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability {
-                prob: 113,
-                shift: 7,
-            },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability { prob: 53, shift: 6 },
-            Probability { prob: 51, shift: 6 },
-            Probability {
-                prob: 197,
-                shift: 8,
-            },
-            Probability { prob: 95, shift: 7 },
-            Probability { prob: 91, shift: 7 },
-            Probability {
-                prob: 175,
-                shift: 8,
-            },
-            Probability { prob: 21, shift: 5 },
-            Probability { prob: 5, shift: 3 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability { prob: 73, shift: 7 },
-            Probability { prob: 69, shift: 7 },
-            Probability {
-                prob: 131,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 6 },
-            Probability {
-                prob: 117,
-                shift: 8,
-            },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 95, shift: 8 },
-            Probability { prob: 87, shift: 8 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 65, shift: 8 },
-            Probability { prob: 29, shift: 7 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 43, shift: 8 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 29, shift: 8 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 7, shift: 7 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 5 },
-            Probability {
-                prob: 241,
-                shift: 8,
-            },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability { prob: 55, shift: 6 },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability {
-                prob: 103,
-                shift: 7,
-            },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 23, shift: 5 },
-            Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability {
-                prob: 163,
-                shift: 8,
-            },
-            Probability { prob: 39, shift: 6 },
-            Probability {
-                prob: 149,
-                shift: 8,
-            },
-            Probability { prob: 71, shift: 7 },
-            Probability {
-                prob: 135,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 15, shift: 5 },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability { prob: 53, shift: 7 },
-            Probability { prob: 99, shift: 8 },
-            Probability { prob: 23, shift: 6 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 39, shift: 7 },
-            Probability { prob: 71, shift: 8 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 49, shift: 8 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 35, shift: 8 },
-            Probability { prob: 7, shift: 6 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 7, shift: 7 },
-            Probability { prob: 7, shift: 8 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Probability {
-                prob: 235,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 6 },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability {
-                prob: 107,
-                shift: 7,
-            },
-            Probability {
-                prob: 207,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 5 },
-            Probability {
-                prob: 193,
-                shift: 8,
-            },
-            Probability { prob: 93, shift: 7 },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability { prob: 43, shift: 6 },
-            Probability { prob: 83, shift: 7 },
-            Probability {
-                prob: 159,
-                shift: 8,
-            },
-            Probability { prob: 19, shift: 5 },
-            Probability {
-                prob: 145,
-                shift: 8,
-            },
-            Probability { prob: 69, shift: 7 },
-            Probability {
-                prob: 131,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 6 },
-            Probability {
-                prob: 117,
-                shift: 8,
-            },
-            Probability { prob: 55, shift: 7 },
-            Probability {
-                prob: 103,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 83, shift: 8 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 31, shift: 7 },
-            Probability { prob: 55, shift: 8 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 41, shift: 8 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 27, shift: 8 },
-            Probability { prob: 5, shift: 6 },
-            Probability { prob: 13, shift: 8 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Probability {
-                prob: 235,
-                shift: 8,
-            },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability {
-                prob: 111,
-                shift: 7,
-            },
-            Probability {
-                prob: 215,
-                shift: 8,
-            },
-            Probability { prob: 13, shift: 4 },
-            Probability {
-                prob: 101,
-                shift: 7,
-            },
-            Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 6 },
-            Probability {
-                prob: 181,
-                shift: 8,
-            },
-            Probability {
-                prob: 175,
-                shift: 8,
-            },
-            Probability { prob: 21, shift: 5 },
-            Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Probability { prob: 77, shift: 7 },
-            Probability { prob: 37, shift: 6 },
-            Probability {
-                prob: 141,
-                shift: 8,
-            },
-            Probability { prob: 67, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 7 },
-            Probability {
-                prob: 107,
-                shift: 8,
-            },
-            Probability {
-                prob: 101,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 7 },
-            Probability { prob: 87, shift: 8 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 37, shift: 7 },
-            Probability { prob: 67, shift: 8 },
-            Probability { prob: 15, shift: 6 },
-            Probability { prob: 53, shift: 8 },
-            Probability { prob: 47, shift: 8 },
-            Probability { prob: 5, shift: 5 },
-            Probability { prob: 33, shift: 8 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 5, shift: 6 },
-            Probability { prob: 13, shift: 8 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 121,
-                shift: 7,
-            },
-            Probability { prob: 59, shift: 6 },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability {
-                prob: 223,
-                shift: 8,
-            },
-            Probability { prob: 27, shift: 5 },
-            Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Probability {
-                prob: 203,
-                shift: 8,
-            },
-            Probability { prob: 49, shift: 6 },
-            Probability { prob: 95, shift: 7 },
-            Probability {
-                prob: 183,
-                shift: 8,
-            },
-            Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 41, shift: 6 },
-            Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Probability { prob: 75, shift: 7 },
-            Probability { prob: 9, shift: 4 },
-            Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Probability {
-                prob: 131,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 6 },
-            Probability { prob: 59, shift: 7 },
-            Probability {
-                prob: 111,
-                shift: 8,
-            },
-            Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Probability { prob: 49, shift: 7 },
-            Probability { prob: 91, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 39, shift: 7 },
-            Probability { prob: 9, shift: 5 },
-            Probability { prob: 65, shift: 8 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 13, shift: 6 },
-            Probability { prob: 45, shift: 8 },
-            Probability { prob: 39, shift: 8 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 19, shift: 8 },
-            Probability { prob: 13, shift: 8 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability { prob: 59, shift: 6 },
-            Probability {
-                prob: 115,
-                shift: 7,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 217,
-                shift: 8,
-            },
-            Probability {
-                prob: 211,
-                shift: 8,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability { prob: 99, shift: 7 },
-            Probability { prob: 3, shift: 2 },
-            Probability {
-                prob: 185,
-                shift: 8,
-            },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability { prob: 43, shift: 6 },
-            Probability { prob: 83, shift: 7 },
-            Probability { prob: 5, shift: 3 },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability {
-                prob: 147,
-                shift: 8,
-            },
-            Probability { prob: 35, shift: 6 },
-            Probability { prob: 67, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Probability {
-                prob: 115,
-                shift: 8,
-            },
-            Probability { prob: 27, shift: 6 },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 83, shift: 8 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 35, shift: 7 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 57, shift: 8 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 11, shift: 6 },
-            Probability { prob: 19, shift: 7 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 25, shift: 8 },
-            Probability { prob: 19, shift: 8 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 3, shift: 7 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability {
-                prob: 231,
-                shift: 8,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 109,
-                shift: 7,
-            },
-            Probability { prob: 53, shift: 6 },
-            Probability {
-                prob: 103,
-                shift: 7,
-            },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability {
-                prob: 193,
-                shift: 8,
-            },
-            Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Probability {
-                prob: 181,
-                shift: 8,
-            },
-            Probability { prob: 87, shift: 7 },
-            Probability { prob: 21, shift: 5 },
-            Probability { prob: 81, shift: 7 },
-            Probability { prob: 39, shift: 6 },
-            Probability {
-                prob: 149,
-                shift: 8,
-            },
-            Probability {
-                prob: 143,
-                shift: 8,
-            },
-            Probability {
-                prob: 137,
-                shift: 8,
-            },
-            Probability {
-                prob: 131,
-                shift: 8,
-            },
-            Probability { prob: 31, shift: 6 },
-            Probability { prob: 59, shift: 7 },
-            Probability { prob: 7, shift: 4 },
-            Probability { prob: 53, shift: 7 },
-            Probability { prob: 99, shift: 8 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 87, shift: 8 },
-            Probability { prob: 81, shift: 8 },
-            Probability { prob: 37, shift: 7 },
-            Probability { prob: 17, shift: 6 },
-            Probability { prob: 31, shift: 7 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 49, shift: 8 },
-            Probability { prob: 43, shift: 8 },
-            Probability { prob: 37, shift: 8 },
-            Probability { prob: 31, shift: 8 },
-            Probability { prob: 3, shift: 5 },
-            Probability { prob: 9, shift: 7 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 249,
-                shift: 8,
-            },
-            Probability {
-                prob: 243,
-                shift: 8,
-            },
-            Probability {
-                prob: 237,
-                shift: 8,
-            },
-            Probability {
-                prob: 231,
-                shift: 8,
-            },
-            Probability {
-                prob: 225,
-                shift: 8,
-            },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability {
-                prob: 207,
-                shift: 8,
-            },
-            Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Probability {
-                prob: 195,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 6 },
-            Probability { prob: 91, shift: 7 },
-            Probability { prob: 11, shift: 4 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 41, shift: 6 },
-            Probability { prob: 79, shift: 7 },
-            Probability { prob: 19, shift: 5 },
-            Probability { prob: 73, shift: 7 },
-            Probability { prob: 35, shift: 6 },
-            Probability { prob: 67, shift: 7 },
-            Probability { prob: 2, shift: 2 },
-            Probability {
-                prob: 121,
-                shift: 8,
-            },
-            Probability {
-                prob: 115,
-                shift: 8,
-            },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability {
-                prob: 103,
-                shift: 8,
-            },
-            Probability { prob: 97, shift: 8 },
-            Probability { prob: 91, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 79, shift: 8 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 67, shift: 8 },
-            Probability { prob: 15, shift: 6 },
-            Probability { prob: 27, shift: 7 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 15, shift: 7 },
-            Probability { prob: 3, shift: 5 },
-            Probability { prob: 9, shift: 7 },
-            Probability { prob: 3, shift: 6 },
-            Probability { prob: 3, shift: 7 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability { prob: 29, shift: 5 },
-            Probability {
-                prob: 113,
-                shift: 7,
-            },
-            Probability { prob: 55, shift: 6 },
-            Probability {
-                prob: 107,
-                shift: 7,
-            },
-            Probability { prob: 13, shift: 4 },
-            Probability {
-                prob: 101,
-                shift: 7,
-            },
-            Probability { prob: 49, shift: 6 },
-            Probability { prob: 95, shift: 7 },
-            Probability { prob: 23, shift: 5 },
-            Probability { prob: 89, shift: 7 },
-            Probability { prob: 43, shift: 6 },
-            Probability { prob: 83, shift: 7 },
-            Probability { prob: 5, shift: 3 },
-            Probability { prob: 77, shift: 7 },
-            Probability { prob: 37, shift: 6 },
-            Probability { prob: 71, shift: 7 },
-            Probability { prob: 17, shift: 5 },
-            Probability { prob: 65, shift: 7 },
-            Probability {
-                prob: 125,
-                shift: 8,
-            },
-            Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability {
-                prob: 107,
-                shift: 8,
-            },
-            Probability {
-                prob: 101,
-                shift: 8,
-            },
-            Probability { prob: 95, shift: 8 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 83, shift: 8 },
-            Probability { prob: 77, shift: 8 },
-            Probability { prob: 71, shift: 8 },
-            Probability { prob: 65, shift: 8 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 53, shift: 8 },
-            Probability { prob: 47, shift: 8 },
-            Probability { prob: 41, shift: 8 },
-            Probability { prob: 35, shift: 8 },
-            Probability { prob: 29, shift: 8 },
-            Probability { prob: 23, shift: 8 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability { prob: 29, shift: 5 },
-            Probability {
-                prob: 113,
-                shift: 7,
-            },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability {
-                prob: 215,
-                shift: 8,
-            },
-            Probability {
-                prob: 209,
-                shift: 8,
-            },
-            Probability {
-                prob: 203,
-                shift: 8,
-            },
-            Probability {
-                prob: 197,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 93, shift: 7 },
-            Probability { prob: 45, shift: 6 },
-            Probability { prob: 87, shift: 7 },
-            Probability { prob: 21, shift: 5 },
-            Probability { prob: 81, shift: 7 },
-            Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Probability {
-                prob: 151,
-                shift: 8,
-            },
-            Probability {
-                prob: 145,
-                shift: 8,
-            },
-            Probability {
-                prob: 139,
-                shift: 8,
-            },
-            Probability {
-                prob: 133,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 61, shift: 7 },
-            Probability { prob: 29, shift: 6 },
-            Probability { prob: 55, shift: 7 },
-            Probability { prob: 13, shift: 5 },
-            Probability { prob: 49, shift: 7 },
-            Probability { prob: 93, shift: 8 },
-            Probability { prob: 87, shift: 8 },
-            Probability { prob: 81, shift: 8 },
-            Probability { prob: 75, shift: 8 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 29, shift: 7 },
-            Probability { prob: 13, shift: 6 },
-            Probability { prob: 23, shift: 7 },
-            Probability { prob: 5, shift: 5 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 29, shift: 8 },
-            Probability { prob: 23, shift: 8 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 119,
-                shift: 7,
-            },
-            Probability {
-                prob: 233,
-                shift: 8,
-            },
-            Probability {
-                prob: 227,
-                shift: 8,
-            },
-            Probability {
-                prob: 221,
-                shift: 8,
-            },
-            Probability { prob: 27, shift: 5 },
-            Probability {
-                prob: 105,
-                shift: 7,
-            },
-            Probability { prob: 51, shift: 6 },
-            Probability {
-                prob: 199,
-                shift: 8,
-            },
-            Probability {
-                prob: 193,
-                shift: 8,
-            },
-            Probability {
-                prob: 187,
-                shift: 8,
-            },
-            Probability { prob: 91, shift: 7 },
-            Probability { prob: 11, shift: 4 },
-            Probability { prob: 85, shift: 7 },
-            Probability { prob: 41, shift: 6 },
-            Probability {
-                prob: 159,
-                shift: 8,
-            },
-            Probability {
-                prob: 153,
-                shift: 8,
-            },
-            Probability {
-                prob: 147,
-                shift: 8,
-            },
-            Probability { prob: 71, shift: 7 },
-            Probability { prob: 17, shift: 5 },
-            Probability { prob: 65, shift: 7 },
-            Probability {
-                prob: 125,
-                shift: 8,
-            },
-            Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Probability {
-                prob: 113,
-                shift: 8,
-            },
-            Probability { prob: 27, shift: 6 },
-            Probability { prob: 51, shift: 7 },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 91, shift: 8 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 79, shift: 8 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 17, shift: 6 },
-            Probability { prob: 31, shift: 7 },
-            Probability { prob: 7, shift: 5 },
-            Probability { prob: 51, shift: 8 },
-            Probability { prob: 45, shift: 8 },
-            Probability { prob: 39, shift: 8 },
-            Probability { prob: 17, shift: 7 },
-            Probability { prob: 7, shift: 6 },
-            Probability { prob: 11, shift: 7 },
-            Probability { prob: 17, shift: 8 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability { prob: 61, shift: 6 },
-            Probability {
-                prob: 239,
-                shift: 8,
-            },
-            Probability {
-                prob: 233,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 6 },
-            Probability {
-                prob: 111,
-                shift: 7,
-            },
-            Probability {
-                prob: 217,
-                shift: 8,
-            },
-            Probability {
-                prob: 211,
-                shift: 8,
-            },
-            Probability {
-                prob: 205,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 5 },
-            Probability { prob: 97, shift: 7 },
-            Probability {
-                prob: 189,
-                shift: 8,
-            },
-            Probability {
-                prob: 183,
-                shift: 8,
-            },
-            Probability { prob: 89, shift: 7 },
-            Probability { prob: 43, shift: 6 },
-            Probability { prob: 83, shift: 7 },
-            Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Probability {
-                prob: 155,
-                shift: 8,
-            },
-            Probability { prob: 75, shift: 7 },
-            Probability { prob: 9, shift: 4 },
-            Probability {
-                prob: 139,
-                shift: 8,
-            },
-            Probability {
-                prob: 133,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 61, shift: 7 },
-            Probability { prob: 29, shift: 6 },
-            Probability {
-                prob: 111,
-                shift: 8,
-            },
-            Probability {
-                prob: 105,
-                shift: 8,
-            },
-            Probability { prob: 25, shift: 6 },
-            Probability { prob: 47, shift: 7 },
-            Probability { prob: 89, shift: 8 },
-            Probability { prob: 83, shift: 8 },
-            Probability { prob: 77, shift: 8 },
-            Probability { prob: 9, shift: 5 },
-            Probability { prob: 33, shift: 7 },
-            Probability { prob: 61, shift: 8 },
-            Probability { prob: 55, shift: 8 },
-            Probability { prob: 25, shift: 7 },
-            Probability { prob: 11, shift: 6 },
-            Probability { prob: 19, shift: 7 },
-            Probability { prob: 33, shift: 8 },
-            Probability { prob: 27, shift: 8 },
-            Probability { prob: 11, shift: 7 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 11, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability {
-                prob: 239,
-                shift: 8,
-            },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability { prob: 57, shift: 6 },
-            Probability {
-                prob: 223,
-                shift: 8,
-            },
-            Probability {
-                prob: 217,
-                shift: 8,
-            },
-            Probability { prob: 53, shift: 6 },
-            Probability {
-                prob: 103,
-                shift: 7,
-            },
-            Probability {
-                prob: 201,
-                shift: 8,
-            },
-            Probability { prob: 49, shift: 6 },
-            Probability { prob: 95, shift: 7 },
-            Probability {
-                prob: 185,
-                shift: 8,
-            },
-            Probability {
-                prob: 179,
-                shift: 8,
-            },
-            Probability { prob: 87, shift: 7 },
-            Probability { prob: 21, shift: 5 },
-            Probability {
-                prob: 163,
-                shift: 8,
-            },
-            Probability {
-                prob: 157,
-                shift: 8,
-            },
-            Probability { prob: 19, shift: 5 },
-            Probability {
-                prob: 147,
-                shift: 8,
-            },
-            Probability {
-                prob: 141,
-                shift: 8,
-            },
-            Probability { prob: 17, shift: 5 },
-            Probability { prob: 65, shift: 7 },
-            Probability {
-                prob: 125,
-                shift: 8,
-            },
-            Probability {
-                prob: 119,
-                shift: 8,
-            },
-            Probability { prob: 57, shift: 7 },
-            Probability { prob: 27, shift: 6 },
-            Probability {
-                prob: 103,
-                shift: 8,
-            },
-            Probability { prob: 49, shift: 7 },
-            Probability { prob: 23, shift: 6 },
-            Probability { prob: 87, shift: 8 },
-            Probability { prob: 81, shift: 8 },
-            Probability { prob: 19, shift: 6 },
-            Probability { prob: 35, shift: 7 },
-            Probability { prob: 65, shift: 8 },
-            Probability { prob: 59, shift: 8 },
-            Probability { prob: 27, shift: 7 },
-            Probability { prob: 49, shift: 8 },
-            Probability { prob: 43, shift: 8 },
-            Probability { prob: 19, shift: 7 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 27, shift: 8 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 5, shift: 7 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 117,
-                shift: 7,
-            },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 109,
-                shift: 7,
-            },
-            Probability {
-                prob: 213,
-                shift: 8,
-            },
-            Probability { prob: 13, shift: 4 },
-            Probability {
-                prob: 101,
-                shift: 7,
-            },
-            Probability {
-                prob: 197,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 2 },
-            Probability { prob: 93, shift: 7 },
-            Probability {
-                prob: 181,
-                shift: 8,
-            },
-            Probability { prob: 11, shift: 4 },
-            Probability { prob: 85, shift: 7 },
-            Probability {
-                prob: 165,
-                shift: 8,
-            },
-            Probability { prob: 5, shift: 3 },
-            Probability { prob: 77, shift: 7 },
-            Probability {
-                prob: 149,
-                shift: 8,
-            },
-            Probability { prob: 9, shift: 4 },
-            Probability { prob: 69, shift: 7 },
-            Probability {
-                prob: 133,
-                shift: 8,
-            },
-            Probability { prob: 2, shift: 2 },
-            Probability { prob: 61, shift: 7 },
-            Probability {
-                prob: 117,
-                shift: 8,
-            },
-            Probability { prob: 7, shift: 4 },
-            Probability { prob: 53, shift: 7 },
-            Probability {
-                prob: 101,
-                shift: 8,
-            },
-            Probability { prob: 3, shift: 3 },
-            Probability { prob: 45, shift: 7 },
-            Probability { prob: 85, shift: 8 },
-            Probability { prob: 5, shift: 4 },
-            Probability { prob: 37, shift: 7 },
-            Probability { prob: 69, shift: 8 },
-            Probability { prob: 1, shift: 2 },
-            Probability { prob: 29, shift: 7 },
-            Probability { prob: 53, shift: 8 },
-            Probability { prob: 3, shift: 4 },
-            Probability { prob: 21, shift: 7 },
-            Probability { prob: 37, shift: 8 },
-            Probability { prob: 1, shift: 3 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 21, shift: 8 },
-            Probability { prob: 1, shift: 4 },
-            Probability { prob: 5, shift: 7 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 125,
-                shift: 7,
-            },
-            Probability {
-                prob: 245,
-                shift: 8,
-            },
-            Probability { prob: 15, shift: 4 },
-            Probability {
-                prob: 235,
-                shift: 8,
-            },
-            Probability {
-                prob: 229,
-                shift: 8,
-            },
-            Probability { prob: 7, shift: 3 },
-            Probability {
-                prob: 219,
-                shift: 8,
-            },
-            Probability {
-                prob: 107,
-                shift: 7,
-            },
-            Probability { prob: 13, shift: 4 },
-            Probability {
-                prob: 203,
-                shift: 8,
-            },
-            Probability { prob: 99, shift: 7 },
-            Probability {
-                prob: 193,
-                shift: 8,
-            },
-            Probability { prob: 47, shift: 6 },
-            Probability { prob: 91, shift: 7 },
-            Probability {
-                prob: 177,
-                shift: 8,
-            },
-            Probability { prob: 43, shift: 6 },
-            Probability {
-                prob: 167,
-                shift: 8,
-            },
-            Probability {
-                prob: 161,
-                shift: 8,
-            },
-            Probability { prob: 39, shift: 6 },
-            Probability {
-                prob: 151,
-                shift: 8,
-            },
-            Probability { prob: 73, shift: 7 },
-            Probability {
-                prob: 141,
-                shift: 8,
-            },
-            Probability {
-                prob: 135,
-                shift: 8,
-            },
-            Probability { prob: 65, shift: 7 },
-            Probability {
-                prob: 125,
-                shift: 8,
-            },
-            Probability { prob: 15, shift: 5 },
-            Probability { prob: 57, shift: 7 },
-            Probability {
-                prob: 109,
-                shift: 8,
-            },
-            Probability { prob: 13, shift: 5 },
-            Probability { prob: 99, shift: 8 },
-            Probability { prob: 47, shift: 7 },
-            Probability { prob: 11, shift: 5 },
-            Probability { prob: 83, shift: 8 },
-            Probability { prob: 39, shift: 7 },
-            Probability { prob: 73, shift: 8 },
-            Probability { prob: 67, shift: 8 },
-            Probability { prob: 31, shift: 7 },
-            Probability { prob: 57, shift: 8 },
-            Probability { prob: 13, shift: 6 },
-            Probability { prob: 47, shift: 8 },
-            Probability { prob: 41, shift: 8 },
-            Probability { prob: 9, shift: 6 },
-            Probability { prob: 31, shift: 8 },
-            Probability { prob: 13, shift: 7 },
-            Probability { prob: 5, shift: 6 },
-            Probability { prob: 15, shift: 8 },
-            Probability { prob: 5, shift: 7 },
-            Probability { prob: 5, shift: 8 },
-            Probability { prob: 5, shift: 8 },
+            Probability::new(128, 128),
+            Probability::new(86, 170),
+            Probability::new(171, 85),
+            Probability::new(64, 192),
+            Probability::new(128, 128),
+            Probability::new(192, 64),
+            Probability::new(52, 204),
+            Probability::new(86, 170),
+            Probability::new(171, 85),
+            Probability::new(205, 51),
+            Probability::new(43, 213),
+            Probability::new(64, 192),
+            Probability::new(128, 128),
+            Probability::new(192, 64),
+            Probability::new(214, 42),
+            Probability::new(37, 219),
+            Probability::new(52, 204),
+            Probability::new(103, 153),
+            Probability::new(154, 102),
+            Probability::new(205, 51),
+            Probability::new(220, 36),
+            Probability::new(32, 224),
+            Probability::new(43, 213),
+            Probability::new(86, 170),
+            Probability::new(128, 128),
+            Probability::new(171, 85),
+            Probability::new(214, 42),
+            Probability::new(224, 32),
+            Probability::new(29, 227),
+            Probability::new(37, 219),
+            Probability::new(74, 182),
+            Probability::new(110, 146),
+            Probability::new(147, 109),
+            Probability::new(183, 73),
+            Probability::new(220, 36),
+            Probability::new(228, 28),
+            Probability::new(26, 230),
+            Probability::new(32, 224),
+            Probability::new(64, 192),
+            Probability::new(96, 160),
+            Probability::new(128, 128),
+            Probability::new(160, 96),
+            Probability::new(192, 64),
+            Probability::new(224, 32),
+            Probability::new(231, 25),
+            Probability::new(24, 232),
+            Probability::new(29, 227),
+            Probability::new(57, 199),
+            Probability::new(86, 170),
+            Probability::new(114, 142),
+            Probability::new(143, 113),
+            Probability::new(171, 85),
+            Probability::new(200, 56),
+            Probability::new(228, 28),
+            Probability::new(233, 23),
+            Probability::new(22, 234),
+            Probability::new(26, 230),
+            Probability::new(52, 204),
+            Probability::new(77, 179),
+            Probability::new(103, 153),
+            Probability::new(128, 128),
+            Probability::new(154, 102),
+            Probability::new(180, 76),
+            Probability::new(205, 51),
+            Probability::new(231, 25),
+            Probability::new(235, 21),
+            Probability::new(20, 236),
+            Probability::new(24, 232),
+            Probability::new(47, 209),
+            Probability::new(70, 186),
+            Probability::new(94, 162),
+            Probability::new(117, 139),
+            Probability::new(140, 116),
+            Probability::new(163, 93),
+            Probability::new(187, 69),
+            Probability::new(210, 46),
+            Probability::new(233, 23),
+            Probability::new(237, 19),
+            Probability::new(19, 237),
+            Probability::new(22, 234),
+            Probability::new(43, 213),
+            Probability::new(64, 192),
+            Probability::new(86, 170),
+            Probability::new(107, 149),
+            Probability::new(128, 128),
+            Probability::new(150, 106),
+            Probability::new(171, 85),
+            Probability::new(192, 64),
+            Probability::new(214, 42),
+            Probability::new(235, 21),
+            Probability::new(238, 18),
+            Probability::new(18, 238),
+            Probability::new(20, 236),
+            Probability::new(40, 216),
+            Probability::new(60, 196),
+            Probability::new(79, 177),
+            Probability::new(99, 157),
+            Probability::new(119, 137),
+            Probability::new(138, 118),
+            Probability::new(158, 98),
+            Probability::new(178, 78),
+            Probability::new(197, 59),
+            Probability::new(217, 39),
+            Probability::new(237, 19),
+            Probability::new(239, 17),
+            Probability::new(16, 240),
+            Probability::new(19, 237),
+            Probability::new(37, 219),
+            Probability::new(55, 201),
+            Probability::new(74, 182),
+            Probability::new(92, 164),
+            Probability::new(110, 146),
+            Probability::new(128, 128),
+            Probability::new(147, 109),
+            Probability::new(165, 91),
+            Probability::new(183, 73),
+            Probability::new(202, 54),
+            Probability::new(220, 36),
+            Probability::new(238, 18),
+            Probability::new(240, 16),
+            Probability::new(16, 240),
+            Probability::new(18, 238),
+            Probability::new(35, 221),
+            Probability::new(52, 204),
+            Probability::new(69, 187),
+            Probability::new(86, 170),
+            Probability::new(103, 153),
+            Probability::new(120, 136),
+            Probability::new(137, 119),
+            Probability::new(154, 102),
+            Probability::new(171, 85),
+            Probability::new(188, 68),
+            Probability::new(205, 51),
+            Probability::new(222, 34),
+            Probability::new(239, 17),
+            Probability::new(241, 15),
+            Probability::new(15, 241),
+            Probability::new(16, 240),
+            Probability::new(32, 224),
+            Probability::new(48, 208),
+            Probability::new(64, 192),
+            Probability::new(80, 176),
+            Probability::new(96, 160),
+            Probability::new(112, 144),
+            Probability::new(128, 128),
+            Probability::new(144, 112),
+            Probability::new(160, 96),
+            Probability::new(176, 80),
+            Probability::new(192, 64),
+            Probability::new(208, 48),
+            Probability::new(224, 32),
+            Probability::new(240, 16),
+            Probability::new(242, 14),
+            Probability::new(14, 242),
+            Probability::new(16, 240),
+            Probability::new(31, 225),
+            Probability::new(46, 210),
+            Probability::new(61, 195),
+            Probability::new(76, 180),
+            Probability::new(91, 165),
+            Probability::new(106, 150),
+            Probability::new(121, 135),
+            Probability::new(136, 120),
+            Probability::new(151, 105),
+            Probability::new(166, 90),
+            Probability::new(181, 75),
+            Probability::new(196, 60),
+            Probability::new(211, 45),
+            Probability::new(226, 30),
+            Probability::new(241, 15),
+            Probability::new(243, 13),
+            Probability::new(13, 243),
+            Probability::new(15, 241),
+            Probability::new(29, 227),
+            Probability::new(43, 213),
+            Probability::new(57, 199),
+            Probability::new(72, 184),
+            Probability::new(86, 170),
+            Probability::new(100, 156),
+            Probability::new(114, 142),
+            Probability::new(128, 128),
+            Probability::new(143, 113),
+            Probability::new(157, 99),
+            Probability::new(171, 85),
+            Probability::new(185, 71),
+            Probability::new(200, 56),
+            Probability::new(214, 42),
+            Probability::new(228, 28),
+            Probability::new(242, 14),
+            Probability::new(244, 12),
+            Probability::new(13, 243),
+            Probability::new(14, 242),
+            Probability::new(27, 229),
+            Probability::new(41, 215),
+            Probability::new(54, 202),
+            Probability::new(68, 188),
+            Probability::new(81, 175),
+            Probability::new(95, 161),
+            Probability::new(108, 148),
+            Probability::new(122, 134),
+            Probability::new(135, 121),
+            Probability::new(149, 107),
+            Probability::new(162, 94),
+            Probability::new(176, 80),
+            Probability::new(189, 67),
+            Probability::new(203, 53),
+            Probability::new(216, 40),
+            Probability::new(230, 26),
+            Probability::new(243, 13),
+            Probability::new(244, 12),
+            Probability::new(12, 244),
+            Probability::new(13, 243),
+            Probability::new(26, 230),
+            Probability::new(39, 217),
+            Probability::new(52, 204),
+            Probability::new(64, 192),
+            Probability::new(77, 179),
+            Probability::new(90, 166),
+            Probability::new(103, 153),
+            Probability::new(116, 140),
+            Probability::new(128, 128),
+            Probability::new(141, 115),
+            Probability::new(154, 102),
+            Probability::new(167, 89),
+            Probability::new(180, 76),
+            Probability::new(192, 64),
+            Probability::new(205, 51),
+            Probability::new(218, 38),
+            Probability::new(231, 25),
+            Probability::new(244, 12),
+            Probability::new(245, 11),
+            Probability::new(12, 244),
+            Probability::new(13, 243),
+            Probability::new(25, 231),
+            Probability::new(37, 219),
+            Probability::new(49, 207),
+            Probability::new(61, 195),
+            Probability::new(74, 182),
+            Probability::new(86, 170),
+            Probability::new(98, 158),
+            Probability::new(110, 146),
+            Probability::new(122, 134),
+            Probability::new(135, 121),
+            Probability::new(147, 109),
+            Probability::new(159, 97),
+            Probability::new(171, 85),
+            Probability::new(183, 73),
+            Probability::new(196, 60),
+            Probability::new(208, 48),
+            Probability::new(220, 36),
+            Probability::new(232, 24),
+            Probability::new(244, 12),
+            Probability::new(245, 11),
+            Probability::new(11, 245),
+            Probability::new(12, 244),
+            Probability::new(24, 232),
+            Probability::new(35, 221),
+            Probability::new(47, 209),
+            Probability::new(59, 197),
+            Probability::new(70, 186),
+            Probability::new(82, 174),
+            Probability::new(94, 162),
+            Probability::new(105, 151),
+            Probability::new(117, 139),
+            Probability::new(128, 128),
+            Probability::new(140, 116),
+            Probability::new(152, 104),
+            Probability::new(163, 93),
+            Probability::new(175, 81),
+            Probability::new(187, 69),
+            Probability::new(198, 58),
+            Probability::new(210, 46),
+            Probability::new(222, 34),
+            Probability::new(233, 23),
+            Probability::new(245, 11),
+            Probability::new(246, 10),
+            Probability::new(11, 245),
+            Probability::new(12, 244),
+            Probability::new(23, 233),
+            Probability::new(34, 222),
+            Probability::new(45, 211),
+            Probability::new(56, 200),
+            Probability::new(67, 189),
+            Probability::new(78, 178),
+            Probability::new(90, 166),
+            Probability::new(101, 155),
+            Probability::new(112, 144),
+            Probability::new(123, 133),
+            Probability::new(134, 122),
+            Probability::new(145, 111),
+            Probability::new(156, 100),
+            Probability::new(167, 89),
+            Probability::new(179, 77),
+            Probability::new(190, 66),
+            Probability::new(201, 55),
+            Probability::new(212, 44),
+            Probability::new(223, 33),
+            Probability::new(234, 22),
+            Probability::new(245, 11),
+            Probability::new(246, 10),
+            Probability::new(10, 246),
+            Probability::new(11, 245),
+            Probability::new(22, 234),
+            Probability::new(32, 224),
+            Probability::new(43, 213),
+            Probability::new(54, 202),
+            Probability::new(64, 192),
+            Probability::new(75, 181),
+            Probability::new(86, 170),
+            Probability::new(96, 160),
+            Probability::new(107, 149),
+            Probability::new(118, 138),
+            Probability::new(128, 128),
+            Probability::new(139, 117),
+            Probability::new(150, 106),
+            Probability::new(160, 96),
+            Probability::new(171, 85),
+            Probability::new(182, 74),
+            Probability::new(192, 64),
+            Probability::new(203, 53),
+            Probability::new(214, 42),
+            Probability::new(224, 32),
+            Probability::new(235, 21),
+            Probability::new(246, 10),
+            Probability::new(247, 9),
+            Probability::new(10, 246),
+            Probability::new(11, 245),
+            Probability::new(21, 235),
+            Probability::new(31, 225),
+            Probability::new(41, 215),
+            Probability::new(52, 204),
+            Probability::new(62, 194),
+            Probability::new(72, 184),
+            Probability::new(82, 174),
+            Probability::new(93, 163),
+            Probability::new(103, 153),
+            Probability::new(113, 143),
+            Probability::new(123, 133),
+            Probability::new(134, 122),
+            Probability::new(144, 112),
+            Probability::new(154, 102),
+            Probability::new(164, 92),
+            Probability::new(175, 81),
+            Probability::new(185, 71),
+            Probability::new(195, 61),
+            Probability::new(205, 51),
+            Probability::new(216, 40),
+            Probability::new(226, 30),
+            Probability::new(236, 20),
+            Probability::new(246, 10),
+            Probability::new(247, 9),
+            Probability::new(10, 246),
+            Probability::new(10, 246),
+            Probability::new(20, 236),
+            Probability::new(30, 226),
+            Probability::new(40, 216),
+            Probability::new(50, 206),
+            Probability::new(60, 196),
+            Probability::new(69, 187),
+            Probability::new(79, 177),
+            Probability::new(89, 167),
+            Probability::new(99, 157),
+            Probability::new(109, 147),
+            Probability::new(119, 137),
+            Probability::new(128, 128),
+            Probability::new(138, 118),
+            Probability::new(148, 108),
+            Probability::new(158, 98),
+            Probability::new(168, 88),
+            Probability::new(178, 78),
+            Probability::new(188, 68),
+            Probability::new(197, 59),
+            Probability::new(207, 49),
+            Probability::new(217, 39),
+            Probability::new(227, 29),
+            Probability::new(237, 19),
+            Probability::new(247, 9),
+            Probability::new(247, 9),
+            Probability::new(9, 247),
+            Probability::new(10, 246),
+            Probability::new(19, 237),
+            Probability::new(29, 227),
+            Probability::new(38, 218),
+            Probability::new(48, 208),
+            Probability::new(57, 199),
+            Probability::new(67, 189),
+            Probability::new(76, 180),
+            Probability::new(86, 170),
+            Probability::new(95, 161),
+            Probability::new(105, 151),
+            Probability::new(114, 142),
+            Probability::new(124, 132),
+            Probability::new(133, 123),
+            Probability::new(143, 113),
+            Probability::new(152, 104),
+            Probability::new(162, 94),
+            Probability::new(171, 85),
+            Probability::new(181, 75),
+            Probability::new(190, 66),
+            Probability::new(200, 56),
+            Probability::new(209, 47),
+            Probability::new(219, 37),
+            Probability::new(228, 28),
+            Probability::new(238, 18),
+            Probability::new(247, 9),
+            Probability::new(248, 8),
+            Probability::new(9, 247),
+            Probability::new(10, 246),
+            Probability::new(19, 237),
+            Probability::new(28, 228),
+            Probability::new(37, 219),
+            Probability::new(46, 210),
+            Probability::new(55, 201),
+            Probability::new(64, 192),
+            Probability::new(74, 182),
+            Probability::new(83, 173),
+            Probability::new(92, 164),
+            Probability::new(101, 155),
+            Probability::new(110, 146),
+            Probability::new(119, 137),
+            Probability::new(128, 128),
+            Probability::new(138, 118),
+            Probability::new(147, 109),
+            Probability::new(156, 100),
+            Probability::new(165, 91),
+            Probability::new(174, 82),
+            Probability::new(183, 73),
+            Probability::new(192, 64),
+            Probability::new(202, 54),
+            Probability::new(211, 45),
+            Probability::new(220, 36),
+            Probability::new(229, 27),
+            Probability::new(238, 18),
+            Probability::new(247, 9),
+            Probability::new(248, 8),
+            Probability::new(9, 247),
+            Probability::new(9, 247),
+            Probability::new(18, 238),
+            Probability::new(27, 229),
+            Probability::new(36, 220),
+            Probability::new(45, 211),
+            Probability::new(53, 203),
+            Probability::new(62, 194),
+            Probability::new(71, 185),
+            Probability::new(80, 176),
+            Probability::new(89, 167),
+            Probability::new(98, 158),
+            Probability::new(106, 150),
+            Probability::new(115, 141),
+            Probability::new(124, 132),
+            Probability::new(133, 123),
+            Probability::new(142, 114),
+            Probability::new(151, 105),
+            Probability::new(159, 97),
+            Probability::new(168, 88),
+            Probability::new(177, 79),
+            Probability::new(186, 70),
+            Probability::new(195, 61),
+            Probability::new(204, 52),
+            Probability::new(212, 44),
+            Probability::new(221, 35),
+            Probability::new(230, 26),
+            Probability::new(239, 17),
+            Probability::new(248, 8),
+            Probability::new(248, 8),
+            Probability::new(8, 248),
+            Probability::new(9, 247),
+            Probability::new(18, 238),
+            Probability::new(26, 230),
+            Probability::new(35, 221),
+            Probability::new(43, 213),
+            Probability::new(52, 204),
+            Probability::new(60, 196),
+            Probability::new(69, 187),
+            Probability::new(77, 179),
+            Probability::new(86, 170),
+            Probability::new(94, 162),
+            Probability::new(103, 153),
+            Probability::new(111, 145),
+            Probability::new(120, 136),
+            Probability::new(128, 128),
+            Probability::new(137, 119),
+            Probability::new(146, 110),
+            Probability::new(154, 102),
+            Probability::new(163, 93),
+            Probability::new(171, 85),
+            Probability::new(180, 76),
+            Probability::new(188, 68),
+            Probability::new(197, 59),
+            Probability::new(205, 51),
+            Probability::new(214, 42),
+            Probability::new(222, 34),
+            Probability::new(231, 25),
+            Probability::new(239, 17),
+            Probability::new(248, 8),
+            Probability::new(248, 8),
+            Probability::new(8, 248),
+            Probability::new(9, 247),
+            Probability::new(17, 239),
+            Probability::new(25, 231),
+            Probability::new(34, 222),
+            Probability::new(42, 214),
+            Probability::new(50, 206),
+            Probability::new(58, 198),
+            Probability::new(67, 189),
+            Probability::new(75, 181),
+            Probability::new(83, 173),
+            Probability::new(91, 165),
+            Probability::new(100, 156),
+            Probability::new(108, 148),
+            Probability::new(116, 140),
+            Probability::new(124, 132),
+            Probability::new(133, 123),
+            Probability::new(141, 115),
+            Probability::new(149, 107),
+            Probability::new(157, 99),
+            Probability::new(166, 90),
+            Probability::new(174, 82),
+            Probability::new(182, 74),
+            Probability::new(190, 66),
+            Probability::new(199, 57),
+            Probability::new(207, 49),
+            Probability::new(215, 41),
+            Probability::new(223, 33),
+            Probability::new(232, 24),
+            Probability::new(240, 16),
+            Probability::new(248, 8),
+            Probability::new(249, 7),
+            Probability::new(8, 248),
+            Probability::new(8, 248),
+            Probability::new(16, 240),
+            Probability::new(24, 232),
+            Probability::new(32, 224),
+            Probability::new(40, 216),
+            Probability::new(48, 208),
+            Probability::new(56, 200),
+            Probability::new(64, 192),
+            Probability::new(72, 184),
+            Probability::new(80, 176),
+            Probability::new(88, 168),
+            Probability::new(96, 160),
+            Probability::new(104, 152),
+            Probability::new(112, 144),
+            Probability::new(120, 136),
+            Probability::new(128, 128),
+            Probability::new(136, 120),
+            Probability::new(144, 112),
+            Probability::new(152, 104),
+            Probability::new(160, 96),
+            Probability::new(168, 88),
+            Probability::new(176, 80),
+            Probability::new(184, 72),
+            Probability::new(192, 64),
+            Probability::new(200, 56),
+            Probability::new(208, 48),
+            Probability::new(216, 40),
+            Probability::new(224, 32),
+            Probability::new(232, 24),
+            Probability::new(240, 16),
+            Probability::new(248, 8),
+            Probability::new(249, 7),
+            Probability::new(8, 248),
+            Probability::new(8, 248),
+            Probability::new(16, 240),
+            Probability::new(24, 232),
+            Probability::new(32, 224),
+            Probability::new(39, 217),
+            Probability::new(47, 209),
+            Probability::new(55, 201),
+            Probability::new(63, 193),
+            Probability::new(70, 186),
+            Probability::new(78, 178),
+            Probability::new(86, 170),
+            Probability::new(94, 162),
+            Probability::new(101, 155),
+            Probability::new(109, 147),
+            Probability::new(117, 139),
+            Probability::new(125, 131),
+            Probability::new(132, 124),
+            Probability::new(140, 116),
+            Probability::new(148, 108),
+            Probability::new(156, 100),
+            Probability::new(163, 93),
+            Probability::new(171, 85),
+            Probability::new(179, 77),
+            Probability::new(187, 69),
+            Probability::new(194, 62),
+            Probability::new(202, 54),
+            Probability::new(210, 46),
+            Probability::new(218, 38),
+            Probability::new(225, 31),
+            Probability::new(233, 23),
+            Probability::new(241, 15),
+            Probability::new(249, 7),
+            Probability::new(249, 7),
+            Probability::new(8, 248),
+            Probability::new(8, 248),
+            Probability::new(16, 240),
+            Probability::new(23, 233),
+            Probability::new(31, 225),
+            Probability::new(38, 218),
+            Probability::new(46, 210),
+            Probability::new(53, 203),
+            Probability::new(61, 195),
+            Probability::new(68, 188),
+            Probability::new(76, 180),
+            Probability::new(83, 173),
+            Probability::new(91, 165),
+            Probability::new(98, 158),
+            Probability::new(106, 150),
+            Probability::new(113, 143),
+            Probability::new(121, 135),
+            Probability::new(128, 128),
+            Probability::new(136, 120),
+            Probability::new(144, 112),
+            Probability::new(151, 105),
+            Probability::new(159, 97),
+            Probability::new(166, 90),
+            Probability::new(174, 82),
+            Probability::new(181, 75),
+            Probability::new(189, 67),
+            Probability::new(196, 60),
+            Probability::new(204, 52),
+            Probability::new(211, 45),
+            Probability::new(219, 37),
+            Probability::new(226, 30),
+            Probability::new(234, 22),
+            Probability::new(241, 15),
+            Probability::new(249, 7),
+            Probability::new(249, 7),
+            Probability::new(7, 249),
+            Probability::new(8, 248),
+            Probability::new(15, 241),
+            Probability::new(22, 234),
+            Probability::new(30, 226),
+            Probability::new(37, 219),
+            Probability::new(44, 212),
+            Probability::new(52, 204),
+            Probability::new(59, 197),
+            Probability::new(66, 190),
+            Probability::new(74, 182),
+            Probability::new(81, 175),
+            Probability::new(88, 168),
+            Probability::new(96, 160),
+            Probability::new(103, 153),
+            Probability::new(110, 146),
+            Probability::new(118, 138),
+            Probability::new(125, 131),
+            Probability::new(132, 124),
+            Probability::new(139, 117),
+            Probability::new(147, 109),
+            Probability::new(154, 102),
+            Probability::new(161, 95),
+            Probability::new(169, 87),
+            Probability::new(176, 80),
+            Probability::new(183, 73),
+            Probability::new(191, 65),
+            Probability::new(198, 58),
+            Probability::new(205, 51),
+            Probability::new(213, 43),
+            Probability::new(220, 36),
+            Probability::new(227, 29),
+            Probability::new(235, 21),
+            Probability::new(242, 14),
+            Probability::new(249, 7),
+            Probability::new(250, 6),
+            Probability::new(7, 249),
+            Probability::new(8, 248),
+            Probability::new(15, 241),
+            Probability::new(22, 234),
+            Probability::new(29, 227),
+            Probability::new(36, 220),
+            Probability::new(43, 213),
+            Probability::new(50, 206),
+            Probability::new(57, 199),
+            Probability::new(64, 192),
+            Probability::new(72, 184),
+            Probability::new(79, 177),
+            Probability::new(86, 170),
+            Probability::new(93, 163),
+            Probability::new(100, 156),
+            Probability::new(107, 149),
+            Probability::new(114, 142),
+            Probability::new(121, 135),
+            Probability::new(128, 128),
+            Probability::new(136, 120),
+            Probability::new(143, 113),
+            Probability::new(150, 106),
+            Probability::new(157, 99),
+            Probability::new(164, 92),
+            Probability::new(171, 85),
+            Probability::new(178, 78),
+            Probability::new(185, 71),
+            Probability::new(192, 64),
+            Probability::new(200, 56),
+            Probability::new(207, 49),
+            Probability::new(214, 42),
+            Probability::new(221, 35),
+            Probability::new(228, 28),
+            Probability::new(235, 21),
+            Probability::new(242, 14),
+            Probability::new(249, 7),
+            Probability::new(250, 6),
+            Probability::new(7, 249),
+            Probability::new(7, 249),
+            Probability::new(14, 242),
+            Probability::new(21, 235),
+            Probability::new(28, 228),
+            Probability::new(35, 221),
+            Probability::new(42, 214),
+            Probability::new(49, 207),
+            Probability::new(56, 200),
+            Probability::new(63, 193),
+            Probability::new(70, 186),
+            Probability::new(77, 179),
+            Probability::new(84, 172),
+            Probability::new(90, 166),
+            Probability::new(97, 159),
+            Probability::new(104, 152),
+            Probability::new(111, 145),
+            Probability::new(118, 138),
+            Probability::new(125, 131),
+            Probability::new(132, 124),
+            Probability::new(139, 117),
+            Probability::new(146, 110),
+            Probability::new(153, 103),
+            Probability::new(160, 96),
+            Probability::new(167, 89),
+            Probability::new(173, 83),
+            Probability::new(180, 76),
+            Probability::new(187, 69),
+            Probability::new(194, 62),
+            Probability::new(201, 55),
+            Probability::new(208, 48),
+            Probability::new(215, 41),
+            Probability::new(222, 34),
+            Probability::new(229, 27),
+            Probability::new(236, 20),
+            Probability::new(243, 13),
+            Probability::new(250, 6),
+            Probability::new(250, 6),
+            Probability::new(7, 249),
+            Probability::new(7, 249),
+            Probability::new(14, 242),
+            Probability::new(21, 235),
+            Probability::new(27, 229),
+            Probability::new(34, 222),
+            Probability::new(41, 215),
+            Probability::new(48, 208),
+            Probability::new(54, 202),
+            Probability::new(61, 195),
+            Probability::new(68, 188),
+            Probability::new(75, 181),
+            Probability::new(81, 175),
+            Probability::new(88, 168),
+            Probability::new(95, 161),
+            Probability::new(102, 154),
+            Probability::new(108, 148),
+            Probability::new(115, 141),
+            Probability::new(122, 134),
+            Probability::new(128, 128),
+            Probability::new(135, 121),
+            Probability::new(142, 114),
+            Probability::new(149, 107),
+            Probability::new(155, 101),
+            Probability::new(162, 94),
+            Probability::new(169, 87),
+            Probability::new(176, 80),
+            Probability::new(182, 74),
+            Probability::new(189, 67),
+            Probability::new(196, 60),
+            Probability::new(203, 53),
+            Probability::new(209, 47),
+            Probability::new(216, 40),
+            Probability::new(223, 33),
+            Probability::new(230, 26),
+            Probability::new(236, 20),
+            Probability::new(243, 13),
+            Probability::new(250, 6),
+            Probability::new(250, 6),
+            Probability::new(7, 249),
+            Probability::new(7, 249),
+            Probability::new(14, 242),
+            Probability::new(20, 236),
+            Probability::new(27, 229),
+            Probability::new(33, 223),
+            Probability::new(40, 216),
+            Probability::new(46, 210),
+            Probability::new(53, 203),
+            Probability::new(60, 196),
+            Probability::new(66, 190),
+            Probability::new(73, 183),
+            Probability::new(79, 177),
+            Probability::new(86, 170),
+            Probability::new(92, 164),
+            Probability::new(99, 157),
+            Probability::new(106, 150),
+            Probability::new(112, 144),
+            Probability::new(119, 137),
+            Probability::new(125, 131),
+            Probability::new(132, 124),
+            Probability::new(138, 118),
+            Probability::new(145, 111),
+            Probability::new(151, 105),
+            Probability::new(158, 98),
+            Probability::new(165, 91),
+            Probability::new(171, 85),
+            Probability::new(178, 78),
+            Probability::new(184, 72),
+            Probability::new(191, 65),
+            Probability::new(197, 59),
+            Probability::new(204, 52),
+            Probability::new(211, 45),
+            Probability::new(217, 39),
+            Probability::new(224, 32),
+            Probability::new(230, 26),
+            Probability::new(237, 19),
+            Probability::new(243, 13),
+            Probability::new(250, 6),
+            Probability::new(250, 6),
+            Probability::new(7, 249),
+            Probability::new(7, 249),
+            Probability::new(13, 243),
+            Probability::new(20, 236),
+            Probability::new(26, 230),
+            Probability::new(32, 224),
+            Probability::new(39, 217),
+            Probability::new(45, 211),
+            Probability::new(52, 204),
+            Probability::new(58, 198),
+            Probability::new(64, 192),
+            Probability::new(71, 185),
+            Probability::new(77, 179),
+            Probability::new(84, 172),
+            Probability::new(90, 166),
+            Probability::new(96, 160),
+            Probability::new(103, 153),
+            Probability::new(109, 147),
+            Probability::new(116, 140),
+            Probability::new(122, 134),
+            Probability::new(128, 128),
+            Probability::new(135, 121),
+            Probability::new(141, 115),
+            Probability::new(148, 108),
+            Probability::new(154, 102),
+            Probability::new(160, 96),
+            Probability::new(167, 89),
+            Probability::new(173, 83),
+            Probability::new(180, 76),
+            Probability::new(186, 70),
+            Probability::new(192, 64),
+            Probability::new(199, 57),
+            Probability::new(205, 51),
+            Probability::new(212, 44),
+            Probability::new(218, 38),
+            Probability::new(224, 32),
+            Probability::new(231, 25),
+            Probability::new(237, 19),
+            Probability::new(244, 12),
+            Probability::new(250, 6),
+            Probability::new(250, 6),
+            Probability::new(6, 250),
+            Probability::new(7, 249),
+            Probability::new(13, 243),
+            Probability::new(19, 237),
+            Probability::new(25, 231),
+            Probability::new(32, 224),
+            Probability::new(38, 218),
+            Probability::new(44, 212),
+            Probability::new(50, 206),
+            Probability::new(57, 199),
+            Probability::new(63, 193),
+            Probability::new(69, 187),
+            Probability::new(75, 181),
+            Probability::new(82, 174),
+            Probability::new(88, 168),
+            Probability::new(94, 162),
+            Probability::new(100, 156),
+            Probability::new(107, 149),
+            Probability::new(113, 143),
+            Probability::new(119, 137),
+            Probability::new(125, 131),
+            Probability::new(132, 124),
+            Probability::new(138, 118),
+            Probability::new(144, 112),
+            Probability::new(150, 106),
+            Probability::new(157, 99),
+            Probability::new(163, 93),
+            Probability::new(169, 87),
+            Probability::new(175, 81),
+            Probability::new(182, 74),
+            Probability::new(188, 68),
+            Probability::new(194, 62),
+            Probability::new(200, 56),
+            Probability::new(207, 49),
+            Probability::new(213, 43),
+            Probability::new(219, 37),
+            Probability::new(225, 31),
+            Probability::new(232, 24),
+            Probability::new(238, 18),
+            Probability::new(244, 12),
+            Probability::new(250, 6),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(7, 249),
+            Probability::new(13, 243),
+            Probability::new(19, 237),
+            Probability::new(25, 231),
+            Probability::new(31, 225),
+            Probability::new(37, 219),
+            Probability::new(43, 213),
+            Probability::new(49, 207),
+            Probability::new(55, 201),
+            Probability::new(61, 195),
+            Probability::new(68, 188),
+            Probability::new(74, 182),
+            Probability::new(80, 176),
+            Probability::new(86, 170),
+            Probability::new(92, 164),
+            Probability::new(98, 158),
+            Probability::new(104, 152),
+            Probability::new(110, 146),
+            Probability::new(116, 140),
+            Probability::new(122, 134),
+            Probability::new(128, 128),
+            Probability::new(135, 121),
+            Probability::new(141, 115),
+            Probability::new(147, 109),
+            Probability::new(153, 103),
+            Probability::new(159, 97),
+            Probability::new(165, 91),
+            Probability::new(171, 85),
+            Probability::new(177, 79),
+            Probability::new(183, 73),
+            Probability::new(189, 67),
+            Probability::new(196, 60),
+            Probability::new(202, 54),
+            Probability::new(208, 48),
+            Probability::new(214, 42),
+            Probability::new(220, 36),
+            Probability::new(226, 30),
+            Probability::new(232, 24),
+            Probability::new(238, 18),
+            Probability::new(244, 12),
+            Probability::new(250, 6),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(12, 244),
+            Probability::new(18, 238),
+            Probability::new(24, 232),
+            Probability::new(30, 226),
+            Probability::new(36, 220),
+            Probability::new(42, 214),
+            Probability::new(48, 208),
+            Probability::new(54, 202),
+            Probability::new(60, 196),
+            Probability::new(66, 190),
+            Probability::new(72, 184),
+            Probability::new(78, 178),
+            Probability::new(84, 172),
+            Probability::new(90, 166),
+            Probability::new(96, 160),
+            Probability::new(102, 154),
+            Probability::new(108, 148),
+            Probability::new(114, 142),
+            Probability::new(120, 136),
+            Probability::new(126, 130),
+            Probability::new(131, 125),
+            Probability::new(137, 119),
+            Probability::new(143, 113),
+            Probability::new(149, 107),
+            Probability::new(155, 101),
+            Probability::new(161, 95),
+            Probability::new(167, 89),
+            Probability::new(173, 83),
+            Probability::new(179, 77),
+            Probability::new(185, 71),
+            Probability::new(191, 65),
+            Probability::new(197, 59),
+            Probability::new(203, 53),
+            Probability::new(209, 47),
+            Probability::new(215, 41),
+            Probability::new(221, 35),
+            Probability::new(227, 29),
+            Probability::new(233, 23),
+            Probability::new(239, 17),
+            Probability::new(245, 11),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(12, 244),
+            Probability::new(18, 238),
+            Probability::new(24, 232),
+            Probability::new(30, 226),
+            Probability::new(35, 221),
+            Probability::new(41, 215),
+            Probability::new(47, 209),
+            Probability::new(53, 203),
+            Probability::new(59, 197),
+            Probability::new(64, 192),
+            Probability::new(70, 186),
+            Probability::new(76, 180),
+            Probability::new(82, 174),
+            Probability::new(88, 168),
+            Probability::new(94, 162),
+            Probability::new(99, 157),
+            Probability::new(105, 151),
+            Probability::new(111, 145),
+            Probability::new(117, 139),
+            Probability::new(123, 133),
+            Probability::new(128, 128),
+            Probability::new(134, 122),
+            Probability::new(140, 116),
+            Probability::new(146, 110),
+            Probability::new(152, 104),
+            Probability::new(158, 98),
+            Probability::new(163, 93),
+            Probability::new(169, 87),
+            Probability::new(175, 81),
+            Probability::new(181, 75),
+            Probability::new(187, 69),
+            Probability::new(192, 64),
+            Probability::new(198, 58),
+            Probability::new(204, 52),
+            Probability::new(210, 46),
+            Probability::new(216, 40),
+            Probability::new(222, 34),
+            Probability::new(227, 29),
+            Probability::new(233, 23),
+            Probability::new(239, 17),
+            Probability::new(245, 11),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(12, 244),
+            Probability::new(18, 238),
+            Probability::new(23, 233),
+            Probability::new(29, 227),
+            Probability::new(35, 221),
+            Probability::new(40, 216),
+            Probability::new(46, 210),
+            Probability::new(52, 204),
+            Probability::new(57, 199),
+            Probability::new(63, 193),
+            Probability::new(69, 187),
+            Probability::new(74, 182),
+            Probability::new(80, 176),
+            Probability::new(86, 170),
+            Probability::new(92, 164),
+            Probability::new(97, 159),
+            Probability::new(103, 153),
+            Probability::new(109, 147),
+            Probability::new(114, 142),
+            Probability::new(120, 136),
+            Probability::new(126, 130),
+            Probability::new(131, 125),
+            Probability::new(137, 119),
+            Probability::new(143, 113),
+            Probability::new(148, 108),
+            Probability::new(154, 102),
+            Probability::new(160, 96),
+            Probability::new(165, 91),
+            Probability::new(171, 85),
+            Probability::new(177, 79),
+            Probability::new(183, 73),
+            Probability::new(188, 68),
+            Probability::new(194, 62),
+            Probability::new(200, 56),
+            Probability::new(205, 51),
+            Probability::new(211, 45),
+            Probability::new(217, 39),
+            Probability::new(222, 34),
+            Probability::new(228, 28),
+            Probability::new(234, 22),
+            Probability::new(239, 17),
+            Probability::new(245, 11),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(12, 244),
+            Probability::new(17, 239),
+            Probability::new(23, 233),
+            Probability::new(28, 228),
+            Probability::new(34, 222),
+            Probability::new(39, 217),
+            Probability::new(45, 211),
+            Probability::new(51, 205),
+            Probability::new(56, 200),
+            Probability::new(62, 194),
+            Probability::new(67, 189),
+            Probability::new(73, 183),
+            Probability::new(78, 178),
+            Probability::new(84, 172),
+            Probability::new(90, 166),
+            Probability::new(95, 161),
+            Probability::new(101, 155),
+            Probability::new(106, 150),
+            Probability::new(112, 144),
+            Probability::new(117, 139),
+            Probability::new(123, 133),
+            Probability::new(128, 128),
+            Probability::new(134, 122),
+            Probability::new(140, 116),
+            Probability::new(145, 111),
+            Probability::new(151, 105),
+            Probability::new(156, 100),
+            Probability::new(162, 94),
+            Probability::new(167, 89),
+            Probability::new(173, 83),
+            Probability::new(179, 77),
+            Probability::new(184, 72),
+            Probability::new(190, 66),
+            Probability::new(195, 61),
+            Probability::new(201, 55),
+            Probability::new(206, 50),
+            Probability::new(212, 44),
+            Probability::new(218, 38),
+            Probability::new(223, 33),
+            Probability::new(229, 27),
+            Probability::new(234, 22),
+            Probability::new(240, 16),
+            Probability::new(245, 11),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(11, 245),
+            Probability::new(17, 239),
+            Probability::new(22, 234),
+            Probability::new(28, 228),
+            Probability::new(33, 223),
+            Probability::new(39, 217),
+            Probability::new(44, 212),
+            Probability::new(50, 206),
+            Probability::new(55, 201),
+            Probability::new(60, 196),
+            Probability::new(66, 190),
+            Probability::new(71, 185),
+            Probability::new(77, 179),
+            Probability::new(82, 174),
+            Probability::new(88, 168),
+            Probability::new(93, 163),
+            Probability::new(99, 157),
+            Probability::new(104, 152),
+            Probability::new(109, 147),
+            Probability::new(115, 141),
+            Probability::new(120, 136),
+            Probability::new(126, 130),
+            Probability::new(131, 125),
+            Probability::new(137, 119),
+            Probability::new(142, 114),
+            Probability::new(148, 108),
+            Probability::new(153, 103),
+            Probability::new(158, 98),
+            Probability::new(164, 92),
+            Probability::new(169, 87),
+            Probability::new(175, 81),
+            Probability::new(180, 76),
+            Probability::new(186, 70),
+            Probability::new(191, 65),
+            Probability::new(197, 59),
+            Probability::new(202, 54),
+            Probability::new(207, 49),
+            Probability::new(213, 43),
+            Probability::new(218, 38),
+            Probability::new(224, 32),
+            Probability::new(229, 27),
+            Probability::new(235, 21),
+            Probability::new(240, 16),
+            Probability::new(246, 10),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(11, 245),
+            Probability::new(16, 240),
+            Probability::new(22, 234),
+            Probability::new(27, 229),
+            Probability::new(32, 224),
+            Probability::new(38, 218),
+            Probability::new(43, 213),
+            Probability::new(48, 208),
+            Probability::new(54, 202),
+            Probability::new(59, 197),
+            Probability::new(64, 192),
+            Probability::new(70, 186),
+            Probability::new(75, 181),
+            Probability::new(80, 176),
+            Probability::new(86, 170),
+            Probability::new(91, 165),
+            Probability::new(96, 160),
+            Probability::new(102, 154),
+            Probability::new(107, 149),
+            Probability::new(112, 144),
+            Probability::new(118, 138),
+            Probability::new(123, 133),
+            Probability::new(128, 128),
+            Probability::new(134, 122),
+            Probability::new(139, 117),
+            Probability::new(144, 112),
+            Probability::new(150, 106),
+            Probability::new(155, 101),
+            Probability::new(160, 96),
+            Probability::new(166, 90),
+            Probability::new(171, 85),
+            Probability::new(176, 80),
+            Probability::new(182, 74),
+            Probability::new(187, 69),
+            Probability::new(192, 64),
+            Probability::new(198, 58),
+            Probability::new(203, 53),
+            Probability::new(208, 48),
+            Probability::new(214, 42),
+            Probability::new(219, 37),
+            Probability::new(224, 32),
+            Probability::new(230, 26),
+            Probability::new(235, 21),
+            Probability::new(240, 16),
+            Probability::new(246, 10),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
+            Probability::new(6, 250),
+            Probability::new(6, 250),
+            Probability::new(11, 245),
+            Probability::new(16, 240),
+            Probability::new(21, 235),
+            Probability::new(27, 229),
+            Probability::new(32, 224),
+            Probability::new(37, 219),
+            Probability::new(42, 214),
+            Probability::new(48, 208),
+            Probability::new(53, 203),
+            Probability::new(58, 198),
+            Probability::new(63, 193),
+            Probability::new(68, 188),
+            Probability::new(74, 182),
+            Probability::new(79, 177),
+            Probability::new(84, 172),
+            Probability::new(89, 167),
+            Probability::new(95, 161),
+            Probability::new(100, 156),
+            Probability::new(105, 151),
+            Probability::new(110, 146),
+            Probability::new(115, 141),
+            Probability::new(121, 135),
+            Probability::new(126, 130),
+            Probability::new(131, 125),
+            Probability::new(136, 120),
+            Probability::new(142, 114),
+            Probability::new(147, 109),
+            Probability::new(152, 104),
+            Probability::new(157, 99),
+            Probability::new(162, 94),
+            Probability::new(168, 88),
+            Probability::new(173, 83),
+            Probability::new(178, 78),
+            Probability::new(183, 73),
+            Probability::new(189, 67),
+            Probability::new(194, 62),
+            Probability::new(199, 57),
+            Probability::new(204, 52),
+            Probability::new(209, 47),
+            Probability::new(215, 41),
+            Probability::new(220, 36),
+            Probability::new(225, 31),
+            Probability::new(230, 26),
+            Probability::new(236, 20),
+            Probability::new(241, 15),
+            Probability::new(246, 10),
+            Probability::new(251, 5),
+            Probability::new(251, 5),
         ];
         LOOKUP[self as usize]
     }

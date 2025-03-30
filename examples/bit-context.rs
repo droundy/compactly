@@ -29,19 +29,7 @@ impl Bucket {
         let name = self.name();
         match self {
             Bucket::Count { trues, falses } => {
-                let mut prob = if falses == 0 {
-                    1 * 256 / ((2 + trues) as u64)
-                } else if trues == 0 {
-                    (1 + falses) as u64 * 256 / ((2 + falses) as u64)
-                } else {
-                    falses as u64 * 256 / ((trues + falses) as u64)
-                };
-                let mut shift = 8;
-                while prob & 1 == 0 && shift > 2 {
-                    prob >>= 1;
-                    shift -= 1;
-                }
-                let probability = Probability { prob, shift };
+                let probability = Probability::new(trues as u64, falses as u64);
                 let next_likely = if probability.likely_bit() {
                     Bucket::new(trues + 1, falses)
                 } else {
