@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 const CSV: &str = include_str!("suicide.csv");
 
 #[derive(
+    Clone,
+    Copy,
     Debug,
     PartialEq,
     Eq,
@@ -22,6 +24,8 @@ pub struct Age {
 }
 
 #[derive(
+    Clone,
+    Copy,
     Debug,
     PartialEq,
     Eq,
@@ -39,6 +43,8 @@ pub enum Sex {
 }
 
 #[derive(
+    Clone,
+    Copy,
     Debug,
     PartialEq,
     Eq,
@@ -58,6 +64,8 @@ pub enum Race {
 }
 
 #[derive(
+    Clone,
+    Copy,
     Debug,
     PartialEq,
     Eq,

@@ -120,21 +120,44 @@ impl<E: Encoding> Encoding for Zstd<E> {
 
 fn bench_one<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
     e: impl Encoding,
-    value: &T,
+    values: &[T],
 ) {
-    let encoding_ms = bench(|| e.encode(value)).ns_per_iter * 1e-6;
-    let encoded = e.encode(value);
-    let decoding_ms = bench(|| e.decode::<T>(encoded.as_slice())).ns_per_iter * 1e-6;
-    let size = format_sz(encoded.len());
+    let encoding_ms = bench(|| values.iter().map(|v| e.encode(v)).collect::<Vec<_>>()).ns_per_iter
+        * 1e-6
+        / values.len() as f64;
+    let encoded = values.iter().map(|v| e.encode(v)).collect::<Vec<_>>();
+    let decoding_ms = bench(|| {
+        encoded
+            .iter()
+            .map(|bytes| e.decode::<T>(&bytes))
+            .collect::<Vec<_>>()
+    })
+    .ns_per_iter
+        * 1e-6
+        / values.len() as f64;
+    let size =
+        format_sz(encoded.iter().map(|e| e.len()).sum::<usize>() as f64 / values.len() as f64);
     println!(
-        "{:>25} {size:6} {encoding_ms:>6.2}ms {decoding_ms:>5.2}ms",
-        e.name()
+        "{:>25} {size:6} {} {}",
+        e.name(),
+        fmt_ms(encoding_ms),
+        fmt_ms(decoding_ms),
     );
+}
+
+fn fmt_ms(ms: f64) -> String {
+    if ms == 0.0 {
+        format!("{ms:>5.2} ")
+    } else if ms > 1.0 {
+        format!("{ms:>5.2}ms")
+    } else {
+        format!("{:>5.2}us", ms * 1000.0)
+    }
 }
 
 fn bench_all<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + DeserializeOwned>(
     name: &str,
-    value: T,
+    values: &[T],
 ) {
     println!("{name}:");
     {
@@ -153,55 +176,63 @@ fn bench_all<T: compactly::v0::Encode + compactly::v1::Encode + Serialize + Dese
             "--------"
         );
     }
-    bench_one(CompactlyV0, &value);
-    bench_one(CompactlyV1, &value);
+    bench_one(CompactlyV0, values);
+    bench_one(CompactlyV1, values);
     bench_one(
         Zstd {
             encoding: BincodeVar,
             level: 100,
         },
-        &value,
+        values,
     );
     bench_one(
         Zstd {
             encoding: BincodeVar,
             level: 9,
         },
-        &value,
+        values,
     );
     bench_one(
         Zstd {
             encoding: BincodeVar,
             level: 3,
         },
-        &value,
+        values,
     );
     bench_one(
         Zstd {
             encoding: BincodeFix,
             level: 3,
         },
-        &value,
+        values,
     );
-    bench_one(BincodeVar, &value);
-    bench_one(BincodeFix, &value);
+    bench_one(BincodeVar, values);
+    bench_one(BincodeFix, values);
 }
 
-fn format_sz(sz: usize) -> String {
-    if sz >= 1024 * 10 {
-        format!("{}k", (sz + 512) / 1024)
+fn format_sz(sz: f64) -> String {
+    if sz >= 1024.0 * 10.0 {
+        format!("{:.0}k", sz / 1024.0)
+    } else if sz < 20.0 && sz.round() != sz {
+        format!("{:.1}", sz)
     } else {
-        format!("{}", sz)
+        format!("{:.0}", sz)
     }
 }
 
 fn main() {
-    bench_all("mtg tenth edition", comparison::tenth_edition());
-    bench_all("cards", comparison::tenth_edition().data.cards[0].clone());
-    bench_all("suicide", comparison::suicides_per_million());
-    bench_all("meteorites", comparison::meteorites::meteorites());
+    bench_all("mtg tenth edition", &[comparison::tenth_edition()]);
+    bench_all("single cards", &comparison::tenth_edition().data.cards);
+    bench_all("suicide", &[comparison::suicides_per_million()]);
+    let individual_suicide = comparison::suicides_per_million()
+        .iter()
+        .map(|(factors, value)| (factors.clone(), *value))
+        .collect::<Vec<_>>();
+    bench_all("individual suicide", &individual_suicide);
+    bench_all("meteorites", &[comparison::meteorites::meteorites()]);
+    bench_all("single meteorites", &comparison::meteorites::meteorites());
     bench_all(
         "meteorites by name",
-        comparison::meteorites::meteorite_names(),
+        &[comparison::meteorites::meteorite_names()],
     );
 }
