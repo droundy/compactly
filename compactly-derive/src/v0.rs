@@ -190,7 +190,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::v0::{Encode, EncodingStrategy, Small, LowCardinality};
+        use compactly::v0::{Encode, EncodingStrategy, Small, LowCardinality, Decimal};
 
         pub struct DerivedContext #context_generics {
             discriminant: <#discriminant_type as Encode>::Context,

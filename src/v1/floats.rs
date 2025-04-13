@@ -2,7 +2,7 @@ use super::{Decimal, Encode, EncodingStrategy, Small};
 use std::io::{Read, Write};
 
 macro_rules! impl_float {
-    ($t:ident, $intty:ident, $context:ident, $decimal:ident, $bits:literal) => {
+    ($t:ident, $intty:ident, $sint:ident, $context:ident, $decimal:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
             is_int: <bool as Encode>::Context,
@@ -32,7 +32,6 @@ macro_rules! impl_float {
                 let is_int = intvalue as $t == *self;
                 is_int.encode(writer, &mut ctx.is_int)?;
                 if is_int {
-                    println!("encoding as small int");
                     <Small as EncodingStrategy<$intty>>::encode(
                         &intvalue,
                         writer,
@@ -40,7 +39,6 @@ macro_rules! impl_float {
                     )
                 } else {
                     let mut bits = $intty::from_le_bytes(self.to_le_bytes());
-                    println!("encoding {bits:x?}");
                     for i in 0..$bits {
                         (bits & 1 == 1).encode(writer, &mut ctx.context[i])?;
                         bits = bits >> 1;
@@ -64,7 +62,6 @@ macro_rules! impl_float {
                             bits = bits | (1 << i);
                         }
                     }
-                    println!("decoding {bits:x?}");
                     Ok($t::from_le_bytes(bits.to_le_bytes()))
                 }
             }
@@ -73,7 +70,9 @@ macro_rules! impl_float {
         #[derive(Clone, Default)]
         pub struct $decimal {
             exponent: <Small as EncodingStrategy<i16>>::Context,
-            int: <Small as EncodingStrategy<$intty>>::Context,
+            int: <Small as EncodingStrategy<$sint>>::Context,
+            is_int: <bool as Encode>::Context,
+            integer: <Small as EncodingStrategy<$sint>>::Context,
         }
         impl EncodingStrategy<$t> for Decimal {
             type Context = $decimal;
@@ -82,46 +81,57 @@ macro_rules! impl_float {
                 writer: &mut super::Writer<W>,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
-                // This is very hokey.
-                let d = format!("{value}");
-                let (power, int) = if let Some((a, b)) = d.split_once('.') {
-                    let power = -(b.len() as i16);
-                    let int = format!("{a}{b}");
-                    println!("parsing {int} as int?");
-                    (power, int.parse::<$intty>().unwrap())
+                let intvalue = *value as $sint;
+                let is_int = intvalue as $t == *value;
+                is_int.encode(writer, &mut ctx.is_int)?;
+                if is_int {
+                    <Small as EncodingStrategy<$sint>>::encode(&intvalue, writer, &mut ctx.integer)
                 } else {
-                    let int = d.trim_end_matches('0');
-                    let power = (d.len() - int.len()) as i16;
-                    println!("parsing {int} as int");
-                    if int.is_empty() {
-                        (0, 0)
+                    // This is very hokey.
+                    let d = format!("{value}");
+                    let (power, int) = if let Some((a, b)) = d.split_once('.') {
+                        let power = -(b.len() as i16);
+                        let int = format!("{a}{b}");
+                        (power, int.parse::<$sint>().expect("bad float {a}{b}"))
                     } else {
-                        (power, int.parse::<$intty>().unwrap())
-                    }
-                };
-                <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent)?;
-                <Small as EncodingStrategy<$intty>>::encode(&int, writer, &mut ctx.int)
+                        let int = d.trim_end_matches('0');
+                        let power = (d.len() - int.len()) as i16;
+                        if int.is_empty() {
+                            (0, 0)
+                        } else {
+                            (power, int.parse::<$sint>().expect("bad float trimzeros"))
+                        }
+                    };
+                    <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent)?;
+                    <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int)
+                }
             }
 
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                let power = <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
-                let int = <Small as EncodingStrategy<$intty>>::decode(reader, &mut ctx.int)?;
-                let s = if power > 0 {
-                    format!("{int}{0:0$}", power as usize)
+                if bool::decode(reader, &mut ctx.is_int)? {
+                    let intvalue =
+                        <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.integer)?;
+                    Ok(intvalue as $t)
                 } else {
-                    format!("{int}.0e{power}")
-                };
-                println!("parsing {s} as float");
-                Ok(s.parse().unwrap())
+                    let power =
+                        <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
+                    let int = <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int)?;
+                    let s = if power > 0 {
+                        format!("{int}{0:0$}", power as usize)
+                    } else {
+                        format!("{int}.0e{power}")
+                    };
+                    Ok(s.parse().expect("bad decode str"))
+                }
             }
         }
     };
 }
-impl_float!(f64, u64, F64Context, F64Decimal, 64);
-impl_float!(f32, u32, F32Context, F32Decimal, 32);
+impl_float!(f64, u64, i64, F64Context, F64Decimal, 64);
+impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
 
 #[test]
 fn decimal_float() {
@@ -138,16 +148,16 @@ fn decimal_float() {
         assert_bits!(Encoded::<f32, Decimal>::from(v), dec);
     }
 
-    test_value(1.1, 15, 65);
-    test_value(0.1, 13, 65);
-    test_value(0.9, 15, 65);
-    test_value(128.332, 28, 65);
-    test_value(1.0_f64.exp(), 65, 65);
-    test_value(0.0, 13, 3);
-    test_value(8.0, 15, 10);
+    test_value(1.1, 16, 65);
+    test_value(0.1, 14, 65);
+    test_value(0.9, 16, 65);
+    test_value(128.332, 29, 65);
+    test_value(1.0_f64.exp(), 66, 65);
+    test_value(0.0, 3, 3);
+    test_value(8.0, 10, 10);
 
-    test32(1.0_f32.exp(), 36, 33);
-    test32(0.1, 12, 33);
-    test32(0.0, 12, 3);
-    test32(8.0, 14, 9);
+    test32(1.0_f32.exp(), 37, 33);
+    test32(0.1, 13, 33);
+    test32(0.0, 3, 3);
+    test32(8.0, 9, 9);
 }

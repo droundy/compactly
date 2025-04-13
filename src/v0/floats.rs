@@ -1,8 +1,8 @@
-use super::{Encode, EncodingStrategy, Small};
+use super::{Decimal, Encode, EncodingStrategy, Small};
 use std::io::{Read, Write};
 
 macro_rules! impl_float {
-    ($t:ident, $intty:ident, $context:ident, $bits:literal) => {
+    ($t:ident, $intty:ident, $sint:ident, $context:ident, $decimal:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
             is_int: <bool as Encode>::Context,
@@ -67,7 +67,69 @@ macro_rules! impl_float {
                 }
             }
         }
+
+        #[derive(Clone, Default)]
+        pub struct $decimal {
+            exponent: <Small as EncodingStrategy<i16>>::Context,
+            int: <Small as EncodingStrategy<$sint>>::Context,
+            is_int: <bool as Encode>::Context,
+            integer: <Small as EncodingStrategy<$sint>>::Context,
+        }
+        impl EncodingStrategy<$t> for Decimal {
+            type Context = $decimal;
+            fn encode<W: Write>(
+                value: &$t,
+                writer: &mut super::Writer<W>,
+                ctx: &mut Self::Context,
+            ) -> Result<(), std::io::Error> {
+                let intvalue = *value as $sint;
+                let is_int = intvalue as $t == *value;
+                is_int.encode(writer, &mut ctx.is_int)?;
+                if is_int {
+                    <Small as EncodingStrategy<$sint>>::encode(&intvalue, writer, &mut ctx.integer)
+                } else {
+                    // This is very hokey.
+                    let d = format!("{value}");
+                    let (power, int) = if let Some((a, b)) = d.split_once('.') {
+                        let power = -(b.len() as i16);
+                        let int = format!("{a}{b}");
+                        (power, int.parse::<$sint>().expect("bad float {a}{b}"))
+                    } else {
+                        let int = d.trim_end_matches('0');
+                        let power = (d.len() - int.len()) as i16;
+                        if int.is_empty() {
+                            (0, 0)
+                        } else {
+                            (power, int.parse::<$sint>().expect("bad float trimzeros"))
+                        }
+                    };
+                    <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent)?;
+                    <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int)
+                }
+            }
+
+            fn decode<R: Read>(
+                reader: &mut super::Reader<R>,
+                ctx: &mut Self::Context,
+            ) -> Result<$t, std::io::Error> {
+                if bool::decode(reader, &mut ctx.is_int)? {
+                    let intvalue =
+                        <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.integer)?;
+                    Ok(intvalue as $t)
+                } else {
+                    let power =
+                        <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
+                    let int = <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int)?;
+                    let s = if power > 0 {
+                        format!("{int}{0:0$}", power as usize)
+                    } else {
+                        format!("{int}.0e{power}")
+                    };
+                    Ok(s.parse().expect("bad decode str"))
+                }
+            }
+        }
     };
 }
-impl_float!(f64, u64, F64Context, 64);
-impl_float!(f32, u32, F32Context, 32);
+impl_float!(f64, u64, i64, F64Context, F64Decimal, 64);
+impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
