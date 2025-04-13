@@ -90,6 +90,10 @@ pub use crate::v0::Small;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LowCardinality;
 
+/// A strategy for encoding floating point values that have round decimal values.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Decimal;
+
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);

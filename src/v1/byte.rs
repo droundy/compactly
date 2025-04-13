@@ -1,6 +1,7 @@
 use super::Encode;
 use std::io::{Read, Write};
 
+#[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
     #[inline]
