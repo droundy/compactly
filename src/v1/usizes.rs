@@ -42,13 +42,13 @@ impl Encode for usize {
 fn size() {
     use super::assert_bits;
     use super::Compact;
-    assert_bits!(Compact(0_u64), 7);
+    assert_bits!(Compact(0_u64), 3);
     assert_bits!(0_usize, 3);
     assert_bits!(Compact(1_u64), 7);
     assert_bits!(1_usize, 3);
     assert_bits!(Compact(2_u64), 7);
     assert_bits!(2_usize, 3);
-    assert_bits!(3_usize, 3);
+    assert_bits!(3_usize, 1);
     assert_bits!(4_usize, 8);
     assert_bits!(5_usize, 8);
     assert_bits!(6_usize, 8);
@@ -74,10 +74,10 @@ fn size() {
     // Note the code will work for u32, but the following two tests will fail.
     assert_bits!(1024_usize * 1024 * 1024 * 1024, 46);
     assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
-    assert_bits!([0_usize; 128], 14);
+    assert_bits!([0_usize; 128], 22);
     assert_bits!([1_usize; 19], 13);
     assert_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        23
+        19
     );
 }

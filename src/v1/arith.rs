@@ -73,28 +73,35 @@ impl ArithState {
     #[inline]
     fn ready_bytes(&mut self) -> Bytes {
         let mut bytes = Bytes::default();
-        for _ in 0..8 {
-            let lo_byte = (self.lo >> 56) as u8;
-            let hi_byte = (self.hi >> 56) as u8;
-            debug_assert_ne!(self.lo, self.hi);
-            // #[cfg(test)]
-            // {
-            //     let width = self.hi - self.lo;
-            //     println!("width = {width:016x}");
-            //     println!("  min = {:016x}", u64::MAX >> 8);
-            //     println!("lo_byte {lo_byte:02x}");
-            //     println!("hi_byte {hi_byte:02x}");
-            // }
-            if lo_byte == hi_byte {
-                self.lo = self.lo << 8;
-                self.hi = self.hi << 8;
+        if self.lo == self.hi {
+            for b in self.lo.to_be_bytes() {
+                bytes.push(b);
+            }
+            self.lo = 0;
+            self.hi = u64::MAX;
+        } else {
+            for _ in 0..8 {
+                let lo_byte = (self.lo >> 56) as u8;
+                let hi_byte = (self.hi >> 56) as u8;
                 // #[cfg(test)]
                 // {
-                //     println!("next_byte resetting to {self:x?}");
+                //     let width = self.hi - self.lo;
+                //     println!("width = {width:016x}");
+                //     println!("  min = {:016x}", u64::MAX >> 8);
+                //     println!("lo_byte {lo_byte:02x}");
+                //     println!("hi_byte {hi_byte:02x}");
                 // }
-                bytes.push(lo_byte);
-            } else {
-                return bytes;
+                if lo_byte == hi_byte {
+                    self.lo = self.lo << 8;
+                    self.hi = self.hi << 8;
+                    // #[cfg(test)]
+                    // {
+                    //     println!("next_byte resetting to {self:x?}");
+                    // }
+                    bytes.push(lo_byte);
+                } else {
+                    return bytes;
+                }
             }
         }
         bytes
