@@ -12,6 +12,60 @@ enum Bucket {
     Count { trues: usize, falses: usize },
 }
 
+/// A distribution of Probability
+#[derive(Clone, Copy)]
+struct Distribution([f64; 256]);
+
+impl Distribution {
+    /// This is the expected number of bits required for encoding.
+    fn entropy(self, prob: Probability) -> f64 {
+        let p0 = prob.as_f64();
+        // Number of bits used to encode a zero
+        let zero_bits = -p0.log2();
+        // Number of bits used to encode a one
+        let one_bits = -(1.0 - p0).log2();
+        // println!("{zero_bits} and {one_bits}");
+        let mut entropy = 0.0;
+        for (i, d) in self.0.iter().enumerate() {
+            let p = i as f64 / 255.0;
+            entropy += d * (p * zero_bits + (1.0 - p) * one_bits);
+        }
+        entropy
+    }
+
+    /// The probability choice that minimizes the encoded size.
+    fn best(self) -> (Probability, f64) {
+        let mut best_entropy = f64::MAX;
+        let mut best_probability = Probability { prob: 0 };
+        for prob in 1..255 {
+            let prob = Probability { prob };
+            let s = self.entropy(prob);
+            // println!("{:.8}: {s}   --- best is {best_probability}", prob.as_f64());
+            if s < best_entropy {
+                best_entropy = s;
+                best_probability = prob;
+            }
+        }
+        (best_probability, best_entropy)
+    }
+
+    /// The probability choice that minimizes the encoded size.
+    fn best_probability(self) -> Probability {
+        self.best().0
+    }
+
+    #[cfg(test)]
+    fn max(self) -> f64 {
+        let mut m = 0.0;
+        for v in self.0 {
+            if v > m {
+                m = v;
+            }
+        }
+        m
+    }
+}
+
 impl Bucket {
     fn name(self) -> String {
         match self {
@@ -25,11 +79,27 @@ impl Bucket {
             Bucket::Count { trues, falses }
         }
     }
+
+    /// This gives me the normalized Bayesian distribution of the probability of false.
+    fn probability_distribution(self) -> Distribution {
+        let mut dist = [1.0_f64; 256];
+        let Bucket::Count { trues, falses } = self;
+        for (i, v) in dist.iter_mut().enumerate() {
+            let p = i as f64 / 255.0;
+            *v = p.powi(falses as i32) * (1.0 - p).powi(trues as i32);
+        }
+        let norm = dist.iter().copied().sum::<f64>();
+        for v in dist.iter_mut() {
+            *v /= norm;
+        }
+        Distribution(dist)
+    }
+
     fn bitc(self) -> BitC {
         let name = self.name();
         match self {
             Bucket::Count { trues, falses } => {
-                let probability = Probability::new(trues as u64, falses as u64);
+                let probability = self.probability_distribution().best_probability();
                 let next_likely = if probability.likely_bit() {
                     Bucket::new(trues + 1, falses)
                 } else {
@@ -200,7 +270,7 @@ pub enum BitContext {{
         name, probability, ..
     } in variants.iter().map(|b| b.bitc())
     {
-        println!("    {name}, // {probability:?} = {probability}")
+        println!("    {name},    // {probability}")
     }
 
     println!(
@@ -226,4 +296,32 @@ impl BitContext {{"
     println!("}}");
 
     println!(r"// Count of variants: {}", variants.len());
+}
+
+#[cfg(test)]
+fn test_distribution(trues: usize, falses: usize, prob: f64, expected_bits: f64) {
+    let d = Bucket::Count { trues, falses }.probability_distribution();
+    println!("{trues} true and {falses} false");
+    for v in d.0.into_iter().step_by(8) {
+        let wid = (v / d.max() * 80.0) as usize;
+        println!("{:wid$}*", "|");
+    }
+    let (best_prob, bits) = d.best();
+    assert_eq!(best_prob.as_f64(), prob);
+    assert!(bits > expected_bits - 1e-10, "{bits} > {expected_bits}");
+    assert!(bits < expected_bits + 1e-10, "{bits} < {expected_bits}");
+}
+
+#[test]
+fn distribution_test() {
+    test_distribution(32, 32, 0.5, 1.0);
+    test_distribution(64, 64, 0.5, 1.0);
+    test_distribution(0, 0, 0.5, 1.0);
+    test_distribution(1, 0, 0.33203125, 0.9169830942670982);
+    test_distribution(0, 1, 0.66796875, 0.9169830942670982);
+    test_distribution(2, 0, 0.25, 0.8089518585578784);
+    test_distribution(0, 2, 0.75, 0.8089518585578784);
+    test_distribution(0, 3, 0.80078125, 0.7187907456421366);
+    test_distribution(32, 0, 0.02734375, 0.18195147863889768);
+    test_distribution(64, 0, 0.01171875, 0.10211457524295939);
 }
