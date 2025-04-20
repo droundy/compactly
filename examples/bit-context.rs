@@ -7,7 +7,7 @@ struct BitC {
     next_likely: String,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Bucket {
     Count { trues: usize, falses: usize },
 }
@@ -73,7 +73,7 @@ impl Bucket {
         }
     }
     fn new(trues: usize, falses: usize) -> Self {
-        if trues + falses >= MAX_COUNT {
+        if (1 + trues) * (1 + falses) >= MAX_PRODUCT {
             if trues == 0 {
                 Bucket::new(trues, falses - 1)
             } else if falses == 0 {
@@ -238,15 +238,16 @@ fn lookup_adapt(variants: &[Bucket]) {
     println!("}}");
 }
 
-const MAX_COUNT: usize = 81;
+const MAX_PRODUCT: usize = 134;
 const COUNT_FOR_CONFIDENCE: usize = 4;
 
 fn main() {
     let mut variants = Vec::new();
-    for tot in 0..MAX_COUNT {
-        for trues in 0..tot + 1 {
-            let falses = tot - trues;
-            variants.push(Bucket::Count { trues, falses })
+    for falses in 0..MAX_PRODUCT - 1 {
+        let mut trues = 0;
+        while (Bucket::Count { trues, falses }) == Bucket::new(trues, falses) {
+            variants.push(Bucket::Count { trues, falses });
+            trues += 1;
         }
     }
 
@@ -330,4 +331,6 @@ fn distribution_test() {
     test_distribution(0, 3, 0.80078125, 0.7187907456421366);
     test_distribution(32, 0, 0.02734375, 0.18195147863889768);
     test_distribution(64, 0, 0.01171875, 0.10211457524295939);
+    test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 128.0, 0.05104365326082572);
+    test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05065909928371242);
 }
