@@ -9904,7 +9904,7 @@ impl BitContext {
             True77False3,
             True78False2,
             True79False1,
-            True0False40,
+            True0False80,
             True0False40,
             True1False39,
             True1False39,
@@ -13305,7 +13305,7 @@ impl BitContext {
             True39False1,
             True39False1,
             True40False0,
-            True40False0,
+            True80False0,
         ];
         OUTCOMES[(self as usize) + (bit as usize) * 3321]
     }

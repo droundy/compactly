@@ -74,7 +74,13 @@ impl Bucket {
     }
     fn new(trues: usize, falses: usize) -> Self {
         if trues + falses >= MAX_COUNT {
-            Bucket::new(trues / 2, falses / 2)
+            if trues == 0 {
+                Bucket::new(trues, falses - 1)
+            } else if falses == 0 {
+                Bucket::new(trues - 1, falses)
+            } else {
+                Bucket::new(trues / 2, falses / 2)
+            }
         } else {
             Bucket::Count { trues, falses }
         }
