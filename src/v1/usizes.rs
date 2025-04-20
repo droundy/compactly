@@ -74,7 +74,7 @@ fn size() {
     // Note the code will work for u32, but the following two tests will fail.
     assert_bits!(1024_usize * 1024 * 1024 * 1024, 46);
     assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
-    assert_bits!([0_usize; 128], 22);
+    assert_bits!([0_usize; 128], 20);
     assert_bits!([1_usize; 19], 13);
     assert_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],

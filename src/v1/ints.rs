@@ -81,7 +81,7 @@ fn size_u64() {
         println!("Trying with {sz}");
         assert_bits!(sz, 25);
     }
-    assert_bits!([0_u64; 128], 462);
+    assert_bits!([0_u64; 128], 430);
     assert_bits!([1_u64; 2], 101);
     assert_bits!([1_u64; 19], 274);
     assert_bits!(
@@ -97,8 +97,8 @@ fn size_u32() {
         println!("Trying with {sz}");
         assert_bits!(sz, 12);
     }
-    assert_bits!([0_u32; 128], 231);
-    assert_bits!([u32::MAX; 128], 183);
+    assert_bits!([0_u32; 128], 215);
+    assert_bits!([u32::MAX; 128], 175);
     assert_bits!([1_u32; 2], 51);
     assert_bits!([1_u32; 19], 137);
     assert_bits!(
@@ -130,8 +130,8 @@ fn size_u16() {
         println!("Trying with {sz}");
         assert_bits!(sz, 7);
     }
-    assert_bits!([0_u16; 128], 116);
-    assert_bits!([u16::MAX; 128], 113);
+    assert_bits!([0_u16; 128], 108);
+    assert_bits!([u16::MAX; 128], 98);
     assert_bits!([1_u16; 2], 25);
     assert_bits!([1_u16; 19], 69);
     assert_bits!(
@@ -236,8 +236,8 @@ fn compact_u16() {
     assert_bits!(Compact(7_u16), 6);
     assert_bits!(Compact(8_u16), 7);
     assert_bits!(Compact(u16::MAX), 19);
-    assert_bits!([Compact(0_u16); 128], 33);
-    assert_bits!([Compact(u16::MAX); 128], 137);
+    assert_bits!([Compact(0_u16); 128], 30);
+    assert_bits!([Compact(u16::MAX); 128], 128);
     assert_bits!([Compact(1_u16); 2], 8);
     assert_bits!([Compact(1_u16); 19], 22);
     assert_bits!(
@@ -261,7 +261,7 @@ fn compact_u32() {
     assert_bits!(Compact(8_u32), 8);
     assert_bits!(Compact(u32::MAX), 36);
     assert_bits!([Compact(0_u32); 128], 40);
-    assert_bits!([Compact(u32::MAX); 128], 260);
+    assert_bits!([Compact(u32::MAX); 128], 242);
     assert_bits!([Compact(1_u32); 2], 10);
     assert_bits!([Compact(1_u32); 19], 26);
     assert_bits!(
