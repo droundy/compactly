@@ -1,4 +1,4 @@
-use super::{bits::Bits, Encode, URange};
+use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
 #[derive(Default)]
 pub struct CharContext {
@@ -126,6 +126,162 @@ impl Encode for String {
         for _ in 0..len {
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
+        Ok(out)
+    }
+}
+
+#[derive(Default)]
+pub struct Lz77 {
+    old: Vec<String>,
+    count: <usize as Encode>::Context,
+    is_lit: <bool as Encode>::Context,
+    literal: <char as Encode>::Context,
+    back: <usize as Encode>::Context,
+    offset: <usize as Encode>::Context,
+    self_offset: <usize as Encode>::Context,
+    length: <usize as Encode>::Context,
+}
+
+enum Chunk {
+    Literal(char),
+    Chunk {
+        /// Value of 0 indicates current string, otherwise count back in old.
+        back: usize,
+        /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
+        offset: usize,
+        /// Number of bytes in the chunk.
+        length: usize,
+    },
+}
+
+impl Lz77 {
+    fn eager(&self, mut value: &str) -> Vec<Chunk> {
+        let mut sofar = String::new();
+        let mut out = Vec::new();
+        while let Some(chunk) = self.eager_chunk(&mut value, &mut sofar) {
+            out.push(chunk);
+        }
+        out
+    }
+    fn eager_chunk(&self, value: &mut &str, sofar: &mut String) -> Option<Chunk> {
+        if value.is_empty() {
+            return None;
+        }
+        let mut prefix = *value;
+        while prefix.len() > 1 {
+            let sofar_clone = sofar.clone();
+            for (back, s) in std::iter::once(sofar_clone.as_str())
+                .chain(self.old.iter().map(|s| s.as_str()).rev())
+                .enumerate()
+            {
+                if let Some(mut offset) = s.find(prefix) {
+                    let length = prefix.len();
+                    *value = &value[length..];
+                    sofar.push_str(prefix);
+                    if back == 0 {
+                        offset = s.len() - offset - 1;
+                    }
+                    return Some(Chunk::Chunk {
+                        back,
+                        offset: s.len() - offset,
+                        length,
+                    });
+                }
+            }
+
+            if let Some(idx) = prefix.rfind(|_| true) {
+                prefix = &prefix[..idx];
+            }
+        }
+        // We are forced to emit a literal character
+        let mut chars = value.char_indices();
+        let first = chars.next()?.1;
+        sofar.push(first);
+        let sz = chars
+            .next()
+            .map(|(sz, _)| sz)
+            .unwrap_or_else(|| value.len());
+        *value = &value[sz..];
+        Some(Chunk::Literal(first))
+    }
+}
+
+impl EncodingStrategy<String> for Small {
+    type Context = Lz77;
+    fn encode<W: std::io::Write>(
+        value: &String,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        let chunks = ctx.eager(value);
+        chunks.len().encode(writer, &mut ctx.count)?;
+        for chunk in chunks {
+            match chunk {
+                Chunk::Literal(c) => {
+                    true.encode(writer, &mut ctx.is_lit)?;
+                    c.encode(writer, &mut ctx.literal)?;
+                }
+                Chunk::Chunk {
+                    back,
+                    offset,
+                    length,
+                } => {
+                    false.encode(writer, &mut ctx.is_lit)?;
+                    back.encode(writer, &mut ctx.back)?;
+                    let offset_context = if back == 0 {
+                        &mut ctx.self_offset
+                    } else {
+                        &mut ctx.offset
+                    };
+                    offset.encode(writer, offset_context)?;
+                    length.encode(writer, &mut ctx.length)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let n = <usize as Encode>::decode(reader, &mut ctx.count)?;
+        let mut out = String::with_capacity(n);
+        for _ in 0..n {
+            if ctx.old.is_empty() || <bool as Encode>::decode(reader, &mut ctx.is_lit)? {
+                out.push(<char as Encode>::decode(reader, &mut ctx.literal)?);
+            } else {
+                let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
+                // We add 2 to the length because a length of 0 or 1 makes
+                // little sense.  Note also that length is a number of bytes not
+                // a number of characters.
+                let length = 2 + <usize as Encode>::decode(reader, &mut ctx.length)?;
+                if back == 0 {
+                    // We are repeating our own string.  In this case offset
+                    // counts *backwards* and must be >= 1 so we shift it.
+                    let back = 1 + <usize as Encode>::decode(reader, &mut ctx.self_offset)?;
+                    if length <= back {
+                        let x = String::from(&out[out.len() - back..out.len() - back + length]);
+                        out.push_str(&x);
+                    } else {
+                        // With extra length this means we are using run length
+                        // encoding in effect, which is kind of a pain.
+                        let chunk = String::from(&out[out.len() - back..]);
+                        let final_length = out.len() + length;
+                        while out.len() < final_length {
+                            out.push_str(&chunk);
+                        }
+                        while out.len() > final_length {
+                            out.pop();
+                        }
+                    }
+                } else {
+                    let offset = <usize as Encode>::decode(reader, &mut ctx.offset)?;
+                    out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length]);
+                }
+            }
+        }
+        ctx.old.push(out.clone());
         Ok(out)
     }
 }
