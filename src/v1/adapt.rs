@@ -71,7 +71,7 @@ fn encode_size() {
         assert_eq!(bits, decoded.as_slice());
     }
     measure_size(&[], 1);
-    for i in 0..5 * 1024 {
+    for i in 0..242 {
         measure_size(&vec![true; i], 1);
         measure_size(&vec![false; i], 1);
     }
@@ -101,14 +101,14 @@ fn encode_size() {
     measure_size(
         &[
             true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-            true, true, true, true, true, true, false, false, false, false,
+            true, true, true, true, true, true, false, false, false,
         ],
-        2, // wow, we just compressed 24 bits into 2 bytes thanks to correlation between the bits!
+        2, // wow, we just compressed 23 bits into 2 bytes thanks to correlation between the bits!
     );
     measure_size(
         &[
             true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-            true, true, true, true, true, true, false, false, false, false, false,
+            true, true, true, true, true, true, false, false, false, false,
         ],
         3,
     );

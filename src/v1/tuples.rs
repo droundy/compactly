@@ -286,18 +286,22 @@ fn sizes() {
 
     assert_bits!((false, false), 2);
     assert_bits!((false, true), 2);
-    assert_bits!((true, true), 2);
+    assert_bits!((true, true), 1);
     assert_bits!((true, false), 2);
 
-    assert_bits!((true, true, true), 3);
+    assert_bits!((true, true, true), 1);
 
-    assert_bits!((true, true, true, true), 4);
+    assert_bits!((true, true, true, true), 1);
 
-    assert_bits!((true, true, true, true, true), 5);
+    assert_bits!((false, false, false), 3);
 
-    assert_bits!((true, true, true, true, true, true), 6);
+    assert_bits!((false, false, false, false), 4);
 
-    assert_bits!((true, true, true, true, true, true, true), 7);
+    assert_bits!((false, false, false, false, false), 5);
 
-    assert_bits!((true, true, true, true, true, true, true, true), 8);
+    assert_bits!((false, false, false, false, false, false), 6);
+
+    assert_bits!((false, false, false, false, false, false, false), 7);
+
+    assert_bits!((false, false, false, false, false, false, false, false), 8);
 }

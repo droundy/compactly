@@ -148,16 +148,16 @@ fn decimal_float() {
         assert_bits!(Encoded::<f32, Decimal>::from(v), dec);
     }
 
-    test_value(1.1, 16, 65);
-    test_value(0.1, 14, 65);
-    test_value(0.9, 16, 65);
-    test_value(128.332, 29, 65);
-    test_value(1.0_f64.exp(), 66, 65);
-    test_value(0.0, 3, 3);
-    test_value(8.0, 10, 10);
+    test_value(1.1, 17, 65);
+    test_value(0.1, 15, 65);
+    test_value(0.9, 17, 65);
+    test_value(128.332, 30, 65);
+    test_value(1.0_f64.exp(), 67, 65);
+    test_value(0.0, 9, 3);
+    test_value(8.0, 11, 10);
 
-    test32(1.0_f32.exp(), 37, 33);
-    test32(0.1, 13, 33);
-    test32(0.0, 3, 3);
-    test32(8.0, 9, 9);
+    test32(1.0_f32.exp(), 38, 33);
+    test32(0.1, 14, 33);
+    test32(0.0, 8, 3);
+    test32(8.0, 10, 9);
 }

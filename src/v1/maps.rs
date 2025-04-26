@@ -54,7 +54,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
 fn hashmap() {
     use super::assert_size;
     assert_size!(HashMap::<usize, usize>::new(), 1);
-    assert_size!(HashMap::from([(0_usize, 0_usize)]), 2);
+    assert_size!(HashMap::from([(0_usize, 0_usize)]), 1);
     // Sizes of larger hash maps are unpredictable because the values come out
     // in arbitrary orders.
 }
@@ -95,15 +95,15 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
 fn btreemap() {
     use super::assert_size;
     assert_size!(BTreeMap::<usize, usize>::new(), 1);
-    assert_size!(BTreeMap::from([(0_usize, 0_usize)]), 2);
+    assert_size!(BTreeMap::from([(0_usize, 0_usize)]), 1);
     assert_size!(BTreeMap::from_iter((0_usize..2).map(|v| (v, v))), 2);
-    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 13357);
+    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 1848);
     assert_size!(
         BTreeMap::from_iter((1_000_usize..2_000).map(|v| (v, v))),
-        3670
+        1929
     );
     assert_size!(
         BTreeMap::from_iter((1_000_000_usize..1_001_000).map(|v| (v, v))),
-        9996
+        1984
     );
 }

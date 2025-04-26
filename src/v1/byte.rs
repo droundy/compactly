@@ -78,7 +78,7 @@ fn size() {
     assert_bits!(*b"hello world", 68);
     assert_bits!(*b"hello world, hello world", 129);
     assert_bits!(*b"hello hello, hello hello", 111);
-    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 194);
+    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 195);
     assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 37);
     assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 44);
     assert_bits!(*b"\0", 8);

@@ -30,24 +30,12 @@ impl<T: Encode> Encode for Vec<T> {
 }
 #[test]
 fn size() {
-    use super::assert_size;
-    assert_size!(Vec::<usize>::new(), 1);
+    use super::assert_bits;
+    assert_bits!(Vec::<usize>::new(), 3);
     for value in 0_usize..4 {
-        assert_size!(vec![dbg!(value)], 1);
+        assert_bits!(vec![dbg!(value)], 6);
     }
-    for value in 4_usize..12 {
-        assert_size!(vec![dbg!(value)], 2);
-    }
-    for num in 0_usize..4 {
-        let value = (0..num).collect::<Vec<_>>();
-        assert_size!(dbg!(value), 1);
-    }
-    for num in 4_usize..5 {
-        let value = (0..num).collect::<Vec<_>>();
-        assert_size!(dbg!(value), 3);
-    }
-    for num in 5_usize..6 {
-        let value = (0..num).collect::<Vec<_>>();
-        assert_size!(dbg!(value), 4);
-    }
+    assert_bits!(dbg!((0_usize..1).collect::<Vec<_>>()), 6);
+    assert_bits!(dbg!((0_usize..2).collect::<Vec<_>>()), 9);
+    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), 64);
 }

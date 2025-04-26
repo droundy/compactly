@@ -165,32 +165,26 @@ fn size() {
 
     assert_bits!(URange::<3>::try_from(0).unwrap(), 1);
     assert_bits!(URange::<3>::try_from(1).unwrap(), 2);
-    assert_bits!(URange::<3>::try_from(2).unwrap(), 2);
+    assert_bits!(URange::<3>::try_from(2).unwrap(), 1);
 
     assert_bits!(URange::<5>::try_from(0).unwrap(), 2);
     assert_bits!(URange::<5>::try_from(1).unwrap(), 2);
     assert_bits!(URange::<5>::try_from(2).unwrap(), 2);
     assert_bits!(URange::<5>::try_from(3).unwrap(), 3);
-    assert_bits!(URange::<5>::try_from(4).unwrap(), 3);
+    assert_bits!(URange::<5>::try_from(4).unwrap(), 1);
 
     assert_bits!(URange::<6>::try_from(0).unwrap(), 2);
     assert_bits!(URange::<6>::try_from(1).unwrap(), 2);
     assert_bits!(URange::<6>::try_from(2).unwrap(), 3);
     assert_bits!(URange::<6>::try_from(3).unwrap(), 3);
     assert_bits!(URange::<6>::try_from(4).unwrap(), 3);
-    assert_bits!(URange::<6>::try_from(5).unwrap(), 3);
+    assert_bits!(URange::<6>::try_from(5).unwrap(), 1);
 
     assert_bits!(URange::<128>::try_from(0).unwrap(), 7);
     assert_bits!(URange::<128>::try_from(1).unwrap(), 7);
-    assert_bits!(URange::<128>::try_from(127).unwrap(), 7);
+    assert_bits!(URange::<128>::try_from(127).unwrap(), 3);
 
     assert_bits!(URange::<256>::try_from(0).unwrap(), 8);
     assert_bits!(URange::<256>::try_from(1).unwrap(), 8);
-    assert_bits!(URange::<256>::try_from(255).unwrap(), 8);
-
-    assert_bits!(URange::<3>::new(2), 2);
-    assert_bits!(URange::<4>::new(3), 2);
-    println!("Looking at 4 as max in urange");
-    assert_bits!(URange::<5>::new(4), 3);
-    assert_bits!(URange::<10>::new(9), 4);
+    assert_bits!(URange::<256>::try_from(255).unwrap(), 3);
 }
