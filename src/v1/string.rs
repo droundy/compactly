@@ -176,6 +176,61 @@ fn eager() {
     assert_eq!(Lz77::default().eager("a"), vec![Chunk::Literal('a')]);
 }
 
+impl Encode for Chunk {
+    type Context = Lz77;
+    fn encode<W: std::io::Write>(
+        &self,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        match *self {
+            Chunk::Literal(c) => {
+                true.encode(writer, &mut ctx.is_lit)?;
+                c.encode(writer, &mut ctx.literal)?;
+            }
+            Chunk::Chunk {
+                back,
+                offset,
+                length,
+            } => {
+                false.encode(writer, &mut ctx.is_lit)?;
+                back.encode(writer, &mut ctx.back)?;
+                (length - 2).encode(writer, &mut ctx.length)?;
+                let offset_context = if back == 0 {
+                    &mut ctx.self_offset
+                } else {
+                    &mut ctx.offset
+                };
+                offset.encode(writer, offset_context)?;
+            }
+        }
+        Ok(())
+    }
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        if <bool as Encode>::decode(reader, &mut ctx.is_lit)? {
+            let c = <char as Encode>::decode(reader, &mut ctx.literal)?;
+            Ok(Chunk::Literal(c))
+        } else {
+            let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
+            let length = 2 + <usize as Encode>::decode(reader, &mut ctx.length)?;
+            let offset_context = if back == 0 {
+                &mut ctx.self_offset
+            } else {
+                &mut ctx.offset
+            };
+            let offset = <usize as Encode>::decode(reader, offset_context)?;
+            Ok(Chunk::Chunk {
+                back,
+                offset,
+                length,
+            })
+        }
+    }
+}
+
 impl EncodingStrategy<String> for Small {
     type Context = Lz77;
     fn encode<W: std::io::Write>(
@@ -185,36 +240,8 @@ impl EncodingStrategy<String> for Small {
     ) -> Result<(), std::io::Error> {
         let chunks = ctx.eager(value);
         chunks.len().encode(writer, &mut ctx.count)?;
-        let mut first_chunk = true;
         for chunk in chunks {
-            match chunk {
-                Chunk::Literal(c) => {
-                    if first_chunk && ctx.old.is_empty() {
-                        first_chunk = false;
-                    } else {
-                        true.encode(writer, &mut ctx.is_lit)?;
-                    }
-                    c.encode(writer, &mut ctx.literal)?;
-                    // println!("Encoded lit {c:?}");
-                }
-                Chunk::Chunk {
-                    back,
-                    offset,
-                    length,
-                } => {
-                    false.encode(writer, &mut ctx.is_lit)?;
-                    // println!("doing chunk {back} {offset} {length}");
-                    back.encode(writer, &mut ctx.back)?;
-                    (length - 2).encode(writer, &mut ctx.length)?;
-                    let offset_context = if back == 0 {
-                        &mut ctx.self_offset
-                    } else {
-                        &mut ctx.offset
-                    };
-                    offset.encode(writer, offset_context)?;
-                    // println!("encoded chunk {back} {offset} {length}");
-                }
-            }
+            chunk.encode(writer, ctx)?;
         }
         Ok(())
     }
@@ -223,29 +250,23 @@ impl EncodingStrategy<String> for Small {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let n = <usize as Encode>::decode(reader, &mut ctx.count)?;
-        let mut out = String::with_capacity(n);
-        for _ in 0..n {
-            if (ctx.old.is_empty() && out.is_empty())
-                || <bool as Encode>::decode(reader, &mut ctx.is_lit)?
-            {
-                let c = <char as Encode>::decode(reader, &mut ctx.literal)?;
-                // println!("Got a lit {c:?}");
-                out.push(c);
-            } else {
-                // println!("Got a chunk");
-                let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
-                // We add 2 to the length because a length of 0 or 1 makes
-                // little sense.  Note also that length is a number of bytes not
-                // a number of characters.
-                let length = 2 + <usize as Encode>::decode(reader, &mut ctx.length)?;
-                if back == 0 {
+        let count = <usize as Encode>::decode(reader, &mut ctx.count)?;
+        let mut out = String::with_capacity(count);
+        for _ in 0..count {
+            let chunk = <Chunk as Encode>::decode(reader, ctx)?;
+            match chunk {
+                Chunk::Literal(c) => {
+                    out.push(c);
+                }
+                Chunk::Chunk {
+                    back: 0,
+                    offset,
+                    length,
+                } => {
                     // We are repeating our own string.  In this case offset
                     // counts *backwards* and must be >= 1 so we shift it.
-                    let offset =
-                        out.len() - 1 - <usize as Encode>::decode(reader, &mut ctx.self_offset)?;
-                    // println!("chunk with {offset} {length} and {}", out.len());
-                    if length <= out.len() - offset {
+                    let offset = out.len() - 1 - offset;
+                    if offset + length <= out.len() {
                         // println!("We have from {offset} to {}", offset + length);
                         let x = String::from(&out[offset..offset + length]);
                         out.push_str(&x);
@@ -262,8 +283,12 @@ impl EncodingStrategy<String> for Small {
                             out.pop();
                         }
                     }
-                } else {
-                    let offset = <usize as Encode>::decode(reader, &mut ctx.offset)?;
+                }
+                Chunk::Chunk {
+                    back,
+                    offset,
+                    length,
+                } => {
                     out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length]);
                 }
             }
@@ -300,11 +325,11 @@ fn size() {
     }
 
     compare_small_bits("", 3, 3);
-    compare_small_bits("a", 11, 11);
+    compare_small_bits("a", 11, 12);
     compare_small_bits("aa", 16, 17);
     compare_small_bits("aaa", 19, 21);
-    compare_small_bits("aaaa", 27, 27);
-    compare_small_bits("aaaaaaaa", 34, 41);
+    compare_small_bits("aaaa", 27, 28);
+    compare_small_bits("aaaaaaaa", 34, 43);
     compare_small_bits("hello", 39, 41);
     compare_small_bits("hello world hello wood", 126, 120);
     compare_small_bits("hello world hello world", 131, 113);
