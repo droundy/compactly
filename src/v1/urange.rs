@@ -34,7 +34,7 @@ impl<const N: usize> TryFrom<usize> for URange<N> {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct URangeContext<const N: usize> {
     /// This uses way more context than is needed, because I couldn't find an
     /// elegant way to map the N needed context to the possible bit sequences.  :(

@@ -1,6 +1,6 @@
 use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct CharContext {
     is_ascii: <bool as Encode>::Context,
     ascii: <Bits<128> as Encode>::Context,
@@ -142,6 +142,7 @@ pub struct Lz77 {
     length: <usize as Encode>::Context,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Chunk {
     Literal(char),
     Chunk {
@@ -183,7 +184,7 @@ impl Lz77 {
                     }
                     return Some(Chunk::Chunk {
                         back,
-                        offset: s.len() - offset,
+                        offset,
                         length,
                     });
                 }
@@ -206,6 +207,12 @@ impl Lz77 {
     }
 }
 
+#[test]
+fn eager() {
+    assert_eq!(Lz77::default().eager(""), Vec::new());
+    assert_eq!(Lz77::default().eager("a"), vec![Chunk::Literal('a')]);
+}
+
 impl EncodingStrategy<String> for Small {
     type Context = Lz77;
     fn encode<W: std::io::Write>(
@@ -215,11 +222,17 @@ impl EncodingStrategy<String> for Small {
     ) -> Result<(), std::io::Error> {
         let chunks = ctx.eager(value);
         chunks.len().encode(writer, &mut ctx.count)?;
+        let mut first_chunk = true;
         for chunk in chunks {
             match chunk {
                 Chunk::Literal(c) => {
-                    true.encode(writer, &mut ctx.is_lit)?;
+                    if first_chunk && ctx.old.is_empty() {
+                        first_chunk = false;
+                    } else {
+                        true.encode(writer, &mut ctx.is_lit)?;
+                    }
                     c.encode(writer, &mut ctx.literal)?;
+                    // println!("Encoded lit {c:?}");
                 }
                 Chunk::Chunk {
                     back,
@@ -227,14 +240,16 @@ impl EncodingStrategy<String> for Small {
                     length,
                 } => {
                     false.encode(writer, &mut ctx.is_lit)?;
+                    // println!("doing chunk {back} {offset} {length}");
                     back.encode(writer, &mut ctx.back)?;
+                    (length - 2).encode(writer, &mut ctx.length)?;
                     let offset_context = if back == 0 {
                         &mut ctx.self_offset
                     } else {
                         &mut ctx.offset
                     };
                     offset.encode(writer, offset_context)?;
-                    length.encode(writer, &mut ctx.length)?;
+                    // println!("encoded chunk {back} {offset} {length}");
                 }
             }
         }
@@ -248,9 +263,14 @@ impl EncodingStrategy<String> for Small {
         let n = <usize as Encode>::decode(reader, &mut ctx.count)?;
         let mut out = String::with_capacity(n);
         for _ in 0..n {
-            if ctx.old.is_empty() || <bool as Encode>::decode(reader, &mut ctx.is_lit)? {
-                out.push(<char as Encode>::decode(reader, &mut ctx.literal)?);
+            if (ctx.old.is_empty() && out.is_empty())
+                || <bool as Encode>::decode(reader, &mut ctx.is_lit)?
+            {
+                let c = <char as Encode>::decode(reader, &mut ctx.literal)?;
+                // println!("Got a lit {c:?}");
+                out.push(c);
             } else {
+                // println!("Got a chunk");
                 let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
                 // We add 2 to the length because a length of 0 or 1 makes
                 // little sense.  Note also that length is a number of bytes not
@@ -259,14 +279,18 @@ impl EncodingStrategy<String> for Small {
                 if back == 0 {
                     // We are repeating our own string.  In this case offset
                     // counts *backwards* and must be >= 1 so we shift it.
-                    let back = 1 + <usize as Encode>::decode(reader, &mut ctx.self_offset)?;
-                    if length <= back {
-                        let x = String::from(&out[out.len() - back..out.len() - back + length]);
+                    let offset =
+                        out.len() - 1 - <usize as Encode>::decode(reader, &mut ctx.self_offset)?;
+                    // println!("chunk with {offset} {length} and {}", out.len());
+                    if length <= out.len() - offset {
+                        // println!("We have from {offset} to {}", offset + length);
+                        let x = String::from(&out[offset..offset + length]);
                         out.push_str(&x);
                     } else {
+                        // println!("We are run length encoding");
                         // With extra length this means we are using run length
                         // encoding in effect, which is kind of a pain.
-                        let chunk = String::from(&out[out.len() - back..]);
+                        let chunk = String::from(&out[offset..]);
                         let final_length = out.len() + length;
                         while out.len() < final_length {
                             out.push_str(&chunk);
@@ -288,7 +312,7 @@ impl EncodingStrategy<String> for Small {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::{assert_bits, Encoded};
 
     assert_bits!("".to_string(), 3);
     assert_bits!("a".to_string(), 11);
@@ -298,4 +322,23 @@ fn size() {
     assert_bits!("hello world".to_string(), 77);
     assert_bits!("Hello world".to_string(), 79);
     assert_bits!("hhhhhhhhhhh".to_string(), 38);
+
+    assert_bits!(Encoded::<_, Small>::new("".to_string()), 3);
+    assert_bits!('a', 8);
+    assert_bits!(Encoded::<_, Small>::new("a".to_string()), 11);
+    assert_bits!(Encoded::<_, Small>::new("aa".to_string()), 17);
+    assert_bits!(Encoded::<_, Small>::new("aaa".to_string()), 21);
+    println!("=========================================================");
+    assert_bits!(Encoded::<_, Small>::new("aaaa".to_string()), 27);
+
+    assert_bits!(Encoded::<_, Small>::new("aaaaaaaa".to_string()), 41);
+    assert_bits!("aaaaaaaa".to_string(), 34);
+
+    assert_bits!(Encoded::<_, Small>::new("hello".to_string()), 41);
+
+    assert_bits!(
+        Encoded::<_, Small>::new("hello world hello wood".to_string()),
+        120
+    );
+    assert_bits!("hello world hello wood".to_string(), 126);
 }

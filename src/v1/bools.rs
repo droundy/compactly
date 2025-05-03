@@ -10,6 +10,7 @@ impl Encode for bool {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
+        // println!("Encoding {self:?}");
         writer.encode(*self, ctx)
     }
     #[inline]
@@ -17,7 +18,9 @@ impl Encode for bool {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        reader.decode(ctx)
+        let b = reader.decode(ctx)?;
+        // println!("Decoding {b:?}");
+        Ok(b)
     }
 }
 
