@@ -36,6 +36,19 @@ impl Encode for usize {
             usize::try_from(v + 4).map_err(std::io::Error::other)
         }
     }
+
+    #[inline]
+    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
+        let mut tot = 0;
+        if let Ok(r) = URange::<4>::try_from(*self) {
+            tot += true.estimate_bits(&mut ctx.less_than_four);
+            tot += r.estimate_bits(&mut ctx.small);
+        } else {
+            tot += false.estimate_bits(&mut ctx.less_than_four);
+            tot += Compact((*self - 4) as u64).estimate_bits(&mut ctx.big);
+        }
+        tot
+    }
 }
 
 #[test]

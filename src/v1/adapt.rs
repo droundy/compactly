@@ -17,7 +17,7 @@ impl<W: std::io::Write> Writer<W> {
         Ok(())
     }
     #[inline]
-    pub fn finish(self) -> Result<(), std::io::Error> {
+    pub fn finish(self) -> Result<W, std::io::Error> {
         self.arith.finish()
     }
 }
@@ -38,6 +38,31 @@ impl<R: std::io::Read> Reader<R> {
         let bit = self.arith.decode(context.probability())?;
         *context = context.adapt(bit);
         Ok(bit)
+    }
+}
+
+/// A simple Writer that just counts bytes, which can be used to estimate the encoded size.
+#[derive(Default)]
+pub struct Counter {
+    bytes: usize,
+}
+impl Counter {
+    pub fn len(&self) -> usize {
+        self.bytes
+    }
+}
+impl std::io::Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.bytes += buf.len();
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl Writer<Counter> {
+    pub fn len(self) -> usize {
+        self.finish().map(|c| c.len()).unwrap_or_default()
     }
 }
 

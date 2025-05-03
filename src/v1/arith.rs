@@ -252,9 +252,9 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
     #[inline]
-    pub fn finish(mut self) -> std::io::Result<()> {
+    pub fn finish(mut self) -> std::io::Result<W> {
         self.write.write(&[self.state.last_byte()])?;
-        Ok(())
+        Ok(self.write)
     }
 }
 

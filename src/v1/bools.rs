@@ -22,6 +22,10 @@ impl Encode for bool {
         // println!("Decoding {b:?}");
         Ok(b)
     }
+    #[inline]
+    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
+        ctx.bits_required(*self) as usize
+    }
 }
 
 #[test]

@@ -34,9 +34,11 @@ pub trait Encode: Sized {
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
-    // fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
-
-    // }
+    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
+        let mut counter = Writer::new(adapt::Counter::default());
+        self.encode(&mut counter, ctx).ok();
+        counter.len() * 8
+    }
 
     fn decode<R: Read>(
         reader: &mut Reader<R>,
