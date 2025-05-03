@@ -157,6 +157,36 @@ macro_rules! assert_bits {
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
         assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
     };
+    ($v:expr, $size:expr, $msg:expr) => {
+        let v1 = $v;
+        let bytes = super::encode(&v1);
+        let decoded = super::decode(&bytes);
+        assert_eq!(decoded, Some(v1), "decoded value is incorrect: {}", $msg);
+        let v = (
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+        );
+        let bytes = super::encode(&v);
+        let decoded = super::decode(&bytes);
+        assert_eq!(
+            decoded,
+            Some(v),
+            "decoded tuple value is incorrect: {}",
+            $msg
+        );
+        assert_eq!(
+            (bytes.len() + 4) / 8,
+            $size,
+            "unexpected number of bits: {}",
+            $msg
+        );
+    };
 }
 #[cfg(test)]
 pub(crate) use assert_bits;

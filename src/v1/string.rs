@@ -323,22 +323,26 @@ fn size() {
     assert_bits!("Hello world".to_string(), 79);
     assert_bits!("hhhhhhhhhhh".to_string(), 38);
 
-    assert_bits!(Encoded::<_, Small>::new("".to_string()), 3);
-    assert_bits!('a', 8);
-    assert_bits!(Encoded::<_, Small>::new("a".to_string()), 11);
-    assert_bits!(Encoded::<_, Small>::new("aa".to_string()), 17);
-    assert_bits!(Encoded::<_, Small>::new("aaa".to_string()), 21);
-    println!("=========================================================");
-    assert_bits!(Encoded::<_, Small>::new("aaaa".to_string()), 27);
+    fn compare_small_bits(value: &str, expected_normal: usize, expected_small: usize) {
+        assert_bits!(
+            value.to_string(),
+            expected_normal,
+            format!("normal {value:?}")
+        );
+        assert_bits!(
+            Encoded::<_, Small>::new(value.to_string()),
+            expected_small,
+            format!("small {value:?}")
+        );
+    }
 
-    assert_bits!(Encoded::<_, Small>::new("aaaaaaaa".to_string()), 41);
-    assert_bits!("aaaaaaaa".to_string(), 34);
-
-    assert_bits!(Encoded::<_, Small>::new("hello".to_string()), 41);
-
-    assert_bits!(
-        Encoded::<_, Small>::new("hello world hello wood".to_string()),
-        120
-    );
-    assert_bits!("hello world hello wood".to_string(), 126);
+    compare_small_bits("", 3, 3);
+    compare_small_bits("a", 11, 11);
+    compare_small_bits("aa", 16, 17);
+    compare_small_bits("aaa", 19, 21);
+    compare_small_bits("aaaa", 27, 27);
+    compare_small_bits("aaaaaaaa", 34, 41);
+    compare_small_bits("hello", 39, 41);
+    compare_small_bits("hello world hello wood", 126, 120);
+    compare_small_bits("hello world hello world", 131, 113);
 }
