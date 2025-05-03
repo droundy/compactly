@@ -1,6 +1,7 @@
 use super::{Encode, EncodingStrategy, LowCardinality};
 use std::{collections::HashMap, hash::Hash};
 
+#[derive(Clone)]
 pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
     cached: HashMap<T, usize>,
     cache: Vec<T>,

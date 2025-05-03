@@ -1,6 +1,6 @@
 use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct CharContext {
     is_ascii: <bool as Encode>::Context,
     ascii: <Bits<128> as Encode>::Context,
@@ -59,7 +59,7 @@ impl Encode for char {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Context {
     len: <usize as Encode>::Context,
     chars: <char as Encode>::Context,
@@ -93,7 +93,7 @@ impl Encode for String {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Lz77 {
     old: Vec<String>,
     count: <usize as Encode>::Context,

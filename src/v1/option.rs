@@ -13,6 +13,14 @@ impl<T: Encode> Default for OptionContext<T> {
         }
     }
 }
+impl<T: Encode> Clone for OptionContext<T> {
+    fn clone(&self) -> Self {
+        Self {
+            is_some: self.is_some.clone(),
+            value: self.value.clone(),
+        }
+    }
+}
 impl<T: Encode> Encode for Option<T> {
     type Context = OptionContext<T>;
     #[inline]

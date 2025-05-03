@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use super::Encode;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
     fn default() -> Self {

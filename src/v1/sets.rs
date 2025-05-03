@@ -18,6 +18,14 @@ impl<T: Encode> Default for SetContext<T> {
         }
     }
 }
+impl<T: Encode> Clone for SetContext<T> {
+    fn clone(&self) -> Self {
+        Self {
+            len: self.len.clone(),
+            values: self.values.clone(),
+        }
+    }
+}
 
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T>;
@@ -89,7 +97,7 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CompactU64Set {
     size: <usize as Encode>::Context,
     first: <Compact<u64> as Encode>::Context,

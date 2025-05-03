@@ -204,6 +204,14 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 }
             }
         }
+        impl #context_generics Clone for DerivedContext #context_generics_without_bound {
+            fn clone(&self) -> Self {
+                Self {
+                    discriminant: self.discriminant.clone(),
+                    #(#bindings: self.#bindings.clone(),)*
+                }
+            }
+        }
 
 
         gen impl Encode for @Self {

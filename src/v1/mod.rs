@@ -26,13 +26,17 @@ pub use arith::Probability;
 pub use urange::URange;
 
 pub trait Encode: Sized {
-    type Context: Default;
+    type Context: Default + Clone;
 
     fn encode<W: Write>(
         &self,
         writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
+
+    // fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
+
+    // }
 
     fn decode<R: Read>(
         reader: &mut Reader<R>,
@@ -56,7 +60,7 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
 }
 
 pub trait EncodingStrategy<T> {
-    type Context: Default;
+    type Context: Default + Clone;
 
     fn encode<W: Write>(
         value: &T,

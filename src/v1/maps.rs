@@ -19,6 +19,15 @@ impl<K: Encode, V: Encode> Default for MapContext<K, V> {
         }
     }
 }
+impl<K: Encode, V: Encode> Clone for MapContext<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            len: self.len.clone(),
+            key: self.key.clone(),
+            value: self.value.clone(),
+        }
+    }
+}
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V>;
