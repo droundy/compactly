@@ -34,10 +34,12 @@ pub trait Encode: Sized {
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
-    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
-        let mut counter = Writer::new(adapt::Counter::default());
-        self.encode(&mut counter, ctx).ok();
-        counter.len() * 8
+    #[expect(unused_variables)]
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        // let mut counter = Writer::new(adapt::Counter::default());
+        // self.encode(&mut counter, ctx).ok();
+        // counter.len() * 8000
+        None
     }
 
     fn decode<R: Read>(
@@ -69,6 +71,11 @@ pub trait EncodingStrategy<T> {
         writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
+
+    #[expect(unused_variables)]
+    fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
+        None
+    }
 
     fn decode<R: Read>(
         reader: &mut Reader<R>,
@@ -123,6 +130,28 @@ impl<T> std::ops::DerefMut for Compact<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+impl<T> Encode for Compact<T>
+where
+    Small: EncodingStrategy<T>,
+{
+    type Context = <Small as EncodingStrategy<T>>::Context;
+    fn encode<W: Write>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        <Small as EncodingStrategy<T>>::encode(self, writer, ctx)
+    }
+    fn decode<R: Read>(
+        reader: &mut Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        <Small as EncodingStrategy<T>>::decode(reader, ctx).map(Compact)
+    }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        <Small as EncodingStrategy<T>>::millibits(self, ctx)
     }
 }
 

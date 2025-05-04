@@ -104,46 +104,6 @@ pub struct CompactU64Set {
     diff: <Compact<u64> as Encode>::Context,
 }
 
-impl Encode for Compact<BTreeSet<u64>> {
-    type Context = CompactU64Set;
-    #[inline]
-    fn encode<W: Write>(
-        &self,
-        writer: &mut super::Writer<W>,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.len().encode(writer, &mut ctx.size)?;
-        let mut iter = self.0.iter().copied();
-        if let Some(mut prev) = iter.next() {
-            Compact(prev).encode(writer, &mut ctx.first)?;
-            for v in iter {
-                let diff = Compact(v - prev);
-                diff.encode(writer, &mut ctx.diff)?;
-                prev = v;
-            }
-        }
-        Ok(())
-    }
-    #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
-        ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        let mut out = BTreeSet::new();
-        let len = usize::decode(reader, &mut ctx.size)?;
-        if len > 0 {
-            let Compact(mut prev) = Compact::<u64>::decode(reader, &mut ctx.first)?;
-            out.insert(prev);
-            for _ in 1..len {
-                let Compact(diff) = Compact::<u64>::decode(reader, &mut ctx.diff)?;
-                prev += diff;
-                out.insert(prev);
-            }
-        }
-        Ok(Compact(out))
-    }
-}
-
 impl EncodingStrategy<BTreeSet<u64>> for super::Small {
     type Context = CompactU64Set;
     fn encode<W: Write>(

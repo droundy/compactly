@@ -38,16 +38,16 @@ impl Encode for usize {
     }
 
     #[inline]
-    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = 0;
         if let Ok(r) = URange::<4>::try_from(*self) {
-            tot += true.estimate_bits(&mut ctx.less_than_four);
-            tot += r.estimate_bits(&mut ctx.small);
+            tot += true.millibits(&mut ctx.less_than_four)?;
+            tot += r.millibits(&mut ctx.small)?;
         } else {
-            tot += false.estimate_bits(&mut ctx.less_than_four);
-            tot += Compact((*self - 4) as u64).estimate_bits(&mut ctx.big);
+            tot += false.millibits(&mut ctx.less_than_four)?;
+            tot += Compact((*self - 4) as u64).millibits(&mut ctx.big)?;
         }
-        tot
+        Some(tot)
     }
 }
 

@@ -107,6 +107,43 @@ impl<const N: usize> Encode for URange<N> {
         }
         Ok(())
     }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        let mut filled_up = 0;
+        let mut accumulated_value = 0;
+        let mut bits_chosen = 0;
+        // println!("N={N} and value {}", self.0);
+        let mut possible_values_left = N;
+        let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
+        let mut i = 1;
+        let mut tot = 0;
+        while accumulated_value + value_considered < N && possible_values_left > 1 {
+            let bit = self.0 >= accumulated_value + value_considered;
+            // println!(
+            //     "bit {i} is {bit:?} == {} >= {}",
+            //     self.0,
+            //     accumulated_value + value_considered
+            // );
+            // println!(
+            //     "{}: bit {i} is {bit:?} with context {} considering {value_considered} with {possible_values_left} values left to consider",
+            //     self.0,
+            //     filled_up + bits_chosen
+            // );
+            let ctx = ctx.index_mut(filled_up + bits_chosen);
+            tot += bit.millibits(ctx)?;
+            filled_up += i;
+            if bit {
+                bits_chosen += 1 << i;
+                accumulated_value += value_considered;
+                possible_values_left -= value_considered;
+            } else {
+                possible_values_left = value_considered;
+            }
+            // println!("E {i} ==> {filled_up} -> {accumulated_value}");
+            value_considered = half(possible_values_left);
+            i += 1;
+        }
+        Some(tot)
+    }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,

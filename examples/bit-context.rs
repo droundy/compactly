@@ -169,18 +169,16 @@ fn lookup_probability(variants: &[Bucket]) {
 fn lookup_bits_required(variants: &[Bucket]) {
     let sz = 2 * variants.len();
     println!(
-        r"#[inline] pub fn bits_required(&mut self, bit: bool) -> u16 {{
-        const LOOKUP: [u16; {sz}] = ["
+        r"#[inline] pub fn millibits_required(&mut self, bit: bool) -> u32 {{
+        const LOOKUP: [u32; {sz}] = ["
     );
 
     for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
-        let bits = (-probability.as_f64().log2()).ceil().max(u16::MAX as f64) as u16;
+        let bits = (-1000.0 * probability.as_f64().log2()).min(u32::MAX as f64) as u32;
         println!("        {bits}, // for false")
     }
     for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
-        let bits = (-(1.0 - probability.as_f64()).log2())
-            .ceil()
-            .max(u16::MAX as f64) as u16;
+        let bits = (-1000.0 * (1.0 - probability.as_f64()).log2()).min(u32::MAX as f64) as u32;
         println!("        {bits}, // for true")
     }
     println!(

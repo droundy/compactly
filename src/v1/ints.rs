@@ -1,4 +1,4 @@
-use super::{Compact, Encode, EncodingStrategy, Small, URange};
+use super::{Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 macro_rules! impl_uint {
@@ -156,25 +156,6 @@ macro_rules! impl_compact {
             }
         }
 
-        impl Encode for Compact<$t> {
-            type Context = <Small as EncodingStrategy<$t>>::Context;
-            fn encode<W: Write>(
-                &self,
-                writer: &mut super::Writer<W>,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                <Small as EncodingStrategy<$t>>::encode(&self.0, writer, ctx)
-            }
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
-                ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                Ok(Compact(<Small as EncodingStrategy<$t>>::decode(
-                    reader, ctx,
-                )?))
-            }
-        }
-
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
             fn encode<W: Write>(
@@ -192,6 +173,18 @@ macro_rules! impl_compact {
                     ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i])?;
                 }
                 Ok(())
+            }
+            fn millibits(value: &$t, ctx: &mut Self::Context) -> Option<usize> {
+                let uleading = value.leading_zeros() as usize;
+                let leading_zeros = URange::<{ $bits + 1 }>::new(uleading);
+                let mut tot = leading_zeros.millibits(&mut ctx.leading_zeros)?;
+                if uleading >= $bits - 1 {
+                    return Some(tot);
+                }
+                for i in 0..($bits - 1) - uleading {
+                    tot += ((value >> i) & 1 == 1).millibits(&mut ctx.context[i])?;
+                }
+                Some(tot)
             }
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
@@ -226,6 +219,7 @@ impl_compact!(u16, U16Compact, 16);
 #[test]
 fn compact_u16() {
     use super::assert_bits;
+    use super::Compact;
     assert_bits!(Compact(0_u16), 2);
     assert_bits!(Compact(1_u16), 5);
     assert_bits!(Compact(2_u16), 5);
@@ -250,6 +244,7 @@ fn compact_u16() {
 #[test]
 fn compact_u32() {
     use super::assert_bits;
+    use super::Compact;
     assert_bits!(Compact(0_u32), 3);
     assert_bits!(Compact(1_u32), 6);
     assert_bits!(Compact(2_u32), 6);
@@ -297,27 +292,6 @@ macro_rules! impl_signed {
             }
         }
 
-        impl Encode for Compact<$signed> {
-            type Context = <Small as EncodingStrategy<$signed>>::Context;
-            #[inline]
-            fn encode<W: Write>(
-                &self,
-                writer: &mut super::Writer<W>,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                <Small as EncodingStrategy<$signed>>::encode(&self.0, writer, ctx)
-            }
-            #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
-                ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                Ok(Compact(<Small as EncodingStrategy<$signed>>::decode(
-                    reader, ctx,
-                )?))
-            }
-        }
-
         #[derive(Clone)]
         pub struct $context {
             is_negative: <bool as Encode>::Context,
@@ -350,6 +324,15 @@ macro_rules! impl_signed {
                     Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
                 }
             }
+            fn millibits(value: &$signed, ctx: &mut Self::Context) -> Option<usize> {
+                let mut tot = (*value < 0).millibits(&mut ctx.is_negative)?;
+                if *value < 0 {
+                    tot += Small::millibits(&value.abs_diff(-1), &mut ctx.negative)?;
+                } else {
+                    tot += Small::millibits(&value.abs_diff(0), &mut ctx.positive)?;
+                }
+                Some(tot)
+            }
             #[inline]
             fn decode<R: Read>(
                 reader: &mut super::Reader<R>,
@@ -376,6 +359,7 @@ impl_signed!(i64, u64, SignedI64Context);
 #[test]
 fn signed() {
     use super::assert_bits;
+    use super::Compact;
 
     assert_bits!(Compact(0_i32), 7);
     assert_bits!(Compact(1_i32), 7);

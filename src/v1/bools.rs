@@ -23,8 +23,8 @@ impl Encode for bool {
         Ok(b)
     }
     #[inline]
-    fn estimate_bits(&self, ctx: &mut Self::Context) -> usize {
-        ctx.bits_required(*self) as usize
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        Some(ctx.millibits_required(*self) as usize)
     }
 }
 

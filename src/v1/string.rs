@@ -39,6 +39,29 @@ impl Encode for char {
             Ok(())
         }
     }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        let mut x = u32::from(*self);
+        let is_ascii = x < 128;
+        let mut tot = is_ascii.millibits(&mut ctx.is_ascii)?;
+        if is_ascii {
+            Some(tot + Bits::<128>::take_from(&mut x).millibits(&mut ctx.ascii)?)
+        } else {
+            let n_chunks = if x < 32 * 64 {
+                0
+            } else if x < 32 * 64 * 64 {
+                1
+            } else {
+                2
+            };
+            let n_chunks = URange::<3>::try_from(n_chunks).unwrap();
+            tot += n_chunks.millibits(&mut ctx.n_chunks)?;
+            tot += Bits::<32>::take_from(&mut x).millibits(&mut ctx.chunk1)?;
+            for i in 0_usize..1 + usize::from(n_chunks) {
+                tot += Bits::<64>::take_from(&mut x).millibits(&mut ctx.chunks[i])?;
+            }
+            Some(tot)
+        }
+    }
     #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
@@ -132,7 +155,13 @@ impl Lz77 {
             return None;
         }
         let mut prefix = *value;
+        let mut ctx_copy = self.clone();
+        let mut bits_of_literals = prefix
+            .chars()
+            .map(|c| Chunk::Literal(c).millibits(&mut ctx_copy).unwrap())
+            .collect::<Vec<_>>();
         while prefix.len() > 1 {
+            let literal_bits = bits_of_literals.iter().sum::<usize>();
             let sofar_clone = sofar.clone();
             for (back, s) in std::iter::once(sofar_clone.as_str())
                 .chain(self.old.iter().map(|s| s.as_str()).rev())
@@ -140,22 +169,29 @@ impl Lz77 {
             {
                 if let Some(mut offset) = s.find(prefix) {
                     let length = prefix.len();
-                    *value = &value[length..];
-                    sofar.push_str(prefix);
                     if back == 0 {
                         offset = s.len() - offset - 1;
                     }
-                    return Some(Chunk::Chunk {
+                    let chunk = Chunk::Chunk {
                         back,
                         offset,
                         length,
-                    });
+                    };
+                    let chunk_bits = chunk.millibits(&mut self.clone()).unwrap();
+                    if chunk_bits < literal_bits {
+                        *value = &value[length..];
+                        sofar.push_str(prefix);
+                        return Some(chunk);
+                    } else {
+                        println!("Avoiding chunk {chunk:?} for {prefix:?} since {chunk_bits} > {literal_bits}");
+                    }
                 }
             }
 
             if let Some(idx) = prefix.rfind(|_| true) {
                 prefix = &prefix[..idx];
             }
+            bits_of_literals.pop();
         }
         // We are forced to emit a literal character
         let mut chars = value.char_indices();
@@ -205,6 +241,28 @@ impl Encode for Chunk {
             }
         }
         Ok(())
+    }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        match *self {
+            Chunk::Literal(c) => {
+                Some(true.millibits(&mut ctx.is_lit)? + c.millibits(&mut ctx.literal)?)
+            }
+            Chunk::Chunk {
+                back,
+                offset,
+                length,
+            } => {
+                let mut tot = false.millibits(&mut ctx.is_lit)?;
+                tot += back.millibits(&mut ctx.back)?;
+                tot += (length - 2).millibits(&mut ctx.length)?;
+                let offset_context = if back == 0 {
+                    &mut ctx.self_offset
+                } else {
+                    &mut ctx.offset
+                };
+                Some(tot + offset.millibits(offset_context)?)
+            }
+        }
     }
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
@@ -324,6 +382,22 @@ fn size() {
         );
     }
 
+    assert_eq!(true.millibits(&mut Default::default()), Some(1000));
+    assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
+    assert_eq!(
+        Chunk::Literal('a').millibits(&mut Default::default()),
+        Some(9000)
+    );
+    assert_eq!(
+        Chunk::Chunk {
+            back: 0,
+            offset: 0,
+            length: 2
+        }
+        .millibits(&mut Default::default()),
+        Some(10000)
+    );
+    assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
     compare_small_bits("", 3, 3);
     compare_small_bits("a", 11, 12);
     compare_small_bits("aa", 16, 17);
