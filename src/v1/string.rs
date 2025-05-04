@@ -407,4 +407,9 @@ fn size() {
     compare_small_bits("hello", 39, 41);
     compare_small_bits("hello world hello wood", 126, 120);
     compare_small_bits("hello world hello world", 131, 113);
+    compare_small_bits(
+        "This sentence is pretty long and seems reflective of ordinary English to me.",
+        131,
+        113,
+    );
 }
