@@ -1,4 +1,4 @@
-use super::Encode;
+use super::{Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 #[derive(Clone)]
@@ -29,6 +29,19 @@ impl Encode for u8 {
         }
         Ok(())
     }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        let mut filled_up = 0;
+        let mut accumulated_value = 0;
+        let mut tot = 0;
+        for i in 0..8 {
+            let ctx = &mut ctx.0[filled_up + accumulated_value];
+            let bit = (*self >> (7 - i)) & 1 == 1;
+            tot += bit.millibits(ctx)?;
+            filled_up += 1 << i;
+            accumulated_value = 2 * accumulated_value + bit as usize;
+        }
+        Some(tot)
+    }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
@@ -46,6 +59,117 @@ impl Encode for u8 {
     }
 }
 
+macro_rules! small_num {
+    ($t:ty, $nbits:literal, $maxval:literal, $doublemax:literal, $testname:ident) => {
+        mod $testname {
+            use super::{Encode, Read, UBits, Write};
+
+            #[derive(Clone)]
+            pub struct Context([<bool as Encode>::Context; $doublemax]);
+
+            impl Default for Context {
+                #[inline]
+                fn default() -> Self {
+                    Self([Default::default(); $doublemax])
+                }
+            }
+
+            impl Encode for $t {
+                type Context = Context;
+                #[inline]
+                fn encode<W: Write>(
+                    &self,
+                    writer: &mut super::super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    let value = u8::from(*self);
+                    let mut filled_up = 0;
+                    let mut accumulated_value = 0;
+                    for i in 0..$nbits {
+                        let ctx = &mut ctx.0[filled_up + accumulated_value];
+                        let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
+                        bit.encode(writer, ctx)?;
+                        filled_up += 1 << i;
+                        accumulated_value = 2 * accumulated_value + bit as usize;
+                    }
+                    Ok(())
+                }
+                fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+                    let value = u8::from(*self);
+                    let mut filled_up = 0;
+                    let mut accumulated_value = 0;
+                    let mut tot = 0;
+                    for i in 0..$nbits {
+                        let ctx = &mut ctx.0[filled_up + accumulated_value];
+                        let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
+                        tot += bit.millibits(ctx)?;
+                        filled_up += 1 << i;
+                        accumulated_value = 2 * accumulated_value + bit as usize;
+                    }
+                    Some(tot)
+                }
+                #[inline]
+                fn decode<R: Read>(
+                    reader: &mut super::super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let mut filled_up = 0;
+                    let mut accumulated_value = 0;
+                    for i in 0..$nbits {
+                        let ctx = &mut ctx.0[filled_up + accumulated_value];
+                        let bit = bool::decode(reader, ctx)?;
+                        filled_up += 1 << i;
+                        accumulated_value = 2 * accumulated_value + bit as usize;
+                    }
+                    Ok((accumulated_value as u8).try_into().unwrap())
+                }
+            }
+
+            #[test]
+            fn test() {
+                for value in 0u8..=$maxval {
+                    println!("Testing {value}");
+                    let v: $t = value.try_into().unwrap();
+                    let encoded = super::super::encode(&v);
+                    let decoded = super::super::decode::<$t>(&encoded).unwrap();
+                    assert_eq!(v, decoded);
+                    assert_eq!(v.millibits(&mut Default::default()), Some($nbits * 1000));
+                }
+            }
+        }
+    };
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UBits<const N: u8>(u8);
+
+impl<const N: u8> From<UBits<N>> for u8 {
+    fn from(value: UBits<N>) -> u8 {
+        value.0
+    }
+}
+
+impl<const N: u8> TryFrom<u8> for UBits<N> {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if N == 8 {
+            Ok(Self(value))
+        } else if value >> N == 0 {
+            Ok(Self(value))
+        } else {
+            Err(())
+        }
+    }
+}
+
+small_num!(UBits<2>, 2, 3, 4, ub2);
+small_num!(UBits<3>, 3, 7, 8, ub3);
+small_num!(UBits<4>, 4, 15, 16, ub4);
+small_num!(UBits<5>, 5, 31, 32, ub5);
+small_num!(UBits<6>, 6, 63, 64, ub6);
+small_num!(UBits<7>, 7, 127, 128, ub7);
+small_num!(UBits<8>, 8, 255, 256, ub8);
+
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
@@ -62,6 +186,43 @@ impl Encode for i8 {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         <u8 as Encode>::decode(reader, ctx).map(|v| v as i8)
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct SmallContext {
+    bits: <URange<9> as Encode>::Context,
+    b2: <bool as Encode>::Context,
+}
+
+impl EncodingStrategy<u8> for Small {
+    type Context = SmallContext;
+    fn encode<W: Write>(
+        value: &u8,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        todo!()
+    }
+    fn millibits(value: &u8, ctx: &mut Self::Context) -> Option<usize> {
+        todo!()
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        // let bits: usize = <URange<9> as Encode>::decode(reader, &mut ctx.bits)?.into();
+        // match bits {
+        //     0 => Ok(0),
+        //     1 => Ok(1),
+        //     2 => {
+        //         let least_significant_bit = bool::decode(reader, &ctx.b2)?;
+        //         Ok(least_significant_bit as u8 + 2)
+        //     }
+        //     3 => {}
+        //     _ => unreachable!(),
+        // }
+        todo!()
     }
 }
 
