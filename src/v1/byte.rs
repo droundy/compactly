@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, Small, URange};
+use super::{Encode, EncodingStrategy, Small};
 use std::io::{Read, Write};
 
 #[derive(Clone)]
@@ -140,6 +140,9 @@ macro_rules! small_num {
     };
 }
 
+/// An N-Bit unsigned number that fits into a `u8`.
+///
+/// This number is tracked precisely, like `u8` itself.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UBits<const N: u8>(u8);
 
@@ -162,6 +165,7 @@ impl<const N: u8> TryFrom<u8> for UBits<N> {
     }
 }
 
+small_num!(UBits<1>, 1, 1, 2, ub1);
 small_num!(UBits<2>, 2, 3, 4, ub2);
 small_num!(UBits<3>, 3, 7, 8, ub3);
 small_num!(UBits<4>, 4, 15, 16, ub4);
@@ -191,8 +195,15 @@ impl Encode for i8 {
 
 #[derive(Default, Clone)]
 pub struct SmallContext {
-    bits: <URange<9> as Encode>::Context,
-    b2: <bool as Encode>::Context,
+    nonzero: <UBits<3> as Encode>::Context,
+    b1: <UBits<1> as Encode>::Context,
+    b2: <UBits<2> as Encode>::Context,
+    b3: <UBits<3> as Encode>::Context,
+    b4: <UBits<4> as Encode>::Context,
+    b5: <UBits<5> as Encode>::Context,
+    need_seven_bits: <bool as Encode>::Context,
+    b6: <UBits<6> as Encode>::Context,
+    b7: <UBits<7> as Encode>::Context,
 }
 
 impl EncodingStrategy<u8> for Small {
@@ -202,27 +213,158 @@ impl EncodingStrategy<u8> for Small {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        todo!()
+        let nonzero: UBits<3>;
+        match *value {
+            0 => {
+                nonzero = 0.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)
+            }
+            1 => {
+                nonzero = 1.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)
+            }
+            2..4 => {
+                nonzero = 2.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                let b1: UBits<1> = (*value - 2).try_into().unwrap();
+                b1.encode(writer, &mut ctx.b1)
+            }
+            4..8 => {
+                nonzero = 3.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                let b2: UBits<2> = (*value - 4).try_into().unwrap();
+                b2.encode(writer, &mut ctx.b2)
+            }
+            8..16 => {
+                nonzero = 4.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                let b3: UBits<3> = (*value - 8).try_into().unwrap();
+                b3.encode(writer, &mut ctx.b3)
+            }
+            16..32 => {
+                nonzero = 5.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                let b4: UBits<4> = (*value - 16).try_into().unwrap();
+                b4.encode(writer, &mut ctx.b4)
+            }
+            32..64 => {
+                nonzero = 6.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                let b5: UBits<5> = (*value - 32).try_into().unwrap();
+                b5.encode(writer, &mut ctx.b5)
+            }
+            64..128 => {
+                nonzero = 7.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                false.encode(writer, &mut ctx.need_seven_bits)?;
+                let b6: UBits<6> = (*value - 64).try_into().unwrap();
+                b6.encode(writer, &mut ctx.b6)
+            }
+            128..=255 => {
+                nonzero = 7.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.nonzero)?;
+                true.encode(writer, &mut ctx.need_seven_bits)?;
+                let b7: UBits<7> = (*value - 128).try_into().unwrap();
+                b7.encode(writer, &mut ctx.b7)
+            }
+        }
     }
     fn millibits(value: &u8, ctx: &mut Self::Context) -> Option<usize> {
-        todo!()
+        let nonzero: UBits<3>;
+        match *value {
+            0 => {
+                nonzero = 0.try_into().unwrap();
+                nonzero.millibits(&mut ctx.nonzero)
+            }
+            1 => {
+                nonzero = 1.try_into().unwrap();
+                nonzero.millibits(&mut ctx.nonzero)
+            }
+            2..4 => {
+                nonzero = 2.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.nonzero)?;
+                let b1: UBits<1> = (*value - 2).try_into().unwrap();
+                Some(tot + b1.millibits(&mut ctx.b1)?)
+            }
+            4..8 => {
+                nonzero = 3.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.nonzero)?;
+                let b2: UBits<2> = (*value - 4).try_into().unwrap();
+                Some(tot + b2.millibits(&mut ctx.b2)?)
+            }
+            8..16 => {
+                nonzero = 4.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.nonzero)?;
+                let b3: UBits<3> = (*value - 8).try_into().unwrap();
+                Some(tot + b3.millibits(&mut ctx.b3)?)
+            }
+            16..32 => {
+                nonzero = 5.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.nonzero)?;
+                let b4: UBits<4> = (*value - 16).try_into().unwrap();
+                Some(tot + b4.millibits(&mut ctx.b4)?)
+            }
+            32..64 => {
+                nonzero = 6.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.nonzero)?;
+                let b5: UBits<5> = (*value - 32).try_into().unwrap();
+                Some(tot + b5.millibits(&mut ctx.b5)?)
+            }
+            64..128 => {
+                nonzero = 7.try_into().unwrap();
+                let mut tot = nonzero.millibits(&mut ctx.nonzero)?;
+                tot += false.millibits(&mut ctx.need_seven_bits)?;
+                let b6: UBits<6> = (*value - 64).try_into().unwrap();
+                Some(tot + b6.millibits(&mut ctx.b6)?)
+            }
+            128..=255 => {
+                nonzero = 7.try_into().unwrap();
+                let mut tot = nonzero.millibits(&mut ctx.nonzero)?;
+                tot += true.millibits(&mut ctx.need_seven_bits)?;
+                let b7: UBits<7> = (*value - 128).try_into().unwrap();
+                Some(tot + b7.millibits(&mut ctx.b7)?)
+            }
+        }
     }
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
-        // let bits: usize = <URange<9> as Encode>::decode(reader, &mut ctx.bits)?.into();
-        // match bits {
-        //     0 => Ok(0),
-        //     1 => Ok(1),
-        //     2 => {
-        //         let least_significant_bit = bool::decode(reader, &ctx.b2)?;
-        //         Ok(least_significant_bit as u8 + 2)
-        //     }
-        //     3 => {}
-        //     _ => unreachable!(),
-        // }
-        todo!()
+        let nonzero: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.nonzero)?.into();
+        match nonzero {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => {
+                let rest: u8 = <UBits<1> as Encode>::decode(reader, &mut ctx.b1)?.into();
+                Ok(rest + 2)
+            }
+            3 => {
+                let rest: u8 = <UBits<2> as Encode>::decode(reader, &mut ctx.b2)?.into();
+                Ok(rest + 4)
+            }
+            4 => {
+                let rest: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.b3)?.into();
+                Ok(rest + 8)
+            }
+            5 => {
+                let rest: u8 = <UBits<4> as Encode>::decode(reader, &mut ctx.b4)?.into();
+                Ok(rest + 16)
+            }
+            6 => {
+                let rest: u8 = <UBits<5> as Encode>::decode(reader, &mut ctx.b5)?.into();
+                Ok(rest + 32)
+            }
+            7 => {
+                if <bool as Encode>::decode(reader, &mut ctx.need_seven_bits)? {
+                    let rest: u8 = <UBits<7> as Encode>::decode(reader, &mut ctx.b7)?.into();
+                    Ok(rest + 128)
+                } else {
+                    let rest: u8 = <UBits<6> as Encode>::decode(reader, &mut ctx.b6)?.into();
+                    Ok(rest + 64)
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 }
 

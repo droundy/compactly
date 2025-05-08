@@ -125,7 +125,7 @@ pub struct Lz77 {
     back: <usize as Encode>::Context,
     offset: <usize as Encode>::Context,
     self_offset: <usize as Encode>::Context,
-    length: <usize as Encode>::Context,
+    length: <u8 as Encode>::Context,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -137,7 +137,7 @@ enum Chunk {
         /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
         offset: usize,
         /// Number of bytes in the chunk.
-        length: usize,
+        length: u8,
     },
 }
 
@@ -145,7 +145,9 @@ impl Lz77 {
     fn eager(&self, mut value: &str) -> Vec<Chunk> {
         let mut sofar = String::new();
         let mut out = Vec::new();
-        while let Some(chunk) = self.eager_chunk(&mut value, &mut sofar) {
+        let mut ctx = self.clone();
+        while let Some(chunk) = ctx.eager_chunk(&mut value, &mut sofar) {
+            chunk.millibits(&mut ctx);
             out.push(chunk);
         }
         out
@@ -154,7 +156,11 @@ impl Lz77 {
         if value.is_empty() {
             return None;
         }
-        let mut prefix = *value;
+        let mut prefix = if value.len() > u8::MAX as usize {
+            &value[..u8::MAX as usize]
+        } else {
+            *value
+        };
         let mut ctx_copy = self.clone();
         let mut bits_of_literals = prefix
             .chars()
@@ -168,7 +174,7 @@ impl Lz77 {
                 .enumerate()
             {
                 if let Some(mut offset) = s.find(prefix) {
-                    let length = prefix.len();
+                    let length = prefix.len() as u8; // safe because prefix has limited size
                     if back == 0 {
                         offset = s.len() - offset - 1;
                     }
@@ -178,12 +184,13 @@ impl Lz77 {
                         length,
                     };
                     let chunk_bits = chunk.millibits(&mut self.clone()).unwrap();
+                    // println!("Considering chunk {chunk:?} for {prefix:?} since {chunk_bits} vs {literal_bits}");
                     if chunk_bits < literal_bits {
-                        *value = &value[length..];
+                        *value = &value[length as usize..];
                         sofar.push_str(prefix);
                         return Some(chunk);
                     } else {
-                        println!("Avoiding chunk {chunk:?} for {prefix:?} since {chunk_bits} > {literal_bits}");
+                        // println!("Avoiding chunk {chunk:?} for {prefix:?} since {chunk_bits} > {literal_bits}");
                     }
                 }
             }
@@ -273,7 +280,7 @@ impl Encode for Chunk {
             Ok(Chunk::Literal(c))
         } else {
             let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
-            let length = 2 + <usize as Encode>::decode(reader, &mut ctx.length)?;
+            let length = 2 + <u8 as Encode>::decode(reader, &mut ctx.length)?;
             let offset_context = if back == 0 {
                 &mut ctx.self_offset
             } else {
@@ -324,16 +331,16 @@ impl EncodingStrategy<String> for Small {
                     // We are repeating our own string.  In this case offset
                     // counts *backwards* and must be >= 1 so we shift it.
                     let offset = out.len() - 1 - offset;
-                    if offset + length <= out.len() {
+                    if offset + length as usize <= out.len() {
                         // println!("We have from {offset} to {}", offset + length);
-                        let x = String::from(&out[offset..offset + length]);
+                        let x = String::from(&out[offset..offset + length as usize]);
                         out.push_str(&x);
                     } else {
                         // println!("We are run length encoding");
                         // With extra length this means we are using run length
                         // encoding in effect, which is kind of a pain.
                         let chunk = String::from(&out[offset..]);
-                        let final_length = out.len() + length;
+                        let final_length = out.len() + length as usize;
                         while out.len() < final_length {
                             out.push_str(&chunk);
                         }
@@ -347,7 +354,7 @@ impl EncodingStrategy<String> for Small {
                     offset,
                     length,
                 } => {
-                    out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length]);
+                    out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length as usize]);
                 }
             }
         }
@@ -395,7 +402,7 @@ fn size() {
             length: 2
         }
         .millibits(&mut Default::default()),
-        Some(10000)
+        Some(15000)
     );
     assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
     compare_small_bits("", 3, 3);
@@ -409,7 +416,23 @@ fn size() {
     compare_small_bits("hello world hello world", 131, 113);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
-        131,
-        113,
+        413,
+        442,
+    );
+    compare_small_bits(
+        "This sentence is pretty long and seems reflective of ordinary English to me.
+           If I duplicate this sentence then I should get better compression, right?
+           This sentence is pretty long and seems reflective of ordinary English to me.
+           If I duplicate this sentence then I should get better compression, right?",
+        1535,
+        871,
+    );
+    compare_small_bits(
+        "This sentence is pretty long and seems reflective of ordinary English to me.
+           If I duplicate this sentence then I should get better compression, right?
+           This sentence is pretty long but seems reflective of ordinary English to me.
+           If I duplicate this sentence with tiny changes then I should get ok compression, right?",
+        1605,
+        1047,
     );
 }
