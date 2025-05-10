@@ -399,3 +399,45 @@ fn size() {
     assert_bits!(i8::MAX, 8);
     assert_bits!(0_i8, 8);
 }
+
+#[test]
+fn small() {
+    use super::{assert_bits, Compact};
+    fn check_size(v: u8, expected: usize) {
+        println!("Checking {v}");
+        assert_eq!(
+            Compact(v).millibits(&mut Default::default()),
+            Some(1000 * expected)
+        );
+        assert_bits!(Compact(v), expected);
+    }
+
+    for x in 0..2 {
+        check_size(x, 3);
+    }
+    for x in 2..4 {
+        check_size(x, 4);
+    }
+    for x in 4..8 {
+        check_size(x, 5);
+    }
+    for x in 8..16 {
+        check_size(x, 6);
+    }
+    for x in 16..32 {
+        check_size(x, 7);
+    }
+    for x in 32..64 {
+        check_size(x, 8);
+    }
+    for x in 64..128 {
+        check_size(x, 10);
+    }
+    for x in 128..255 {
+        check_size(x, 11);
+    }
+    assert_eq!(
+        Compact(255u8).millibits(&mut Default::default()),
+        Some(11000)
+    );
+}
