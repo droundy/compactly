@@ -1,4 +1,4 @@
-use super::{Compact, Encode, URange};
+use super::{byte::UBits, Compact, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
@@ -51,6 +51,198 @@ impl Encode for usize {
     }
 }
 
+#[derive(Clone)]
+pub struct SmallContext {
+    small_nonzero: <UBits<3> as Encode>::Context,
+    b1: <UBits<1> as Encode>::Context,
+    b2: <UBits<2> as Encode>::Context,
+    b3: <UBits<3> as Encode>::Context,
+    b4: <UBits<4> as Encode>::Context,
+    b5: <UBits<5> as Encode>::Context,
+    bits_beyond_seven: <UBits<6> as Encode>::Context,
+    bits: [<bool as Encode>::Context; 63],
+}
+impl Default for SmallContext {
+    fn default() -> Self {
+        SmallContext {
+            small_nonzero: Default::default(),
+            b1: Default::default(),
+            b2: Default::default(),
+            b3: Default::default(),
+            b4: Default::default(),
+            b5: Default::default(),
+            bits_beyond_seven: Default::default(),
+            bits: [Default::default(); 63],
+        }
+    }
+}
+
+impl EncodingStrategy<usize> for Small {
+    type Context = SmallContext;
+    fn encode<W: Write>(
+        value: &usize,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        let nonzero: UBits<3>;
+        match *value {
+            0 => {
+                nonzero = 0.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)
+            }
+            1 => {
+                nonzero = 1.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)
+            }
+            2..4 => {
+                nonzero = 2.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let b1: UBits<1> = (*value as u8 - 2).try_into().unwrap();
+                b1.encode(writer, &mut ctx.b1)
+            }
+            4..8 => {
+                nonzero = 3.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let b2: UBits<2> = (*value as u8 - 4).try_into().unwrap();
+                b2.encode(writer, &mut ctx.b2)
+            }
+            8..16 => {
+                nonzero = 4.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let b3: UBits<3> = (*value as u8 - 8).try_into().unwrap();
+                b3.encode(writer, &mut ctx.b3)
+            }
+            16..32 => {
+                nonzero = 5.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let b4: UBits<4> = (*value as u8 - 16).try_into().unwrap();
+                b4.encode(writer, &mut ctx.b4)
+            }
+            32..64 => {
+                nonzero = 6.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let b5: UBits<5> = (*value as u8 - 32).try_into().unwrap();
+                b5.encode(writer, &mut ctx.b5)
+            }
+            _ => {
+                nonzero = 7.try_into().unwrap();
+                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                let value = *value as u64;
+                let zeros = value.leading_zeros() as u8;
+                let bits_beyond_seven = (64 - 7 - zeros) as u8;
+                let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
+                bits_beyond_seven.encode(writer, &mut ctx.bits_beyond_seven)?;
+                for off in 0..6 + u8::from(bits_beyond_seven) {
+                    ((value >> off) & 1 == 1).encode(writer, &mut ctx.bits[off as usize])?;
+                }
+                Ok(())
+            }
+        }
+    }
+    fn millibits(value: &usize, ctx: &mut Self::Context) -> Option<usize> {
+        let nonzero: UBits<3>;
+        match *value {
+            0 => {
+                nonzero = 0.try_into().unwrap();
+                nonzero.millibits(&mut ctx.small_nonzero)
+            }
+            1 => {
+                nonzero = 1.try_into().unwrap();
+                nonzero.millibits(&mut ctx.small_nonzero)
+            }
+            2..4 => {
+                nonzero = 2.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let b1: UBits<1> = (*value as u8 - 2).try_into().unwrap();
+                Some(tot + b1.millibits(&mut ctx.b1)?)
+            }
+            4..8 => {
+                nonzero = 3.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let b2: UBits<2> = (*value as u8 - 4).try_into().unwrap();
+                Some(tot + b2.millibits(&mut ctx.b2)?)
+            }
+            8..16 => {
+                nonzero = 4.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let b3: UBits<3> = (*value as u8 - 8).try_into().unwrap();
+                Some(tot + b3.millibits(&mut ctx.b3)?)
+            }
+            16..32 => {
+                nonzero = 5.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let b4: UBits<4> = (*value as u8 - 16).try_into().unwrap();
+                Some(tot + b4.millibits(&mut ctx.b4)?)
+            }
+            32..64 => {
+                nonzero = 6.try_into().unwrap();
+                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let b5: UBits<5> = (*value as u8 - 32).try_into().unwrap();
+                Some(tot + b5.millibits(&mut ctx.b5)?)
+            }
+            _ => {
+                nonzero = 7.try_into().unwrap();
+                let mut tot = nonzero.millibits(&mut ctx.small_nonzero)?;
+                let value = *value as u64;
+                let zeros = value.leading_zeros() as u8;
+                let bits_beyond_seven = (64 - 7 - zeros) as u8;
+                let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
+                tot += bits_beyond_seven.millibits(&mut ctx.bits_beyond_seven)?;
+                for off in 0..6 + u8::from(bits_beyond_seven) {
+                    tot += ((value >> off) & 1 == 1).millibits(&mut ctx.bits[off as usize])?;
+                }
+                Some(tot)
+            }
+        }
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let nz = u8::from(<UBits<3> as Encode>::decode(
+            reader,
+            &mut ctx.small_nonzero,
+        )?);
+        match nz {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => {
+                let rest: u8 = <UBits<1> as Encode>::decode(reader, &mut ctx.b1)?.into();
+                Ok(rest as usize + 2)
+            }
+            3 => {
+                let rest: u8 = <UBits<2> as Encode>::decode(reader, &mut ctx.b2)?.into();
+                Ok(rest as usize + 4)
+            }
+            4 => {
+                let rest: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.b3)?.into();
+                Ok(rest as usize + 8)
+            }
+            5 => {
+                let rest: u8 = <UBits<4> as Encode>::decode(reader, &mut ctx.b4)?.into();
+                Ok(rest as usize + 16)
+            }
+            6 => {
+                let rest: u8 = <UBits<5> as Encode>::decode(reader, &mut ctx.b5)?.into();
+                Ok(rest as usize + 32)
+            }
+            7 => {
+                // 7 means we have a large number, so we just have to store it as usual.
+                let bits: u8 =
+                    <UBits<6> as Encode>::decode(reader, &mut ctx.bits_beyond_seven)?.into();
+                let bits = 6 + bits;
+                let mut out = 1_usize << bits;
+                for off in 0..bits {
+                    let b = <bool as Encode>::decode(reader, &mut ctx.bits[off as usize])?;
+                    out |= (b as usize) << off;
+                }
+                Ok(out)
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[test]
 fn size() {
     use super::assert_bits;
@@ -93,4 +285,45 @@ fn size() {
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         19
     );
+}
+
+#[test]
+fn small() {
+    use super::{assert_bits, Compact};
+    fn check_size(v: usize, expected: usize) {
+        println!("Checking {v}");
+        assert_eq!(
+            Compact(v).millibits(&mut Default::default()),
+            Some(1000 * expected)
+        );
+        assert_bits!(Compact(v), expected);
+    }
+
+    for x in 0..2 {
+        check_size(x, 3);
+    }
+    for x in 2..4 {
+        check_size(x, 4);
+    }
+    for x in 4..8 {
+        check_size(x, 5);
+    }
+    for x in 8..16 {
+        check_size(x, 6);
+    }
+    for x in 16..32 {
+        check_size(x, 7);
+    }
+    for x in 32..64 {
+        check_size(x, 8);
+    }
+    for x in 64..128 {
+        check_size(x, 15);
+    }
+    for x in 128..256 {
+        check_size(x, 16);
+    }
+    for x in 256..512 {
+        check_size(x, 17);
+    }
 }
