@@ -294,11 +294,37 @@ fn small() {
         println!("Checking {v}");
         assert_eq!(
             Compact(v).millibits(&mut Default::default()),
-            Some(1000 * expected)
+            Some(1000 * expected),
+            "small wrong size"
         );
         assert_bits!(Compact(v), expected);
     }
+    fn check_both(v: usize, expected: usize, normal: usize) {
+        println!("Checking {v}");
+        assert_eq!(
+            Compact(v).millibits(&mut Default::default()),
+            Some(1000 * expected),
+            "small wrong size"
+        );
+        assert_eq!(
+            v.millibits(&mut Default::default()),
+            Some(1000 * normal),
+            "normal wrong size"
+        );
+        assert_bits!(Compact(v), expected);
+        assert_bits!(v, normal);
+    }
 
+    check_both(0, 3, 3);
+    check_both(1, 3, 3);
+    check_both(2, 4, 3);
+    check_both(4, 5, 8);
+    check_both(5, 5, 8);
+    check_both(23, 7, 11);
+    check_both(37, 8, 12);
+    check_both(63, 8, 12);
+    check_both(117, 15, 13);
+    check_both(u32::MAX as usize, 40, 38);
     for x in 0..2 {
         check_size(x, 3);
     }
