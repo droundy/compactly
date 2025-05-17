@@ -1,4 +1,4 @@
-use super::{bits::Bits, Encode, URange};
+use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
 #[derive(Default)]
 pub struct CharContext {
@@ -90,6 +90,23 @@ impl Encode for String {
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
         Ok(out)
+    }
+}
+
+impl EncodingStrategy<String> for Small {
+    type Context = Context;
+    fn encode<W: std::io::Write>(
+        value: &String,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        String::decode(reader, ctx)
     }
 }
 

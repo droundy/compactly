@@ -119,13 +119,14 @@ impl Encode for String {
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: Vec<String>,
-    count: <usize as Encode>::Context,
+    count: <Small as EncodingStrategy<usize>>::Context,
     is_lit: <bool as Encode>::Context,
     literal: <char as Encode>::Context,
     back: <usize as Encode>::Context,
-    offset: <usize as Encode>::Context,
+    /// We use small encoding for offset, because we expect often to see small strings in total.
+    offset: <Small as EncodingStrategy<usize>>::Context,
     self_offset: <usize as Encode>::Context,
-    length: <u8 as Encode>::Context,
+    length: <Small as EncodingStrategy<u8>>::Context,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -238,13 +239,12 @@ impl Encode for Chunk {
             } => {
                 false.encode(writer, &mut ctx.is_lit)?;
                 back.encode(writer, &mut ctx.back)?;
-                (length - 2).encode(writer, &mut ctx.length)?;
-                let offset_context = if back == 0 {
-                    &mut ctx.self_offset
+                Small::encode(&(length - 2), writer, &mut ctx.length)?;
+                if back == 0 {
+                    offset.encode(writer, &mut ctx.self_offset)?;
                 } else {
-                    &mut ctx.offset
+                    Small::encode(&offset, writer, &mut ctx.offset)?;
                 };
-                offset.encode(writer, offset_context)?;
             }
         }
         Ok(())
@@ -261,13 +261,13 @@ impl Encode for Chunk {
             } => {
                 let mut tot = false.millibits(&mut ctx.is_lit)?;
                 tot += back.millibits(&mut ctx.back)?;
-                tot += (length - 2).millibits(&mut ctx.length)?;
-                let offset_context = if back == 0 {
-                    &mut ctx.self_offset
+                tot += Small::millibits(&(length - 2), &mut ctx.length)?;
+                tot += if back == 0 {
+                    offset.millibits(&mut ctx.self_offset)?
                 } else {
-                    &mut ctx.offset
+                    Small::millibits(&offset, &mut ctx.offset)?
                 };
-                Some(tot + offset.millibits(offset_context)?)
+                Some(tot)
             }
         }
     }
@@ -280,13 +280,12 @@ impl Encode for Chunk {
             Ok(Chunk::Literal(c))
         } else {
             let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
-            let length = 2 + <u8 as Encode>::decode(reader, &mut ctx.length)?;
-            let offset_context = if back == 0 {
-                &mut ctx.self_offset
+            let length = 2 + <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
+            let offset = if back == 0 {
+                <usize as Encode>::decode(reader, &mut ctx.self_offset)?
             } else {
-                &mut ctx.offset
+                <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.offset)?
             };
-            let offset = <usize as Encode>::decode(reader, offset_context)?;
             Ok(Chunk::Chunk {
                 back,
                 offset,
@@ -304,7 +303,7 @@ impl EncodingStrategy<String> for Small {
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let chunks = ctx.eager(value);
-        chunks.len().encode(writer, &mut ctx.count)?;
+        Small::encode(&chunks.len(), writer, &mut ctx.count)?;
         for chunk in chunks {
             chunk.encode(writer, ctx)?;
         }
@@ -315,7 +314,7 @@ impl EncodingStrategy<String> for Small {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let count = <usize as Encode>::decode(reader, &mut ctx.count)?;
+        let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.count)?;
         let mut out = String::with_capacity(count);
         for _ in 0..count {
             let chunk = <Chunk as Encode>::decode(reader, ctx)?;
@@ -402,22 +401,22 @@ fn size() {
             length: 2
         }
         .millibits(&mut Default::default()),
-        Some(15000)
+        Some(10000)
     );
     assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
     compare_small_bits("", 3, 3);
     compare_small_bits("a", 11, 12);
-    compare_small_bits("aa", 16, 17);
-    compare_small_bits("aaa", 19, 21);
-    compare_small_bits("aaaa", 27, 28);
-    compare_small_bits("aaaaaaaa", 34, 43);
-    compare_small_bits("hello", 39, 41);
-    compare_small_bits("hello world hello wood", 126, 120);
-    compare_small_bits("hello world hello world", 131, 113);
+    compare_small_bits("aa", 16, 18);
+    compare_small_bits("aaa", 19, 22);
+    compare_small_bits("aaaa", 27, 29);
+    compare_small_bits("aaaaaaaa", 34, 41);
+    compare_small_bits("hello", 39, 38);
+    compare_small_bits("hello world hello wood", 126, 113);
+    compare_small_bits("hello world hello world", 131, 106);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
         413,
-        442,
+        444,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -425,7 +424,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1535,
-        871,
+        874,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.

@@ -23,40 +23,83 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> Default for CacheContext<T> {
     }
 }
 
-impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardinality {
-    type Context = CacheContext<T>;
-    #[inline]
+macro_rules! impl_low_cardinality {
+    ($t:ty, $mod:ident) => {
+        mod $mod {
+            use super::{CacheContext, Encode, EncodingStrategy, LowCardinality};
+            impl EncodingStrategy<$t> for LowCardinality {
+                type Context = CacheContext<$t>;
+                #[inline]
+                fn encode<W: std::io::Write>(
+                    value: &$t,
+                    writer: &mut super::super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    let looked_up = ctx.cached.get(value).copied();
+                    looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
+                    if let Some(idx) = looked_up {
+                        idx.encode(writer, &mut ctx.index)
+                    } else {
+                        ctx.cached.insert(value.clone(), ctx.cached.len());
+                        value.encode(writer, &mut ctx.context)
+                    }
+                }
+                #[inline]
+                fn decode<R: std::io::Read>(
+                    reader: &mut super::super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+                    if is_cached {
+                        let idx = usize::decode(reader, &mut ctx.index)?;
+                        ctx.cache
+                            .get(idx)
+                            .cloned()
+                            .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+                    } else {
+                        let value = <$t>::decode(reader, &mut ctx.context)?;
+                        ctx.cache.push(value.clone());
+                        Ok(value)
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_low_cardinality!(String, string);
+impl_low_cardinality!(Vec<u8>, bytes);
+
+impl<T> EncodingStrategy<Vec<T>> for LowCardinality
+where
+    T: Encode,
+    LowCardinality: EncodingStrategy<T>,
+{
+    type Context = (
+        <usize as Encode>::Context,
+        <LowCardinality as EncodingStrategy<T>>::Context,
+    );
     fn encode<W: std::io::Write>(
-        value: &T,
+        value: &Vec<T>,
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        let looked_up = ctx.cached.get(value).copied();
-        looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
-        if let Some(idx) = looked_up {
-            idx.encode(writer, &mut ctx.index)
-        } else {
-            ctx.cached.insert(value.clone(), ctx.cached.len());
-            value.encode(writer, &mut ctx.context)
+        value.len().encode(writer, &mut ctx.0)?;
+        for v in value {
+            LowCardinality::encode(&v, writer, &mut ctx.1)?;
         }
+        Ok(())
     }
-    #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
-    ) -> Result<T, std::io::Error> {
-        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
-        if is_cached {
-            let idx = usize::decode(reader, &mut ctx.index)?;
-            ctx.cache
-                .get(idx)
-                .cloned()
-                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
-        } else {
-            let value = T::decode(reader, &mut ctx.context)?;
-            ctx.cache.push(value.clone());
-            Ok(value)
+    ) -> Result<Vec<T>, std::io::Error> {
+        let n = usize::decode(reader, &mut ctx.0)?;
+        let mut x = Vec::with_capacity(n);
+        for _ in 0..n {
+            x.push(LowCardinality::decode(reader, &mut ctx.1)?);
         }
+        Ok(x)
     }
 }
 

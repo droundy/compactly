@@ -2,6 +2,7 @@ pub use compactly_derive::EncodeV1 as Encode;
 use std::io::{Read, Write};
 
 pub mod adapt;
+mod arc;
 pub mod arith;
 mod array;
 mod bit_context;

@@ -1,4 +1,4 @@
-use super::{Compact, Encode, URange};
+use super::{Compact, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
@@ -35,6 +35,23 @@ impl Encode for usize {
             let Compact(v) = Compact::<u64>::decode(reader, &mut ctx.big)?;
             usize::try_from(v + 4).map_err(std::io::Error::other)
         }
+    }
+}
+
+impl EncodingStrategy<usize> for Small {
+    type Context = UsizeContext;
+    fn encode<W: Write>(
+        value: &usize,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        usize::decode(reader, ctx)
     }
 }
 
