@@ -235,4 +235,18 @@ fn main() {
         "meteorites by name",
         &[comparison::meteorites::meteorite_names()],
     );
+
+    #[derive(
+        compactly::v0::Encode, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
+    )]
+    struct MetNames {
+        #[compactly(Small)]
+        mets: std::collections::BTreeMap<String, comparison::meteorites::MeteoriteData>,
+    }
+    bench_all(
+        "meteorites by small name",
+        &[MetNames {
+            mets: comparison::meteorites::meteorite_names(),
+        }],
+    );
 }

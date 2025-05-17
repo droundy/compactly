@@ -1,4 +1,4 @@
-use super::Encode;
+use super::{Encode, EncodingStrategy, Small};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
@@ -109,4 +109,55 @@ fn btreemap() {
         BTreeMap::from_iter((1_000_000_usize..1_001_000).map(|v| (v, v))),
         2662
     );
+}
+
+pub struct SmallMapContext<C, V: Encode> {
+    len: <usize as Encode>::Context,
+    key: C,
+    value: V::Context,
+}
+
+impl<C: Default, V: Encode> Default for SmallMapContext<C, V> {
+    fn default() -> Self {
+        Self {
+            len: Default::default(),
+            key: C::default(),
+            value: Default::default(),
+        }
+    }
+}
+
+impl<K: Ord, V: Encode> EncodingStrategy<BTreeMap<K, V>> for Small
+where
+    Small: EncodingStrategy<K>,
+{
+    type Context = SmallMapContext<<Small as EncodingStrategy<K>>::Context, V>;
+    #[inline]
+    fn encode<W: Write>(
+        value: &BTreeMap<K, V>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.len().encode(writer, &mut ctx.len)?;
+        for (k, v) in value {
+            Small::encode(k, writer, &mut ctx.key)?;
+            v.encode(writer, &mut ctx.value)?;
+        }
+        Ok(())
+    }
+    #[inline]
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeMap<K, V>, std::io::Error> {
+        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let mut map = BTreeMap::new();
+        for _ in 0..len {
+            map.insert(
+                Small::decode(reader, &mut ctx.key)?,
+                Encode::decode(reader, &mut ctx.value)?,
+            );
+        }
+        Ok(map)
+    }
 }
