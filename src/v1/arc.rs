@@ -1,7 +1,6 @@
 use super::Encode;
 use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
-// #[derive(Clone)]
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {
     cached: HashMap<Arc<T>, usize>,
     cache: Vec<Arc<T>>,
