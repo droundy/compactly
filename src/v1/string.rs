@@ -127,26 +127,23 @@ impl Encode for String {
 pub struct Lz77 {
     old: Vec<String>,
     count: <Small as EncodingStrategy<usize>>::Context,
-    is_lit: <bool as Encode>::Context,
-    literal: <char as Encode>::Context,
+    literal: <String as Encode>::Context,
     back: <usize as Encode>::Context,
     /// We use small encoding for offset, because we expect often to see small strings in total.
     offset: <Small as EncodingStrategy<usize>>::Context,
-    self_offset: <usize as Encode>::Context,
+    self_offset: <Small as EncodingStrategy<usize>>::Context,
     length: <Small as EncodingStrategy<u8>>::Context,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Chunk {
-    Literal(char),
-    Chunk {
-        /// Number of bytes in the chunk.
-        length: u8,
-        /// Value of 0 indicates current string, otherwise count back in old.
-        back: usize,
-        /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
-        offset: usize,
-    },
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Chunk {
+    literal: String,
+    /// Number of bytes in the chunk.
+    length: u8,
+    /// Value of 0 indicates current string, otherwise count back in old.
+    back: usize,
+    /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
+    offset: usize,
 }
 
 fn split_prefix(s: &str, mut len: usize) -> Option<&str> {
@@ -171,73 +168,88 @@ impl Lz77 {
         out
     }
     fn eager_chunk(&self, value: &mut &str, sofar: &mut String) -> Option<Chunk> {
-        if value.is_empty() {
-            return None;
-        }
-        let prefix = if value.len() > u8::MAX as usize {
-            &value[..u8::MAX as usize]
-        } else {
-            *value
-        };
-        if let Some(prefix_start) = split_prefix(prefix, 5) {
-            let sofar_clone = sofar.clone();
-            let mut possible_chunks = Vec::new();
-            for (back, s) in std::iter::once(sofar_clone.as_str())
-                .chain(self.old.iter().map(|s| s.as_str()).rev())
-                .enumerate()
-            {
-                if let Some(mut offset) = s.find(prefix_start) {
-                    let length = prefix
-                        .bytes()
-                        .zip(s[offset..].bytes())
-                        .take_while(|(c1, c2)| c1 == c2)
-                        .count();
-                    let length = length as u8; // safe because prefix has limited size
-                    if back == 0 {
-                        offset = s.len() - offset - 1;
+        let mut literal = String::with_capacity(value.len());
+        while !value.is_empty() {
+            let prefix = if value.len() > u8::MAX as usize {
+                &value[..u8::MAX as usize]
+            } else {
+                *value
+            };
+            if let Some(prefix_start) = split_prefix(prefix, 5) {
+                let sofar_clone = sofar.clone();
+                let mut possible_chunks = Vec::new();
+                for (back, s) in std::iter::once(sofar_clone.as_str())
+                    .chain(self.old.iter().map(|s| s.as_str()).rev())
+                    .enumerate()
+                {
+                    if let Some(mut offset) = s.find(prefix_start) {
+                        let length = prefix
+                            .bytes()
+                            .zip(s[offset..].bytes())
+                            .take_while(|(c1, c2)| c1 == c2)
+                            .count();
+                        let length = -(length as i16); // so we can minimize
+                        if back == 0 {
+                            offset = s.len() - offset - 1;
+                        }
+                        possible_chunks.push((length, back, offset));
                     }
-                    possible_chunks.push(Chunk::Chunk {
+                }
+                if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
+                    let length = (-l) as u8; // safe because l is negative and less than 256.
+                    *value = &value[length as usize..];
+                    sofar.push_str(&prefix[..length as usize]);
+                    return Some(Chunk {
+                        literal,
+                        length,
                         back,
                         offset,
-                        length,
                     });
                 }
             }
-            if let Some(chunk @ Chunk::Chunk { length, .. }) = possible_chunks.into_iter().min() {
-                *value = &value[length as usize..];
-                sofar.push_str(&prefix[..length as usize]);
-                return Some(chunk);
-            }
+            // We are forced to emit a literal character
+            let mut chars = value.char_indices();
+            let first = chars.next()?.1;
+            literal.push(first);
+            sofar.push(first);
+            let sz = chars
+                .next()
+                .map(|(sz, _)| sz)
+                .unwrap_or_else(|| value.len());
+            *value = &value[sz..];
         }
-        // We are forced to emit a literal character
-        let mut chars = value.char_indices();
-        let first = chars.next()?.1;
-        sofar.push(first);
-        let sz = chars
-            .next()
-            .map(|(sz, _)| sz)
-            .unwrap_or_else(|| value.len());
-        *value = &value[sz..];
-        Some(Chunk::Literal(first))
+        if literal.is_empty() {
+            None
+        } else {
+            Some(Chunk {
+                literal,
+                length: 0,
+                back: 0,
+                offset: 0,
+            })
+        }
     }
 }
 
 #[test]
 fn eager() {
     assert_eq!(Lz77::default().eager(""), Vec::new());
-    assert_eq!(Lz77::default().eager("a"), vec![Chunk::Literal('a')]);
-    assert_eq!(
-        Lz77::default().eager("aa"),
-        vec![Chunk::Literal('a'), Chunk::Literal('a')]
-    );
-    assert_eq!(
-        Lz77::default().eager("aaa"),
-        vec![
-            Chunk::Literal('a'),
-            Chunk::Literal('a'),
-            Chunk::Literal('a'),
-        ]
-    );
+    macro_rules! assert_literal {
+        ($s:literal) => {
+            assert_eq!(
+                Lz77::default().eager($s),
+                vec![Chunk {
+                    literal: $s.to_string(),
+                    length: 0,
+                    back: 0,
+                    offset: 0
+                }]
+            );
+        };
+    }
+    assert_literal!("a");
+    assert_literal!("aa");
+    assert_literal!("aaa");
     {
         let mut ctx = Lz77::default();
         let millibits_of_literals = Lz77::default()
@@ -245,12 +257,12 @@ fn eager() {
             .into_iter()
             .map(|c| c.millibits(&mut ctx).unwrap())
             .sum::<usize>();
-        assert_eq!(millibits_of_literals, 36023);
+        assert_eq!(millibits_of_literals, 37416);
         let mb_of_vec = Lz77::default()
             .eager("aaa")
             .millibits(&mut Default::default())
             .unwrap();
-        assert_eq!(mb_of_vec, 39023);
+        assert_eq!(mb_of_vec, 40416);
         let mb_of_string = "aaa"
             .to_string()
             .millibits(&mut Default::default())
@@ -259,13 +271,27 @@ fn eager() {
     }
     assert_eq!(
         Lz77::default().eager("aaaa"),
+        vec![Chunk {
+            literal: "aa".to_string(),
+            length: 2,
+            back: 0,
+            offset: 1,
+        }]
+    );
+    assert_eq!(
+        Lz77::default().eager("aaaaaaaaaaaaaaaaaaaa"),
         vec![
-            Chunk::Literal('a'),
-            Chunk::Literal('a'),
-            Chunk::Chunk {
+            Chunk {
+                literal: "aaaaa".to_string(),
+                length: 5,
                 back: 0,
-                offset: 1,
-                length: 2
+                offset: 4,
+            },
+            Chunk {
+                literal: "".to_string(),
+                length: 10,
+                back: 0,
+                offset: 9,
             }
         ]
     );
@@ -301,69 +327,68 @@ impl Encode for Chunk {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        match *self {
-            Chunk::Literal(c) => {
-                true.encode(writer, &mut ctx.is_lit)?;
-                c.encode(writer, &mut ctx.literal)?;
-            }
-            Chunk::Chunk {
-                back,
-                offset,
-                length,
-            } => {
-                false.encode(writer, &mut ctx.is_lit)?;
-                back.encode(writer, &mut ctx.back)?;
-                Small::encode(&(length - 2), writer, &mut ctx.length)?;
-                if back == 0 {
-                    offset.encode(writer, &mut ctx.self_offset)?;
-                } else {
-                    Small::encode(&offset, writer, &mut ctx.offset)?;
-                };
+        let Chunk {
+            literal,
+            length,
+            back,
+            offset,
+        } = self;
+        literal.encode(writer, &mut ctx.literal)?;
+        Small::encode(length, writer, &mut ctx.length)?;
+        if *length > 0 {
+            back.encode(writer, &mut ctx.back)?;
+            if *back == 0 {
+                Small::encode(offset, writer, &mut ctx.self_offset)?;
+            } else {
+                Small::encode(offset, writer, &mut ctx.offset)?;
             }
         }
         Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        match *self {
-            Chunk::Literal(c) => {
-                Some(true.millibits(&mut ctx.is_lit)? + c.millibits(&mut ctx.literal)?)
-            }
-            Chunk::Chunk {
-                back,
-                offset,
-                length,
-            } => {
-                let mut tot = false.millibits(&mut ctx.is_lit)?;
-                tot += back.millibits(&mut ctx.back)?;
-                tot += Small::millibits(&(length - 2), &mut ctx.length)?;
-                tot += if back == 0 {
-                    offset.millibits(&mut ctx.self_offset)?
-                } else {
-                    Small::millibits(&offset, &mut ctx.offset)?
-                };
-                Some(tot)
-            }
+        let Chunk {
+            literal,
+            length,
+            back,
+            offset,
+        } = self;
+        let mut tot = literal.millibits(&mut ctx.literal)?;
+        tot += Small::millibits(length, &mut ctx.length)?;
+        if *length > 0 {
+            tot += back.millibits(&mut ctx.back)?;
+            tot += if *back == 0 {
+                Small::millibits(offset, &mut ctx.self_offset)?
+            } else {
+                Small::millibits(offset, &mut ctx.offset)?
+            };
         }
+        Some(tot)
     }
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        if <bool as Encode>::decode(reader, &mut ctx.is_lit)? {
-            let c = <char as Encode>::decode(reader, &mut ctx.literal)?;
-            Ok(Chunk::Literal(c))
-        } else {
+        let literal = <String as Encode>::decode(reader, &mut ctx.literal)?;
+        let length = <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
+        if length > 0 {
             let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
-            let length = 2 + <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
             let offset = if back == 0 {
-                <usize as Encode>::decode(reader, &mut ctx.self_offset)?
+                <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.self_offset)?
             } else {
                 <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.offset)?
             };
-            Ok(Chunk::Chunk {
+            Ok(Chunk {
+                literal,
                 back,
                 offset,
                 length,
+            })
+        } else {
+            Ok(Chunk {
+                literal,
+                length,
+                back: 0,
+                offset: 0,
             })
         }
     }
@@ -383,52 +408,52 @@ impl EncodingStrategy<String> for Small {
         }
         Ok(())
     }
+    fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
+        let chunks = ctx.eager(value);
+        let mut tot = Small::millibits(&chunks.len(), &mut ctx.count)?;
+        for chunk in chunks {
+            tot += chunk.millibits(ctx)?;
+        }
+        Some(tot)
+    }
 
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.count)?;
-        let mut out = String::with_capacity(count);
+        let mut out = String::with_capacity(5 * count);
         for _ in 0..count {
-            let chunk = <Chunk as Encode>::decode(reader, ctx)?;
-            match chunk {
-                Chunk::Literal(c) => {
-                    out.push(c);
-                }
-                Chunk::Chunk {
-                    back: 0,
-                    offset,
-                    length,
-                } => {
-                    // We are repeating our own string.  In this case offset
-                    // counts *backwards* and must be >= 1 so we shift it.
-                    let offset = out.len() - 1 - offset;
-                    if offset + length as usize <= out.len() {
-                        // println!("We have from {offset} to {}", offset + length);
-                        let x = String::from(&out[offset..offset + length as usize]);
-                        out.push_str(&x);
-                    } else {
-                        // println!("We are run length encoding");
-                        // With extra length this means we are using run length
-                        // encoding in effect, which is kind of a pain.
-                        let chunk = String::from(&out[offset..]);
-                        let final_length = out.len() + length as usize;
-                        while out.len() < final_length {
-                            out.push_str(&chunk);
-                        }
-                        while out.len() > final_length {
-                            out.pop();
-                        }
+            let Chunk {
+                literal,
+                length,
+                back,
+                offset,
+            } = <Chunk as Encode>::decode(reader, ctx)?;
+            out.push_str(&literal);
+            if back == 0 {
+                // We are repeating our own string.  In this case offset
+                // counts *backwards* and must be >= 1 so we shift it.
+                let offset = out.len() - 1 - offset;
+                if offset + length as usize <= out.len() {
+                    // println!("We have from {offset} to {}", offset + length);
+                    let x = String::from(&out[offset..offset + length as usize]);
+                    out.push_str(&x);
+                } else {
+                    // println!("We are run length encoding");
+                    // With extra length this means we are using run length
+                    // encoding in effect, which is kind of a pain.
+                    let chunk = String::from(&out[offset..]);
+                    let final_length = out.len() + length as usize;
+                    while out.len() < final_length {
+                        out.push_str(&chunk);
+                    }
+                    while out.len() > final_length {
+                        out.pop();
                     }
                 }
-                Chunk::Chunk {
-                    back,
-                    offset,
-                    length,
-                } => {
-                    out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length as usize]);
-                }
+            } else {
+                out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length as usize]);
             }
         }
         ctx.old.push(out.clone());
@@ -461,33 +486,40 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7267);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7276);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
     assert_eq!(
-        Chunk::Literal('a').millibits(&mut Default::default()),
-        Some(9000)
+        Chunk {
+            literal: "a".to_string(),
+            length: 0,
+            back: 0,
+            offset: 0
+        }
+        .millibits(&mut Default::default()),
+        Some(14000)
     );
     assert_eq!(
-        Chunk::Chunk {
+        Chunk {
+            literal: String::new(),
             back: 0,
             offset: 0,
             length: 2
         }
         .millibits(&mut Default::default()),
-        Some(10000)
+        Some(13000)
     );
     assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
     compare_small_bits("", 3, 3);
-    compare_small_bits("a", 11, 12);
-    compare_small_bits("aa", 17, 18);
-    compare_small_bits("aaa", 20, 22);
-    compare_small_bits("aaaa", 24, 29);
+    compare_small_bits("a", 11, 17);
+    compare_small_bits("aa", 17, 23);
+    compare_small_bits("aaa", 20, 26);
+    compare_small_bits("aaaa", 24, 30);
     compare_small_bits("aaaaaaaa", 31, 39);
-    compare_small_bits("hello", 36, 38);
-    compare_small_bits("hello world hello wood", 122, 113);
-    compare_small_bits("hello world hello world", 127, 106);
+    compare_small_bits("hello", 36, 42);
+    compare_small_bits("hello world hello wood", 122, 116);
+    compare_small_bits("hello world hello world", 127, 98);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
         415,
@@ -499,7 +531,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1537,
-        846,
+        842,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -507,6 +539,6 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1607,
-        1014,
+        1013,
     );
 }
