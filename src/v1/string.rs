@@ -102,6 +102,13 @@ impl Encode for String {
         }
         Ok(())
     }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        let mut tot = self.chars().count().millibits(&mut ctx.len)?;
+        for b in self.chars() {
+            tot += b.millibits(&mut ctx.chars)?;
+        }
+        Some(tot)
+    }
     #[inline]
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
@@ -129,17 +136,27 @@ pub struct Lz77 {
     length: <Small as EncodingStrategy<u8>>::Context,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Chunk {
     Literal(char),
     Chunk {
+        /// Number of bytes in the chunk.
+        length: u8,
         /// Value of 0 indicates current string, otherwise count back in old.
         back: usize,
         /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
         offset: usize,
-        /// Number of bytes in the chunk.
-        length: u8,
     },
+}
+
+fn split_prefix(s: &str, mut len: usize) -> Option<&str> {
+    while len > 1 {
+        if let Some((p, _)) = s.split_at_checked(len) {
+            return Some(p);
+        }
+        len -= 1;
+    }
+    None
 }
 
 impl Lz77 {
@@ -157,49 +174,40 @@ impl Lz77 {
         if value.is_empty() {
             return None;
         }
-        let mut prefix = if value.len() > u8::MAX as usize {
+        let prefix = if value.len() > u8::MAX as usize {
             &value[..u8::MAX as usize]
         } else {
             *value
         };
-        let mut ctx_copy = self.clone();
-        let mut bits_of_literals = prefix
-            .chars()
-            .map(|c| Chunk::Literal(c).millibits(&mut ctx_copy).unwrap())
-            .collect::<Vec<_>>();
-        while prefix.len() > 1 {
-            let literal_bits = bits_of_literals.iter().sum::<usize>();
+        if let Some(prefix_start) = split_prefix(prefix, 5) {
             let sofar_clone = sofar.clone();
+            let mut possible_chunks = Vec::new();
             for (back, s) in std::iter::once(sofar_clone.as_str())
                 .chain(self.old.iter().map(|s| s.as_str()).rev())
                 .enumerate()
             {
-                if let Some(mut offset) = s.find(prefix) {
-                    let length = prefix.len() as u8; // safe because prefix has limited size
+                if let Some(mut offset) = s.find(prefix_start) {
+                    let length = prefix
+                        .bytes()
+                        .zip(s[offset..].bytes())
+                        .take_while(|(c1, c2)| c1 == c2)
+                        .count();
+                    let length = length as u8; // safe because prefix has limited size
                     if back == 0 {
                         offset = s.len() - offset - 1;
                     }
-                    let chunk = Chunk::Chunk {
+                    possible_chunks.push(Chunk::Chunk {
                         back,
                         offset,
                         length,
-                    };
-                    let chunk_bits = chunk.millibits(&mut self.clone()).unwrap();
-                    // println!("Considering chunk {chunk:?} for {prefix:?} since {chunk_bits} vs {literal_bits}");
-                    if chunk_bits < literal_bits {
-                        *value = &value[length as usize..];
-                        sofar.push_str(prefix);
-                        return Some(chunk);
-                    } else {
-                        // println!("Avoiding chunk {chunk:?} for {prefix:?} since {chunk_bits} > {literal_bits}");
-                    }
+                    });
                 }
             }
-
-            if let Some(idx) = prefix.rfind(|_| true) {
-                prefix = &prefix[..idx];
+            if let Some(chunk @ Chunk::Chunk { length, .. }) = possible_chunks.into_iter().min() {
+                *value = &value[length as usize..];
+                sofar.push_str(&prefix[..length as usize]);
+                return Some(chunk);
             }
-            bits_of_literals.pop();
         }
         // We are forced to emit a literal character
         let mut chars = value.char_indices();
@@ -218,7 +226,73 @@ impl Lz77 {
 fn eager() {
     assert_eq!(Lz77::default().eager(""), Vec::new());
     assert_eq!(Lz77::default().eager("a"), vec![Chunk::Literal('a')]);
+    assert_eq!(
+        Lz77::default().eager("aa"),
+        vec![Chunk::Literal('a'), Chunk::Literal('a')]
+    );
+    assert_eq!(
+        Lz77::default().eager("aaa"),
+        vec![
+            Chunk::Literal('a'),
+            Chunk::Literal('a'),
+            Chunk::Literal('a'),
+        ]
+    );
+    {
+        let mut ctx = Lz77::default();
+        let millibits_of_literals = Lz77::default()
+            .eager("aaa")
+            .into_iter()
+            .map(|c| c.millibits(&mut ctx).unwrap())
+            .sum::<usize>();
+        assert_eq!(millibits_of_literals, 36023);
+        let mb_of_vec = Lz77::default()
+            .eager("aaa")
+            .millibits(&mut Default::default())
+            .unwrap();
+        assert_eq!(mb_of_vec, 39023);
+        let mb_of_string = "aaa"
+            .to_string()
+            .millibits(&mut Default::default())
+            .unwrap();
+        assert_eq!(mb_of_string, 33416);
+    }
+    assert_eq!(
+        Lz77::default().eager("aaaa"),
+        vec![
+            Chunk::Literal('a'),
+            Chunk::Literal('a'),
+            Chunk::Chunk {
+                back: 0,
+                offset: 1,
+                length: 2
+            }
+        ]
+    );
+    // assert_eq!(
+    //     Lz77::default().eager(COMPRESSIBLE_TEXT),
+    //     vec![
+    //         Chunk::Literal('a'),
+    //         Chunk::Literal('a'),
+    //         Chunk::Chunk {
+    //             back: 0,
+    //             offset: 1,
+    //             length: 2
+    //         }
+    //     ]
+    // );
 }
+
+#[cfg(test)]
+const COMPRESSIBLE_TEXT: &str = "Lossless compression is a class of data compression that allows the original data to be perfectly reconstructed from the compressed data with no loss of information. Lossless compression is possible because most real-world data exhibits statistical redundancy.[1] By contrast, lossy compression permits reconstruction only of an approximation of the original data, though usually with greatly improved compression rates (and therefore reduced media sizes).
+
+By operation of the pigeonhole principle, no lossless compression algorithm can shrink the size of all possible data: Some data will get longer by at least one symbol or bit.
+
+Compression algorithms are usually effective for human- and machine-readable documents and cannot shrink the size of random data that contain no redundancy. Different algorithms exist that are designed either with a specific type of input data in mind or with specific assumptions about what kinds of redundancy the uncompressed data are likely to contain.
+
+Lossless data compression is used in many applications. For example, it is used in the ZIP file format and in the GNU tool gzip. It is also often used as a component within lossy data compression technologies (e.g. lossless mid/side joint stereo preprocessing by MP3 encoders and other lossy audio encoders).[2]
+
+Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
 impl Encode for Chunk {
     type Context = Lz77;
@@ -387,6 +461,7 @@ fn size() {
             format!("small {value:?}")
         );
     }
+    compare_small_bits(COMPRESSIBLE_TEXT, 8977, 7267);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
@@ -409,14 +484,14 @@ fn size() {
     compare_small_bits("aa", 16, 18);
     compare_small_bits("aaa", 19, 22);
     compare_small_bits("aaaa", 27, 29);
-    compare_small_bits("aaaaaaaa", 34, 41);
+    compare_small_bits("aaaaaaaa", 34, 39);
     compare_small_bits("hello", 39, 38);
     compare_small_bits("hello world hello wood", 126, 113);
     compare_small_bits("hello world hello world", 131, 106);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
         413,
-        444,
+        421,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -424,7 +499,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1535,
-        874,
+        846,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -432,6 +507,6 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1605,
-        1047,
+        1014,
     );
 }

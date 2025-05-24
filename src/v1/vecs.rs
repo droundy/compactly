@@ -15,6 +15,13 @@ impl<T: Encode> Encode for Vec<T> {
         }
         Ok(())
     }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        let mut tot = self.len().millibits(&mut ctx.0)?;
+        for v in self {
+            tot += v.millibits(&mut ctx.1)?;
+        }
+        Some(tot)
+    }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
