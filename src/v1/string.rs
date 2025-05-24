@@ -84,7 +84,7 @@ impl Encode for char {
 
 #[derive(Default, Clone)]
 pub struct Context {
-    len: <usize as Encode>::Context,
+    len: <Small as EncodingStrategy<usize>>::Context,
     chars: <char as Encode>::Context,
 }
 
@@ -96,14 +96,14 @@ impl Encode for String {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        self.chars().count().encode(writer, &mut ctx.len)?;
+        Small::encode(&self.chars().count(), writer, &mut ctx.len)?;
         for b in self.chars() {
             b.encode(writer, &mut ctx.chars)?;
         }
         Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = self.chars().count().millibits(&mut ctx.len)?;
+        let mut tot = Small::millibits(&self.chars().count(), &mut ctx.len)?;
         for b in self.chars() {
             tot += b.millibits(&mut ctx.chars)?;
         }
@@ -114,7 +114,7 @@ impl Encode for String {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let len = usize::decode(reader, &mut ctx.len)?;
+        let len = Small::decode(reader, &mut ctx.len)?;
         let mut out = String::with_capacity(len);
         for _ in 0..len {
             out.push(char::decode(reader, &mut ctx.chars)?);
@@ -255,7 +255,7 @@ fn eager() {
             .to_string()
             .millibits(&mut Default::default())
             .unwrap();
-        assert_eq!(mb_of_string, 33416);
+        assert_eq!(mb_of_string, 34416);
     }
     assert_eq!(
         Lz77::default().eager("aaaa"),
@@ -445,9 +445,9 @@ fn size() {
     assert_bits!("A".to_string(), 11);
     assert_bits!("É".to_string(), 16);
     assert_bits!("😊".to_string(), 23);
-    assert_bits!("hello world".to_string(), 77);
-    assert_bits!("Hello world".to_string(), 79);
-    assert_bits!("hhhhhhhhhhh".to_string(), 38);
+    assert_bits!("hello world".to_string(), 74);
+    assert_bits!("Hello world".to_string(), 76);
+    assert_bits!("hhhhhhhhhhh".to_string(), 35);
 
     fn compare_small_bits(value: &str, expected_normal: usize, expected_small: usize) {
         assert_bits!(
@@ -461,7 +461,7 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8977, 7267);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7267);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
@@ -481,16 +481,16 @@ fn size() {
     assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
     compare_small_bits("", 3, 3);
     compare_small_bits("a", 11, 12);
-    compare_small_bits("aa", 16, 18);
-    compare_small_bits("aaa", 19, 22);
-    compare_small_bits("aaaa", 27, 29);
-    compare_small_bits("aaaaaaaa", 34, 39);
-    compare_small_bits("hello", 39, 38);
-    compare_small_bits("hello world hello wood", 126, 113);
-    compare_small_bits("hello world hello world", 131, 106);
+    compare_small_bits("aa", 17, 18);
+    compare_small_bits("aaa", 20, 22);
+    compare_small_bits("aaaa", 24, 29);
+    compare_small_bits("aaaaaaaa", 31, 39);
+    compare_small_bits("hello", 36, 38);
+    compare_small_bits("hello world hello wood", 122, 113);
+    compare_small_bits("hello world hello world", 127, 106);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
-        413,
+        415,
         421,
     );
     compare_small_bits(
@@ -498,7 +498,7 @@ fn size() {
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
-        1535,
+        1537,
         846,
     );
     compare_small_bits(
@@ -506,7 +506,7 @@ fn size() {
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
-        1605,
+        1607,
         1014,
     );
 }
