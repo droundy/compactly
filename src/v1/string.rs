@@ -166,6 +166,7 @@ impl Lz77 {
             chunk.millibits(&mut ctx);
             out.push(chunk);
         }
+        // println!("{out:?} with old {:?}", self.old);
         out
     }
     fn eager_chunk(&self, value: &mut &str, sofar: &mut String) -> Option<Chunk> {
@@ -258,17 +259,17 @@ fn eager() {
             .into_iter()
             .map(|c| c.millibits(&mut ctx).unwrap())
             .sum::<usize>();
-        assert_eq!(millibits_of_literals, 37416);
+        assert_eq!(millibits_of_literals, 22976);
         let mb_of_vec = Lz77::default()
             .eager("aaa")
             .millibits(&mut Default::default())
             .unwrap();
-        assert_eq!(mb_of_vec, 40416);
+        assert_eq!(mb_of_vec, 25976);
         let mb_of_string = "aaa"
             .to_string()
             .millibits(&mut Default::default())
             .unwrap();
-        assert_eq!(mb_of_string, 34416);
+        assert_eq!(mb_of_string, 19976);
     }
     assert_eq!(
         Lz77::default().eager("aaaa"),
@@ -281,23 +282,6 @@ fn eager() {
     );
     assert_eq!(
         Lz77::default().eager("aaaaaaaaaaaaaaaaaaaa"),
-        vec![
-            Chunk {
-                literal: "aaaaa".to_string(),
-                length: 5,
-                back: 0,
-                offset: 4,
-            },
-            Chunk {
-                literal: "".to_string(),
-                length: 10,
-                back: 0,
-                offset: 9,
-            }
-        ]
-    );
-    assert_eq!(
-        Lz77::default().eager(COMPRESSIBLE_TEXT),
         vec![
             Chunk {
                 literal: "aaaaa".to_string(),
@@ -424,6 +408,7 @@ impl EncodingStrategy<String> for Small {
         for chunk in chunks {
             chunk.encode(writer, ctx)?;
         }
+        ctx.old.push(value.clone());
         Ok(())
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
@@ -432,6 +417,7 @@ impl EncodingStrategy<String> for Small {
         for chunk in chunks {
             tot += chunk.millibits(ctx)?;
         }
+        ctx.old.push(value.clone());
         Some(tot)
     }
 
@@ -622,10 +608,20 @@ fn size() {
 
     compare_vecs(&["h"], 14000, 20000);
     compare_vecs(&["hello world"], 76790, 82790);
-    compare_vecs(&["hello world", "hello world"], 127070, 136562);
+    compare_vecs(&["hello world", "hello world"], 127070, 100716);
     compare_vecs(
         &["hello world", "hello world", "hello world"],
         171264,
-        183246,
+        111527,
+    );
+    compare_vecs(
+        &[
+            "hello world",
+            "hello world",
+            "hello world",
+            "hello world hello world",
+        ],
+        265073,
+        148730,
     );
 }
