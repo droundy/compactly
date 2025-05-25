@@ -120,6 +120,11 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) ->
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 
 pub struct Compact<T>(T);
+impl<T> Compact<T> {
+    pub fn new(value: T) -> Self {
+        Compact(value)
+    }
+}
 impl<T> std::ops::Deref for Compact<T> {
     type Target = T;
     #[inline]

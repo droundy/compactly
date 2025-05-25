@@ -40,3 +40,21 @@ fn size() {
     assert_bits!([true; 64], 5);
     assert_bits!([false, true], 3);
 }
+
+#[test]
+fn millibits_required() {
+    let mut bc = BitContext::default();
+    assert_eq!(bc.probability().as_f64(), 0.5);
+
+    assert_eq!(bc.millibits_required(true), 1000);
+
+    assert_eq!(bc, BitContext::True1False0);
+    assert!(bc.probability().as_f64() < 0.5);
+
+    assert_eq!(BitContext::True1False0.millibits_required(true), 582);
+
+    assert_eq!(bc.millibits_required(true), 582);
+    assert_eq!(bc.millibits_required(true), 415);
+    assert_eq!(bc.millibits_required(false), 2327);
+    assert_eq!(bc.millibits_required(false), 1590);
+}

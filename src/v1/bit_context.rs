@@ -1372,2714 +1372,2714 @@ impl BitContext {
     #[inline]
     pub fn adapt(self, bit: bool) -> Self {
         const OUTCOMES: [BitContext; 2 * 675] = [
-            True0False1,
-            True1False1,
-            True2False1,
-            True3False1,
-            True4False1,
-            True5False1,
-            True6False1,
-            True7False1,
-            True8False1,
-            True9False1,
-            True10False1,
-            True11False1,
-            True12False1,
-            True13False1,
-            True14False1,
-            True15False1,
-            True16False1,
-            True17False1,
-            True18False1,
-            True19False1,
-            True20False1,
-            True21False1,
-            True22False1,
-            True23False1,
-            True24False1,
-            True25False1,
-            True26False1,
-            True27False1,
-            True28False1,
-            True29False1,
-            True30False1,
-            True31False1,
-            True32False1,
-            True33False1,
-            True34False1,
-            True35False1,
-            True36False1,
-            True37False1,
-            True38False1,
-            True39False1,
-            True40False1,
-            True41False1,
-            True42False1,
-            True43False1,
-            True44False1,
-            True45False1,
-            True46False1,
-            True47False1,
-            True48False1,
-            True49False1,
-            True50False1,
-            True51False1,
-            True52False1,
-            True53False1,
-            True54False1,
-            True55False1,
-            True56False1,
-            True57False1,
-            True58False1,
-            True59False1,
-            True60False1,
-            True61False1,
-            True62False1,
-            True63False1,
-            True64False1,
-            True65False1,
-            True33False0,
-            True33False0,
-            True34False0,
-            True34False0,
-            True35False0,
-            True35False0,
-            True36False0,
-            True36False0,
-            True37False0,
-            True37False0,
-            True38False0,
-            True38False0,
-            True39False0,
-            True39False0,
-            True40False0,
-            True40False0,
-            True41False0,
-            True41False0,
-            True42False0,
-            True42False0,
-            True43False0,
-            True43False0,
-            True44False0,
-            True44False0,
-            True45False0,
-            True45False0,
-            True46False0,
-            True46False0,
-            True47False0,
-            True47False0,
-            True48False0,
-            True48False0,
-            True49False0,
-            True49False0,
-            True50False0,
-            True50False0,
-            True51False0,
-            True51False0,
-            True52False0,
-            True52False0,
-            True53False0,
-            True53False0,
-            True54False0,
-            True54False0,
-            True55False0,
-            True55False0,
-            True56False0,
-            True56False0,
-            True57False0,
-            True57False0,
-            True58False0,
-            True58False0,
-            True59False0,
-            True59False0,
-            True60False0,
-            True60False0,
-            True61False0,
-            True61False0,
-            True62False0,
-            True62False0,
-            True63False0,
-            True63False0,
-            True64False0,
-            True64False0,
-            True65False0,
-            True65False0,
-            True66False0,
-            True0False2,
-            True1False2,
-            True2False2,
-            True3False2,
-            True4False2,
-            True5False2,
-            True6False2,
-            True7False2,
-            True8False2,
-            True9False2,
-            True10False2,
-            True11False2,
-            True12False2,
-            True13False2,
-            True14False2,
-            True15False2,
-            True16False2,
-            True17False2,
-            True18False2,
-            True19False2,
-            True20False2,
-            True21False2,
-            True22False2,
-            True23False2,
-            True24False2,
-            True25False2,
-            True26False2,
-            True27False2,
-            True28False2,
-            True29False2,
-            True30False2,
-            True31False2,
-            True32False2,
-            True33False2,
-            True34False2,
-            True35False2,
-            True36False2,
-            True37False2,
-            True38False2,
-            True39False2,
-            True40False2,
-            True41False2,
-            True42False2,
-            True43False2,
-            True22False1,
-            True22False1,
-            True23False1,
-            True23False1,
-            True24False1,
-            True24False1,
-            True25False1,
-            True25False1,
-            True26False1,
-            True26False1,
-            True27False1,
-            True27False1,
-            True28False1,
-            True28False1,
-            True29False1,
-            True29False1,
-            True30False1,
-            True30False1,
-            True31False1,
-            True31False1,
-            True32False1,
-            True32False1,
-            True0False3,
-            True1False3,
-            True2False3,
-            True3False3,
-            True4False3,
-            True5False3,
-            True6False3,
-            True7False3,
-            True8False3,
-            True9False3,
-            True10False3,
-            True11False3,
-            True12False3,
-            True13False3,
-            True14False3,
-            True15False3,
-            True16False3,
-            True17False3,
-            True18False3,
-            True19False3,
-            True20False3,
-            True21False3,
-            True22False3,
-            True23False3,
-            True24False3,
-            True25False3,
-            True26False3,
-            True27False3,
-            True28False3,
-            True29False3,
-            True30False3,
-            True31False3,
-            True32False3,
-            True16False1,
-            True17False1,
-            True17False1,
-            True18False1,
-            True18False1,
-            True19False1,
-            True19False1,
-            True20False1,
-            True20False1,
-            True21False1,
-            True21False1,
-            True0False4,
-            True1False4,
-            True2False4,
-            True3False4,
-            True4False4,
-            True5False4,
-            True6False4,
-            True7False4,
-            True8False4,
-            True9False4,
-            True10False4,
-            True11False4,
-            True12False4,
-            True13False4,
-            True14False4,
-            True15False4,
-            True16False4,
-            True17False4,
-            True18False4,
-            True19False4,
-            True20False4,
-            True21False4,
-            True22False4,
-            True23False4,
-            True24False4,
-            True25False4,
-            True13False2,
-            True13False2,
-            True14False2,
-            True14False2,
-            True15False2,
-            True15False2,
-            True16False2,
-            True0False5,
-            True1False5,
-            True2False5,
-            True3False5,
-            True4False5,
-            True5False5,
-            True6False5,
-            True7False5,
-            True8False5,
-            True9False5,
-            True10False5,
-            True11False5,
-            True12False5,
-            True13False5,
-            True14False5,
-            True15False5,
-            True16False5,
-            True17False5,
-            True18False5,
-            True19False5,
-            True20False5,
-            True21False5,
-            True11False2,
-            True11False2,
-            True12False2,
-            True12False2,
-            True0False6,
-            True1False6,
-            True2False6,
-            True3False6,
-            True4False6,
-            True5False6,
-            True6False6,
-            True7False6,
-            True8False6,
-            True9False6,
-            True10False6,
-            True11False6,
-            True12False6,
-            True13False6,
-            True14False6,
-            True15False6,
-            True16False6,
-            True17False6,
-            True18False6,
-            True9False3,
-            True10False3,
-            True10False3,
-            True0False7,
-            True1False7,
-            True2False7,
-            True3False7,
-            True4False7,
-            True5False7,
-            True6False7,
-            True7False7,
-            True8False7,
-            True9False7,
-            True10False7,
-            True11False7,
-            True12False7,
-            True13False7,
-            True14False7,
-            True15False7,
-            True8False3,
-            True8False3,
-            True9False3,
-            True0False8,
-            True1False8,
-            True2False8,
-            True3False8,
-            True4False8,
-            True5False8,
-            True6False8,
-            True7False8,
-            True8False8,
-            True9False8,
-            True10False8,
-            True11False8,
-            True12False8,
-            True13False8,
-            True7False4,
-            True7False4,
-            True0False9,
-            True1False9,
-            True2False9,
-            True3False9,
-            True4False9,
-            True5False9,
-            True6False9,
-            True7False9,
-            True8False9,
-            True9False9,
-            True10False9,
-            True11False9,
-            True12False9,
-            True6False4,
-            True0False10,
-            True1False10,
-            True2False10,
-            True3False10,
-            True4False10,
-            True5False10,
-            True6False10,
-            True7False10,
-            True8False10,
-            True9False10,
-            True10False10,
-            True11False10,
-            True6False5,
-            True0False11,
-            True1False11,
-            True2False11,
-            True3False11,
-            True4False11,
-            True5False11,
-            True6False11,
-            True7False11,
-            True8False11,
-            True9False11,
-            True10False11,
-            True5False5,
-            True0False12,
-            True1False12,
-            True2False12,
-            True3False12,
-            True4False12,
-            True5False12,
-            True6False12,
-            True7False12,
-            True8False12,
-            True9False12,
-            True5False6,
-            True0False13,
-            True1False13,
-            True2False13,
-            True3False13,
-            True4False13,
-            True5False13,
-            True6False13,
-            True7False13,
-            True8False13,
-            True4False6,
-            True0False14,
-            True1False14,
-            True2False14,
-            True3False14,
-            True4False14,
-            True5False14,
-            True6False14,
-            True7False14,
-            True4False7,
-            True0False15,
-            True1False15,
-            True2False15,
-            True3False15,
-            True4False15,
-            True5False15,
-            True6False15,
-            True7False15,
-            True0False16,
-            True1False16,
-            True2False16,
-            True3False16,
-            True4False16,
-            True5False16,
-            True6False16,
-            True3False8,
-            True0False17,
-            True1False17,
-            True2False17,
-            True3False17,
-            True4False17,
-            True5False17,
-            True6False17,
-            True0False18,
-            True1False18,
-            True2False18,
-            True3False18,
-            True4False18,
-            True5False18,
-            True6False18,
-            True0False19,
-            True1False19,
-            True2False19,
-            True3False19,
-            True4False19,
-            True5False19,
-            True3False9,
-            True0False20,
-            True1False20,
-            True2False20,
-            True3False20,
-            True4False20,
-            True5False20,
-            True0False21,
-            True1False21,
-            True2False21,
-            True3False21,
-            True4False21,
-            True5False21,
-            True0False22,
-            True1False22,
-            True2False22,
-            True3False22,
-            True4False22,
-            True2False11,
-            True0False23,
-            True1False23,
-            True2False23,
-            True3False23,
-            True4False23,
-            True0False24,
-            True1False24,
-            True2False24,
-            True3False24,
-            True4False24,
-            True0False25,
-            True1False25,
-            True2False25,
-            True3False25,
-            True4False25,
-            True0False26,
-            True1False26,
-            True2False26,
-            True3False26,
-            True2False13,
-            True0False27,
-            True1False27,
-            True2False27,
-            True3False27,
-            True0False28,
-            True1False28,
-            True2False28,
-            True3False28,
-            True0False29,
-            True1False29,
-            True2False29,
-            True3False29,
-            True0False30,
-            True1False30,
-            True2False30,
-            True3False30,
-            True0False31,
-            True1False31,
-            True2False31,
-            True3False31,
-            True0False32,
-            True1False32,
-            True2False32,
-            True3False32,
-            True0False33,
-            True1False33,
-            True2False33,
-            True1False16,
-            True0False34,
-            True1False34,
-            True2False34,
-            True0False35,
-            True1False35,
-            True2False35,
-            True0False36,
-            True1False36,
-            True2False36,
-            True0False37,
-            True1False37,
-            True2False37,
-            True0False38,
-            True1False38,
-            True2False38,
-            True0False39,
-            True1False39,
-            True2False39,
-            True0False40,
-            True1False40,
-            True2False40,
-            True0False41,
-            True1False41,
-            True2False41,
-            True0False42,
-            True1False42,
-            True2False42,
-            True0False43,
-            True1False43,
-            True2False43,
-            True0False44,
-            True1False44,
-            True1False22,
-            True0False45,
-            True1False45,
-            True0False46,
-            True1False46,
-            True0False47,
-            True1False47,
-            True0False48,
-            True1False48,
-            True0False49,
-            True1False49,
-            True0False50,
-            True1False50,
-            True0False51,
-            True1False51,
-            True0False52,
-            True1False52,
-            True0False53,
-            True1False53,
-            True0False54,
-            True1False54,
-            True0False55,
-            True1False55,
-            True0False56,
-            True1False56,
-            True0False57,
-            True1False57,
-            True0False58,
-            True1False58,
-            True0False59,
-            True1False59,
-            True0False60,
-            True1False60,
-            True0False61,
-            True1False61,
-            True0False62,
-            True1False62,
-            True0False63,
-            True1False63,
-            True0False64,
-            True1False64,
-            True0False65,
-            True1False65,
-            True0False66,
-            True0False33,
-            True0False67,
-            True0False68,
-            True0False69,
-            True0False70,
-            True0False71,
-            True0False72,
-            True0False73,
-            True0False74,
-            True0False75,
-            True0False76,
-            True0False77,
-            True0False78,
-            True0False79,
-            True0False80,
-            True0False81,
-            True0False82,
-            True0False83,
-            True0False84,
-            True0False85,
-            True0False86,
-            True0False87,
-            True0False88,
-            True0False89,
-            True0False90,
-            True0False91,
-            True0False92,
-            True0False93,
-            True0False94,
-            True0False95,
-            True0False96,
-            True0False97,
-            True0False98,
-            True0False99,
-            True0False100,
-            True0False101,
-            True0False102,
-            True0False103,
-            True0False104,
-            True0False105,
-            True0False106,
-            True0False107,
-            True0False108,
-            True0False109,
-            True0False110,
-            True0False111,
-            True0False112,
-            True0False113,
-            True0False114,
-            True0False115,
-            True0False116,
-            True0False117,
-            True0False118,
-            True0False119,
-            True0False120,
-            True0False121,
-            True0False122,
-            True0False123,
-            True0False124,
-            True0False125,
-            True0False126,
-            True0False127,
-            True0False128,
-            True0False129,
-            True0False130,
-            True0False131,
-            True0False132,
-            True0False132,
-            True1False0,
-            True2False0,
-            True3False0,
-            True4False0,
-            True5False0,
-            True6False0,
-            True7False0,
-            True8False0,
-            True9False0,
-            True10False0,
-            True11False0,
-            True12False0,
-            True13False0,
-            True14False0,
-            True15False0,
-            True16False0,
-            True17False0,
-            True18False0,
-            True19False0,
-            True20False0,
-            True21False0,
-            True22False0,
-            True23False0,
-            True24False0,
-            True25False0,
-            True26False0,
-            True27False0,
-            True28False0,
-            True29False0,
-            True30False0,
-            True31False0,
-            True32False0,
-            True33False0,
-            True34False0,
-            True35False0,
-            True36False0,
-            True37False0,
-            True38False0,
-            True39False0,
-            True40False0,
-            True41False0,
-            True42False0,
-            True43False0,
-            True44False0,
-            True45False0,
-            True46False0,
-            True47False0,
-            True48False0,
-            True49False0,
-            True50False0,
-            True51False0,
-            True52False0,
-            True53False0,
-            True54False0,
-            True55False0,
-            True56False0,
-            True57False0,
-            True58False0,
-            True59False0,
-            True60False0,
-            True61False0,
-            True62False0,
-            True63False0,
-            True64False0,
-            True65False0,
-            True66False0,
-            True67False0,
-            True68False0,
-            True69False0,
-            True70False0,
-            True71False0,
-            True72False0,
-            True73False0,
-            True74False0,
-            True75False0,
-            True76False0,
-            True77False0,
-            True78False0,
-            True79False0,
-            True80False0,
-            True81False0,
-            True82False0,
-            True83False0,
-            True84False0,
-            True85False0,
-            True86False0,
-            True87False0,
-            True88False0,
-            True89False0,
-            True90False0,
-            True91False0,
-            True92False0,
-            True93False0,
-            True94False0,
-            True95False0,
-            True96False0,
-            True97False0,
-            True98False0,
-            True99False0,
-            True100False0,
-            True101False0,
-            True102False0,
-            True103False0,
-            True104False0,
-            True105False0,
-            True106False0,
-            True107False0,
-            True108False0,
-            True109False0,
-            True110False0,
-            True111False0,
-            True112False0,
-            True113False0,
-            True114False0,
-            True115False0,
-            True116False0,
-            True117False0,
-            True118False0,
-            True119False0,
-            True120False0,
-            True121False0,
-            True122False0,
-            True123False0,
-            True124False0,
-            True125False0,
-            True126False0,
-            True127False0,
-            True128False0,
-            True129False0,
-            True130False0,
-            True131False0,
-            True132False0,
-            True132False0,
-            True1False1,
-            True2False1,
-            True3False1,
-            True4False1,
-            True5False1,
-            True6False1,
-            True7False1,
-            True8False1,
-            True9False1,
-            True10False1,
-            True11False1,
-            True12False1,
-            True13False1,
-            True14False1,
-            True15False1,
-            True16False1,
-            True17False1,
-            True18False1,
-            True19False1,
-            True20False1,
-            True21False1,
-            True22False1,
-            True23False1,
-            True24False1,
-            True25False1,
-            True26False1,
-            True27False1,
-            True28False1,
-            True29False1,
-            True30False1,
-            True31False1,
-            True32False1,
-            True33False1,
-            True34False1,
-            True35False1,
-            True36False1,
-            True37False1,
-            True38False1,
-            True39False1,
-            True40False1,
-            True41False1,
-            True42False1,
-            True43False1,
-            True44False1,
-            True45False1,
-            True46False1,
-            True47False1,
-            True48False1,
-            True49False1,
-            True50False1,
-            True51False1,
-            True52False1,
-            True53False1,
-            True54False1,
-            True55False1,
-            True56False1,
-            True57False1,
-            True58False1,
-            True59False1,
-            True60False1,
-            True61False1,
-            True62False1,
-            True63False1,
-            True64False1,
-            True65False1,
-            True33False0,
-            True1False2,
-            True2False2,
-            True3False2,
-            True4False2,
-            True5False2,
-            True6False2,
-            True7False2,
-            True8False2,
-            True9False2,
-            True10False2,
-            True11False2,
-            True12False2,
-            True13False2,
-            True14False2,
-            True15False2,
-            True16False2,
-            True17False2,
-            True18False2,
-            True19False2,
-            True20False2,
-            True21False2,
-            True22False2,
-            True23False2,
-            True24False2,
-            True25False2,
-            True26False2,
-            True27False2,
-            True28False2,
-            True29False2,
-            True30False2,
-            True31False2,
-            True32False2,
-            True33False2,
-            True34False2,
-            True35False2,
-            True36False2,
-            True37False2,
-            True38False2,
-            True39False2,
-            True40False2,
-            True41False2,
-            True42False2,
-            True43False2,
-            True22False1,
-            True1False3,
-            True2False3,
-            True3False3,
-            True4False3,
-            True5False3,
-            True6False3,
-            True7False3,
-            True8False3,
-            True9False3,
-            True10False3,
-            True11False3,
-            True12False3,
-            True13False3,
-            True14False3,
-            True15False3,
-            True16False3,
-            True17False3,
-            True18False3,
-            True19False3,
-            True20False3,
-            True21False3,
-            True22False3,
-            True23False3,
-            True24False3,
-            True25False3,
-            True26False3,
-            True27False3,
-            True28False3,
-            True29False3,
-            True30False3,
-            True31False3,
-            True32False3,
-            True16False1,
-            True1False4,
-            True2False4,
-            True3False4,
-            True4False4,
-            True5False4,
-            True6False4,
-            True7False4,
-            True8False4,
-            True9False4,
-            True10False4,
-            True11False4,
-            True12False4,
-            True13False4,
-            True14False4,
-            True15False4,
-            True16False4,
-            True17False4,
-            True18False4,
-            True19False4,
-            True20False4,
-            True21False4,
-            True22False4,
-            True23False4,
-            True24False4,
-            True25False4,
-            True13False2,
-            True1False5,
-            True2False5,
-            True3False5,
-            True4False5,
-            True5False5,
-            True6False5,
-            True7False5,
-            True8False5,
-            True9False5,
-            True10False5,
-            True11False5,
-            True12False5,
-            True13False5,
-            True14False5,
-            True15False5,
-            True16False5,
-            True17False5,
-            True18False5,
-            True19False5,
-            True20False5,
-            True21False5,
-            True11False2,
-            True1False6,
-            True2False6,
-            True3False6,
-            True4False6,
-            True5False6,
-            True6False6,
-            True7False6,
-            True8False6,
-            True9False6,
-            True10False6,
-            True11False6,
-            True12False6,
-            True13False6,
-            True14False6,
-            True15False6,
-            True16False6,
-            True17False6,
-            True18False6,
-            True9False3,
-            True1False7,
-            True2False7,
-            True3False7,
-            True4False7,
-            True5False7,
-            True6False7,
-            True7False7,
-            True8False7,
-            True9False7,
-            True10False7,
-            True11False7,
-            True12False7,
-            True13False7,
-            True14False7,
-            True15False7,
-            True8False3,
-            True1False8,
-            True2False8,
-            True3False8,
-            True4False8,
-            True5False8,
-            True6False8,
-            True7False8,
-            True8False8,
-            True9False8,
-            True10False8,
-            True11False8,
-            True12False8,
-            True13False8,
-            True7False4,
-            True1False9,
-            True2False9,
-            True3False9,
-            True4False9,
-            True5False9,
-            True6False9,
-            True7False9,
-            True8False9,
-            True9False9,
-            True10False9,
-            True11False9,
-            True12False9,
-            True6False4,
-            True1False10,
-            True2False10,
-            True3False10,
-            True4False10,
-            True5False10,
-            True6False10,
-            True7False10,
-            True8False10,
-            True9False10,
-            True10False10,
-            True11False10,
-            True6False5,
-            True1False11,
-            True2False11,
-            True3False11,
-            True4False11,
-            True5False11,
-            True6False11,
-            True7False11,
-            True8False11,
-            True9False11,
-            True10False11,
-            True5False5,
-            True1False12,
-            True2False12,
-            True3False12,
-            True4False12,
-            True5False12,
-            True6False12,
-            True7False12,
-            True8False12,
-            True9False12,
-            True5False6,
-            True1False13,
-            True2False13,
-            True3False13,
-            True4False13,
-            True5False13,
-            True6False13,
-            True7False13,
-            True8False13,
-            True4False6,
-            True1False14,
-            True2False14,
-            True3False14,
-            True4False14,
-            True5False14,
-            True6False14,
-            True7False14,
-            True4False7,
-            True1False15,
-            True2False15,
-            True3False15,
-            True4False15,
-            True5False15,
-            True6False15,
-            True7False15,
-            True4False7,
-            True1False16,
-            True2False16,
-            True3False16,
-            True4False16,
-            True5False16,
-            True6False16,
-            True3False8,
-            True1False17,
-            True2False17,
-            True3False17,
-            True4False17,
-            True5False17,
-            True6False17,
-            True3False8,
-            True1False18,
-            True2False18,
-            True3False18,
-            True4False18,
-            True5False18,
-            True6False18,
-            True3False9,
-            True1False19,
-            True2False19,
-            True3False19,
-            True4False19,
-            True5False19,
-            True3False9,
-            True1False20,
-            True2False20,
-            True3False20,
-            True4False20,
-            True5False20,
-            True3False10,
-            True1False21,
-            True2False21,
-            True3False21,
-            True4False21,
-            True5False21,
-            True3False10,
-            True1False22,
-            True2False22,
-            True3False22,
-            True4False22,
-            True2False11,
-            True1False23,
-            True2False23,
-            True3False23,
-            True4False23,
-            True2False11,
-            True1False24,
-            True2False24,
-            True3False24,
-            True4False24,
-            True2False12,
-            True1False25,
-            True2False25,
-            True3False25,
-            True4False25,
-            True2False12,
-            True1False26,
-            True2False26,
-            True3False26,
-            True2False13,
-            True1False27,
-            True2False27,
-            True3False27,
-            True2False13,
-            True1False28,
-            True2False28,
-            True3False28,
-            True2False14,
-            True1False29,
-            True2False29,
-            True3False29,
-            True2False14,
-            True1False30,
-            True2False30,
-            True3False30,
-            True2False15,
-            True1False31,
-            True2False31,
-            True3False31,
-            True2False15,
-            True1False32,
-            True2False32,
-            True3False32,
-            True2False16,
-            True1False33,
-            True2False33,
-            True1False16,
-            True1False34,
-            True2False34,
-            True1False17,
-            True1False35,
-            True2False35,
-            True1False17,
-            True1False36,
-            True2False36,
-            True1False18,
-            True1False37,
-            True2False37,
-            True1False18,
-            True1False38,
-            True2False38,
-            True1False19,
-            True1False39,
-            True2False39,
-            True1False19,
-            True1False40,
-            True2False40,
-            True1False20,
-            True1False41,
-            True2False41,
-            True1False20,
-            True1False42,
-            True2False42,
-            True1False21,
-            True1False43,
-            True2False43,
-            True1False21,
-            True1False44,
-            True1False22,
-            True1False45,
-            True1False22,
-            True1False46,
-            True1False23,
-            True1False47,
-            True1False23,
-            True1False48,
-            True1False24,
-            True1False49,
-            True1False24,
-            True1False50,
-            True1False25,
-            True1False51,
-            True1False25,
-            True1False52,
-            True1False26,
-            True1False53,
-            True1False26,
-            True1False54,
-            True1False27,
-            True1False55,
-            True1False27,
-            True1False56,
-            True1False28,
-            True1False57,
-            True1False28,
-            True1False58,
-            True1False29,
-            True1False59,
-            True1False29,
-            True1False60,
-            True1False30,
-            True1False61,
-            True1False30,
-            True1False62,
-            True1False31,
-            True1False63,
-            True1False31,
-            True1False64,
-            True1False32,
-            True1False65,
-            True1False32,
-            True0False33,
-            True0False33,
-            True0False34,
-            True0False34,
-            True0False35,
-            True0False35,
-            True0False36,
-            True0False36,
-            True0False37,
-            True0False37,
-            True0False38,
-            True0False38,
-            True0False39,
-            True0False39,
-            True0False40,
-            True0False40,
-            True0False41,
-            True0False41,
-            True0False42,
-            True0False42,
-            True0False43,
-            True0False43,
-            True0False44,
-            True0False44,
-            True0False45,
-            True0False45,
-            True0False46,
-            True0False46,
-            True0False47,
-            True0False47,
-            True0False48,
-            True0False48,
-            True0False49,
-            True0False49,
-            True0False50,
-            True0False50,
-            True0False51,
-            True0False51,
-            True0False52,
-            True0False52,
-            True0False53,
-            True0False53,
-            True0False54,
-            True0False54,
-            True0False55,
-            True0False55,
-            True0False56,
-            True0False56,
-            True0False57,
-            True0False57,
-            True0False58,
-            True0False58,
-            True0False59,
-            True0False59,
-            True0False60,
-            True0False60,
-            True0False61,
-            True0False61,
-            True0False62,
-            True0False62,
-            True0False63,
-            True0False63,
-            True0False64,
-            True0False64,
-            True0False65,
-            True0False65,
-            True0False66,
+            True0False1,   // from True0False0 with false
+            True1False1,   // from True1False0 with false
+            True2False1,   // from True2False0 with false
+            True3False1,   // from True3False0 with false
+            True4False1,   // from True4False0 with false
+            True5False1,   // from True5False0 with false
+            True6False1,   // from True6False0 with false
+            True7False1,   // from True7False0 with false
+            True8False1,   // from True8False0 with false
+            True9False1,   // from True9False0 with false
+            True10False1,  // from True10False0 with false
+            True11False1,  // from True11False0 with false
+            True12False1,  // from True12False0 with false
+            True13False1,  // from True13False0 with false
+            True14False1,  // from True14False0 with false
+            True15False1,  // from True15False0 with false
+            True16False1,  // from True16False0 with false
+            True17False1,  // from True17False0 with false
+            True18False1,  // from True18False0 with false
+            True19False1,  // from True19False0 with false
+            True20False1,  // from True20False0 with false
+            True21False1,  // from True21False0 with false
+            True22False1,  // from True22False0 with false
+            True23False1,  // from True23False0 with false
+            True24False1,  // from True24False0 with false
+            True25False1,  // from True25False0 with false
+            True26False1,  // from True26False0 with false
+            True27False1,  // from True27False0 with false
+            True28False1,  // from True28False0 with false
+            True29False1,  // from True29False0 with false
+            True30False1,  // from True30False0 with false
+            True31False1,  // from True31False0 with false
+            True32False1,  // from True32False0 with false
+            True33False1,  // from True33False0 with false
+            True34False1,  // from True34False0 with false
+            True35False1,  // from True35False0 with false
+            True36False1,  // from True36False0 with false
+            True37False1,  // from True37False0 with false
+            True38False1,  // from True38False0 with false
+            True39False1,  // from True39False0 with false
+            True40False1,  // from True40False0 with false
+            True41False1,  // from True41False0 with false
+            True42False1,  // from True42False0 with false
+            True43False1,  // from True43False0 with false
+            True44False1,  // from True44False0 with false
+            True45False1,  // from True45False0 with false
+            True46False1,  // from True46False0 with false
+            True47False1,  // from True47False0 with false
+            True48False1,  // from True48False0 with false
+            True49False1,  // from True49False0 with false
+            True50False1,  // from True50False0 with false
+            True51False1,  // from True51False0 with false
+            True52False1,  // from True52False0 with false
+            True53False1,  // from True53False0 with false
+            True54False1,  // from True54False0 with false
+            True55False1,  // from True55False0 with false
+            True56False1,  // from True56False0 with false
+            True57False1,  // from True57False0 with false
+            True58False1,  // from True58False0 with false
+            True59False1,  // from True59False0 with false
+            True60False1,  // from True60False0 with false
+            True61False1,  // from True61False0 with false
+            True62False1,  // from True62False0 with false
+            True63False1,  // from True63False0 with false
+            True64False1,  // from True64False0 with false
+            True65False1,  // from True65False0 with false
+            True33False0,  // from True66False0 with false
+            True33False0,  // from True67False0 with false
+            True34False0,  // from True68False0 with false
+            True34False0,  // from True69False0 with false
+            True35False0,  // from True70False0 with false
+            True35False0,  // from True71False0 with false
+            True36False0,  // from True72False0 with false
+            True36False0,  // from True73False0 with false
+            True37False0,  // from True74False0 with false
+            True37False0,  // from True75False0 with false
+            True38False0,  // from True76False0 with false
+            True38False0,  // from True77False0 with false
+            True39False0,  // from True78False0 with false
+            True39False0,  // from True79False0 with false
+            True40False0,  // from True80False0 with false
+            True40False0,  // from True81False0 with false
+            True41False0,  // from True82False0 with false
+            True41False0,  // from True83False0 with false
+            True42False0,  // from True84False0 with false
+            True42False0,  // from True85False0 with false
+            True43False0,  // from True86False0 with false
+            True43False0,  // from True87False0 with false
+            True44False0,  // from True88False0 with false
+            True44False0,  // from True89False0 with false
+            True45False0,  // from True90False0 with false
+            True45False0,  // from True91False0 with false
+            True46False0,  // from True92False0 with false
+            True46False0,  // from True93False0 with false
+            True47False0,  // from True94False0 with false
+            True47False0,  // from True95False0 with false
+            True48False0,  // from True96False0 with false
+            True48False0,  // from True97False0 with false
+            True49False0,  // from True98False0 with false
+            True49False0,  // from True99False0 with false
+            True50False0,  // from True100False0 with false
+            True50False0,  // from True101False0 with false
+            True51False0,  // from True102False0 with false
+            True51False0,  // from True103False0 with false
+            True52False0,  // from True104False0 with false
+            True52False0,  // from True105False0 with false
+            True53False0,  // from True106False0 with false
+            True53False0,  // from True107False0 with false
+            True54False0,  // from True108False0 with false
+            True54False0,  // from True109False0 with false
+            True55False0,  // from True110False0 with false
+            True55False0,  // from True111False0 with false
+            True56False0,  // from True112False0 with false
+            True56False0,  // from True113False0 with false
+            True57False0,  // from True114False0 with false
+            True57False0,  // from True115False0 with false
+            True58False0,  // from True116False0 with false
+            True58False0,  // from True117False0 with false
+            True59False0,  // from True118False0 with false
+            True59False0,  // from True119False0 with false
+            True60False0,  // from True120False0 with false
+            True60False0,  // from True121False0 with false
+            True61False0,  // from True122False0 with false
+            True61False0,  // from True123False0 with false
+            True62False0,  // from True124False0 with false
+            True62False0,  // from True125False0 with false
+            True63False0,  // from True126False0 with false
+            True63False0,  // from True127False0 with false
+            True64False0,  // from True128False0 with false
+            True64False0,  // from True129False0 with false
+            True65False0,  // from True130False0 with false
+            True65False0,  // from True131False0 with false
+            True66False0,  // from True132False0 with false
+            True0False2,   // from True0False1 with false
+            True1False2,   // from True1False1 with false
+            True2False2,   // from True2False1 with false
+            True3False2,   // from True3False1 with false
+            True4False2,   // from True4False1 with false
+            True5False2,   // from True5False1 with false
+            True6False2,   // from True6False1 with false
+            True7False2,   // from True7False1 with false
+            True8False2,   // from True8False1 with false
+            True9False2,   // from True9False1 with false
+            True10False2,  // from True10False1 with false
+            True11False2,  // from True11False1 with false
+            True12False2,  // from True12False1 with false
+            True13False2,  // from True13False1 with false
+            True14False2,  // from True14False1 with false
+            True15False2,  // from True15False1 with false
+            True16False2,  // from True16False1 with false
+            True17False2,  // from True17False1 with false
+            True18False2,  // from True18False1 with false
+            True19False2,  // from True19False1 with false
+            True20False2,  // from True20False1 with false
+            True21False2,  // from True21False1 with false
+            True22False2,  // from True22False1 with false
+            True23False2,  // from True23False1 with false
+            True24False2,  // from True24False1 with false
+            True25False2,  // from True25False1 with false
+            True26False2,  // from True26False1 with false
+            True27False2,  // from True27False1 with false
+            True28False2,  // from True28False1 with false
+            True29False2,  // from True29False1 with false
+            True30False2,  // from True30False1 with false
+            True31False2,  // from True31False1 with false
+            True32False2,  // from True32False1 with false
+            True33False2,  // from True33False1 with false
+            True34False2,  // from True34False1 with false
+            True35False2,  // from True35False1 with false
+            True36False2,  // from True36False1 with false
+            True37False2,  // from True37False1 with false
+            True38False2,  // from True38False1 with false
+            True39False2,  // from True39False1 with false
+            True40False2,  // from True40False1 with false
+            True41False2,  // from True41False1 with false
+            True42False2,  // from True42False1 with false
+            True43False2,  // from True43False1 with false
+            True22False1,  // from True44False1 with false
+            True22False1,  // from True45False1 with false
+            True23False1,  // from True46False1 with false
+            True23False1,  // from True47False1 with false
+            True24False1,  // from True48False1 with false
+            True24False1,  // from True49False1 with false
+            True25False1,  // from True50False1 with false
+            True25False1,  // from True51False1 with false
+            True26False1,  // from True52False1 with false
+            True26False1,  // from True53False1 with false
+            True27False1,  // from True54False1 with false
+            True27False1,  // from True55False1 with false
+            True28False1,  // from True56False1 with false
+            True28False1,  // from True57False1 with false
+            True29False1,  // from True58False1 with false
+            True29False1,  // from True59False1 with false
+            True30False1,  // from True60False1 with false
+            True30False1,  // from True61False1 with false
+            True31False1,  // from True62False1 with false
+            True31False1,  // from True63False1 with false
+            True32False1,  // from True64False1 with false
+            True32False1,  // from True65False1 with false
+            True0False3,   // from True0False2 with false
+            True1False3,   // from True1False2 with false
+            True2False3,   // from True2False2 with false
+            True3False3,   // from True3False2 with false
+            True4False3,   // from True4False2 with false
+            True5False3,   // from True5False2 with false
+            True6False3,   // from True6False2 with false
+            True7False3,   // from True7False2 with false
+            True8False3,   // from True8False2 with false
+            True9False3,   // from True9False2 with false
+            True10False3,  // from True10False2 with false
+            True11False3,  // from True11False2 with false
+            True12False3,  // from True12False2 with false
+            True13False3,  // from True13False2 with false
+            True14False3,  // from True14False2 with false
+            True15False3,  // from True15False2 with false
+            True16False3,  // from True16False2 with false
+            True17False3,  // from True17False2 with false
+            True18False3,  // from True18False2 with false
+            True19False3,  // from True19False2 with false
+            True20False3,  // from True20False2 with false
+            True21False3,  // from True21False2 with false
+            True22False3,  // from True22False2 with false
+            True23False3,  // from True23False2 with false
+            True24False3,  // from True24False2 with false
+            True25False3,  // from True25False2 with false
+            True26False3,  // from True26False2 with false
+            True27False3,  // from True27False2 with false
+            True28False3,  // from True28False2 with false
+            True29False3,  // from True29False2 with false
+            True30False3,  // from True30False2 with false
+            True31False3,  // from True31False2 with false
+            True32False3,  // from True32False2 with false
+            True16False1,  // from True33False2 with false
+            True17False1,  // from True34False2 with false
+            True17False1,  // from True35False2 with false
+            True18False1,  // from True36False2 with false
+            True18False1,  // from True37False2 with false
+            True19False1,  // from True38False2 with false
+            True19False1,  // from True39False2 with false
+            True20False1,  // from True40False2 with false
+            True20False1,  // from True41False2 with false
+            True21False1,  // from True42False2 with false
+            True21False1,  // from True43False2 with false
+            True0False4,   // from True0False3 with false
+            True1False4,   // from True1False3 with false
+            True2False4,   // from True2False3 with false
+            True3False4,   // from True3False3 with false
+            True4False4,   // from True4False3 with false
+            True5False4,   // from True5False3 with false
+            True6False4,   // from True6False3 with false
+            True7False4,   // from True7False3 with false
+            True8False4,   // from True8False3 with false
+            True9False4,   // from True9False3 with false
+            True10False4,  // from True10False3 with false
+            True11False4,  // from True11False3 with false
+            True12False4,  // from True12False3 with false
+            True13False4,  // from True13False3 with false
+            True14False4,  // from True14False3 with false
+            True15False4,  // from True15False3 with false
+            True16False4,  // from True16False3 with false
+            True17False4,  // from True17False3 with false
+            True18False4,  // from True18False3 with false
+            True19False4,  // from True19False3 with false
+            True20False4,  // from True20False3 with false
+            True21False4,  // from True21False3 with false
+            True22False4,  // from True22False3 with false
+            True23False4,  // from True23False3 with false
+            True24False4,  // from True24False3 with false
+            True25False4,  // from True25False3 with false
+            True13False2,  // from True26False3 with false
+            True13False2,  // from True27False3 with false
+            True14False2,  // from True28False3 with false
+            True14False2,  // from True29False3 with false
+            True15False2,  // from True30False3 with false
+            True15False2,  // from True31False3 with false
+            True16False2,  // from True32False3 with false
+            True0False5,   // from True0False4 with false
+            True1False5,   // from True1False4 with false
+            True2False5,   // from True2False4 with false
+            True3False5,   // from True3False4 with false
+            True4False5,   // from True4False4 with false
+            True5False5,   // from True5False4 with false
+            True6False5,   // from True6False4 with false
+            True7False5,   // from True7False4 with false
+            True8False5,   // from True8False4 with false
+            True9False5,   // from True9False4 with false
+            True10False5,  // from True10False4 with false
+            True11False5,  // from True11False4 with false
+            True12False5,  // from True12False4 with false
+            True13False5,  // from True13False4 with false
+            True14False5,  // from True14False4 with false
+            True15False5,  // from True15False4 with false
+            True16False5,  // from True16False4 with false
+            True17False5,  // from True17False4 with false
+            True18False5,  // from True18False4 with false
+            True19False5,  // from True19False4 with false
+            True20False5,  // from True20False4 with false
+            True21False5,  // from True21False4 with false
+            True11False2,  // from True22False4 with false
+            True11False2,  // from True23False4 with false
+            True12False2,  // from True24False4 with false
+            True12False2,  // from True25False4 with false
+            True0False6,   // from True0False5 with false
+            True1False6,   // from True1False5 with false
+            True2False6,   // from True2False5 with false
+            True3False6,   // from True3False5 with false
+            True4False6,   // from True4False5 with false
+            True5False6,   // from True5False5 with false
+            True6False6,   // from True6False5 with false
+            True7False6,   // from True7False5 with false
+            True8False6,   // from True8False5 with false
+            True9False6,   // from True9False5 with false
+            True10False6,  // from True10False5 with false
+            True11False6,  // from True11False5 with false
+            True12False6,  // from True12False5 with false
+            True13False6,  // from True13False5 with false
+            True14False6,  // from True14False5 with false
+            True15False6,  // from True15False5 with false
+            True16False6,  // from True16False5 with false
+            True17False6,  // from True17False5 with false
+            True18False6,  // from True18False5 with false
+            True9False3,   // from True19False5 with false
+            True10False3,  // from True20False5 with false
+            True10False3,  // from True21False5 with false
+            True0False7,   // from True0False6 with false
+            True1False7,   // from True1False6 with false
+            True2False7,   // from True2False6 with false
+            True3False7,   // from True3False6 with false
+            True4False7,   // from True4False6 with false
+            True5False7,   // from True5False6 with false
+            True6False7,   // from True6False6 with false
+            True7False7,   // from True7False6 with false
+            True8False7,   // from True8False6 with false
+            True9False7,   // from True9False6 with false
+            True10False7,  // from True10False6 with false
+            True11False7,  // from True11False6 with false
+            True12False7,  // from True12False6 with false
+            True13False7,  // from True13False6 with false
+            True14False7,  // from True14False6 with false
+            True15False7,  // from True15False6 with false
+            True8False3,   // from True16False6 with false
+            True8False3,   // from True17False6 with false
+            True9False3,   // from True18False6 with false
+            True0False8,   // from True0False7 with false
+            True1False8,   // from True1False7 with false
+            True2False8,   // from True2False7 with false
+            True3False8,   // from True3False7 with false
+            True4False8,   // from True4False7 with false
+            True5False8,   // from True5False7 with false
+            True6False8,   // from True6False7 with false
+            True7False8,   // from True7False7 with false
+            True8False8,   // from True8False7 with false
+            True9False8,   // from True9False7 with false
+            True10False8,  // from True10False7 with false
+            True11False8,  // from True11False7 with false
+            True12False8,  // from True12False7 with false
+            True13False8,  // from True13False7 with false
+            True7False4,   // from True14False7 with false
+            True7False4,   // from True15False7 with false
+            True0False9,   // from True0False8 with false
+            True1False9,   // from True1False8 with false
+            True2False9,   // from True2False8 with false
+            True3False9,   // from True3False8 with false
+            True4False9,   // from True4False8 with false
+            True5False9,   // from True5False8 with false
+            True6False9,   // from True6False8 with false
+            True7False9,   // from True7False8 with false
+            True8False9,   // from True8False8 with false
+            True9False9,   // from True9False8 with false
+            True10False9,  // from True10False8 with false
+            True11False9,  // from True11False8 with false
+            True12False9,  // from True12False8 with false
+            True6False4,   // from True13False8 with false
+            True0False10,  // from True0False9 with false
+            True1False10,  // from True1False9 with false
+            True2False10,  // from True2False9 with false
+            True3False10,  // from True3False9 with false
+            True4False10,  // from True4False9 with false
+            True5False10,  // from True5False9 with false
+            True6False10,  // from True6False9 with false
+            True7False10,  // from True7False9 with false
+            True8False10,  // from True8False9 with false
+            True9False10,  // from True9False9 with false
+            True10False10, // from True10False9 with false
+            True11False10, // from True11False9 with false
+            True6False5,   // from True12False9 with false
+            True0False11,  // from True0False10 with false
+            True1False11,  // from True1False10 with false
+            True2False11,  // from True2False10 with false
+            True3False11,  // from True3False10 with false
+            True4False11,  // from True4False10 with false
+            True5False11,  // from True5False10 with false
+            True6False11,  // from True6False10 with false
+            True7False11,  // from True7False10 with false
+            True8False11,  // from True8False10 with false
+            True9False11,  // from True9False10 with false
+            True10False11, // from True10False10 with false
+            True5False5,   // from True11False10 with false
+            True0False12,  // from True0False11 with false
+            True1False12,  // from True1False11 with false
+            True2False12,  // from True2False11 with false
+            True3False12,  // from True3False11 with false
+            True4False12,  // from True4False11 with false
+            True5False12,  // from True5False11 with false
+            True6False12,  // from True6False11 with false
+            True7False12,  // from True7False11 with false
+            True8False12,  // from True8False11 with false
+            True9False12,  // from True9False11 with false
+            True5False6,   // from True10False11 with false
+            True0False13,  // from True0False12 with false
+            True1False13,  // from True1False12 with false
+            True2False13,  // from True2False12 with false
+            True3False13,  // from True3False12 with false
+            True4False13,  // from True4False12 with false
+            True5False13,  // from True5False12 with false
+            True6False13,  // from True6False12 with false
+            True7False13,  // from True7False12 with false
+            True8False13,  // from True8False12 with false
+            True4False6,   // from True9False12 with false
+            True0False14,  // from True0False13 with false
+            True1False14,  // from True1False13 with false
+            True2False14,  // from True2False13 with false
+            True3False14,  // from True3False13 with false
+            True4False14,  // from True4False13 with false
+            True5False14,  // from True5False13 with false
+            True6False14,  // from True6False13 with false
+            True7False14,  // from True7False13 with false
+            True4False7,   // from True8False13 with false
+            True0False15,  // from True0False14 with false
+            True1False15,  // from True1False14 with false
+            True2False15,  // from True2False14 with false
+            True3False15,  // from True3False14 with false
+            True4False15,  // from True4False14 with false
+            True5False15,  // from True5False14 with false
+            True6False15,  // from True6False14 with false
+            True7False15,  // from True7False14 with false
+            True0False16,  // from True0False15 with false
+            True1False16,  // from True1False15 with false
+            True2False16,  // from True2False15 with false
+            True3False16,  // from True3False15 with false
+            True4False16,  // from True4False15 with false
+            True5False16,  // from True5False15 with false
+            True6False16,  // from True6False15 with false
+            True3False8,   // from True7False15 with false
+            True0False17,  // from True0False16 with false
+            True1False17,  // from True1False16 with false
+            True2False17,  // from True2False16 with false
+            True3False17,  // from True3False16 with false
+            True4False17,  // from True4False16 with false
+            True5False17,  // from True5False16 with false
+            True6False17,  // from True6False16 with false
+            True0False18,  // from True0False17 with false
+            True1False18,  // from True1False17 with false
+            True2False18,  // from True2False17 with false
+            True3False18,  // from True3False17 with false
+            True4False18,  // from True4False17 with false
+            True5False18,  // from True5False17 with false
+            True6False18,  // from True6False17 with false
+            True0False19,  // from True0False18 with false
+            True1False19,  // from True1False18 with false
+            True2False19,  // from True2False18 with false
+            True3False19,  // from True3False18 with false
+            True4False19,  // from True4False18 with false
+            True5False19,  // from True5False18 with false
+            True3False9,   // from True6False18 with false
+            True0False20,  // from True0False19 with false
+            True1False20,  // from True1False19 with false
+            True2False20,  // from True2False19 with false
+            True3False20,  // from True3False19 with false
+            True4False20,  // from True4False19 with false
+            True5False20,  // from True5False19 with false
+            True0False21,  // from True0False20 with false
+            True1False21,  // from True1False20 with false
+            True2False21,  // from True2False20 with false
+            True3False21,  // from True3False20 with false
+            True4False21,  // from True4False20 with false
+            True5False21,  // from True5False20 with false
+            True0False22,  // from True0False21 with false
+            True1False22,  // from True1False21 with false
+            True2False22,  // from True2False21 with false
+            True3False22,  // from True3False21 with false
+            True4False22,  // from True4False21 with false
+            True2False11,  // from True5False21 with false
+            True0False23,  // from True0False22 with false
+            True1False23,  // from True1False22 with false
+            True2False23,  // from True2False22 with false
+            True3False23,  // from True3False22 with false
+            True4False23,  // from True4False22 with false
+            True0False24,  // from True0False23 with false
+            True1False24,  // from True1False23 with false
+            True2False24,  // from True2False23 with false
+            True3False24,  // from True3False23 with false
+            True4False24,  // from True4False23 with false
+            True0False25,  // from True0False24 with false
+            True1False25,  // from True1False24 with false
+            True2False25,  // from True2False24 with false
+            True3False25,  // from True3False24 with false
+            True4False25,  // from True4False24 with false
+            True0False26,  // from True0False25 with false
+            True1False26,  // from True1False25 with false
+            True2False26,  // from True2False25 with false
+            True3False26,  // from True3False25 with false
+            True2False13,  // from True4False25 with false
+            True0False27,  // from True0False26 with false
+            True1False27,  // from True1False26 with false
+            True2False27,  // from True2False26 with false
+            True3False27,  // from True3False26 with false
+            True0False28,  // from True0False27 with false
+            True1False28,  // from True1False27 with false
+            True2False28,  // from True2False27 with false
+            True3False28,  // from True3False27 with false
+            True0False29,  // from True0False28 with false
+            True1False29,  // from True1False28 with false
+            True2False29,  // from True2False28 with false
+            True3False29,  // from True3False28 with false
+            True0False30,  // from True0False29 with false
+            True1False30,  // from True1False29 with false
+            True2False30,  // from True2False29 with false
+            True3False30,  // from True3False29 with false
+            True0False31,  // from True0False30 with false
+            True1False31,  // from True1False30 with false
+            True2False31,  // from True2False30 with false
+            True3False31,  // from True3False30 with false
+            True0False32,  // from True0False31 with false
+            True1False32,  // from True1False31 with false
+            True2False32,  // from True2False31 with false
+            True3False32,  // from True3False31 with false
+            True0False33,  // from True0False32 with false
+            True1False33,  // from True1False32 with false
+            True2False33,  // from True2False32 with false
+            True1False16,  // from True3False32 with false
+            True0False34,  // from True0False33 with false
+            True1False34,  // from True1False33 with false
+            True2False34,  // from True2False33 with false
+            True0False35,  // from True0False34 with false
+            True1False35,  // from True1False34 with false
+            True2False35,  // from True2False34 with false
+            True0False36,  // from True0False35 with false
+            True1False36,  // from True1False35 with false
+            True2False36,  // from True2False35 with false
+            True0False37,  // from True0False36 with false
+            True1False37,  // from True1False36 with false
+            True2False37,  // from True2False36 with false
+            True0False38,  // from True0False37 with false
+            True1False38,  // from True1False37 with false
+            True2False38,  // from True2False37 with false
+            True0False39,  // from True0False38 with false
+            True1False39,  // from True1False38 with false
+            True2False39,  // from True2False38 with false
+            True0False40,  // from True0False39 with false
+            True1False40,  // from True1False39 with false
+            True2False40,  // from True2False39 with false
+            True0False41,  // from True0False40 with false
+            True1False41,  // from True1False40 with false
+            True2False41,  // from True2False40 with false
+            True0False42,  // from True0False41 with false
+            True1False42,  // from True1False41 with false
+            True2False42,  // from True2False41 with false
+            True0False43,  // from True0False42 with false
+            True1False43,  // from True1False42 with false
+            True2False43,  // from True2False42 with false
+            True0False44,  // from True0False43 with false
+            True1False44,  // from True1False43 with false
+            True1False22,  // from True2False43 with false
+            True0False45,  // from True0False44 with false
+            True1False45,  // from True1False44 with false
+            True0False46,  // from True0False45 with false
+            True1False46,  // from True1False45 with false
+            True0False47,  // from True0False46 with false
+            True1False47,  // from True1False46 with false
+            True0False48,  // from True0False47 with false
+            True1False48,  // from True1False47 with false
+            True0False49,  // from True0False48 with false
+            True1False49,  // from True1False48 with false
+            True0False50,  // from True0False49 with false
+            True1False50,  // from True1False49 with false
+            True0False51,  // from True0False50 with false
+            True1False51,  // from True1False50 with false
+            True0False52,  // from True0False51 with false
+            True1False52,  // from True1False51 with false
+            True0False53,  // from True0False52 with false
+            True1False53,  // from True1False52 with false
+            True0False54,  // from True0False53 with false
+            True1False54,  // from True1False53 with false
+            True0False55,  // from True0False54 with false
+            True1False55,  // from True1False54 with false
+            True0False56,  // from True0False55 with false
+            True1False56,  // from True1False55 with false
+            True0False57,  // from True0False56 with false
+            True1False57,  // from True1False56 with false
+            True0False58,  // from True0False57 with false
+            True1False58,  // from True1False57 with false
+            True0False59,  // from True0False58 with false
+            True1False59,  // from True1False58 with false
+            True0False60,  // from True0False59 with false
+            True1False60,  // from True1False59 with false
+            True0False61,  // from True0False60 with false
+            True1False61,  // from True1False60 with false
+            True0False62,  // from True0False61 with false
+            True1False62,  // from True1False61 with false
+            True0False63,  // from True0False62 with false
+            True1False63,  // from True1False62 with false
+            True0False64,  // from True0False63 with false
+            True1False64,  // from True1False63 with false
+            True0False65,  // from True0False64 with false
+            True1False65,  // from True1False64 with false
+            True0False66,  // from True0False65 with false
+            True0False33,  // from True1False65 with false
+            True0False67,  // from True0False66 with false
+            True0False68,  // from True0False67 with false
+            True0False69,  // from True0False68 with false
+            True0False70,  // from True0False69 with false
+            True0False71,  // from True0False70 with false
+            True0False72,  // from True0False71 with false
+            True0False73,  // from True0False72 with false
+            True0False74,  // from True0False73 with false
+            True0False75,  // from True0False74 with false
+            True0False76,  // from True0False75 with false
+            True0False77,  // from True0False76 with false
+            True0False78,  // from True0False77 with false
+            True0False79,  // from True0False78 with false
+            True0False80,  // from True0False79 with false
+            True0False81,  // from True0False80 with false
+            True0False82,  // from True0False81 with false
+            True0False83,  // from True0False82 with false
+            True0False84,  // from True0False83 with false
+            True0False85,  // from True0False84 with false
+            True0False86,  // from True0False85 with false
+            True0False87,  // from True0False86 with false
+            True0False88,  // from True0False87 with false
+            True0False89,  // from True0False88 with false
+            True0False90,  // from True0False89 with false
+            True0False91,  // from True0False90 with false
+            True0False92,  // from True0False91 with false
+            True0False93,  // from True0False92 with false
+            True0False94,  // from True0False93 with false
+            True0False95,  // from True0False94 with false
+            True0False96,  // from True0False95 with false
+            True0False97,  // from True0False96 with false
+            True0False98,  // from True0False97 with false
+            True0False99,  // from True0False98 with false
+            True0False100, // from True0False99 with false
+            True0False101, // from True0False100 with false
+            True0False102, // from True0False101 with false
+            True0False103, // from True0False102 with false
+            True0False104, // from True0False103 with false
+            True0False105, // from True0False104 with false
+            True0False106, // from True0False105 with false
+            True0False107, // from True0False106 with false
+            True0False108, // from True0False107 with false
+            True0False109, // from True0False108 with false
+            True0False110, // from True0False109 with false
+            True0False111, // from True0False110 with false
+            True0False112, // from True0False111 with false
+            True0False113, // from True0False112 with false
+            True0False114, // from True0False113 with false
+            True0False115, // from True0False114 with false
+            True0False116, // from True0False115 with false
+            True0False117, // from True0False116 with false
+            True0False118, // from True0False117 with false
+            True0False119, // from True0False118 with false
+            True0False120, // from True0False119 with false
+            True0False121, // from True0False120 with false
+            True0False122, // from True0False121 with false
+            True0False123, // from True0False122 with false
+            True0False124, // from True0False123 with false
+            True0False125, // from True0False124 with false
+            True0False126, // from True0False125 with false
+            True0False127, // from True0False126 with false
+            True0False128, // from True0False127 with false
+            True0False129, // from True0False128 with false
+            True0False130, // from True0False129 with false
+            True0False131, // from True0False130 with false
+            True0False132, // from True0False131 with false
+            True0False132, // from True0False132 with false
+            True1False0,   // from True0False0 with true
+            True2False0,   // from True1False0 with true
+            True3False0,   // from True2False0 with true
+            True4False0,   // from True3False0 with true
+            True5False0,   // from True4False0 with true
+            True6False0,   // from True5False0 with true
+            True7False0,   // from True6False0 with true
+            True8False0,   // from True7False0 with true
+            True9False0,   // from True8False0 with true
+            True10False0,  // from True9False0 with true
+            True11False0,  // from True10False0 with true
+            True12False0,  // from True11False0 with true
+            True13False0,  // from True12False0 with true
+            True14False0,  // from True13False0 with true
+            True15False0,  // from True14False0 with true
+            True16False0,  // from True15False0 with true
+            True17False0,  // from True16False0 with true
+            True18False0,  // from True17False0 with true
+            True19False0,  // from True18False0 with true
+            True20False0,  // from True19False0 with true
+            True21False0,  // from True20False0 with true
+            True22False0,  // from True21False0 with true
+            True23False0,  // from True22False0 with true
+            True24False0,  // from True23False0 with true
+            True25False0,  // from True24False0 with true
+            True26False0,  // from True25False0 with true
+            True27False0,  // from True26False0 with true
+            True28False0,  // from True27False0 with true
+            True29False0,  // from True28False0 with true
+            True30False0,  // from True29False0 with true
+            True31False0,  // from True30False0 with true
+            True32False0,  // from True31False0 with true
+            True33False0,  // from True32False0 with true
+            True34False0,  // from True33False0 with true
+            True35False0,  // from True34False0 with true
+            True36False0,  // from True35False0 with true
+            True37False0,  // from True36False0 with true
+            True38False0,  // from True37False0 with true
+            True39False0,  // from True38False0 with true
+            True40False0,  // from True39False0 with true
+            True41False0,  // from True40False0 with true
+            True42False0,  // from True41False0 with true
+            True43False0,  // from True42False0 with true
+            True44False0,  // from True43False0 with true
+            True45False0,  // from True44False0 with true
+            True46False0,  // from True45False0 with true
+            True47False0,  // from True46False0 with true
+            True48False0,  // from True47False0 with true
+            True49False0,  // from True48False0 with true
+            True50False0,  // from True49False0 with true
+            True51False0,  // from True50False0 with true
+            True52False0,  // from True51False0 with true
+            True53False0,  // from True52False0 with true
+            True54False0,  // from True53False0 with true
+            True55False0,  // from True54False0 with true
+            True56False0,  // from True55False0 with true
+            True57False0,  // from True56False0 with true
+            True58False0,  // from True57False0 with true
+            True59False0,  // from True58False0 with true
+            True60False0,  // from True59False0 with true
+            True61False0,  // from True60False0 with true
+            True62False0,  // from True61False0 with true
+            True63False0,  // from True62False0 with true
+            True64False0,  // from True63False0 with true
+            True65False0,  // from True64False0 with true
+            True66False0,  // from True65False0 with true
+            True67False0,  // from True66False0 with true
+            True68False0,  // from True67False0 with true
+            True69False0,  // from True68False0 with true
+            True70False0,  // from True69False0 with true
+            True71False0,  // from True70False0 with true
+            True72False0,  // from True71False0 with true
+            True73False0,  // from True72False0 with true
+            True74False0,  // from True73False0 with true
+            True75False0,  // from True74False0 with true
+            True76False0,  // from True75False0 with true
+            True77False0,  // from True76False0 with true
+            True78False0,  // from True77False0 with true
+            True79False0,  // from True78False0 with true
+            True80False0,  // from True79False0 with true
+            True81False0,  // from True80False0 with true
+            True82False0,  // from True81False0 with true
+            True83False0,  // from True82False0 with true
+            True84False0,  // from True83False0 with true
+            True85False0,  // from True84False0 with true
+            True86False0,  // from True85False0 with true
+            True87False0,  // from True86False0 with true
+            True88False0,  // from True87False0 with true
+            True89False0,  // from True88False0 with true
+            True90False0,  // from True89False0 with true
+            True91False0,  // from True90False0 with true
+            True92False0,  // from True91False0 with true
+            True93False0,  // from True92False0 with true
+            True94False0,  // from True93False0 with true
+            True95False0,  // from True94False0 with true
+            True96False0,  // from True95False0 with true
+            True97False0,  // from True96False0 with true
+            True98False0,  // from True97False0 with true
+            True99False0,  // from True98False0 with true
+            True100False0, // from True99False0 with true
+            True101False0, // from True100False0 with true
+            True102False0, // from True101False0 with true
+            True103False0, // from True102False0 with true
+            True104False0, // from True103False0 with true
+            True105False0, // from True104False0 with true
+            True106False0, // from True105False0 with true
+            True107False0, // from True106False0 with true
+            True108False0, // from True107False0 with true
+            True109False0, // from True108False0 with true
+            True110False0, // from True109False0 with true
+            True111False0, // from True110False0 with true
+            True112False0, // from True111False0 with true
+            True113False0, // from True112False0 with true
+            True114False0, // from True113False0 with true
+            True115False0, // from True114False0 with true
+            True116False0, // from True115False0 with true
+            True117False0, // from True116False0 with true
+            True118False0, // from True117False0 with true
+            True119False0, // from True118False0 with true
+            True120False0, // from True119False0 with true
+            True121False0, // from True120False0 with true
+            True122False0, // from True121False0 with true
+            True123False0, // from True122False0 with true
+            True124False0, // from True123False0 with true
+            True125False0, // from True124False0 with true
+            True126False0, // from True125False0 with true
+            True127False0, // from True126False0 with true
+            True128False0, // from True127False0 with true
+            True129False0, // from True128False0 with true
+            True130False0, // from True129False0 with true
+            True131False0, // from True130False0 with true
+            True132False0, // from True131False0 with true
+            True132False0, // from True132False0 with true
+            True1False1,   // from True0False1 with true
+            True2False1,   // from True1False1 with true
+            True3False1,   // from True2False1 with true
+            True4False1,   // from True3False1 with true
+            True5False1,   // from True4False1 with true
+            True6False1,   // from True5False1 with true
+            True7False1,   // from True6False1 with true
+            True8False1,   // from True7False1 with true
+            True9False1,   // from True8False1 with true
+            True10False1,  // from True9False1 with true
+            True11False1,  // from True10False1 with true
+            True12False1,  // from True11False1 with true
+            True13False1,  // from True12False1 with true
+            True14False1,  // from True13False1 with true
+            True15False1,  // from True14False1 with true
+            True16False1,  // from True15False1 with true
+            True17False1,  // from True16False1 with true
+            True18False1,  // from True17False1 with true
+            True19False1,  // from True18False1 with true
+            True20False1,  // from True19False1 with true
+            True21False1,  // from True20False1 with true
+            True22False1,  // from True21False1 with true
+            True23False1,  // from True22False1 with true
+            True24False1,  // from True23False1 with true
+            True25False1,  // from True24False1 with true
+            True26False1,  // from True25False1 with true
+            True27False1,  // from True26False1 with true
+            True28False1,  // from True27False1 with true
+            True29False1,  // from True28False1 with true
+            True30False1,  // from True29False1 with true
+            True31False1,  // from True30False1 with true
+            True32False1,  // from True31False1 with true
+            True33False1,  // from True32False1 with true
+            True34False1,  // from True33False1 with true
+            True35False1,  // from True34False1 with true
+            True36False1,  // from True35False1 with true
+            True37False1,  // from True36False1 with true
+            True38False1,  // from True37False1 with true
+            True39False1,  // from True38False1 with true
+            True40False1,  // from True39False1 with true
+            True41False1,  // from True40False1 with true
+            True42False1,  // from True41False1 with true
+            True43False1,  // from True42False1 with true
+            True44False1,  // from True43False1 with true
+            True45False1,  // from True44False1 with true
+            True46False1,  // from True45False1 with true
+            True47False1,  // from True46False1 with true
+            True48False1,  // from True47False1 with true
+            True49False1,  // from True48False1 with true
+            True50False1,  // from True49False1 with true
+            True51False1,  // from True50False1 with true
+            True52False1,  // from True51False1 with true
+            True53False1,  // from True52False1 with true
+            True54False1,  // from True53False1 with true
+            True55False1,  // from True54False1 with true
+            True56False1,  // from True55False1 with true
+            True57False1,  // from True56False1 with true
+            True58False1,  // from True57False1 with true
+            True59False1,  // from True58False1 with true
+            True60False1,  // from True59False1 with true
+            True61False1,  // from True60False1 with true
+            True62False1,  // from True61False1 with true
+            True63False1,  // from True62False1 with true
+            True64False1,  // from True63False1 with true
+            True65False1,  // from True64False1 with true
+            True33False0,  // from True65False1 with true
+            True1False2,   // from True0False2 with true
+            True2False2,   // from True1False2 with true
+            True3False2,   // from True2False2 with true
+            True4False2,   // from True3False2 with true
+            True5False2,   // from True4False2 with true
+            True6False2,   // from True5False2 with true
+            True7False2,   // from True6False2 with true
+            True8False2,   // from True7False2 with true
+            True9False2,   // from True8False2 with true
+            True10False2,  // from True9False2 with true
+            True11False2,  // from True10False2 with true
+            True12False2,  // from True11False2 with true
+            True13False2,  // from True12False2 with true
+            True14False2,  // from True13False2 with true
+            True15False2,  // from True14False2 with true
+            True16False2,  // from True15False2 with true
+            True17False2,  // from True16False2 with true
+            True18False2,  // from True17False2 with true
+            True19False2,  // from True18False2 with true
+            True20False2,  // from True19False2 with true
+            True21False2,  // from True20False2 with true
+            True22False2,  // from True21False2 with true
+            True23False2,  // from True22False2 with true
+            True24False2,  // from True23False2 with true
+            True25False2,  // from True24False2 with true
+            True26False2,  // from True25False2 with true
+            True27False2,  // from True26False2 with true
+            True28False2,  // from True27False2 with true
+            True29False2,  // from True28False2 with true
+            True30False2,  // from True29False2 with true
+            True31False2,  // from True30False2 with true
+            True32False2,  // from True31False2 with true
+            True33False2,  // from True32False2 with true
+            True34False2,  // from True33False2 with true
+            True35False2,  // from True34False2 with true
+            True36False2,  // from True35False2 with true
+            True37False2,  // from True36False2 with true
+            True38False2,  // from True37False2 with true
+            True39False2,  // from True38False2 with true
+            True40False2,  // from True39False2 with true
+            True41False2,  // from True40False2 with true
+            True42False2,  // from True41False2 with true
+            True43False2,  // from True42False2 with true
+            True22False1,  // from True43False2 with true
+            True1False3,   // from True0False3 with true
+            True2False3,   // from True1False3 with true
+            True3False3,   // from True2False3 with true
+            True4False3,   // from True3False3 with true
+            True5False3,   // from True4False3 with true
+            True6False3,   // from True5False3 with true
+            True7False3,   // from True6False3 with true
+            True8False3,   // from True7False3 with true
+            True9False3,   // from True8False3 with true
+            True10False3,  // from True9False3 with true
+            True11False3,  // from True10False3 with true
+            True12False3,  // from True11False3 with true
+            True13False3,  // from True12False3 with true
+            True14False3,  // from True13False3 with true
+            True15False3,  // from True14False3 with true
+            True16False3,  // from True15False3 with true
+            True17False3,  // from True16False3 with true
+            True18False3,  // from True17False3 with true
+            True19False3,  // from True18False3 with true
+            True20False3,  // from True19False3 with true
+            True21False3,  // from True20False3 with true
+            True22False3,  // from True21False3 with true
+            True23False3,  // from True22False3 with true
+            True24False3,  // from True23False3 with true
+            True25False3,  // from True24False3 with true
+            True26False3,  // from True25False3 with true
+            True27False3,  // from True26False3 with true
+            True28False3,  // from True27False3 with true
+            True29False3,  // from True28False3 with true
+            True30False3,  // from True29False3 with true
+            True31False3,  // from True30False3 with true
+            True32False3,  // from True31False3 with true
+            True16False1,  // from True32False3 with true
+            True1False4,   // from True0False4 with true
+            True2False4,   // from True1False4 with true
+            True3False4,   // from True2False4 with true
+            True4False4,   // from True3False4 with true
+            True5False4,   // from True4False4 with true
+            True6False4,   // from True5False4 with true
+            True7False4,   // from True6False4 with true
+            True8False4,   // from True7False4 with true
+            True9False4,   // from True8False4 with true
+            True10False4,  // from True9False4 with true
+            True11False4,  // from True10False4 with true
+            True12False4,  // from True11False4 with true
+            True13False4,  // from True12False4 with true
+            True14False4,  // from True13False4 with true
+            True15False4,  // from True14False4 with true
+            True16False4,  // from True15False4 with true
+            True17False4,  // from True16False4 with true
+            True18False4,  // from True17False4 with true
+            True19False4,  // from True18False4 with true
+            True20False4,  // from True19False4 with true
+            True21False4,  // from True20False4 with true
+            True22False4,  // from True21False4 with true
+            True23False4,  // from True22False4 with true
+            True24False4,  // from True23False4 with true
+            True25False4,  // from True24False4 with true
+            True13False2,  // from True25False4 with true
+            True1False5,   // from True0False5 with true
+            True2False5,   // from True1False5 with true
+            True3False5,   // from True2False5 with true
+            True4False5,   // from True3False5 with true
+            True5False5,   // from True4False5 with true
+            True6False5,   // from True5False5 with true
+            True7False5,   // from True6False5 with true
+            True8False5,   // from True7False5 with true
+            True9False5,   // from True8False5 with true
+            True10False5,  // from True9False5 with true
+            True11False5,  // from True10False5 with true
+            True12False5,  // from True11False5 with true
+            True13False5,  // from True12False5 with true
+            True14False5,  // from True13False5 with true
+            True15False5,  // from True14False5 with true
+            True16False5,  // from True15False5 with true
+            True17False5,  // from True16False5 with true
+            True18False5,  // from True17False5 with true
+            True19False5,  // from True18False5 with true
+            True20False5,  // from True19False5 with true
+            True21False5,  // from True20False5 with true
+            True11False2,  // from True21False5 with true
+            True1False6,   // from True0False6 with true
+            True2False6,   // from True1False6 with true
+            True3False6,   // from True2False6 with true
+            True4False6,   // from True3False6 with true
+            True5False6,   // from True4False6 with true
+            True6False6,   // from True5False6 with true
+            True7False6,   // from True6False6 with true
+            True8False6,   // from True7False6 with true
+            True9False6,   // from True8False6 with true
+            True10False6,  // from True9False6 with true
+            True11False6,  // from True10False6 with true
+            True12False6,  // from True11False6 with true
+            True13False6,  // from True12False6 with true
+            True14False6,  // from True13False6 with true
+            True15False6,  // from True14False6 with true
+            True16False6,  // from True15False6 with true
+            True17False6,  // from True16False6 with true
+            True18False6,  // from True17False6 with true
+            True9False3,   // from True18False6 with true
+            True1False7,   // from True0False7 with true
+            True2False7,   // from True1False7 with true
+            True3False7,   // from True2False7 with true
+            True4False7,   // from True3False7 with true
+            True5False7,   // from True4False7 with true
+            True6False7,   // from True5False7 with true
+            True7False7,   // from True6False7 with true
+            True8False7,   // from True7False7 with true
+            True9False7,   // from True8False7 with true
+            True10False7,  // from True9False7 with true
+            True11False7,  // from True10False7 with true
+            True12False7,  // from True11False7 with true
+            True13False7,  // from True12False7 with true
+            True14False7,  // from True13False7 with true
+            True15False7,  // from True14False7 with true
+            True8False3,   // from True15False7 with true
+            True1False8,   // from True0False8 with true
+            True2False8,   // from True1False8 with true
+            True3False8,   // from True2False8 with true
+            True4False8,   // from True3False8 with true
+            True5False8,   // from True4False8 with true
+            True6False8,   // from True5False8 with true
+            True7False8,   // from True6False8 with true
+            True8False8,   // from True7False8 with true
+            True9False8,   // from True8False8 with true
+            True10False8,  // from True9False8 with true
+            True11False8,  // from True10False8 with true
+            True12False8,  // from True11False8 with true
+            True13False8,  // from True12False8 with true
+            True7False4,   // from True13False8 with true
+            True1False9,   // from True0False9 with true
+            True2False9,   // from True1False9 with true
+            True3False9,   // from True2False9 with true
+            True4False9,   // from True3False9 with true
+            True5False9,   // from True4False9 with true
+            True6False9,   // from True5False9 with true
+            True7False9,   // from True6False9 with true
+            True8False9,   // from True7False9 with true
+            True9False9,   // from True8False9 with true
+            True10False9,  // from True9False9 with true
+            True11False9,  // from True10False9 with true
+            True12False9,  // from True11False9 with true
+            True6False4,   // from True12False9 with true
+            True1False10,  // from True0False10 with true
+            True2False10,  // from True1False10 with true
+            True3False10,  // from True2False10 with true
+            True4False10,  // from True3False10 with true
+            True5False10,  // from True4False10 with true
+            True6False10,  // from True5False10 with true
+            True7False10,  // from True6False10 with true
+            True8False10,  // from True7False10 with true
+            True9False10,  // from True8False10 with true
+            True10False10, // from True9False10 with true
+            True11False10, // from True10False10 with true
+            True6False5,   // from True11False10 with true
+            True1False11,  // from True0False11 with true
+            True2False11,  // from True1False11 with true
+            True3False11,  // from True2False11 with true
+            True4False11,  // from True3False11 with true
+            True5False11,  // from True4False11 with true
+            True6False11,  // from True5False11 with true
+            True7False11,  // from True6False11 with true
+            True8False11,  // from True7False11 with true
+            True9False11,  // from True8False11 with true
+            True10False11, // from True9False11 with true
+            True5False5,   // from True10False11 with true
+            True1False12,  // from True0False12 with true
+            True2False12,  // from True1False12 with true
+            True3False12,  // from True2False12 with true
+            True4False12,  // from True3False12 with true
+            True5False12,  // from True4False12 with true
+            True6False12,  // from True5False12 with true
+            True7False12,  // from True6False12 with true
+            True8False12,  // from True7False12 with true
+            True9False12,  // from True8False12 with true
+            True5False6,   // from True9False12 with true
+            True1False13,  // from True0False13 with true
+            True2False13,  // from True1False13 with true
+            True3False13,  // from True2False13 with true
+            True4False13,  // from True3False13 with true
+            True5False13,  // from True4False13 with true
+            True6False13,  // from True5False13 with true
+            True7False13,  // from True6False13 with true
+            True8False13,  // from True7False13 with true
+            True4False6,   // from True8False13 with true
+            True1False14,  // from True0False14 with true
+            True2False14,  // from True1False14 with true
+            True3False14,  // from True2False14 with true
+            True4False14,  // from True3False14 with true
+            True5False14,  // from True4False14 with true
+            True6False14,  // from True5False14 with true
+            True7False14,  // from True6False14 with true
+            True4False7,   // from True7False14 with true
+            True1False15,  // from True0False15 with true
+            True2False15,  // from True1False15 with true
+            True3False15,  // from True2False15 with true
+            True4False15,  // from True3False15 with true
+            True5False15,  // from True4False15 with true
+            True6False15,  // from True5False15 with true
+            True7False15,  // from True6False15 with true
+            True4False7,   // from True7False15 with true
+            True1False16,  // from True0False16 with true
+            True2False16,  // from True1False16 with true
+            True3False16,  // from True2False16 with true
+            True4False16,  // from True3False16 with true
+            True5False16,  // from True4False16 with true
+            True6False16,  // from True5False16 with true
+            True3False8,   // from True6False16 with true
+            True1False17,  // from True0False17 with true
+            True2False17,  // from True1False17 with true
+            True3False17,  // from True2False17 with true
+            True4False17,  // from True3False17 with true
+            True5False17,  // from True4False17 with true
+            True6False17,  // from True5False17 with true
+            True3False8,   // from True6False17 with true
+            True1False18,  // from True0False18 with true
+            True2False18,  // from True1False18 with true
+            True3False18,  // from True2False18 with true
+            True4False18,  // from True3False18 with true
+            True5False18,  // from True4False18 with true
+            True6False18,  // from True5False18 with true
+            True3False9,   // from True6False18 with true
+            True1False19,  // from True0False19 with true
+            True2False19,  // from True1False19 with true
+            True3False19,  // from True2False19 with true
+            True4False19,  // from True3False19 with true
+            True5False19,  // from True4False19 with true
+            True3False9,   // from True5False19 with true
+            True1False20,  // from True0False20 with true
+            True2False20,  // from True1False20 with true
+            True3False20,  // from True2False20 with true
+            True4False20,  // from True3False20 with true
+            True5False20,  // from True4False20 with true
+            True3False10,  // from True5False20 with true
+            True1False21,  // from True0False21 with true
+            True2False21,  // from True1False21 with true
+            True3False21,  // from True2False21 with true
+            True4False21,  // from True3False21 with true
+            True5False21,  // from True4False21 with true
+            True3False10,  // from True5False21 with true
+            True1False22,  // from True0False22 with true
+            True2False22,  // from True1False22 with true
+            True3False22,  // from True2False22 with true
+            True4False22,  // from True3False22 with true
+            True2False11,  // from True4False22 with true
+            True1False23,  // from True0False23 with true
+            True2False23,  // from True1False23 with true
+            True3False23,  // from True2False23 with true
+            True4False23,  // from True3False23 with true
+            True2False11,  // from True4False23 with true
+            True1False24,  // from True0False24 with true
+            True2False24,  // from True1False24 with true
+            True3False24,  // from True2False24 with true
+            True4False24,  // from True3False24 with true
+            True2False12,  // from True4False24 with true
+            True1False25,  // from True0False25 with true
+            True2False25,  // from True1False25 with true
+            True3False25,  // from True2False25 with true
+            True4False25,  // from True3False25 with true
+            True2False12,  // from True4False25 with true
+            True1False26,  // from True0False26 with true
+            True2False26,  // from True1False26 with true
+            True3False26,  // from True2False26 with true
+            True2False13,  // from True3False26 with true
+            True1False27,  // from True0False27 with true
+            True2False27,  // from True1False27 with true
+            True3False27,  // from True2False27 with true
+            True2False13,  // from True3False27 with true
+            True1False28,  // from True0False28 with true
+            True2False28,  // from True1False28 with true
+            True3False28,  // from True2False28 with true
+            True2False14,  // from True3False28 with true
+            True1False29,  // from True0False29 with true
+            True2False29,  // from True1False29 with true
+            True3False29,  // from True2False29 with true
+            True2False14,  // from True3False29 with true
+            True1False30,  // from True0False30 with true
+            True2False30,  // from True1False30 with true
+            True3False30,  // from True2False30 with true
+            True2False15,  // from True3False30 with true
+            True1False31,  // from True0False31 with true
+            True2False31,  // from True1False31 with true
+            True3False31,  // from True2False31 with true
+            True2False15,  // from True3False31 with true
+            True1False32,  // from True0False32 with true
+            True2False32,  // from True1False32 with true
+            True3False32,  // from True2False32 with true
+            True2False16,  // from True3False32 with true
+            True1False33,  // from True0False33 with true
+            True2False33,  // from True1False33 with true
+            True1False16,  // from True2False33 with true
+            True1False34,  // from True0False34 with true
+            True2False34,  // from True1False34 with true
+            True1False17,  // from True2False34 with true
+            True1False35,  // from True0False35 with true
+            True2False35,  // from True1False35 with true
+            True1False17,  // from True2False35 with true
+            True1False36,  // from True0False36 with true
+            True2False36,  // from True1False36 with true
+            True1False18,  // from True2False36 with true
+            True1False37,  // from True0False37 with true
+            True2False37,  // from True1False37 with true
+            True1False18,  // from True2False37 with true
+            True1False38,  // from True0False38 with true
+            True2False38,  // from True1False38 with true
+            True1False19,  // from True2False38 with true
+            True1False39,  // from True0False39 with true
+            True2False39,  // from True1False39 with true
+            True1False19,  // from True2False39 with true
+            True1False40,  // from True0False40 with true
+            True2False40,  // from True1False40 with true
+            True1False20,  // from True2False40 with true
+            True1False41,  // from True0False41 with true
+            True2False41,  // from True1False41 with true
+            True1False20,  // from True2False41 with true
+            True1False42,  // from True0False42 with true
+            True2False42,  // from True1False42 with true
+            True1False21,  // from True2False42 with true
+            True1False43,  // from True0False43 with true
+            True2False43,  // from True1False43 with true
+            True1False21,  // from True2False43 with true
+            True1False44,  // from True0False44 with true
+            True1False22,  // from True1False44 with true
+            True1False45,  // from True0False45 with true
+            True1False22,  // from True1False45 with true
+            True1False46,  // from True0False46 with true
+            True1False23,  // from True1False46 with true
+            True1False47,  // from True0False47 with true
+            True1False23,  // from True1False47 with true
+            True1False48,  // from True0False48 with true
+            True1False24,  // from True1False48 with true
+            True1False49,  // from True0False49 with true
+            True1False24,  // from True1False49 with true
+            True1False50,  // from True0False50 with true
+            True1False25,  // from True1False50 with true
+            True1False51,  // from True0False51 with true
+            True1False25,  // from True1False51 with true
+            True1False52,  // from True0False52 with true
+            True1False26,  // from True1False52 with true
+            True1False53,  // from True0False53 with true
+            True1False26,  // from True1False53 with true
+            True1False54,  // from True0False54 with true
+            True1False27,  // from True1False54 with true
+            True1False55,  // from True0False55 with true
+            True1False27,  // from True1False55 with true
+            True1False56,  // from True0False56 with true
+            True1False28,  // from True1False56 with true
+            True1False57,  // from True0False57 with true
+            True1False28,  // from True1False57 with true
+            True1False58,  // from True0False58 with true
+            True1False29,  // from True1False58 with true
+            True1False59,  // from True0False59 with true
+            True1False29,  // from True1False59 with true
+            True1False60,  // from True0False60 with true
+            True1False30,  // from True1False60 with true
+            True1False61,  // from True0False61 with true
+            True1False30,  // from True1False61 with true
+            True1False62,  // from True0False62 with true
+            True1False31,  // from True1False62 with true
+            True1False63,  // from True0False63 with true
+            True1False31,  // from True1False63 with true
+            True1False64,  // from True0False64 with true
+            True1False32,  // from True1False64 with true
+            True1False65,  // from True0False65 with true
+            True1False32,  // from True1False65 with true
+            True0False33,  // from True0False66 with true
+            True0False33,  // from True0False67 with true
+            True0False34,  // from True0False68 with true
+            True0False34,  // from True0False69 with true
+            True0False35,  // from True0False70 with true
+            True0False35,  // from True0False71 with true
+            True0False36,  // from True0False72 with true
+            True0False36,  // from True0False73 with true
+            True0False37,  // from True0False74 with true
+            True0False37,  // from True0False75 with true
+            True0False38,  // from True0False76 with true
+            True0False38,  // from True0False77 with true
+            True0False39,  // from True0False78 with true
+            True0False39,  // from True0False79 with true
+            True0False40,  // from True0False80 with true
+            True0False40,  // from True0False81 with true
+            True0False41,  // from True0False82 with true
+            True0False41,  // from True0False83 with true
+            True0False42,  // from True0False84 with true
+            True0False42,  // from True0False85 with true
+            True0False43,  // from True0False86 with true
+            True0False43,  // from True0False87 with true
+            True0False44,  // from True0False88 with true
+            True0False44,  // from True0False89 with true
+            True0False45,  // from True0False90 with true
+            True0False45,  // from True0False91 with true
+            True0False46,  // from True0False92 with true
+            True0False46,  // from True0False93 with true
+            True0False47,  // from True0False94 with true
+            True0False47,  // from True0False95 with true
+            True0False48,  // from True0False96 with true
+            True0False48,  // from True0False97 with true
+            True0False49,  // from True0False98 with true
+            True0False49,  // from True0False99 with true
+            True0False50,  // from True0False100 with true
+            True0False50,  // from True0False101 with true
+            True0False51,  // from True0False102 with true
+            True0False51,  // from True0False103 with true
+            True0False52,  // from True0False104 with true
+            True0False52,  // from True0False105 with true
+            True0False53,  // from True0False106 with true
+            True0False53,  // from True0False107 with true
+            True0False54,  // from True0False108 with true
+            True0False54,  // from True0False109 with true
+            True0False55,  // from True0False110 with true
+            True0False55,  // from True0False111 with true
+            True0False56,  // from True0False112 with true
+            True0False56,  // from True0False113 with true
+            True0False57,  // from True0False114 with true
+            True0False57,  // from True0False115 with true
+            True0False58,  // from True0False116 with true
+            True0False58,  // from True0False117 with true
+            True0False59,  // from True0False118 with true
+            True0False59,  // from True0False119 with true
+            True0False60,  // from True0False120 with true
+            True0False60,  // from True0False121 with true
+            True0False61,  // from True0False122 with true
+            True0False61,  // from True0False123 with true
+            True0False62,  // from True0False124 with true
+            True0False62,  // from True0False125 with true
+            True0False63,  // from True0False126 with true
+            True0False63,  // from True0False127 with true
+            True0False64,  // from True0False128 with true
+            True0False64,  // from True0False129 with true
+            True0False65,  // from True0False130 with true
+            True0False65,  // from True0False131 with true
+            True0False66,  // from True0False132 with true
         ];
         OUTCOMES[(self as usize) + (bit as usize) * 675]
     }
     #[inline]
     pub fn millibits_required(&mut self, bit: bool) -> u32 {
         const LOOKUP: [u32; 1350] = [
-            1000, // for false
-            1590, // for false
-            2000, // for false
-            2327, // for false
-            2607, // for false
-            2830, // for false
-            3000, // for false
-            3192, // for false
-            3356, // for false
-            3476, // for false
-            3607, // for false
-            3752, // for false
-            3830, // for false
-            3912, // for false
-            4000, // for false
-            4093, // for false
-            4192, // for false
-            4299, // for false
-            4415, // for false
-            4415, // for false
-            4540, // for false
-            4540, // for false
-            4678, // for false
-            4678, // for false
-            4830, // for false
-            4830, // for false
-            4830, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5192, // for false
-            5192, // for false
-            5192, // for false
-            5192, // for false
-            5415, // for false
-            5415, // for false
-            5415, // for false
-            5415, // for false
-            5415, // for false
-            5415, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            5678, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6000, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            6415, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            7000, // for false
-            582,  // for false
-            1000, // for false
-            1327, // for false
-            1590, // for false
-            1810, // for false
-            2000, // for false
-            2167, // for false
-            2327, // for false
-            2445, // for false
-            2573, // for false
-            2714, // for false
-            2790, // for false
-            2912, // for false
-            3000, // for false
-            3093, // for false
-            3192, // for false
-            3245, // for false
-            3299, // for false
-            3415, // for false
-            3476, // for false
-            3540, // for false
-            3607, // for false
-            3678, // for false
-            3678, // for false
-            3752, // for false
-            3830, // for false
-            3830, // for false
-            3912, // for false
-            3912, // for false
-            4000, // for false
-            4000, // for false
-            4093, // for false
-            4093, // for false
-            4192, // for false
-            4192, // for false
-            4192, // for false
-            4299, // for false
-            4299, // for false
-            4299, // for false
-            4415, // for false
-            4415, // for false
-            4415, // for false
-            4540, // for false
-            4540, // for false
-            4540, // for false
-            4540, // for false
-            4678, // for false
-            4678, // for false
-            4678, // for false
-            4678, // for false
-            4678, // for false
-            4678, // for false
-            4830, // for false
-            4830, // for false
-            4830, // for false
-            4830, // for false
-            4830, // for false
-            4830, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            5000, // for false
-            415,  // for false
-            733,  // for false
-            1000, // for false
-            1218, // for false
-            1415, // for false
-            1590, // for false
-            1733, // for false
-            1870, // for false
-            2000, // for false
-            2117, // for false
-            2218, // for false
-            2327, // for false
-            2415, // for false
-            2508, // for false
-            2573, // for false
-            2678, // for false
-            2752, // for false
-            2790, // for false
-            2870, // for false
-            2955, // for false
-            3000, // for false
-            3045, // for false
-            3093, // for false
-            3192, // for false
-            3245, // for false
-            3299, // for false
-            3299, // for false
-            3356, // for false
-            3415, // for false
-            3476, // for false
-            3476, // for false
-            3540, // for false
-            3607, // for false
-            3607, // for false
-            3678, // for false
-            3678, // for false
-            3752, // for false
-            3752, // for false
-            3830, // for false
-            3830, // for false
-            3912, // for false
-            3912, // for false
-            3912, // for false
-            4000, // for false
-            320,  // for false
-            582,  // for false
-            810,  // for false
-            1000, // for false
-            1167, // for false
-            1327, // for false
-            1460, // for false
-            1590, // for false
-            1696, // for false
-            1810, // for false
-            1912, // for false
-            2000, // for false
-            2093, // for false
-            2167, // for false
-            2245, // for false
-            2327, // for false
-            2385, // for false
-            2445, // for false
-            2508, // for false
-            2573, // for false
-            2642, // for false
-            2714, // for false
-            2752, // for false
-            2790, // for false
-            2870, // for false
-            2912, // for false
-            2955, // for false
-            3000, // for false
-            3045, // for false
-            3093, // for false
-            3142, // for false
-            3192, // for false
-            3192, // for false
-            258,  // for false
-            484,  // for false
-            678,  // for false
-            850,  // for false
-            1000, // for false
-            1142, // for false
-            1258, // for false
-            1385, // for false
-            1492, // for false
-            1590, // for false
-            1678, // for false
-            1771, // for false
-            1850, // for false
-            1933, // for false
-            2000, // for false
-            2069, // for false
-            2142, // for false
-            2192, // for false
-            2272, // for false
-            2327, // for false
-            2385, // for false
-            2445, // for false
-            2476, // for false
-            2540, // for false
-            2573, // for false
-            2642, // for false
-            218,  // for false
-            415,  // for false
-            582,  // for false
-            733,  // for false
-            870,  // for false
-            1000, // for false
-            1117, // for false
-            1218, // for false
-            1327, // for false
-            1415, // for false
-            1508, // for false
-            1590, // for false
-            1660, // for false
-            1733, // for false
-            1810, // for false
-            1870, // for false
-            1933, // for false
-            2000, // for false
-            2069, // for false
-            2117, // for false
-            2167, // for false
-            2218, // for false
-            192,  // for false
-            363,  // for false
-            516,  // for false
-            651,  // for false
-            780,  // for false
-            891,  // for false
-            1000, // for false
-            1105, // for false
-            1192, // for false
-            1285, // for false
-            1356, // for false
-            1445, // for false
-            1508, // for false
-            1590, // for false
-            1660, // for false
-            1714, // for false
-            1771, // for false
-            1830, // for false
-            1891, // for false
-            167,  // for false
-            320,  // for false
-            460,  // for false
-            582,  // for false
-            696,  // for false
-            810,  // for false
-            901,  // for false
-            1000, // for false
-            1093, // for false
-            1167, // for false
-            1245, // for false
-            1327, // for false
-            1385, // for false
-            1460, // for false
-            1524, // for false
-            1590, // for false
-            148,  // for false
-            292,  // for false
-            415,  // for false
-            532,  // for false
-            633,  // for false
-            733,  // for false
-            830,  // for false
-            912,  // for false
-            1000, // for false
-            1081, // for false
-            1154, // for false
-            1218, // for false
-            1285, // for false
-            1356, // for false
-            135,  // for false
-            265,  // for false
-            377,  // for false
-            484,  // for false
-            582,  // for false
-            678,  // for false
-            761,  // for false
-            850,  // for false
-            923,  // for false
-            1000, // for false
-            1069, // for false
-            1142, // for false
-            1205, // for false
-            123,  // for false
-            238,  // for false
-            348,  // for false
-            445,  // for false
-            540,  // for false
-            624,  // for false
-            714,  // for false
-            790,  // for false
-            860,  // for false
-            933,  // for false
-            1000, // for false
-            1069, // for false
-            111,  // for false
-            225,  // for false
-            320,  // for false
-            415,  // for false
-            500,  // for false
-            582,  // for false
-            660,  // for false
-            733,  // for false
-            810,  // for false
-            870,  // for false
-            933,  // for false
-            105,  // for false
-            205,  // for false
-            299,  // for false
-            385,  // for false
-            468,  // for false
-            548,  // for false
-            624,  // for false
-            696,  // for false
-            761,  // for false
-            820,  // for false
-            99,   // for false
-            192,  // for false
-            278,  // for false
-            363,  // for false
-            437,  // for false
-            516,  // for false
-            582,  // for false
-            651,  // for false
-            714,  // for false
-            93,   // for false
-            179,  // for false
-            265,  // for false
-            341,  // for false
-            415,  // for false
-            484,  // for false
-            548,  // for false
-            616,  // for false
-            87,   // for false
-            167,  // for false
-            245,  // for false
-            320,  // for false
-            392,  // for false
-            460,  // for false
-            524,  // for false
-            582,  // for false
-            81,   // for false
-            160,  // for false
-            231,  // for false
-            306,  // for false
-            370,  // for false
-            437,  // for false
-            500,  // for false
-            75,   // for false
-            154,  // for false
-            225,  // for false
-            292,  // for false
-            356,  // for false
-            415,  // for false
-            476,  // for false
-            69,   // for false
-            142,  // for false
-            212,  // for false
-            278,  // for false
-            334,  // for false
-            392,  // for false
-            453,  // for false
-            69,   // for false
-            135,  // for false
-            199,  // for false
-            265,  // for false
-            320,  // for false
-            377,  // for false
-            63,   // for false
-            129,  // for false
-            192,  // for false
-            251,  // for false
-            306,  // for false
-            363,  // for false
-            63,   // for false
-            123,  // for false
-            186,  // for false
-            238,  // for false
-            292,  // for false
-            348,  // for false
-            57,   // for false
-            117,  // for false
-            179,  // for false
-            231,  // for false
-            285,  // for false
-            57,   // for false
-            117,  // for false
-            167,  // for false
-            225,  // for false
-            272,  // for false
-            51,   // for false
-            111,  // for false
-            160,  // for false
-            212,  // for false
-            265,  // for false
-            51,   // for false
-            105,  // for false
-            154,  // for false
-            205,  // for false
-            251,  // for false
-            51,   // for false
-            105,  // for false
-            154,  // for false
-            199,  // for false
-            45,   // for false
-            99,   // for false
-            148,  // for false
-            192,  // for false
-            45,   // for false
-            99,   // for false
-            142,  // for false
-            186,  // for false
-            45,   // for false
-            93,   // for false
-            135,  // for false
-            179,  // for false
-            45,   // for false
-            93,   // for false
-            135,  // for false
-            173,  // for false
-            39,   // for false
-            87,   // for false
-            129,  // for false
-            167,  // for false
-            39,   // for false
-            87,   // for false
-            123,  // for false
-            167,  // for false
-            39,   // for false
-            81,   // for false
-            123,  // for false
-            39,   // for false
-            81,   // for false
-            117,  // for false
-            34,   // for false
-            81,   // for false
-            117,  // for false
-            34,   // for false
-            75,   // for false
-            111,  // for false
-            34,   // for false
-            75,   // for false
-            111,  // for false
-            34,   // for false
-            75,   // for false
-            105,  // for false
-            34,   // for false
-            69,   // for false
-            105,  // for false
-            34,   // for false
-            69,   // for false
-            99,   // for false
-            28,   // for false
-            69,   // for false
-            99,   // for false
-            28,   // for false
-            63,   // for false
-            99,   // for false
-            28,   // for false
-            63,   // for false
-            93,   // for false
-            28,   // for false
-            63,   // for false
-            28,   // for false
-            63,   // for false
-            28,   // for false
-            57,   // for false
-            28,   // for false
-            57,   // for false
-            28,   // for false
-            57,   // for false
-            28,   // for false
-            57,   // for false
-            22,   // for false
-            57,   // for false
-            22,   // for false
-            57,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            51,   // for false
-            22,   // for false
-            45,   // for false
-            22,   // for false
-            45,   // for false
-            22,   // for false
-            45,   // for false
-            22,   // for false
-            45,   // for false
-            22,   // for false
-            45,   // for false
-            17,   // for false
-            45,   // for false
-            17,   // for false
-            45,   // for false
-            17,   // for false
-            45,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            17,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            11,   // for false
-            1000, // for true
-            582,  // for true
-            415,  // for true
-            320,  // for true
-            258,  // for true
-            218,  // for true
-            192,  // for true
-            167,  // for true
-            148,  // for true
-            135,  // for true
-            123,  // for true
-            111,  // for true
-            105,  // for true
-            99,   // for true
-            93,   // for true
-            87,   // for true
-            81,   // for true
-            75,   // for true
-            69,   // for true
-            69,   // for true
-            63,   // for true
-            63,   // for true
-            57,   // for true
-            57,   // for true
-            51,   // for true
-            51,   // for true
-            51,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            39,   // for true
-            39,   // for true
-            39,   // for true
-            39,   // for true
-            34,   // for true
-            34,   // for true
-            34,   // for true
-            34,   // for true
-            34,   // for true
-            34,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            28,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            22,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            17,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            11,   // for true
-            1590, // for true
-            1000, // for true
-            733,  // for true
-            582,  // for true
-            484,  // for true
-            415,  // for true
-            363,  // for true
-            320,  // for true
-            292,  // for true
-            265,  // for true
-            238,  // for true
-            225,  // for true
-            205,  // for true
-            192,  // for true
-            179,  // for true
-            167,  // for true
-            160,  // for true
-            154,  // for true
-            142,  // for true
-            135,  // for true
-            129,  // for true
-            123,  // for true
-            117,  // for true
-            117,  // for true
-            111,  // for true
-            105,  // for true
-            105,  // for true
-            99,   // for true
-            99,   // for true
-            93,   // for true
-            93,   // for true
-            87,   // for true
-            87,   // for true
-            81,   // for true
-            81,   // for true
-            81,   // for true
-            75,   // for true
-            75,   // for true
-            75,   // for true
-            69,   // for true
-            69,   // for true
-            69,   // for true
-            63,   // for true
-            63,   // for true
-            63,   // for true
-            63,   // for true
-            57,   // for true
-            57,   // for true
-            57,   // for true
-            57,   // for true
-            57,   // for true
-            57,   // for true
-            51,   // for true
-            51,   // for true
-            51,   // for true
-            51,   // for true
-            51,   // for true
-            51,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            45,   // for true
-            2000, // for true
-            1327, // for true
-            1000, // for true
-            810,  // for true
-            678,  // for true
-            582,  // for true
-            516,  // for true
-            460,  // for true
-            415,  // for true
-            377,  // for true
-            348,  // for true
-            320,  // for true
-            299,  // for true
-            278,  // for true
-            265,  // for true
-            245,  // for true
-            231,  // for true
-            225,  // for true
-            212,  // for true
-            199,  // for true
-            192,  // for true
-            186,  // for true
-            179,  // for true
-            167,  // for true
-            160,  // for true
-            154,  // for true
-            154,  // for true
-            148,  // for true
-            142,  // for true
-            135,  // for true
-            135,  // for true
-            129,  // for true
-            123,  // for true
-            123,  // for true
-            117,  // for true
-            117,  // for true
-            111,  // for true
-            111,  // for true
-            105,  // for true
-            105,  // for true
-            99,   // for true
-            99,   // for true
-            99,   // for true
-            93,   // for true
-            2327, // for true
-            1590, // for true
-            1218, // for true
-            1000, // for true
-            850,  // for true
-            733,  // for true
-            651,  // for true
-            582,  // for true
-            532,  // for true
-            484,  // for true
-            445,  // for true
-            415,  // for true
-            385,  // for true
-            363,  // for true
-            341,  // for true
-            320,  // for true
-            306,  // for true
-            292,  // for true
-            278,  // for true
-            265,  // for true
-            251,  // for true
-            238,  // for true
-            231,  // for true
-            225,  // for true
-            212,  // for true
-            205,  // for true
-            199,  // for true
-            192,  // for true
-            186,  // for true
-            179,  // for true
-            173,  // for true
-            167,  // for true
-            167,  // for true
-            2607, // for true
-            1810, // for true
-            1415, // for true
-            1167, // for true
-            1000, // for true
-            870,  // for true
-            780,  // for true
-            696,  // for true
-            633,  // for true
-            582,  // for true
-            540,  // for true
-            500,  // for true
-            468,  // for true
-            437,  // for true
-            415,  // for true
-            392,  // for true
-            370,  // for true
-            356,  // for true
-            334,  // for true
-            320,  // for true
-            306,  // for true
-            292,  // for true
-            285,  // for true
-            272,  // for true
-            265,  // for true
-            251,  // for true
-            2830, // for true
-            2000, // for true
-            1590, // for true
-            1327, // for true
-            1142, // for true
-            1000, // for true
-            891,  // for true
-            810,  // for true
-            733,  // for true
-            678,  // for true
-            624,  // for true
-            582,  // for true
-            548,  // for true
-            516,  // for true
-            484,  // for true
-            460,  // for true
-            437,  // for true
-            415,  // for true
-            392,  // for true
-            377,  // for true
-            363,  // for true
-            348,  // for true
-            3000, // for true
-            2167, // for true
-            1733, // for true
-            1460, // for true
-            1258, // for true
-            1117, // for true
-            1000, // for true
-            901,  // for true
-            830,  // for true
-            761,  // for true
-            714,  // for true
-            660,  // for true
-            624,  // for true
-            582,  // for true
-            548,  // for true
-            524,  // for true
-            500,  // for true
-            476,  // for true
-            453,  // for true
-            3192, // for true
-            2327, // for true
-            1870, // for true
-            1590, // for true
-            1385, // for true
-            1218, // for true
-            1105, // for true
-            1000, // for true
-            912,  // for true
-            850,  // for true
-            790,  // for true
-            733,  // for true
-            696,  // for true
-            651,  // for true
-            616,  // for true
-            582,  // for true
-            3356, // for true
-            2445, // for true
-            2000, // for true
-            1696, // for true
-            1492, // for true
-            1327, // for true
-            1192, // for true
-            1093, // for true
-            1000, // for true
-            923,  // for true
-            860,  // for true
-            810,  // for true
-            761,  // for true
-            714,  // for true
-            3476, // for true
-            2573, // for true
-            2117, // for true
-            1810, // for true
-            1590, // for true
-            1415, // for true
-            1285, // for true
-            1167, // for true
-            1081, // for true
-            1000, // for true
-            933,  // for true
-            870,  // for true
-            820,  // for true
-            3607, // for true
-            2714, // for true
-            2218, // for true
-            1912, // for true
-            1678, // for true
-            1508, // for true
-            1356, // for true
-            1245, // for true
-            1154, // for true
-            1069, // for true
-            1000, // for true
-            933,  // for true
-            3752, // for true
-            2790, // for true
-            2327, // for true
-            2000, // for true
-            1771, // for true
-            1590, // for true
-            1445, // for true
-            1327, // for true
-            1218, // for true
-            1142, // for true
-            1069, // for true
-            3830, // for true
-            2912, // for true
-            2415, // for true
-            2093, // for true
-            1850, // for true
-            1660, // for true
-            1508, // for true
-            1385, // for true
-            1285, // for true
-            1205, // for true
-            3912, // for true
-            3000, // for true
-            2508, // for true
-            2167, // for true
-            1933, // for true
-            1733, // for true
-            1590, // for true
-            1460, // for true
-            1356, // for true
-            4000, // for true
-            3093, // for true
-            2573, // for true
-            2245, // for true
-            2000, // for true
-            1810, // for true
-            1660, // for true
-            1524, // for true
-            4093, // for true
-            3192, // for true
-            2678, // for true
-            2327, // for true
-            2069, // for true
-            1870, // for true
-            1714, // for true
-            1590, // for true
-            4192, // for true
-            3245, // for true
-            2752, // for true
-            2385, // for true
-            2142, // for true
-            1933, // for true
-            1771, // for true
-            4299, // for true
-            3299, // for true
-            2790, // for true
-            2445, // for true
-            2192, // for true
-            2000, // for true
-            1830, // for true
-            4415, // for true
-            3415, // for true
-            2870, // for true
-            2508, // for true
-            2272, // for true
-            2069, // for true
-            1891, // for true
-            4415, // for true
-            3476, // for true
-            2955, // for true
-            2573, // for true
-            2327, // for true
-            2117, // for true
-            4540, // for true
-            3540, // for true
-            3000, // for true
-            2642, // for true
-            2385, // for true
-            2167, // for true
-            4540, // for true
-            3607, // for true
-            3045, // for true
-            2714, // for true
-            2445, // for true
-            2218, // for true
-            4678, // for true
-            3678, // for true
-            3093, // for true
-            2752, // for true
-            2476, // for true
-            4678, // for true
-            3678, // for true
-            3192, // for true
-            2790, // for true
-            2540, // for true
-            4830, // for true
-            3752, // for true
-            3245, // for true
-            2870, // for true
-            2573, // for true
-            4830, // for true
-            3830, // for true
-            3299, // for true
-            2912, // for true
-            2642, // for true
-            4830, // for true
-            3830, // for true
-            3299, // for true
-            2955, // for true
-            5000, // for true
-            3912, // for true
-            3356, // for true
-            3000, // for true
-            5000, // for true
-            3912, // for true
-            3415, // for true
-            3045, // for true
-            5000, // for true
-            4000, // for true
-            3476, // for true
-            3093, // for true
-            5000, // for true
-            4000, // for true
-            3476, // for true
-            3142, // for true
-            5192, // for true
-            4093, // for true
-            3540, // for true
-            3192, // for true
-            5192, // for true
-            4093, // for true
-            3607, // for true
-            3192, // for true
-            5192, // for true
-            4192, // for true
-            3607, // for true
-            5192, // for true
-            4192, // for true
-            3678, // for true
-            5415, // for true
-            4192, // for true
-            3678, // for true
-            5415, // for true
-            4299, // for true
-            3752, // for true
-            5415, // for true
-            4299, // for true
-            3752, // for true
-            5415, // for true
-            4299, // for true
-            3830, // for true
-            5415, // for true
-            4415, // for true
-            3830, // for true
-            5415, // for true
-            4415, // for true
-            3912, // for true
-            5678, // for true
-            4415, // for true
-            3912, // for true
-            5678, // for true
-            4540, // for true
-            3912, // for true
-            5678, // for true
-            4540, // for true
-            4000, // for true
-            5678, // for true
-            4540, // for true
-            5678, // for true
-            4540, // for true
-            5678, // for true
-            4678, // for true
-            5678, // for true
-            4678, // for true
-            5678, // for true
-            4678, // for true
-            5678, // for true
-            4678, // for true
-            6000, // for true
-            4678, // for true
-            6000, // for true
-            4678, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            4830, // for true
-            6000, // for true
-            5000, // for true
-            6000, // for true
-            5000, // for true
-            6000, // for true
-            5000, // for true
-            6000, // for true
-            5000, // for true
-            6000, // for true
-            5000, // for true
-            6415, // for true
-            5000, // for true
-            6415, // for true
-            5000, // for true
-            6415, // for true
-            5000, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            6415, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
-            7000, // for true
+            1000, // True0False0 for false
+            1590, // True1False0 for false
+            2000, // True2False0 for false
+            2327, // True3False0 for false
+            2607, // True4False0 for false
+            2830, // True5False0 for false
+            3000, // True6False0 for false
+            3192, // True7False0 for false
+            3356, // True8False0 for false
+            3476, // True9False0 for false
+            3607, // True10False0 for false
+            3752, // True11False0 for false
+            3830, // True12False0 for false
+            3912, // True13False0 for false
+            4000, // True14False0 for false
+            4093, // True15False0 for false
+            4192, // True16False0 for false
+            4299, // True17False0 for false
+            4415, // True18False0 for false
+            4415, // True19False0 for false
+            4540, // True20False0 for false
+            4540, // True21False0 for false
+            4678, // True22False0 for false
+            4678, // True23False0 for false
+            4830, // True24False0 for false
+            4830, // True25False0 for false
+            4830, // True26False0 for false
+            5000, // True27False0 for false
+            5000, // True28False0 for false
+            5000, // True29False0 for false
+            5000, // True30False0 for false
+            5192, // True31False0 for false
+            5192, // True32False0 for false
+            5192, // True33False0 for false
+            5192, // True34False0 for false
+            5415, // True35False0 for false
+            5415, // True36False0 for false
+            5415, // True37False0 for false
+            5415, // True38False0 for false
+            5415, // True39False0 for false
+            5415, // True40False0 for false
+            5678, // True41False0 for false
+            5678, // True42False0 for false
+            5678, // True43False0 for false
+            5678, // True44False0 for false
+            5678, // True45False0 for false
+            5678, // True46False0 for false
+            5678, // True47False0 for false
+            5678, // True48False0 for false
+            5678, // True49False0 for false
+            6000, // True50False0 for false
+            6000, // True51False0 for false
+            6000, // True52False0 for false
+            6000, // True53False0 for false
+            6000, // True54False0 for false
+            6000, // True55False0 for false
+            6000, // True56False0 for false
+            6000, // True57False0 for false
+            6000, // True58False0 for false
+            6000, // True59False0 for false
+            6000, // True60False0 for false
+            6000, // True61False0 for false
+            6000, // True62False0 for false
+            6415, // True63False0 for false
+            6415, // True64False0 for false
+            6415, // True65False0 for false
+            6415, // True66False0 for false
+            6415, // True67False0 for false
+            6415, // True68False0 for false
+            6415, // True69False0 for false
+            6415, // True70False0 for false
+            6415, // True71False0 for false
+            6415, // True72False0 for false
+            6415, // True73False0 for false
+            6415, // True74False0 for false
+            6415, // True75False0 for false
+            6415, // True76False0 for false
+            6415, // True77False0 for false
+            6415, // True78False0 for false
+            6415, // True79False0 for false
+            6415, // True80False0 for false
+            6415, // True81False0 for false
+            6415, // True82False0 for false
+            6415, // True83False0 for false
+            6415, // True84False0 for false
+            6415, // True85False0 for false
+            7000, // True86False0 for false
+            7000, // True87False0 for false
+            7000, // True88False0 for false
+            7000, // True89False0 for false
+            7000, // True90False0 for false
+            7000, // True91False0 for false
+            7000, // True92False0 for false
+            7000, // True93False0 for false
+            7000, // True94False0 for false
+            7000, // True95False0 for false
+            7000, // True96False0 for false
+            7000, // True97False0 for false
+            7000, // True98False0 for false
+            7000, // True99False0 for false
+            7000, // True100False0 for false
+            7000, // True101False0 for false
+            7000, // True102False0 for false
+            7000, // True103False0 for false
+            7000, // True104False0 for false
+            7000, // True105False0 for false
+            7000, // True106False0 for false
+            7000, // True107False0 for false
+            7000, // True108False0 for false
+            7000, // True109False0 for false
+            7000, // True110False0 for false
+            7000, // True111False0 for false
+            7000, // True112False0 for false
+            7000, // True113False0 for false
+            7000, // True114False0 for false
+            7000, // True115False0 for false
+            7000, // True116False0 for false
+            7000, // True117False0 for false
+            7000, // True118False0 for false
+            7000, // True119False0 for false
+            7000, // True120False0 for false
+            7000, // True121False0 for false
+            7000, // True122False0 for false
+            7000, // True123False0 for false
+            7000, // True124False0 for false
+            7000, // True125False0 for false
+            7000, // True126False0 for false
+            7000, // True127False0 for false
+            7000, // True128False0 for false
+            7000, // True129False0 for false
+            7000, // True130False0 for false
+            7000, // True131False0 for false
+            7000, // True132False0 for false
+            582,  // True0False1 for false
+            1000, // True1False1 for false
+            1327, // True2False1 for false
+            1590, // True3False1 for false
+            1810, // True4False1 for false
+            2000, // True5False1 for false
+            2167, // True6False1 for false
+            2327, // True7False1 for false
+            2445, // True8False1 for false
+            2573, // True9False1 for false
+            2714, // True10False1 for false
+            2790, // True11False1 for false
+            2912, // True12False1 for false
+            3000, // True13False1 for false
+            3093, // True14False1 for false
+            3192, // True15False1 for false
+            3245, // True16False1 for false
+            3299, // True17False1 for false
+            3415, // True18False1 for false
+            3476, // True19False1 for false
+            3540, // True20False1 for false
+            3607, // True21False1 for false
+            3678, // True22False1 for false
+            3678, // True23False1 for false
+            3752, // True24False1 for false
+            3830, // True25False1 for false
+            3830, // True26False1 for false
+            3912, // True27False1 for false
+            3912, // True28False1 for false
+            4000, // True29False1 for false
+            4000, // True30False1 for false
+            4093, // True31False1 for false
+            4093, // True32False1 for false
+            4192, // True33False1 for false
+            4192, // True34False1 for false
+            4192, // True35False1 for false
+            4299, // True36False1 for false
+            4299, // True37False1 for false
+            4299, // True38False1 for false
+            4415, // True39False1 for false
+            4415, // True40False1 for false
+            4415, // True41False1 for false
+            4540, // True42False1 for false
+            4540, // True43False1 for false
+            4540, // True44False1 for false
+            4540, // True45False1 for false
+            4678, // True46False1 for false
+            4678, // True47False1 for false
+            4678, // True48False1 for false
+            4678, // True49False1 for false
+            4678, // True50False1 for false
+            4678, // True51False1 for false
+            4830, // True52False1 for false
+            4830, // True53False1 for false
+            4830, // True54False1 for false
+            4830, // True55False1 for false
+            4830, // True56False1 for false
+            4830, // True57False1 for false
+            5000, // True58False1 for false
+            5000, // True59False1 for false
+            5000, // True60False1 for false
+            5000, // True61False1 for false
+            5000, // True62False1 for false
+            5000, // True63False1 for false
+            5000, // True64False1 for false
+            5000, // True65False1 for false
+            415,  // True0False2 for false
+            733,  // True1False2 for false
+            1000, // True2False2 for false
+            1218, // True3False2 for false
+            1415, // True4False2 for false
+            1590, // True5False2 for false
+            1733, // True6False2 for false
+            1870, // True7False2 for false
+            2000, // True8False2 for false
+            2117, // True9False2 for false
+            2218, // True10False2 for false
+            2327, // True11False2 for false
+            2415, // True12False2 for false
+            2508, // True13False2 for false
+            2573, // True14False2 for false
+            2678, // True15False2 for false
+            2752, // True16False2 for false
+            2790, // True17False2 for false
+            2870, // True18False2 for false
+            2955, // True19False2 for false
+            3000, // True20False2 for false
+            3045, // True21False2 for false
+            3093, // True22False2 for false
+            3192, // True23False2 for false
+            3245, // True24False2 for false
+            3299, // True25False2 for false
+            3299, // True26False2 for false
+            3356, // True27False2 for false
+            3415, // True28False2 for false
+            3476, // True29False2 for false
+            3476, // True30False2 for false
+            3540, // True31False2 for false
+            3607, // True32False2 for false
+            3607, // True33False2 for false
+            3678, // True34False2 for false
+            3678, // True35False2 for false
+            3752, // True36False2 for false
+            3752, // True37False2 for false
+            3830, // True38False2 for false
+            3830, // True39False2 for false
+            3912, // True40False2 for false
+            3912, // True41False2 for false
+            3912, // True42False2 for false
+            4000, // True43False2 for false
+            320,  // True0False3 for false
+            582,  // True1False3 for false
+            810,  // True2False3 for false
+            1000, // True3False3 for false
+            1167, // True4False3 for false
+            1327, // True5False3 for false
+            1460, // True6False3 for false
+            1590, // True7False3 for false
+            1696, // True8False3 for false
+            1810, // True9False3 for false
+            1912, // True10False3 for false
+            2000, // True11False3 for false
+            2093, // True12False3 for false
+            2167, // True13False3 for false
+            2245, // True14False3 for false
+            2327, // True15False3 for false
+            2385, // True16False3 for false
+            2445, // True17False3 for false
+            2508, // True18False3 for false
+            2573, // True19False3 for false
+            2642, // True20False3 for false
+            2714, // True21False3 for false
+            2752, // True22False3 for false
+            2790, // True23False3 for false
+            2870, // True24False3 for false
+            2912, // True25False3 for false
+            2955, // True26False3 for false
+            3000, // True27False3 for false
+            3045, // True28False3 for false
+            3093, // True29False3 for false
+            3142, // True30False3 for false
+            3192, // True31False3 for false
+            3192, // True32False3 for false
+            258,  // True0False4 for false
+            484,  // True1False4 for false
+            678,  // True2False4 for false
+            850,  // True3False4 for false
+            1000, // True4False4 for false
+            1142, // True5False4 for false
+            1258, // True6False4 for false
+            1385, // True7False4 for false
+            1492, // True8False4 for false
+            1590, // True9False4 for false
+            1678, // True10False4 for false
+            1771, // True11False4 for false
+            1850, // True12False4 for false
+            1933, // True13False4 for false
+            2000, // True14False4 for false
+            2069, // True15False4 for false
+            2142, // True16False4 for false
+            2192, // True17False4 for false
+            2272, // True18False4 for false
+            2327, // True19False4 for false
+            2385, // True20False4 for false
+            2445, // True21False4 for false
+            2476, // True22False4 for false
+            2540, // True23False4 for false
+            2573, // True24False4 for false
+            2642, // True25False4 for false
+            218,  // True0False5 for false
+            415,  // True1False5 for false
+            582,  // True2False5 for false
+            733,  // True3False5 for false
+            870,  // True4False5 for false
+            1000, // True5False5 for false
+            1117, // True6False5 for false
+            1218, // True7False5 for false
+            1327, // True8False5 for false
+            1415, // True9False5 for false
+            1508, // True10False5 for false
+            1590, // True11False5 for false
+            1660, // True12False5 for false
+            1733, // True13False5 for false
+            1810, // True14False5 for false
+            1870, // True15False5 for false
+            1933, // True16False5 for false
+            2000, // True17False5 for false
+            2069, // True18False5 for false
+            2117, // True19False5 for false
+            2167, // True20False5 for false
+            2218, // True21False5 for false
+            192,  // True0False6 for false
+            363,  // True1False6 for false
+            516,  // True2False6 for false
+            651,  // True3False6 for false
+            780,  // True4False6 for false
+            891,  // True5False6 for false
+            1000, // True6False6 for false
+            1105, // True7False6 for false
+            1192, // True8False6 for false
+            1285, // True9False6 for false
+            1356, // True10False6 for false
+            1445, // True11False6 for false
+            1508, // True12False6 for false
+            1590, // True13False6 for false
+            1660, // True14False6 for false
+            1714, // True15False6 for false
+            1771, // True16False6 for false
+            1830, // True17False6 for false
+            1891, // True18False6 for false
+            167,  // True0False7 for false
+            320,  // True1False7 for false
+            460,  // True2False7 for false
+            582,  // True3False7 for false
+            696,  // True4False7 for false
+            810,  // True5False7 for false
+            901,  // True6False7 for false
+            1000, // True7False7 for false
+            1093, // True8False7 for false
+            1167, // True9False7 for false
+            1245, // True10False7 for false
+            1327, // True11False7 for false
+            1385, // True12False7 for false
+            1460, // True13False7 for false
+            1524, // True14False7 for false
+            1590, // True15False7 for false
+            148,  // True0False8 for false
+            292,  // True1False8 for false
+            415,  // True2False8 for false
+            532,  // True3False8 for false
+            633,  // True4False8 for false
+            733,  // True5False8 for false
+            830,  // True6False8 for false
+            912,  // True7False8 for false
+            1000, // True8False8 for false
+            1081, // True9False8 for false
+            1154, // True10False8 for false
+            1218, // True11False8 for false
+            1285, // True12False8 for false
+            1356, // True13False8 for false
+            135,  // True0False9 for false
+            265,  // True1False9 for false
+            377,  // True2False9 for false
+            484,  // True3False9 for false
+            582,  // True4False9 for false
+            678,  // True5False9 for false
+            761,  // True6False9 for false
+            850,  // True7False9 for false
+            923,  // True8False9 for false
+            1000, // True9False9 for false
+            1069, // True10False9 for false
+            1142, // True11False9 for false
+            1205, // True12False9 for false
+            123,  // True0False10 for false
+            238,  // True1False10 for false
+            348,  // True2False10 for false
+            445,  // True3False10 for false
+            540,  // True4False10 for false
+            624,  // True5False10 for false
+            714,  // True6False10 for false
+            790,  // True7False10 for false
+            860,  // True8False10 for false
+            933,  // True9False10 for false
+            1000, // True10False10 for false
+            1069, // True11False10 for false
+            111,  // True0False11 for false
+            225,  // True1False11 for false
+            320,  // True2False11 for false
+            415,  // True3False11 for false
+            500,  // True4False11 for false
+            582,  // True5False11 for false
+            660,  // True6False11 for false
+            733,  // True7False11 for false
+            810,  // True8False11 for false
+            870,  // True9False11 for false
+            933,  // True10False11 for false
+            105,  // True0False12 for false
+            205,  // True1False12 for false
+            299,  // True2False12 for false
+            385,  // True3False12 for false
+            468,  // True4False12 for false
+            548,  // True5False12 for false
+            624,  // True6False12 for false
+            696,  // True7False12 for false
+            761,  // True8False12 for false
+            820,  // True9False12 for false
+            99,   // True0False13 for false
+            192,  // True1False13 for false
+            278,  // True2False13 for false
+            363,  // True3False13 for false
+            437,  // True4False13 for false
+            516,  // True5False13 for false
+            582,  // True6False13 for false
+            651,  // True7False13 for false
+            714,  // True8False13 for false
+            93,   // True0False14 for false
+            179,  // True1False14 for false
+            265,  // True2False14 for false
+            341,  // True3False14 for false
+            415,  // True4False14 for false
+            484,  // True5False14 for false
+            548,  // True6False14 for false
+            616,  // True7False14 for false
+            87,   // True0False15 for false
+            167,  // True1False15 for false
+            245,  // True2False15 for false
+            320,  // True3False15 for false
+            392,  // True4False15 for false
+            460,  // True5False15 for false
+            524,  // True6False15 for false
+            582,  // True7False15 for false
+            81,   // True0False16 for false
+            160,  // True1False16 for false
+            231,  // True2False16 for false
+            306,  // True3False16 for false
+            370,  // True4False16 for false
+            437,  // True5False16 for false
+            500,  // True6False16 for false
+            75,   // True0False17 for false
+            154,  // True1False17 for false
+            225,  // True2False17 for false
+            292,  // True3False17 for false
+            356,  // True4False17 for false
+            415,  // True5False17 for false
+            476,  // True6False17 for false
+            69,   // True0False18 for false
+            142,  // True1False18 for false
+            212,  // True2False18 for false
+            278,  // True3False18 for false
+            334,  // True4False18 for false
+            392,  // True5False18 for false
+            453,  // True6False18 for false
+            69,   // True0False19 for false
+            135,  // True1False19 for false
+            199,  // True2False19 for false
+            265,  // True3False19 for false
+            320,  // True4False19 for false
+            377,  // True5False19 for false
+            63,   // True0False20 for false
+            129,  // True1False20 for false
+            192,  // True2False20 for false
+            251,  // True3False20 for false
+            306,  // True4False20 for false
+            363,  // True5False20 for false
+            63,   // True0False21 for false
+            123,  // True1False21 for false
+            186,  // True2False21 for false
+            238,  // True3False21 for false
+            292,  // True4False21 for false
+            348,  // True5False21 for false
+            57,   // True0False22 for false
+            117,  // True1False22 for false
+            179,  // True2False22 for false
+            231,  // True3False22 for false
+            285,  // True4False22 for false
+            57,   // True0False23 for false
+            117,  // True1False23 for false
+            167,  // True2False23 for false
+            225,  // True3False23 for false
+            272,  // True4False23 for false
+            51,   // True0False24 for false
+            111,  // True1False24 for false
+            160,  // True2False24 for false
+            212,  // True3False24 for false
+            265,  // True4False24 for false
+            51,   // True0False25 for false
+            105,  // True1False25 for false
+            154,  // True2False25 for false
+            205,  // True3False25 for false
+            251,  // True4False25 for false
+            51,   // True0False26 for false
+            105,  // True1False26 for false
+            154,  // True2False26 for false
+            199,  // True3False26 for false
+            45,   // True0False27 for false
+            99,   // True1False27 for false
+            148,  // True2False27 for false
+            192,  // True3False27 for false
+            45,   // True0False28 for false
+            99,   // True1False28 for false
+            142,  // True2False28 for false
+            186,  // True3False28 for false
+            45,   // True0False29 for false
+            93,   // True1False29 for false
+            135,  // True2False29 for false
+            179,  // True3False29 for false
+            45,   // True0False30 for false
+            93,   // True1False30 for false
+            135,  // True2False30 for false
+            173,  // True3False30 for false
+            39,   // True0False31 for false
+            87,   // True1False31 for false
+            129,  // True2False31 for false
+            167,  // True3False31 for false
+            39,   // True0False32 for false
+            87,   // True1False32 for false
+            123,  // True2False32 for false
+            167,  // True3False32 for false
+            39,   // True0False33 for false
+            81,   // True1False33 for false
+            123,  // True2False33 for false
+            39,   // True0False34 for false
+            81,   // True1False34 for false
+            117,  // True2False34 for false
+            34,   // True0False35 for false
+            81,   // True1False35 for false
+            117,  // True2False35 for false
+            34,   // True0False36 for false
+            75,   // True1False36 for false
+            111,  // True2False36 for false
+            34,   // True0False37 for false
+            75,   // True1False37 for false
+            111,  // True2False37 for false
+            34,   // True0False38 for false
+            75,   // True1False38 for false
+            105,  // True2False38 for false
+            34,   // True0False39 for false
+            69,   // True1False39 for false
+            105,  // True2False39 for false
+            34,   // True0False40 for false
+            69,   // True1False40 for false
+            99,   // True2False40 for false
+            28,   // True0False41 for false
+            69,   // True1False41 for false
+            99,   // True2False41 for false
+            28,   // True0False42 for false
+            63,   // True1False42 for false
+            99,   // True2False42 for false
+            28,   // True0False43 for false
+            63,   // True1False43 for false
+            93,   // True2False43 for false
+            28,   // True0False44 for false
+            63,   // True1False44 for false
+            28,   // True0False45 for false
+            63,   // True1False45 for false
+            28,   // True0False46 for false
+            57,   // True1False46 for false
+            28,   // True0False47 for false
+            57,   // True1False47 for false
+            28,   // True0False48 for false
+            57,   // True1False48 for false
+            28,   // True0False49 for false
+            57,   // True1False49 for false
+            22,   // True0False50 for false
+            57,   // True1False50 for false
+            22,   // True0False51 for false
+            57,   // True1False51 for false
+            22,   // True0False52 for false
+            51,   // True1False52 for false
+            22,   // True0False53 for false
+            51,   // True1False53 for false
+            22,   // True0False54 for false
+            51,   // True1False54 for false
+            22,   // True0False55 for false
+            51,   // True1False55 for false
+            22,   // True0False56 for false
+            51,   // True1False56 for false
+            22,   // True0False57 for false
+            51,   // True1False57 for false
+            22,   // True0False58 for false
+            45,   // True1False58 for false
+            22,   // True0False59 for false
+            45,   // True1False59 for false
+            22,   // True0False60 for false
+            45,   // True1False60 for false
+            22,   // True0False61 for false
+            45,   // True1False61 for false
+            22,   // True0False62 for false
+            45,   // True1False62 for false
+            17,   // True0False63 for false
+            45,   // True1False63 for false
+            17,   // True0False64 for false
+            45,   // True1False64 for false
+            17,   // True0False65 for false
+            45,   // True1False65 for false
+            17,   // True0False66 for false
+            17,   // True0False67 for false
+            17,   // True0False68 for false
+            17,   // True0False69 for false
+            17,   // True0False70 for false
+            17,   // True0False71 for false
+            17,   // True0False72 for false
+            17,   // True0False73 for false
+            17,   // True0False74 for false
+            17,   // True0False75 for false
+            17,   // True0False76 for false
+            17,   // True0False77 for false
+            17,   // True0False78 for false
+            17,   // True0False79 for false
+            17,   // True0False80 for false
+            17,   // True0False81 for false
+            17,   // True0False82 for false
+            17,   // True0False83 for false
+            17,   // True0False84 for false
+            17,   // True0False85 for false
+            11,   // True0False86 for false
+            11,   // True0False87 for false
+            11,   // True0False88 for false
+            11,   // True0False89 for false
+            11,   // True0False90 for false
+            11,   // True0False91 for false
+            11,   // True0False92 for false
+            11,   // True0False93 for false
+            11,   // True0False94 for false
+            11,   // True0False95 for false
+            11,   // True0False96 for false
+            11,   // True0False97 for false
+            11,   // True0False98 for false
+            11,   // True0False99 for false
+            11,   // True0False100 for false
+            11,   // True0False101 for false
+            11,   // True0False102 for false
+            11,   // True0False103 for false
+            11,   // True0False104 for false
+            11,   // True0False105 for false
+            11,   // True0False106 for false
+            11,   // True0False107 for false
+            11,   // True0False108 for false
+            11,   // True0False109 for false
+            11,   // True0False110 for false
+            11,   // True0False111 for false
+            11,   // True0False112 for false
+            11,   // True0False113 for false
+            11,   // True0False114 for false
+            11,   // True0False115 for false
+            11,   // True0False116 for false
+            11,   // True0False117 for false
+            11,   // True0False118 for false
+            11,   // True0False119 for false
+            11,   // True0False120 for false
+            11,   // True0False121 for false
+            11,   // True0False122 for false
+            11,   // True0False123 for false
+            11,   // True0False124 for false
+            11,   // True0False125 for false
+            11,   // True0False126 for false
+            11,   // True0False127 for false
+            11,   // True0False128 for false
+            11,   // True0False129 for false
+            11,   // True0False130 for false
+            11,   // True0False131 for false
+            11,   // True0False132 for false
+            1000, // True0False0 for true
+            582,  // True1False0 for true
+            415,  // True2False0 for true
+            320,  // True3False0 for true
+            258,  // True4False0 for true
+            218,  // True5False0 for true
+            192,  // True6False0 for true
+            167,  // True7False0 for true
+            148,  // True8False0 for true
+            135,  // True9False0 for true
+            123,  // True10False0 for true
+            111,  // True11False0 for true
+            105,  // True12False0 for true
+            99,   // True13False0 for true
+            93,   // True14False0 for true
+            87,   // True15False0 for true
+            81,   // True16False0 for true
+            75,   // True17False0 for true
+            69,   // True18False0 for true
+            69,   // True19False0 for true
+            63,   // True20False0 for true
+            63,   // True21False0 for true
+            57,   // True22False0 for true
+            57,   // True23False0 for true
+            51,   // True24False0 for true
+            51,   // True25False0 for true
+            51,   // True26False0 for true
+            45,   // True27False0 for true
+            45,   // True28False0 for true
+            45,   // True29False0 for true
+            45,   // True30False0 for true
+            39,   // True31False0 for true
+            39,   // True32False0 for true
+            39,   // True33False0 for true
+            39,   // True34False0 for true
+            34,   // True35False0 for true
+            34,   // True36False0 for true
+            34,   // True37False0 for true
+            34,   // True38False0 for true
+            34,   // True39False0 for true
+            34,   // True40False0 for true
+            28,   // True41False0 for true
+            28,   // True42False0 for true
+            28,   // True43False0 for true
+            28,   // True44False0 for true
+            28,   // True45False0 for true
+            28,   // True46False0 for true
+            28,   // True47False0 for true
+            28,   // True48False0 for true
+            28,   // True49False0 for true
+            22,   // True50False0 for true
+            22,   // True51False0 for true
+            22,   // True52False0 for true
+            22,   // True53False0 for true
+            22,   // True54False0 for true
+            22,   // True55False0 for true
+            22,   // True56False0 for true
+            22,   // True57False0 for true
+            22,   // True58False0 for true
+            22,   // True59False0 for true
+            22,   // True60False0 for true
+            22,   // True61False0 for true
+            22,   // True62False0 for true
+            17,   // True63False0 for true
+            17,   // True64False0 for true
+            17,   // True65False0 for true
+            17,   // True66False0 for true
+            17,   // True67False0 for true
+            17,   // True68False0 for true
+            17,   // True69False0 for true
+            17,   // True70False0 for true
+            17,   // True71False0 for true
+            17,   // True72False0 for true
+            17,   // True73False0 for true
+            17,   // True74False0 for true
+            17,   // True75False0 for true
+            17,   // True76False0 for true
+            17,   // True77False0 for true
+            17,   // True78False0 for true
+            17,   // True79False0 for true
+            17,   // True80False0 for true
+            17,   // True81False0 for true
+            17,   // True82False0 for true
+            17,   // True83False0 for true
+            17,   // True84False0 for true
+            17,   // True85False0 for true
+            11,   // True86False0 for true
+            11,   // True87False0 for true
+            11,   // True88False0 for true
+            11,   // True89False0 for true
+            11,   // True90False0 for true
+            11,   // True91False0 for true
+            11,   // True92False0 for true
+            11,   // True93False0 for true
+            11,   // True94False0 for true
+            11,   // True95False0 for true
+            11,   // True96False0 for true
+            11,   // True97False0 for true
+            11,   // True98False0 for true
+            11,   // True99False0 for true
+            11,   // True100False0 for true
+            11,   // True101False0 for true
+            11,   // True102False0 for true
+            11,   // True103False0 for true
+            11,   // True104False0 for true
+            11,   // True105False0 for true
+            11,   // True106False0 for true
+            11,   // True107False0 for true
+            11,   // True108False0 for true
+            11,   // True109False0 for true
+            11,   // True110False0 for true
+            11,   // True111False0 for true
+            11,   // True112False0 for true
+            11,   // True113False0 for true
+            11,   // True114False0 for true
+            11,   // True115False0 for true
+            11,   // True116False0 for true
+            11,   // True117False0 for true
+            11,   // True118False0 for true
+            11,   // True119False0 for true
+            11,   // True120False0 for true
+            11,   // True121False0 for true
+            11,   // True122False0 for true
+            11,   // True123False0 for true
+            11,   // True124False0 for true
+            11,   // True125False0 for true
+            11,   // True126False0 for true
+            11,   // True127False0 for true
+            11,   // True128False0 for true
+            11,   // True129False0 for true
+            11,   // True130False0 for true
+            11,   // True131False0 for true
+            11,   // True132False0 for true
+            1590, // True0False1 for true
+            1000, // True1False1 for true
+            733,  // True2False1 for true
+            582,  // True3False1 for true
+            484,  // True4False1 for true
+            415,  // True5False1 for true
+            363,  // True6False1 for true
+            320,  // True7False1 for true
+            292,  // True8False1 for true
+            265,  // True9False1 for true
+            238,  // True10False1 for true
+            225,  // True11False1 for true
+            205,  // True12False1 for true
+            192,  // True13False1 for true
+            179,  // True14False1 for true
+            167,  // True15False1 for true
+            160,  // True16False1 for true
+            154,  // True17False1 for true
+            142,  // True18False1 for true
+            135,  // True19False1 for true
+            129,  // True20False1 for true
+            123,  // True21False1 for true
+            117,  // True22False1 for true
+            117,  // True23False1 for true
+            111,  // True24False1 for true
+            105,  // True25False1 for true
+            105,  // True26False1 for true
+            99,   // True27False1 for true
+            99,   // True28False1 for true
+            93,   // True29False1 for true
+            93,   // True30False1 for true
+            87,   // True31False1 for true
+            87,   // True32False1 for true
+            81,   // True33False1 for true
+            81,   // True34False1 for true
+            81,   // True35False1 for true
+            75,   // True36False1 for true
+            75,   // True37False1 for true
+            75,   // True38False1 for true
+            69,   // True39False1 for true
+            69,   // True40False1 for true
+            69,   // True41False1 for true
+            63,   // True42False1 for true
+            63,   // True43False1 for true
+            63,   // True44False1 for true
+            63,   // True45False1 for true
+            57,   // True46False1 for true
+            57,   // True47False1 for true
+            57,   // True48False1 for true
+            57,   // True49False1 for true
+            57,   // True50False1 for true
+            57,   // True51False1 for true
+            51,   // True52False1 for true
+            51,   // True53False1 for true
+            51,   // True54False1 for true
+            51,   // True55False1 for true
+            51,   // True56False1 for true
+            51,   // True57False1 for true
+            45,   // True58False1 for true
+            45,   // True59False1 for true
+            45,   // True60False1 for true
+            45,   // True61False1 for true
+            45,   // True62False1 for true
+            45,   // True63False1 for true
+            45,   // True64False1 for true
+            45,   // True65False1 for true
+            2000, // True0False2 for true
+            1327, // True1False2 for true
+            1000, // True2False2 for true
+            810,  // True3False2 for true
+            678,  // True4False2 for true
+            582,  // True5False2 for true
+            516,  // True6False2 for true
+            460,  // True7False2 for true
+            415,  // True8False2 for true
+            377,  // True9False2 for true
+            348,  // True10False2 for true
+            320,  // True11False2 for true
+            299,  // True12False2 for true
+            278,  // True13False2 for true
+            265,  // True14False2 for true
+            245,  // True15False2 for true
+            231,  // True16False2 for true
+            225,  // True17False2 for true
+            212,  // True18False2 for true
+            199,  // True19False2 for true
+            192,  // True20False2 for true
+            186,  // True21False2 for true
+            179,  // True22False2 for true
+            167,  // True23False2 for true
+            160,  // True24False2 for true
+            154,  // True25False2 for true
+            154,  // True26False2 for true
+            148,  // True27False2 for true
+            142,  // True28False2 for true
+            135,  // True29False2 for true
+            135,  // True30False2 for true
+            129,  // True31False2 for true
+            123,  // True32False2 for true
+            123,  // True33False2 for true
+            117,  // True34False2 for true
+            117,  // True35False2 for true
+            111,  // True36False2 for true
+            111,  // True37False2 for true
+            105,  // True38False2 for true
+            105,  // True39False2 for true
+            99,   // True40False2 for true
+            99,   // True41False2 for true
+            99,   // True42False2 for true
+            93,   // True43False2 for true
+            2327, // True0False3 for true
+            1590, // True1False3 for true
+            1218, // True2False3 for true
+            1000, // True3False3 for true
+            850,  // True4False3 for true
+            733,  // True5False3 for true
+            651,  // True6False3 for true
+            582,  // True7False3 for true
+            532,  // True8False3 for true
+            484,  // True9False3 for true
+            445,  // True10False3 for true
+            415,  // True11False3 for true
+            385,  // True12False3 for true
+            363,  // True13False3 for true
+            341,  // True14False3 for true
+            320,  // True15False3 for true
+            306,  // True16False3 for true
+            292,  // True17False3 for true
+            278,  // True18False3 for true
+            265,  // True19False3 for true
+            251,  // True20False3 for true
+            238,  // True21False3 for true
+            231,  // True22False3 for true
+            225,  // True23False3 for true
+            212,  // True24False3 for true
+            205,  // True25False3 for true
+            199,  // True26False3 for true
+            192,  // True27False3 for true
+            186,  // True28False3 for true
+            179,  // True29False3 for true
+            173,  // True30False3 for true
+            167,  // True31False3 for true
+            167,  // True32False3 for true
+            2607, // True0False4 for true
+            1810, // True1False4 for true
+            1415, // True2False4 for true
+            1167, // True3False4 for true
+            1000, // True4False4 for true
+            870,  // True5False4 for true
+            780,  // True6False4 for true
+            696,  // True7False4 for true
+            633,  // True8False4 for true
+            582,  // True9False4 for true
+            540,  // True10False4 for true
+            500,  // True11False4 for true
+            468,  // True12False4 for true
+            437,  // True13False4 for true
+            415,  // True14False4 for true
+            392,  // True15False4 for true
+            370,  // True16False4 for true
+            356,  // True17False4 for true
+            334,  // True18False4 for true
+            320,  // True19False4 for true
+            306,  // True20False4 for true
+            292,  // True21False4 for true
+            285,  // True22False4 for true
+            272,  // True23False4 for true
+            265,  // True24False4 for true
+            251,  // True25False4 for true
+            2830, // True0False5 for true
+            2000, // True1False5 for true
+            1590, // True2False5 for true
+            1327, // True3False5 for true
+            1142, // True4False5 for true
+            1000, // True5False5 for true
+            891,  // True6False5 for true
+            810,  // True7False5 for true
+            733,  // True8False5 for true
+            678,  // True9False5 for true
+            624,  // True10False5 for true
+            582,  // True11False5 for true
+            548,  // True12False5 for true
+            516,  // True13False5 for true
+            484,  // True14False5 for true
+            460,  // True15False5 for true
+            437,  // True16False5 for true
+            415,  // True17False5 for true
+            392,  // True18False5 for true
+            377,  // True19False5 for true
+            363,  // True20False5 for true
+            348,  // True21False5 for true
+            3000, // True0False6 for true
+            2167, // True1False6 for true
+            1733, // True2False6 for true
+            1460, // True3False6 for true
+            1258, // True4False6 for true
+            1117, // True5False6 for true
+            1000, // True6False6 for true
+            901,  // True7False6 for true
+            830,  // True8False6 for true
+            761,  // True9False6 for true
+            714,  // True10False6 for true
+            660,  // True11False6 for true
+            624,  // True12False6 for true
+            582,  // True13False6 for true
+            548,  // True14False6 for true
+            524,  // True15False6 for true
+            500,  // True16False6 for true
+            476,  // True17False6 for true
+            453,  // True18False6 for true
+            3192, // True0False7 for true
+            2327, // True1False7 for true
+            1870, // True2False7 for true
+            1590, // True3False7 for true
+            1385, // True4False7 for true
+            1218, // True5False7 for true
+            1105, // True6False7 for true
+            1000, // True7False7 for true
+            912,  // True8False7 for true
+            850,  // True9False7 for true
+            790,  // True10False7 for true
+            733,  // True11False7 for true
+            696,  // True12False7 for true
+            651,  // True13False7 for true
+            616,  // True14False7 for true
+            582,  // True15False7 for true
+            3356, // True0False8 for true
+            2445, // True1False8 for true
+            2000, // True2False8 for true
+            1696, // True3False8 for true
+            1492, // True4False8 for true
+            1327, // True5False8 for true
+            1192, // True6False8 for true
+            1093, // True7False8 for true
+            1000, // True8False8 for true
+            923,  // True9False8 for true
+            860,  // True10False8 for true
+            810,  // True11False8 for true
+            761,  // True12False8 for true
+            714,  // True13False8 for true
+            3476, // True0False9 for true
+            2573, // True1False9 for true
+            2117, // True2False9 for true
+            1810, // True3False9 for true
+            1590, // True4False9 for true
+            1415, // True5False9 for true
+            1285, // True6False9 for true
+            1167, // True7False9 for true
+            1081, // True8False9 for true
+            1000, // True9False9 for true
+            933,  // True10False9 for true
+            870,  // True11False9 for true
+            820,  // True12False9 for true
+            3607, // True0False10 for true
+            2714, // True1False10 for true
+            2218, // True2False10 for true
+            1912, // True3False10 for true
+            1678, // True4False10 for true
+            1508, // True5False10 for true
+            1356, // True6False10 for true
+            1245, // True7False10 for true
+            1154, // True8False10 for true
+            1069, // True9False10 for true
+            1000, // True10False10 for true
+            933,  // True11False10 for true
+            3752, // True0False11 for true
+            2790, // True1False11 for true
+            2327, // True2False11 for true
+            2000, // True3False11 for true
+            1771, // True4False11 for true
+            1590, // True5False11 for true
+            1445, // True6False11 for true
+            1327, // True7False11 for true
+            1218, // True8False11 for true
+            1142, // True9False11 for true
+            1069, // True10False11 for true
+            3830, // True0False12 for true
+            2912, // True1False12 for true
+            2415, // True2False12 for true
+            2093, // True3False12 for true
+            1850, // True4False12 for true
+            1660, // True5False12 for true
+            1508, // True6False12 for true
+            1385, // True7False12 for true
+            1285, // True8False12 for true
+            1205, // True9False12 for true
+            3912, // True0False13 for true
+            3000, // True1False13 for true
+            2508, // True2False13 for true
+            2167, // True3False13 for true
+            1933, // True4False13 for true
+            1733, // True5False13 for true
+            1590, // True6False13 for true
+            1460, // True7False13 for true
+            1356, // True8False13 for true
+            4000, // True0False14 for true
+            3093, // True1False14 for true
+            2573, // True2False14 for true
+            2245, // True3False14 for true
+            2000, // True4False14 for true
+            1810, // True5False14 for true
+            1660, // True6False14 for true
+            1524, // True7False14 for true
+            4093, // True0False15 for true
+            3192, // True1False15 for true
+            2678, // True2False15 for true
+            2327, // True3False15 for true
+            2069, // True4False15 for true
+            1870, // True5False15 for true
+            1714, // True6False15 for true
+            1590, // True7False15 for true
+            4192, // True0False16 for true
+            3245, // True1False16 for true
+            2752, // True2False16 for true
+            2385, // True3False16 for true
+            2142, // True4False16 for true
+            1933, // True5False16 for true
+            1771, // True6False16 for true
+            4299, // True0False17 for true
+            3299, // True1False17 for true
+            2790, // True2False17 for true
+            2445, // True3False17 for true
+            2192, // True4False17 for true
+            2000, // True5False17 for true
+            1830, // True6False17 for true
+            4415, // True0False18 for true
+            3415, // True1False18 for true
+            2870, // True2False18 for true
+            2508, // True3False18 for true
+            2272, // True4False18 for true
+            2069, // True5False18 for true
+            1891, // True6False18 for true
+            4415, // True0False19 for true
+            3476, // True1False19 for true
+            2955, // True2False19 for true
+            2573, // True3False19 for true
+            2327, // True4False19 for true
+            2117, // True5False19 for true
+            4540, // True0False20 for true
+            3540, // True1False20 for true
+            3000, // True2False20 for true
+            2642, // True3False20 for true
+            2385, // True4False20 for true
+            2167, // True5False20 for true
+            4540, // True0False21 for true
+            3607, // True1False21 for true
+            3045, // True2False21 for true
+            2714, // True3False21 for true
+            2445, // True4False21 for true
+            2218, // True5False21 for true
+            4678, // True0False22 for true
+            3678, // True1False22 for true
+            3093, // True2False22 for true
+            2752, // True3False22 for true
+            2476, // True4False22 for true
+            4678, // True0False23 for true
+            3678, // True1False23 for true
+            3192, // True2False23 for true
+            2790, // True3False23 for true
+            2540, // True4False23 for true
+            4830, // True0False24 for true
+            3752, // True1False24 for true
+            3245, // True2False24 for true
+            2870, // True3False24 for true
+            2573, // True4False24 for true
+            4830, // True0False25 for true
+            3830, // True1False25 for true
+            3299, // True2False25 for true
+            2912, // True3False25 for true
+            2642, // True4False25 for true
+            4830, // True0False26 for true
+            3830, // True1False26 for true
+            3299, // True2False26 for true
+            2955, // True3False26 for true
+            5000, // True0False27 for true
+            3912, // True1False27 for true
+            3356, // True2False27 for true
+            3000, // True3False27 for true
+            5000, // True0False28 for true
+            3912, // True1False28 for true
+            3415, // True2False28 for true
+            3045, // True3False28 for true
+            5000, // True0False29 for true
+            4000, // True1False29 for true
+            3476, // True2False29 for true
+            3093, // True3False29 for true
+            5000, // True0False30 for true
+            4000, // True1False30 for true
+            3476, // True2False30 for true
+            3142, // True3False30 for true
+            5192, // True0False31 for true
+            4093, // True1False31 for true
+            3540, // True2False31 for true
+            3192, // True3False31 for true
+            5192, // True0False32 for true
+            4093, // True1False32 for true
+            3607, // True2False32 for true
+            3192, // True3False32 for true
+            5192, // True0False33 for true
+            4192, // True1False33 for true
+            3607, // True2False33 for true
+            5192, // True0False34 for true
+            4192, // True1False34 for true
+            3678, // True2False34 for true
+            5415, // True0False35 for true
+            4192, // True1False35 for true
+            3678, // True2False35 for true
+            5415, // True0False36 for true
+            4299, // True1False36 for true
+            3752, // True2False36 for true
+            5415, // True0False37 for true
+            4299, // True1False37 for true
+            3752, // True2False37 for true
+            5415, // True0False38 for true
+            4299, // True1False38 for true
+            3830, // True2False38 for true
+            5415, // True0False39 for true
+            4415, // True1False39 for true
+            3830, // True2False39 for true
+            5415, // True0False40 for true
+            4415, // True1False40 for true
+            3912, // True2False40 for true
+            5678, // True0False41 for true
+            4415, // True1False41 for true
+            3912, // True2False41 for true
+            5678, // True0False42 for true
+            4540, // True1False42 for true
+            3912, // True2False42 for true
+            5678, // True0False43 for true
+            4540, // True1False43 for true
+            4000, // True2False43 for true
+            5678, // True0False44 for true
+            4540, // True1False44 for true
+            5678, // True0False45 for true
+            4540, // True1False45 for true
+            5678, // True0False46 for true
+            4678, // True1False46 for true
+            5678, // True0False47 for true
+            4678, // True1False47 for true
+            5678, // True0False48 for true
+            4678, // True1False48 for true
+            5678, // True0False49 for true
+            4678, // True1False49 for true
+            6000, // True0False50 for true
+            4678, // True1False50 for true
+            6000, // True0False51 for true
+            4678, // True1False51 for true
+            6000, // True0False52 for true
+            4830, // True1False52 for true
+            6000, // True0False53 for true
+            4830, // True1False53 for true
+            6000, // True0False54 for true
+            4830, // True1False54 for true
+            6000, // True0False55 for true
+            4830, // True1False55 for true
+            6000, // True0False56 for true
+            4830, // True1False56 for true
+            6000, // True0False57 for true
+            4830, // True1False57 for true
+            6000, // True0False58 for true
+            5000, // True1False58 for true
+            6000, // True0False59 for true
+            5000, // True1False59 for true
+            6000, // True0False60 for true
+            5000, // True1False60 for true
+            6000, // True0False61 for true
+            5000, // True1False61 for true
+            6000, // True0False62 for true
+            5000, // True1False62 for true
+            6415, // True0False63 for true
+            5000, // True1False63 for true
+            6415, // True0False64 for true
+            5000, // True1False64 for true
+            6415, // True0False65 for true
+            5000, // True1False65 for true
+            6415, // True0False66 for true
+            6415, // True0False67 for true
+            6415, // True0False68 for true
+            6415, // True0False69 for true
+            6415, // True0False70 for true
+            6415, // True0False71 for true
+            6415, // True0False72 for true
+            6415, // True0False73 for true
+            6415, // True0False74 for true
+            6415, // True0False75 for true
+            6415, // True0False76 for true
+            6415, // True0False77 for true
+            6415, // True0False78 for true
+            6415, // True0False79 for true
+            6415, // True0False80 for true
+            6415, // True0False81 for true
+            6415, // True0False82 for true
+            6415, // True0False83 for true
+            6415, // True0False84 for true
+            6415, // True0False85 for true
+            7000, // True0False86 for true
+            7000, // True0False87 for true
+            7000, // True0False88 for true
+            7000, // True0False89 for true
+            7000, // True0False90 for true
+            7000, // True0False91 for true
+            7000, // True0False92 for true
+            7000, // True0False93 for true
+            7000, // True0False94 for true
+            7000, // True0False95 for true
+            7000, // True0False96 for true
+            7000, // True0False97 for true
+            7000, // True0False98 for true
+            7000, // True0False99 for true
+            7000, // True0False100 for true
+            7000, // True0False101 for true
+            7000, // True0False102 for true
+            7000, // True0False103 for true
+            7000, // True0False104 for true
+            7000, // True0False105 for true
+            7000, // True0False106 for true
+            7000, // True0False107 for true
+            7000, // True0False108 for true
+            7000, // True0False109 for true
+            7000, // True0False110 for true
+            7000, // True0False111 for true
+            7000, // True0False112 for true
+            7000, // True0False113 for true
+            7000, // True0False114 for true
+            7000, // True0False115 for true
+            7000, // True0False116 for true
+            7000, // True0False117 for true
+            7000, // True0False118 for true
+            7000, // True0False119 for true
+            7000, // True0False120 for true
+            7000, // True0False121 for true
+            7000, // True0False122 for true
+            7000, // True0False123 for true
+            7000, // True0False124 for true
+            7000, // True0False125 for true
+            7000, // True0False126 for true
+            7000, // True0False127 for true
+            7000, // True0False128 for true
+            7000, // True0False129 for true
+            7000, // True0False130 for true
+            7000, // True0False131 for true
+            7000, // True0False132 for true
         ];
-        let out = LOOKUP[*self as usize * (1 + bit as usize)];
+        let out = LOOKUP[(*self as usize) + (bit as usize) * 675];
         *self = self.adapt(bit);
         out
     }

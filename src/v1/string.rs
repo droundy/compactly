@@ -107,6 +107,7 @@ impl Encode for String {
         for b in self.chars() {
             tot += b.millibits(&mut ctx.chars)?;
         }
+        // println!("{self:?}: {tot}");
         Some(tot)
     }
     #[inline]
@@ -280,6 +281,23 @@ fn eager() {
     );
     assert_eq!(
         Lz77::default().eager("aaaaaaaaaaaaaaaaaaaa"),
+        vec![
+            Chunk {
+                literal: "aaaaa".to_string(),
+                length: 5,
+                back: 0,
+                offset: 4,
+            },
+            Chunk {
+                literal: "".to_string(),
+                length: 10,
+                back: 0,
+                offset: 9,
+            }
+        ]
+    );
+    assert_eq!(
+        Lz77::default().eager(COMPRESSIBLE_TEXT),
         vec![
             Chunk {
                 literal: "aaaaa".to_string(),
@@ -486,6 +504,41 @@ fn size() {
             format!("small {value:?}")
         );
     }
+    fn compare_vecs(value: &[&str], expected_normal: usize, expected_small: usize) {
+        println!("normal millibits {value:?}");
+        assert_eq!(
+            value
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .millibits(&mut Default::default()),
+            Some(expected_normal),
+            "normal millibits {value:?}"
+        );
+        println!("small millibits {value:?}");
+        assert_eq!(
+            value
+                .iter()
+                .map(|s| super::Compact::new(s.to_string()))
+                .collect::<Vec<_>>()
+                .millibits(&mut Default::default()),
+            Some(expected_small),
+            "small millibits {value:?}"
+        );
+        assert_bits!(
+            value.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
+            (expected_normal + 500) / 1000,
+            format!("normal {value:?}")
+        );
+        assert_bits!(
+            value
+                .iter()
+                .map(|s| super::Compact::new(s.to_string()))
+                .collect::<Vec<_>>(),
+            (expected_small + 500) / 1000,
+            format!("small {value:?}")
+        );
+    }
     compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7276);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
@@ -517,6 +570,7 @@ fn size() {
     compare_small_bits("aaa", 20, 26);
     compare_small_bits("aaaa", 24, 30);
     compare_small_bits("aaaaaaaa", 31, 39);
+    compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa", 133, 119);
     compare_small_bits("hello", 36, 42);
     compare_small_bits("hello world hello wood", 122, 116);
     compare_small_bits("hello world hello world", 127, 98);
@@ -540,5 +594,38 @@ fn size() {
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1607,
         1013,
+    );
+
+    compare_vecs(&[], 3000, 3000);
+    assert_eq!('h'.millibits(&mut Default::default()), Some(8000), "just h");
+    assert_eq!(
+        "h".to_string().millibits(&mut Default::default()),
+        Some(11000),
+        "just h string"
+    );
+
+    let s = "aaaaaaaaaaaaaaaa".to_string();
+    assert_eq!(
+        s.millibits(&mut Default::default()),
+        Some(39424),
+        "just a string"
+    );
+    assert_bits!(s.clone(), 40);
+
+    let s = "hello world this is a string".to_string();
+    assert_eq!(
+        s.millibits(&mut Default::default()),
+        Some(165025),
+        "just a string"
+    );
+    assert_bits!(s.clone(), 165);
+
+    compare_vecs(&["h"], 14000, 20000);
+    compare_vecs(&["hello world"], 76790, 82790);
+    compare_vecs(&["hello world", "hello world"], 127070, 136562);
+    compare_vecs(
+        &["hello world", "hello world", "hello world"],
+        171264,
+        183246,
     );
 }

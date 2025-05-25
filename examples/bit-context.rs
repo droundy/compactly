@@ -131,7 +131,9 @@ impl Bucket {
 
 fn probability(variants: &[Bucket]) {
     println!(
-        r"#[inline] pub fn probability(self) -> Probability {{
+        r"
+        /// Returns the probability of the value being zero.
+        #[inline] pub fn probability(self) -> Probability {{
         match self {{"
     );
 
@@ -173,17 +175,24 @@ fn lookup_bits_required(variants: &[Bucket]) {
         const LOOKUP: [u32; {sz}] = ["
     );
 
-    for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
+    for BitC {
+        name, probability, ..
+    } in variants.iter().map(|b| b.bitc())
+    {
         let bits = (-1000.0 * probability.as_f64().log2()).min(u32::MAX as f64) as u32;
-        println!("        {bits}, // for false")
+        println!("        {bits}, // {name} for false")
     }
-    for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
+    for BitC {
+        name, probability, ..
+    } in variants.iter().map(|b| b.bitc())
+    {
         let bits = (-1000.0 * (1.0 - probability.as_f64()).log2()).min(u32::MAX as f64) as u32;
-        println!("        {bits}, // for true")
+        println!("        {bits}, // {name} for true")
     }
+    let half_sz = sz / 2;
     println!(
         "];
-    let out = LOOKUP[*self as usize * (1 + bit as usize)];
+    let out = LOOKUP[(*self as usize) + (bit as usize)*{half_sz}];
     *self = self.adapt(bit);
     out"
     );
@@ -226,6 +235,7 @@ fn lookup_adapt(variants: &[Bucket]) {
     );
 
     for BitC {
+        name,
         probability,
         next_likely,
         next_unlikely,
@@ -234,13 +244,14 @@ fn lookup_adapt(variants: &[Bucket]) {
     {
         let am_likely = !probability.likely_bit();
         if am_likely {
-            println!("            {next_likely},");
+            println!("            {next_likely}, // from {name} with false");
         } else {
-            println!("            {next_unlikely},");
+            println!("            {next_unlikely}, // from {name} with false",);
         }
     }
 
     for BitC {
+        name,
         probability,
         next_likely,
         next_unlikely,
@@ -249,9 +260,9 @@ fn lookup_adapt(variants: &[Bucket]) {
     {
         let am_likely = probability.likely_bit();
         if am_likely {
-            println!("            {next_likely},");
+            println!("            {next_likely}, // from {name} with true");
         } else {
-            println!("            {next_unlikely},");
+            println!("            {next_unlikely}, // from {name} with true");
         }
     }
 
