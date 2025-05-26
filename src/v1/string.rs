@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -126,10 +128,10 @@ impl Encode for String {
 
 #[derive(Default, Clone)]
 pub struct Lz77 {
-    old: Vec<String>,
+    old: VecDeque<String>,
     count: <Small as EncodingStrategy<usize>>::Context,
     literal: <String as Encode>::Context,
-    back: <usize as Encode>::Context,
+    back: <Small as EncodingStrategy<u8>>::Context,
     /// We use small encoding for offset, because we expect often to see small strings in total.
     offset: <Small as EncodingStrategy<usize>>::Context,
     self_offset: <Small as EncodingStrategy<usize>>::Context,
@@ -142,7 +144,7 @@ struct Chunk {
     /// Number of bytes in the chunk.
     length: u8,
     /// Value of 0 indicates current string, otherwise count back in old.
-    back: usize,
+    back: u8,
     /// Where in the string it is located.  Counts backwards if back==0 otherwise forwards.
     offset: usize,
 }
@@ -158,7 +160,14 @@ fn split_prefix(s: &str, mut len: usize) -> Option<&str> {
 }
 
 impl Lz77 {
+    fn push_old(&mut self, value: String) {
+        self.old.push_front(value);
+        while self.old.len() > 254 {
+            self.old.pop_back();
+        }
+    }
     fn eager(&self, mut value: &str) -> Vec<Chunk> {
+        assert!(self.old.len() < 255);
         let mut sofar = String::new();
         let mut out = Vec::new();
         let mut ctx = self.clone();
@@ -181,8 +190,9 @@ impl Lz77 {
                 let sofar_clone = sofar.clone();
                 let mut possible_chunks = Vec::new();
                 for (back, s) in std::iter::once(sofar_clone.as_str())
-                    .chain(self.old.iter().map(|s| s.as_str()).rev())
+                    .chain(self.old.iter().map(|s| s.as_str()))
                     .enumerate()
+                    .map(|(back, s)| (back as u8, s))
                 {
                     if let Some(mut offset) = s.find(prefix_start) {
                         let length = prefix
@@ -338,7 +348,7 @@ impl Encode for Chunk {
         literal.encode(writer, &mut ctx.literal)?;
         Small::encode(length, writer, &mut ctx.length)?;
         if *length > 0 {
-            back.encode(writer, &mut ctx.back)?;
+            Small::encode(back, writer, &mut ctx.back)?;
             if *back == 0 {
                 Small::encode(offset, writer, &mut ctx.self_offset)?;
             } else {
@@ -357,7 +367,7 @@ impl Encode for Chunk {
         let mut tot = literal.millibits(&mut ctx.literal)?;
         tot += Small::millibits(length, &mut ctx.length)?;
         if *length > 0 {
-            tot += back.millibits(&mut ctx.back)?;
+            tot += Small::millibits(back, &mut ctx.back)?;
             tot += if *back == 0 {
                 Small::millibits(offset, &mut ctx.self_offset)?
             } else {
@@ -373,7 +383,7 @@ impl Encode for Chunk {
         let literal = <String as Encode>::decode(reader, &mut ctx.literal)?;
         let length = <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
         if length > 0 {
-            let back = <usize as Encode>::decode(reader, &mut ctx.back)?;
+            let back = Small::decode(reader, &mut ctx.back)?;
             let offset = if back == 0 {
                 <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.self_offset)?
             } else {
@@ -408,7 +418,7 @@ impl EncodingStrategy<String> for Small {
         for chunk in chunks {
             chunk.encode(writer, ctx)?;
         }
-        ctx.old.push(value.clone());
+        ctx.push_old(value.clone());
         Ok(())
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
@@ -417,7 +427,7 @@ impl EncodingStrategy<String> for Small {
         for chunk in chunks {
             tot += chunk.millibits(ctx)?;
         }
-        ctx.old.push(value.clone());
+        ctx.push_old(value.clone());
         Some(tot)
     }
 
@@ -459,10 +469,10 @@ impl EncodingStrategy<String> for Small {
                     }
                 }
             } else {
-                out.push_str(&ctx.old[ctx.old.len() - back][offset..offset + length as usize]);
+                out.push_str(&ctx.old[back as usize - 1][offset..offset + length as usize]);
             }
         }
-        ctx.old.push(out.clone());
+        ctx.push_old(out.clone());
         Ok(out)
     }
 }
@@ -627,4 +637,14 @@ fn size() {
         148730,
     );
     compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 208885, 178064);
+    compare_vecs(
+        &[
+            "hello world! 😊",
+            "greetings world! 😊",
+            "goodbye world! 😊",
+            "farewell sweet world! 😊",
+        ],
+        427130,
+        329121,
+    );
 }
