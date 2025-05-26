@@ -166,6 +166,17 @@ impl Lz77 {
             self.old.pop_back();
         }
     }
+    fn shift_chunk(&mut self, Chunk { back, .. }: &Chunk) {
+        if *back > 0 {
+            // Whenever we use an old string, we move it to the front of the
+            // queue.  This keeps "useful" strings from falling off the back,
+            // and also makes smaller `back` values more common.
+            let back = *back as usize - 1;
+            if let Some(old) = self.old.remove(back) {
+                self.old.push_front(old);
+            }
+        }
+    }
     fn eager(&self, mut value: &str) -> Vec<Chunk> {
         assert!(self.old.len() < 255);
         let mut sofar = String::new();
@@ -178,7 +189,7 @@ impl Lz77 {
         // println!("{out:?} with old {:?}", self.old);
         out
     }
-    fn eager_chunk(&self, value: &mut &str, sofar: &mut String) -> Option<Chunk> {
+    fn eager_chunk(&mut self, value: &mut &str, sofar: &mut String) -> Option<Chunk> {
         let mut literal = String::with_capacity(value.len());
         while !value.is_empty() {
             let prefix = if value.len() > u8::MAX as usize {
@@ -211,12 +222,14 @@ impl Lz77 {
                     let length = (-l) as u8; // safe because l is negative and less than 256.
                     *value = &value[length as usize..];
                     sofar.push_str(&prefix[..length as usize]);
-                    return Some(Chunk {
+                    let chunk = Chunk {
                         literal,
                         length,
                         back,
                         offset,
-                    });
+                    };
+                    self.shift_chunk(&chunk);
+                    return Some(chunk);
                 }
             }
             // We are forced to emit a literal character
@@ -417,6 +430,7 @@ impl EncodingStrategy<String> for Small {
         Small::encode(&chunks.len(), writer, &mut ctx.count)?;
         for chunk in chunks {
             chunk.encode(writer, ctx)?;
+            ctx.shift_chunk(&chunk);
         }
         ctx.push_old(value.clone());
         Ok(())
@@ -426,6 +440,7 @@ impl EncodingStrategy<String> for Small {
         let mut tot = Small::millibits(&chunks.len(), &mut ctx.count)?;
         for chunk in chunks {
             tot += chunk.millibits(ctx)?;
+            ctx.shift_chunk(&chunk);
         }
         ctx.push_old(value.clone());
         Some(tot)
@@ -438,13 +453,13 @@ impl EncodingStrategy<String> for Small {
         let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.count)?;
         let mut out = String::with_capacity(5 * count);
         for _ in 0..count {
-            let Chunk {
-                literal,
+            let chunk @ Chunk {
                 length,
                 back,
                 offset,
+                ..
             } = <Chunk as Encode>::decode(reader, ctx)?;
-            out.push_str(&literal);
+            out.push_str(&chunk.literal);
             if length == 0 {
                 // Nothing to do here.
             } else if back == 0 {
@@ -469,7 +484,8 @@ impl EncodingStrategy<String> for Small {
                     }
                 }
             } else {
-                out.push_str(&ctx.old[back as usize - 1][offset..offset + length as usize]);
+                ctx.shift_chunk(&chunk);
+                out.push_str(&ctx.old[0][offset..offset + length as usize]);
             }
         }
         ctx.push_old(out.clone());
@@ -503,23 +519,28 @@ fn size() {
         );
     }
     fn compare_vecs(value: &[&str], expected_normal: usize, expected_small: usize) {
+        let normal = value.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let encoded_normal = super::encode(&normal);
+        let decoded_normal: Vec<String> = super::decode(&encoded_normal).unwrap();
+        assert_eq!(normal, decoded_normal);
+
+        let small = value
+            .iter()
+            .map(|s| super::Compact::new(s.to_string()))
+            .collect::<Vec<_>>();
+        let encoded_small = super::encode(&small);
+        let decoded_small: Vec<super::Compact<String>> = super::decode(&encoded_small).unwrap();
+        assert_eq!(small, decoded_small);
+
         println!("normal millibits {value:?}");
         assert_eq!(
-            value
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-                .millibits(&mut Default::default()),
+            normal.millibits(&mut Default::default()),
             Some(expected_normal),
             "normal millibits {value:?}"
         );
         println!("small millibits {value:?}");
         assert_eq!(
-            value
-                .iter()
-                .map(|s| super::Compact::new(s.to_string()))
-                .collect::<Vec<_>>()
-                .millibits(&mut Default::default()),
+            small.millibits(&mut Default::default()),
             Some(expected_small),
             "small millibits {value:?}"
         );
@@ -646,5 +667,21 @@ fn size() {
         ],
         427130,
         329121,
+    );
+    compare_vecs(
+        &[
+            "The quick brown fox jumps over the lazy dog.",
+            "The",
+            "quick",
+            "brown",
+            "fox",
+            "jumps",
+            "over",
+            "the",
+            "lazy",
+            "dog",
+        ],
+        498559,
+        416131,
     );
 }
