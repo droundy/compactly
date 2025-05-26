@@ -435,7 +435,9 @@ impl EncodingStrategy<String> for Small {
                 offset,
             } = <Chunk as Encode>::decode(reader, ctx)?;
             out.push_str(&literal);
-            if back == 0 {
+            if length == 0 {
+                // Nothing to do here.
+            } else if back == 0 {
                 // We are repeating our own string.  In this case offset
                 // counts *backwards* and must be >= 1 so we shift it.
                 let offset = out.len() - 1 - offset;
@@ -624,4 +626,5 @@ fn size() {
         265073,
         148730,
     );
+    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 208885, 178064);
 }
