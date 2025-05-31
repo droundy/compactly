@@ -1,15 +1,16 @@
-use super::{Compact, Encode};
+use super::{Compact, Encode, EncodingStrategy};
+use crate::{Normal, Values};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
     io::{Read, Write},
 };
 
-pub struct SetContext<T: Encode> {
+pub struct SetContext<T, S: EncodingStrategy<T>> {
     len: <usize as Encode>::Context,
-    values: T::Context,
+    values: S::Context,
 }
-impl<T: Encode> Default for SetContext<T> {
+impl<T, S: EncodingStrategy<T>> Default for SetContext<T, S> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -20,30 +21,21 @@ impl<T: Encode> Default for SetContext<T> {
 }
 
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
-    type Context = SetContext<T>;
+    type Context = SetContext<T, Normal>;
     #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        self.len().encode(writer, &mut ctx.len)?;
-        for v in self {
-            v.encode(writer, &mut ctx.values)?
-        }
-        Ok(())
+        Values::<Normal>::encode(self, writer, ctx)
     }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let len = Encode::decode(reader, &mut ctx.len)?;
-        let mut set = HashSet::with_capacity(len);
-        for _ in 0..len {
-            set.insert(Encode::decode(reader, &mut ctx.values)?);
-        }
-        Ok(set)
+        Values::<Normal>::decode(reader, ctx)
     }
 }
 
@@ -61,7 +53,7 @@ fn hashset() {
 }
 
 impl<T: Encode + Ord> Encode for BTreeSet<T> {
-    type Context = SetContext<T>;
+    type Context = SetContext<T, Normal>;
     #[inline]
     fn encode<W: Write>(
         &self,
@@ -83,6 +75,58 @@ impl<T: Encode + Ord> Encode for BTreeSet<T> {
         let mut set = Self::new();
         for _ in 0..len {
             set.insert(Encode::decode(reader, &mut ctx.values)?);
+        }
+        Ok(set)
+    }
+}
+
+impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S> {
+    type Context = SetContext<T, S>;
+    fn encode<W: Write>(
+        value: &BTreeSet<T>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.len().encode(writer, &mut ctx.len)?;
+        for value in value {
+            S::encode(value, writer, &mut ctx.values)?;
+        }
+        Ok(())
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<T>, std::io::Error> {
+        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let mut set = BTreeSet::new();
+        for _ in 0..len {
+            set.insert(S::decode(reader, &mut ctx.values)?);
+        }
+        Ok(set)
+    }
+}
+
+impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {
+    type Context = SetContext<T, S>;
+    fn encode<W: Write>(
+        value: &HashSet<T>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.len().encode(writer, &mut ctx.len)?;
+        for value in value {
+            S::encode(value, writer, &mut ctx.values)?;
+        }
+        Ok(())
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<HashSet<T>, std::io::Error> {
+        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let mut set = HashSet::with_capacity(len);
+        for _ in 0..len {
+            set.insert(S::decode(reader, &mut ctx.values)?);
         }
         Ok(set)
     }

@@ -47,6 +47,8 @@ pub struct Mapping<K, V> {
 }
 
 /// Apply this strategy to values held inside.
+///
+/// This applies to any sort of collection such as a `Vec` or a `HashSet`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Values<V> {
     _value: std::marker::PhantomData<V>,
