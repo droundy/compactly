@@ -1,4 +1,6 @@
-use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
+use crate::Compressible;
+
+use super::{bits::Bits, Encode, EncodingStrategy, URange};
 
 #[derive(Default)]
 pub struct CharContext {
@@ -93,7 +95,7 @@ impl Encode for String {
     }
 }
 
-impl EncodingStrategy<String> for Small {
+impl EncodingStrategy<String> for Compressible {
     type Context = Context;
     fn encode<W: std::io::Write>(
         value: &String,

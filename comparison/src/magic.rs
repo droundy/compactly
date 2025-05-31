@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use compactly::Compressible;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, compactly::v0::Encode, compactly::v1::Encode, Clone)]
@@ -63,7 +64,7 @@ pub struct Card {
     finishes: Vec<String>,
     #[compactly(LowCardinality)]
     flavorName: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     flavorText: Option<String>,
     #[compactly(LowCardinality)]
     frameEffects: Option<Vec<String>>,
@@ -105,15 +106,15 @@ pub struct Card {
     manaCost: Option<String>,
     #[compactly(Small)]
     manaValue: usize,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     name: String,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     number: String,
     #[compactly(LowCardinality)]
     originalPrintings: Option<Vec<String>>,
     #[compactly(LowCardinality)]
     originalReleaseDate: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     originalText: Option<String>,
     #[compactly(LowCardinality)]
     originalType: Option<String>,
@@ -136,7 +137,7 @@ pub struct Card {
     setCode: String,
     #[compactly(LowCardinality)]
     side: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     signature: Option<String>,
     // sourceProducts?: SourceProducts;
     #[compactly(LowCardinality)]
@@ -145,7 +146,7 @@ pub struct Card {
     subtypes: Vec<String>,
     #[compactly(LowCardinality)]
     supertypes: Vec<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     text: Option<String>,
     #[compactly(LowCardinality)]
     toughness: Option<String>,
@@ -167,57 +168,57 @@ pub struct LeadershipSkills {
 
 #[derive(Debug, Serialize, Deserialize, compactly::v0::Encode, compactly::v1::Encode, Clone)]
 pub struct Identifiers {
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     abuId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardKingdomEtchedId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardKingdomFoilId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardKingdomId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardsphereId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardsphereFoilId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     cardtraderId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     csiId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mcmId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mcmMetaId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     miniaturemarketId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgArenaId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgjsonFoilVersionId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgjsonNonFoilVersionId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgjsonV4Id: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgoFoilId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     mtgoId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     multiverseId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     scgId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     scryfallId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     scryfallCardBackId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     scryfallOracleId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     scryfallIllustrationId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     tcgplayerProductId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     tcgplayerEtchedProductId: Option<String>,
-    #[compactly(Small)]
+    #[compactly(Compressible)]
     tntId: Option<String>,
 }
 

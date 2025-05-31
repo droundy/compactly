@@ -1,4 +1,5 @@
-use super::{Decimal, Encode, EncodingStrategy, Small};
+use super::{Encode, EncodingStrategy};
+use crate::{Decimal, Small};
 use std::io::{Read, Write};
 
 macro_rules! impl_float {
@@ -135,7 +136,8 @@ impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
 
 #[test]
 fn decimal_float() {
-    use super::{assert_bits, Encoded};
+    use super::assert_bits;
+    use crate::Encoded;
 
     fn test_value(v: f64, dec: usize, bin: usize) {
         println!("Testing {v}.");

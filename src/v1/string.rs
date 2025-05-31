@@ -1,6 +1,6 @@
+use super::{bits::Bits, Encode, EncodingStrategy, URange};
+use crate::{Compressible, Small};
 use std::collections::VecDeque;
-
-use super::{bits::Bits, Encode, EncodingStrategy, Small, URange};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct CharContext {
@@ -419,7 +419,7 @@ impl Encode for Chunk {
     }
 }
 
-impl EncodingStrategy<String> for Small {
+impl EncodingStrategy<String> for Compressible {
     type Context = Lz77;
     fn encode<W: std::io::Write>(
         value: &String,
@@ -495,7 +495,8 @@ impl EncodingStrategy<String> for Small {
 
 #[test]
 fn size() {
-    use super::{assert_bits, Encoded};
+    use super::assert_bits;
+    use crate::Encoded;
 
     assert_bits!("".to_string(), 3);
     assert_bits!("a".to_string(), 11);
@@ -513,7 +514,7 @@ fn size() {
             format!("normal {value:?}")
         );
         assert_bits!(
-            Encoded::<_, Small>::new(value.to_string()),
+            Encoded::<_, Compressible>::new(value.to_string()),
             expected_small,
             format!("small {value:?}")
         );
@@ -524,12 +525,13 @@ fn size() {
         let decoded_normal: Vec<String> = super::decode(&encoded_normal).unwrap();
         assert_eq!(normal, decoded_normal);
 
-        let small = value
+        let small: Vec<Encoded<String, Compressible>> = value
             .iter()
-            .map(|s| super::Compact::new(s.to_string()))
+            .map(|s| s.to_string().into())
             .collect::<Vec<_>>();
         let encoded_small = super::encode(&small);
-        let decoded_small: Vec<super::Compact<String>> = super::decode(&encoded_small).unwrap();
+        let decoded_small: Vec<Encoded<String, Compressible>> =
+            super::decode(&encoded_small).unwrap();
         assert_eq!(small, decoded_small);
 
         println!("normal millibits {value:?}");
@@ -552,7 +554,7 @@ fn size() {
         assert_bits!(
             value
                 .iter()
-                .map(|s| super::Compact::new(s.to_string()))
+                .map(|s| Encoded::<_, Compressible>::new(s.to_string()))
                 .collect::<Vec<_>>(),
             (expected_small + 500) / 1000,
             format!("small {value:?}")

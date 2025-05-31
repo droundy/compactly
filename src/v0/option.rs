@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, Small};
+use super::{Encode, EncodingStrategy};
 
 pub struct OptionContext<T: Encode> {
     is_some: <bool as Encode>::Context,
@@ -44,7 +44,8 @@ impl<T: Encode> Encode for Option<T> {
 macro_rules! option_encoding_strategy {
     ($t:ty, $strategy:ident, $mod:ident) => {
         mod $mod {
-            use super::{$strategy, Encode, EncodingStrategy};
+            use super::{Encode, EncodingStrategy};
+            use crate::$strategy;
             #[derive(Default)]
             pub struct Context {
                 is_some: <bool as Encode>::Context,
@@ -60,7 +61,7 @@ macro_rules! option_encoding_strategy {
                 ) -> Result<(), std::io::Error> {
                     if let Some(v) = value {
                         true.encode(writer, &mut ctx.is_some)?;
-                        Small::encode(v, writer, &mut ctx.value)
+                        $strategy::encode(v, writer, &mut ctx.value)
                     } else {
                         false.encode(writer, &mut ctx.is_some)
                     }
@@ -70,7 +71,7 @@ macro_rules! option_encoding_strategy {
                     ctx: &mut Self::Context,
                 ) -> Result<Option<$t>, std::io::Error> {
                     if bool::decode(reader, &mut ctx.is_some)? {
-                        Ok(Some(Small::decode(reader, &mut ctx.value)?))
+                        Ok(Some($strategy::decode(reader, &mut ctx.value)?))
                     } else {
                         Ok(None)
                     }
@@ -80,6 +81,6 @@ macro_rules! option_encoding_strategy {
     };
 }
 
-option_encoding_strategy!(String, Small, small_string);
+option_encoding_strategy!(String, Compressible, small_string);
 option_encoding_strategy!(u64, Small, small_u64);
 option_encoding_strategy!(usize, Small, small_usize);

@@ -9,7 +9,6 @@ mod bit_context;
 mod bits;
 mod bools;
 mod byte;
-mod encoded;
 mod floats;
 mod ints;
 mod low_cardinality;
@@ -22,6 +21,7 @@ mod urange;
 mod usizes;
 mod vecs;
 
+use crate::{LowCardinality, Small};
 pub use adapt::{Reader, Writer};
 pub use arith::Probability;
 pub use urange::URange;
@@ -84,27 +84,6 @@ pub trait EncodingStrategy<T> {
     ) -> Result<T, std::io::Error>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Encoded<T, S: EncodingStrategy<T>> {
-    value: T,
-    _phantom: std::marker::PhantomData<S>,
-}
-
-/// A strategy for encoding values that are small.
-///
-/// e.g. if there are integers then they should be small integers.
-pub use crate::v0::Small;
-
-/// A strategy for encoding values that are often repeated.
-///
-/// This can be shockingly efficient when there are just a few values for e.g. a
-/// string field.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LowCardinality;
-
-/// A strategy for encoding floating point values that have round decimal values.
-pub use crate::v0::Decimal;
-
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
@@ -158,6 +137,32 @@ where
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         <Small as EncodingStrategy<T>>::millibits(self, ctx)
+    }
+}
+
+impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
+    type Context = S::Context;
+    #[inline]
+    fn encode<W: std::io::Write>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        S::encode(&self.value, writer, ctx)
+    }
+    #[inline]
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        S::millibits(&self.value, ctx)
+    }
+    #[inline]
+    fn decode<R: std::io::Read>(
+        reader: &mut Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            value: S::decode(reader, ctx)?,
+            _phantom: std::marker::PhantomData,
+        })
     }
 }
 

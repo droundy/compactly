@@ -61,7 +61,8 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> EncodingStrategy<T> for LowCardi
 
 #[test]
 fn low_cardinality() {
-    use super::{assert_bits, Encoded};
+    use super::assert_bits;
+    use crate::Encoded;
 
     let strings = [
         b"hello world, this is the very first string".to_vec(),

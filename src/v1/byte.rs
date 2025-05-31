@@ -1,4 +1,5 @@
-use super::{Encode, EncodingStrategy, Small};
+use super::{Encode, EncodingStrategy};
+use crate::Small;
 use std::io::{Read, Write};
 
 #[derive(Clone)]
