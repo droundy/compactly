@@ -9,6 +9,13 @@ pub struct Encoded<T, S> {
     _phantom: std::marker::PhantomData<S>,
 }
 
+/// The default strategy for encoding data.
+///
+/// This exists so that code may be written only once that needs to be able to
+/// handle any strategy.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Normal;
+
 /// A strategy for encoding values that are small.
 ///
 /// e.g. if there are integers then they should be small integers.
@@ -32,21 +39,9 @@ pub struct LowCardinality;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Decimal;
 
-/// Apply the strategy `K` to keys.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Keys<K: Default + Clone> {
-    _phantom: std::marker::PhantomData<K>,
-}
-
-/// Apply the strategy `V` to values.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Values<V: Default + Clone> {
-    _phantom: std::marker::PhantomData<V>,
-}
-
 /// Apply the respective strategies to keys and values.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct KeysValues<K: Default + Clone, V: Default + Clone> {
+pub struct Mapping<K, V> {
     _key: std::marker::PhantomData<K>,
     _value: std::marker::PhantomData<V>,
 }

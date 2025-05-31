@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use compactly::Compressible;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, compactly::v0::Encode, compactly::v1::Encode, Clone)]

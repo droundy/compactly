@@ -166,6 +166,27 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
     }
 }
 
+impl<T: Encode> EncodingStrategy<T> for crate::Normal {
+    type Context = <T as Encode>::Context;
+    #[inline]
+    fn encode<W: Write>(
+        value: &T,
+        writer: &mut Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
+        value.millibits(ctx)
+    }
+    fn decode<R: Read>(
+        reader: &mut Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<T, std::io::Error> {
+        T::decode(reader, ctx)
+    }
+}
+
 #[cfg(test)]
 macro_rules! assert_size {
     ($v:expr, $size:expr) => {

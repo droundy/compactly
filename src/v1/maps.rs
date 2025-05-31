@@ -1,16 +1,17 @@
-use super::{Encode, EncodingStrategy, Small};
+use super::{Encode, EncodingStrategy};
+use crate::{Mapping, Normal};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
     io::{Read, Write},
 };
 
-pub struct MapContext<K: Encode, V: Encode> {
+pub struct MapContext<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> {
     len: <usize as Encode>::Context,
-    key: K::Context,
-    value: V::Context,
+    key: SK::Context,
+    value: SV::Context,
 }
-impl<K: Encode, V: Encode> Default for MapContext<K, V> {
+impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Default for MapContext<K, V, SK, SV> {
     fn default() -> Self {
         Self {
             len: Default::default(),
@@ -19,7 +20,7 @@ impl<K: Encode, V: Encode> Default for MapContext<K, V> {
         }
     }
 }
-impl<K: Encode, V: Encode> Clone for MapContext<K, V> {
+impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContext<K, V, SK, SV> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
@@ -30,7 +31,7 @@ impl<K: Encode, V: Encode> Clone for MapContext<K, V> {
 }
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
-    type Context = MapContext<K, V>;
+    type Context = MapContext<K, V, Normal, Normal>;
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
@@ -69,7 +70,7 @@ fn hashmap() {
 }
 
 impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
-    type Context = MapContext<K, V>;
+    type Context = MapContext<K, V, Normal, Normal>;
     #[inline]
     fn encode<W: Write>(
         &self,
@@ -117,36 +118,10 @@ fn btreemap() {
     );
 }
 
-pub struct SmallMapContext<C, V: Encode> {
-    len: <usize as Encode>::Context,
-    key: C,
-    value: V::Context,
-}
-
-impl<C: Default, V: Encode> Default for SmallMapContext<C, V> {
-    fn default() -> Self {
-        Self {
-            len: Default::default(),
-            key: C::default(),
-            value: Default::default(),
-        }
-    }
-}
-impl<C: Clone, V: Encode> Clone for SmallMapContext<C, V> {
-    fn clone(&self) -> Self {
-        Self {
-            len: self.len.clone(),
-            key: self.key.clone(),
-            value: self.value.clone(),
-        }
-    }
-}
-
-impl<K: Ord, V: Encode> EncodingStrategy<BTreeMap<K, V>> for Small
-where
-    Small: EncodingStrategy<K>,
+impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrategy<BTreeMap<K, V>>
+    for Mapping<SK, SV>
 {
-    type Context = SmallMapContext<<Small as EncodingStrategy<K>>::Context, V>;
+    type Context = MapContext<K, V, SK, SV>;
     #[inline]
     fn encode<W: Write>(
         value: &BTreeMap<K, V>,
@@ -155,8 +130,8 @@ where
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.len)?;
         for (k, v) in value {
-            Small::encode(k, writer, &mut ctx.key)?;
-            v.encode(writer, &mut ctx.value)?;
+            SK::encode(k, writer, &mut ctx.key)?;
+            SV::encode(v, writer, &mut ctx.value)?;
         }
         Ok(())
     }
@@ -169,8 +144,8 @@ where
         let mut map = BTreeMap::new();
         for _ in 0..len {
             map.insert(
-                Small::decode(reader, &mut ctx.key)?,
-                Encode::decode(reader, &mut ctx.value)?,
+                SK::decode(reader, &mut ctx.key)?,
+                SV::decode(reader, &mut ctx.value)?,
             );
         }
         Ok(map)

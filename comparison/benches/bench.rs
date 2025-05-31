@@ -240,7 +240,7 @@ fn main() {
         compactly::v0::Encode, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
     )]
     struct MetNames {
-        // #[compactly(Keys<Compressible>)]
+        #[compactly(Mapping<Compressible, Normal>)]
         mets: std::collections::BTreeMap<String, comparison::meteorites::MeteoriteData>,
     }
     bench_all(
