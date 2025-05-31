@@ -45,3 +45,9 @@ pub struct Mapping<K, V> {
     _key: std::marker::PhantomData<K>,
     _value: std::marker::PhantomData<V>,
 }
+
+/// Apply this strategy to values held inside.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Values<V> {
+    _value: std::marker::PhantomData<V>,
+}

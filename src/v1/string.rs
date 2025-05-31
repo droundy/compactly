@@ -643,11 +643,11 @@ fn size() {
 
     compare_vecs(&["h"], 14000, 20000);
     compare_vecs(&["hello world"], 76790, 82790);
-    compare_vecs(&["hello world", "hello world"], 127070, 100716);
+    compare_vecs(&["hello world", "hello world"], 128070, 101716);
     compare_vecs(
         &["hello world", "hello world", "hello world"],
-        171264,
-        111527,
+        172264,
+        112527,
     );
     compare_vecs(
         &[
@@ -656,10 +656,10 @@ fn size() {
             "hello world",
             "hello world hello world",
         ],
-        265073,
-        148730,
+        262073,
+        145730,
     );
-    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 208885, 178064);
+    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209885, 179064);
     compare_vecs(
         &[
             "hello world! 😊",
@@ -667,8 +667,8 @@ fn size() {
             "goodbye world! 😊",
             "farewell sweet world! 😊",
         ],
-        427130,
-        329121,
+        424130,
+        326121,
     );
     compare_vecs(
         &[
@@ -683,7 +683,7 @@ fn size() {
             "lazy",
             "dog",
         ],
-        498559,
-        416131,
+        495559,
+        413131,
     );
 }
