@@ -1,4 +1,5 @@
-use super::Encode;
+use super::{Encode, EncodingStrategy};
+use crate::Small;
 use std::io::{Read, Write};
 
 impl<T: Encode> Encode for Vec<T> {
@@ -49,5 +50,44 @@ fn size() {
     for num in 5_usize..6 {
         let value = (0..num).collect::<Vec<_>>();
         assert_size!(dbg!(value), 4);
+    }
+}
+
+pub struct Context<T, S: EncodingStrategy<T>> {
+    len: <Small as EncodingStrategy<usize>>::Context,
+    values: S::Context,
+}
+impl<T, S: EncodingStrategy<T>> Default for Context<T, S> {
+    fn default() -> Self {
+        Self {
+            len: Default::default(),
+            values: Default::default(),
+        }
+    }
+}
+
+impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
+    type Context = Context<T, S>;
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<T>, std::io::Error> {
+        let n = Small::decode(reader, &mut ctx.len)?;
+        let mut x = Vec::with_capacity(n);
+        for _ in 0..n {
+            x.push(S::decode(reader, &mut ctx.values)?);
+        }
+        Ok(x)
+    }
+    fn encode<W: Write>(
+        value: &Vec<T>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        Small::encode(&value.len(), writer, &mut ctx.len)?;
+        for v in value {
+            S::encode(v, writer, &mut ctx.values)?;
+        }
+        Ok(())
     }
 }
