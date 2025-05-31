@@ -151,3 +151,37 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         Ok(map)
     }
 }
+
+impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
+    EncodingStrategy<HashMap<K, V>> for Mapping<SK, SV>
+{
+    type Context = MapContext<K, V, SK, SV>;
+    #[inline]
+    fn encode<W: Write>(
+        value: &HashMap<K, V>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.len().encode(writer, &mut ctx.len)?;
+        for (k, v) in value {
+            SK::encode(k, writer, &mut ctx.key)?;
+            SV::encode(v, writer, &mut ctx.value)?;
+        }
+        Ok(())
+    }
+    #[inline]
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<HashMap<K, V>, std::io::Error> {
+        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let mut map = HashMap::with_capacity(len);
+        for _ in 0..len {
+            map.insert(
+                SK::decode(reader, &mut ctx.key)?,
+                SV::decode(reader, &mut ctx.value)?,
+            );
+        }
+        Ok(map)
+    }
+}
