@@ -149,16 +149,6 @@ struct Chunk {
     offset: usize,
 }
 
-fn split_prefix(s: &str, mut len: usize) -> Option<&str> {
-    while len > 1 {
-        if let Some((p, _)) = s.split_at_checked(len) {
-            return Some(p);
-        }
-        len -= 1;
-    }
-    None
-}
-
 impl Lz77 {
     fn push_old(&mut self, value: String) {
         self.old.push_front(value);
@@ -197,40 +187,33 @@ impl Lz77 {
             } else {
                 *value
             };
-            if let Some(prefix_start) = split_prefix(prefix, 5) {
-                let sofar_clone = sofar.clone();
-                let mut possible_chunks = Vec::new();
-                for (back, s) in std::iter::once(sofar_clone.as_str())
-                    .chain(self.old.iter().map(|s| s.as_str()))
-                    .enumerate()
-                    .map(|(back, s)| (back as u8, s))
-                {
-                    for (mut offset, _) in s.match_indices(prefix_start) {
-                        let length = prefix
-                            .bytes()
-                            .zip(s[offset..].bytes())
-                            .take_while(|(c1, c2)| c1 == c2)
-                            .count();
-                        let length = -(length as i16); // so we can minimize
-                        if back == 0 {
-                            offset = s.len() - offset - 1;
-                        }
-                        possible_chunks.push((length, back, offset));
+            let sofar_clone = sofar.clone();
+            let mut possible_chunks = Vec::new();
+            for (back, s) in std::iter::once(sofar_clone.as_str())
+                .chain(self.old.iter().map(|s| s.as_str()))
+                .enumerate()
+                .map(|(back, s)| (back as u8, s))
+            {
+                if let Some((mut offset, length)) = find_longest_latest_prefix(s, prefix) {
+                    let length = -(length as i16); // so we can minimize
+                    if back == 0 {
+                        offset = s.len() - offset - 1;
                     }
+                    possible_chunks.push((length, back, offset));
                 }
-                if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
-                    let length = (-l) as u8; // safe because l is negative and less than 256.
-                    *value = &value[length as usize..];
-                    sofar.push_str(&prefix[..length as usize]);
-                    let chunk = Chunk {
-                        literal,
-                        length,
-                        back,
-                        offset,
-                    };
-                    self.shift_chunk(&chunk);
-                    return Some(chunk);
-                }
+            }
+            if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
+                let length = (-l) as u8; // safe because l is negative and less than 256.
+                *value = &value[length as usize..];
+                sofar.push_str(&prefix[..length as usize]);
+                let chunk = Chunk {
+                    literal,
+                    length,
+                    back,
+                    offset,
+                };
+                self.shift_chunk(&chunk);
+                return Some(chunk);
             }
             // We are forced to emit a literal character
             let mut chars = value.char_indices();
@@ -320,18 +303,6 @@ fn eager() {
             }
         ]
     );
-    // assert_eq!(
-    //     Lz77::default().eager(COMPRESSIBLE_TEXT),
-    //     vec![
-    //         Chunk::Literal('a'),
-    //         Chunk::Literal('a'),
-    //         Chunk::Chunk {
-    //             back: 0,
-    //             offset: 1,
-    //             length: 2
-    //         }
-    //     ]
-    // );
 }
 
 #[cfg(test)]
@@ -686,4 +657,9 @@ fn size() {
         495559,
         413131,
     );
+}
+
+/// Returns offset and length of the longest prefix of the needle
+fn find_longest_latest_prefix(haystack: &str, needle: &str) -> Option<(usize, usize)> {
+    super::bytes::find_longest_latest_prefix(haystack.as_bytes(), needle.as_bytes())
 }

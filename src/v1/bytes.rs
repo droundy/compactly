@@ -62,45 +62,33 @@ impl Lz77 {
             } else {
                 *value
             };
-            if let Some((prefix_start, _)) = prefix.split_at_checked(3) {
-                let sofar_clone = sofar.clone();
-                let mut possible_chunks = Vec::new();
-                for (back, s) in std::iter::once(sofar_clone.as_slice())
-                    .chain(self.old.iter().map(|s| s.as_slice()))
-                    .enumerate()
-                    .map(|(back, s)| (back as u8, s))
-                {
-                    for mut offset in s
-                        .windows(3)
-                        .enumerate()
-                        .filter(|&(_, x)| x == prefix_start)
-                        .map(|(offset, _)| offset)
-                    {
-                        let length = prefix
-                            .iter()
-                            .zip(&s[offset..])
-                            .take_while(|(c1, c2)| c1 == c2)
-                            .count();
-                        let length = -(length as i16); // so we can minimize
-                        if back == 0 {
-                            offset = s.len() - offset - 1;
-                        }
-                        possible_chunks.push((length, back, offset));
+            let sofar_clone = sofar.clone();
+            let mut possible_chunks = Vec::new();
+            for (back, s) in std::iter::once(sofar_clone.as_slice())
+                .chain(self.old.iter().map(|s| s.as_slice()))
+                .enumerate()
+                .map(|(back, s)| (back as u8, s))
+            {
+                if let Some((mut offset, length)) = find_longest_latest_prefix(s, prefix) {
+                    let length = -(length as i16); // so we can minimize
+                    if back == 0 {
+                        offset = s.len() - offset - 1;
                     }
+                    possible_chunks.push((length, back, offset));
                 }
-                if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
-                    let length = (-l) as u8; // safe because l is negative and less than 256.
-                    *value = &value[length as usize..];
-                    sofar.extend_from_slice(&prefix[..length as usize]);
-                    let chunk = Chunk {
-                        literal,
-                        length,
-                        back,
-                        offset,
-                    };
-                    self.shift_chunk(&chunk);
-                    return Some(chunk);
-                }
+            }
+            if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
+                let length = (-l) as u8; // safe because l is negative and less than 256.
+                *value = &value[length as usize..];
+                sofar.extend_from_slice(&prefix[..length as usize]);
+                let chunk = Chunk {
+                    literal,
+                    length,
+                    back,
+                    offset,
+                };
+                self.shift_chunk(&chunk);
+                return Some(chunk);
             }
             // We are forced to emit a literal byte
             let (&first, rest) = value.split_first()?;
@@ -160,24 +148,64 @@ fn eager() {
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
         vec![
             Chunk {
-                literal: b"aaa".to_vec(),
-                length: 3,
+                literal: b"aaaaa".to_vec(),
+                length: 5,
                 back: 0,
-                offset: 2,
+                offset: 4,
             },
             Chunk {
                 literal: b"".to_vec(),
-                length: 6,
+                length: 10,
                 back: 0,
-                offset: 5,
-            },
-            Chunk {
-                literal: b"".to_vec(),
-                length: 8,
-                back: 0,
-                offset: 7,
+                offset: 9,
             }
         ]
+    );
+}
+
+/// Returns offset and length of the longest prefix of the needle
+pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
+    let mut prefix = if needle.len() > 1 && needle.len() < 5 {
+        needle
+    } else {
+        needle.split_at_checked(5)?.0
+    };
+    let mut best = None;
+    for offset in (0..(haystack.len() + 1).saturating_sub(prefix.len())).rev() {
+        let here = &haystack[offset..];
+        if here.starts_with(prefix) {
+            let mut length = prefix.len();
+            if prefix.len() < needle.len() && here.len() > prefix.len() {
+                length += needle[prefix.len()..]
+                    .iter()
+                    .zip(&haystack[offset + prefix.len()..])
+                    .take_while(|(c1, c2)| c1 == c2)
+                    .count();
+            }
+            best = Some((offset, length));
+            if length == needle.len() {
+                // We already found the whole needle!
+                return best;
+            }
+            prefix = &needle[..length + 1];
+        }
+    }
+    best
+}
+
+#[test]
+fn test_longest_prefix() {
+    assert_eq!(
+        find_longest_latest_prefix(b"hello world hello David", b"hello"),
+        Some((12, 5))
+    );
+    assert_eq!(
+        find_longest_latest_prefix(b"hello world hello David", b"hello Roundy"),
+        Some((12, 6))
+    );
+    assert_eq!(
+        find_longest_latest_prefix(b"hello world hello David hell is hellish", b"hello Roundy"),
+        Some((12, 6))
     );
 }
 
@@ -391,7 +419,7 @@ fn size() {
             format!("small b{s:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7173);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
@@ -420,14 +448,14 @@ fn size() {
     compare_small_bits(b"aa", 17, 23);
     compare_small_bits(b"aaa", 20, 26);
     compare_small_bits(b"aaaa", 24, 30);
-    compare_small_bits(b"aaaaaaaa", 31, 46);
+    compare_small_bits(b"aaaaaaaa", 31, 39);
     compare_small_bits(b"hello", 36, 42);
     compare_small_bits(b"hello world hello wood", 122, 116);
     compare_small_bits(b"hello world hello world", 127, 98);
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
         415,
-        428,
+        421,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
@@ -435,7 +463,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1537,
-        861,
+        842,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
@@ -443,7 +471,7 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1607,
-        1039,
+        1013,
     );
 
     compare_vecs(&[], 3000, 3000);
@@ -501,6 +529,6 @@ fn size() {
             b"dog",
         ],
         495559,
-        425691,
+        413131,
     );
 }
