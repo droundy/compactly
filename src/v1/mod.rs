@@ -9,6 +9,7 @@ mod bit_context;
 mod bits;
 mod bools;
 mod byte;
+mod bytes;
 mod floats;
 mod ints;
 mod low_cardinality;
