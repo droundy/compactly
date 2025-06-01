@@ -202,11 +202,13 @@ impl IntoIterator for Bytes {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Encoder {
+#[cfg(test)]
+struct Encoder {
     bytes: Vec<u8>,
     state: ArithState,
 }
 
+#[cfg(test)]
 impl Encoder {
     pub fn new() -> Self {
         Self {
@@ -258,13 +260,15 @@ impl<W: Write> Writer<W> {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Decoder {
+struct Decoder {
     bytes: Vec<u8>,
     state: ArithState,
     value: u64,
 }
 
+#[cfg(test)]
 impl Decoder {
     pub fn new(mut bytes: Vec<u8>) -> Self {
         bytes.reverse();
