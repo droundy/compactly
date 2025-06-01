@@ -205,7 +205,7 @@ impl Lz77 {
                     .enumerate()
                     .map(|(back, s)| (back as u8, s))
                 {
-                    if let Some(mut offset) = s.find(prefix_start) {
+                    for (mut offset, _) in s.match_indices(prefix_start) {
                         let length = prefix
                             .bytes()
                             .zip(s[offset..].bytes())
@@ -560,7 +560,7 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7276);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
