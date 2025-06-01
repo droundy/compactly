@@ -69,7 +69,12 @@ impl Lz77 {
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
-                if let Some((mut offset, length)) = find_longest_latest_prefix(s, prefix) {
+                let find_best_prefix = if back == 0 {
+                    find_longest_latest_prefix
+                } else {
+                    find_first_longest_prefix
+                };
+                if let Some((mut offset, length)) = find_best_prefix(s, prefix) {
                     let length = -(length as i16); // so we can minimize
                     if back == 0 {
                         offset = s.len() - offset - 1;
@@ -163,7 +168,7 @@ fn eager() {
     );
 }
 
-/// Returns offset and length of the longest prefix of the needle
+/// Returns offset and length of the longest prefix of the needle prefering a later one
 pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
     let mut prefix = if needle.len() > 1 && needle.len() < 5 {
         needle
@@ -172,6 +177,36 @@ pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Opti
     };
     let mut best = None;
     for offset in (0..(haystack.len() + 1).saturating_sub(prefix.len())).rev() {
+        let here = &haystack[offset..];
+        if here.starts_with(prefix) {
+            let mut length = prefix.len();
+            if prefix.len() < needle.len() && here.len() > prefix.len() {
+                length += needle[prefix.len()..]
+                    .iter()
+                    .zip(&haystack[offset + prefix.len()..])
+                    .take_while(|(c1, c2)| c1 == c2)
+                    .count();
+            }
+            best = Some((offset, length));
+            if length == needle.len() {
+                // We already found the whole needle!
+                return best;
+            }
+            prefix = &needle[..length + 1];
+        }
+    }
+    best
+}
+
+/// Returns offset and length of the longest prefix of the needle prefering a later one
+pub(crate) fn find_first_longest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
+    let mut prefix = if needle.len() > 1 && needle.len() < 5 {
+        needle
+    } else {
+        needle.split_at_checked(5)?.0
+    };
+    let mut best = None;
+    for offset in 0..(haystack.len() + 1).saturating_sub(prefix.len()) {
         let here = &haystack[offset..];
         if here.starts_with(prefix) {
             let mut length = prefix.len();
