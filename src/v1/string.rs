@@ -152,8 +152,11 @@ struct Chunk {
 impl Lz77 {
     fn push_old(&mut self, value: String) {
         self.old.push_front(value);
-        while self.old.len() > 254 {
-            self.old.pop_back();
+        // Should find a tunable mechanism or a better heuristic for limiting
+        // how far back we look.
+        let mut sz = self.old.iter().map(|s| s.len()).sum::<usize>();
+        while self.old.len() > 254 || (sz > 1024 && self.old.len() > 3) {
+            sz -= self.old.pop_back().unwrap().len();
         }
     }
     fn shift_chunk(&mut self, Chunk { back, .. }: &Chunk) {
