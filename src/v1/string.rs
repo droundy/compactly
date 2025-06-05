@@ -189,17 +189,19 @@ impl Lz77 {
             };
             let sofar_clone = sofar.clone();
             let mut possible_chunks = Vec::new();
+            let mut min_match = 0;
             for (back, s) in std::iter::once(sofar_clone.as_str())
                 .chain(self.old.iter().map(|s| s.as_str()))
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
-                let find_best_prefix = if back == 0 {
-                    find_longest_latest_prefix
+                let best_prefix = if back == 0 {
+                    find_longest_latest_prefix(s, prefix)
                 } else {
-                    find_first_longest_prefix
+                    find_first_longest_prefix(s, prefix, min_match)
                 };
-                if let Some((mut offset, length)) = find_best_prefix(s, prefix) {
+                if let Some((mut offset, length)) = best_prefix {
+                    min_match = length + 1;
                     let length = -(length as i16); // so we can minimize
                     if back == 0 {
                         offset = s.len() - offset - 1;
@@ -670,6 +672,10 @@ fn find_longest_latest_prefix(haystack: &str, needle: &str) -> Option<(usize, us
 }
 
 /// Returns offset and length of the longest prefix of the needle prefering one at the beginning
-pub(crate) fn find_first_longest_prefix(haystack: &str, needle: &str) -> Option<(usize, usize)> {
-    super::bytes::find_first_longest_prefix(haystack.as_bytes(), needle.as_bytes())
+pub(crate) fn find_first_longest_prefix(
+    haystack: &str,
+    needle: &str,
+    min_match: usize,
+) -> Option<(usize, usize)> {
+    super::bytes::find_first_longest_prefix(haystack.as_bytes(), needle.as_bytes(), min_match)
 }

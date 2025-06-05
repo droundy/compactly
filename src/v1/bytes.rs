@@ -64,17 +64,19 @@ impl Lz77 {
             };
             let sofar_clone = sofar.clone();
             let mut possible_chunks = Vec::new();
+            let mut min_match = 0;
             for (back, s) in std::iter::once(sofar_clone.as_slice())
                 .chain(self.old.iter().map(|s| s.as_slice()))
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
-                let find_best_prefix = if back == 0 {
-                    find_longest_latest_prefix
+                let best_prefix = if back == 0 {
+                    find_longest_latest_prefix(s, prefix)
                 } else {
-                    find_first_longest_prefix
+                    find_first_longest_prefix(s, prefix, min_match)
                 };
-                if let Some((mut offset, length)) = find_best_prefix(s, prefix) {
+                if let Some((mut offset, length)) = best_prefix {
+                    min_match = length + 1;
                     let length = -(length as i16); // so we can minimize
                     if back == 0 {
                         offset = s.len() - offset - 1;
@@ -199,11 +201,18 @@ pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Opti
 }
 
 /// Returns offset and length of the longest prefix of the needle prefering one at the beginning
-pub(crate) fn find_first_longest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
-    let mut prefix = if needle.len() > 1 && needle.len() < 5 {
+pub(crate) fn find_first_longest_prefix(
+    haystack: &[u8],
+    needle: &[u8],
+    min_match: usize,
+) -> Option<(usize, usize)> {
+    if haystack.len() < min_match || needle.len() < min_match {
+        return None;
+    }
+    let mut prefix = if min_match == 0 && needle.len() > 1 && needle.len() < 5 {
         needle
     } else {
-        needle.split_at_checked(5)?.0
+        needle.split_at_checked(min_match.max(5))?.0
     };
     let mut best = None;
     for offset in 0..(haystack.len() + 1).saturating_sub(prefix.len()) {
