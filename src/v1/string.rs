@@ -194,7 +194,12 @@ impl Lz77 {
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
-                if let Some((mut offset, length)) = find_longest_latest_prefix(s, prefix) {
+                let find_best_prefix = if back == 0 {
+                    find_longest_latest_prefix
+                } else {
+                    find_first_longest_prefix
+                };
+                if let Some((mut offset, length)) = find_best_prefix(s, prefix) {
                     let length = -(length as i16); // so we can minimize
                     if back == 0 {
                         offset = s.len() - offset - 1;
@@ -659,7 +664,12 @@ fn size() {
     );
 }
 
-/// Returns offset and length of the longest prefix of the needle
+/// Returns offset and length of the longest prefix of the needle prefering a later one
 fn find_longest_latest_prefix(haystack: &str, needle: &str) -> Option<(usize, usize)> {
     super::bytes::find_longest_latest_prefix(haystack.as_bytes(), needle.as_bytes())
+}
+
+/// Returns offset and length of the longest prefix of the needle prefering one at the beginning
+pub(crate) fn find_first_longest_prefix(haystack: &str, needle: &str) -> Option<(usize, usize)> {
+    super::bytes::find_first_longest_prefix(haystack.as_bytes(), needle.as_bytes())
 }

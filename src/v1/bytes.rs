@@ -198,7 +198,7 @@ pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Opti
     best
 }
 
-/// Returns offset and length of the longest prefix of the needle prefering a later one
+/// Returns offset and length of the longest prefix of the needle prefering one at the beginning
 pub(crate) fn find_first_longest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
     let mut prefix = if needle.len() > 1 && needle.len() < 5 {
         needle
