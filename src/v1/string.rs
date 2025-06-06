@@ -152,11 +152,8 @@ struct Chunk {
 impl Lz77 {
     fn push_old(&mut self, value: String) {
         self.old.push_front(value);
-        // Should find a tunable mechanism or a better heuristic for limiting
-        // how far back we look.
-        let mut sz = self.old.iter().map(|s| s.len()).sum::<usize>();
-        while self.old.len() > 254 || (sz > 1024 && self.old.len() > 3) {
-            sz -= self.old.pop_back().unwrap().len();
+        while self.old.len() > 254 {
+            self.old.pop_back();
         }
     }
     fn shift_chunk(&mut self, Chunk { back, .. }: &Chunk) {
@@ -193,11 +190,29 @@ impl Lz77 {
             let sofar_clone = sofar.clone();
             let mut possible_chunks = Vec::new();
             let mut min_match = 0;
-            for (back, s) in std::iter::once(sofar_clone.as_str())
+            let mut bytes_seen_so_far = 0;
+            for (back, mut s) in std::iter::once(sofar_clone.as_str())
                 .chain(self.old.iter().map(|s| s.as_str()))
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
+                // We only look back at the previous 1024 bytes.
+                const BACK_WINDOW: usize = 1024;
+                if bytes_seen_so_far > BACK_WINDOW {
+                    break;
+                }
+                if bytes_seen_so_far + s.len() > BACK_WINDOW {
+                    if let Some((new_s, _)) =
+                        &s.split_at_checked(bytes_seen_so_far + s.len() - BACK_WINDOW)
+                    {
+                        s = new_s;
+                    }
+                }
+                bytes_seen_so_far += s.len();
+
+                // while !self.chunk_is_better(back, min_match, prefix) {
+                //     min_match += 1;
+                // }
                 let best_prefix = if back == 0 {
                     find_longest_latest_prefix(s, prefix)
                 } else {
@@ -245,6 +260,23 @@ impl Lz77 {
                 back: 0,
                 offset: 0,
             })
+        }
+    }
+    fn chunk_is_better(&self, back: u8, min_match: usize, prefix: &str) -> bool {
+        let chunk = Chunk {
+            literal: String::new(),
+            back,
+            length: min_match as u8,
+            offset: 0,
+        }; // .millibits(&mut self.clone()) > prefix.
+        let chunk_size = chunk.millibits(&mut self.clone()).unwrap();
+        if let Some((lit, _)) = prefix.split_at_checked(min_match) {
+            lit.to_string()
+                .millibits(&mut self.literal.clone())
+                .unwrap()
+                > chunk_size
+        } else {
+            false
         }
     }
 }
