@@ -2,6 +2,8 @@ use super::{Encode, EncodingStrategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
+mod buffer;
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: VecDeque<Vec<u8>>,
@@ -65,11 +67,29 @@ impl Lz77 {
             let sofar_clone = sofar.clone();
             let mut possible_chunks = Vec::new();
             let mut min_match = 0;
-            for (back, s) in std::iter::once(sofar_clone.as_slice())
+            let mut bytes_seen_so_far = 0;
+            for (back, mut s) in std::iter::once(sofar_clone.as_slice())
                 .chain(self.old.iter().map(|s| s.as_slice()))
                 .enumerate()
                 .map(|(back, s)| (back as u8, s))
             {
+                const BACK_WINDOW: usize = 3 * 1024;
+                if bytes_seen_so_far > BACK_WINDOW {
+                    break;
+                }
+                if bytes_seen_so_far + s.len() > BACK_WINDOW {
+                    let remaining = bytes_seen_so_far + s.len() - BACK_WINDOW;
+                    if back > 0 {
+                        if let Some((new_s, _)) = &s.split_at_checked(remaining) {
+                            s = new_s;
+                        }
+                    } else {
+                        if let Some((_, new_s)) = &s.split_at_checked(s.len() - remaining) {
+                            s = new_s;
+                        }
+                    }
+                }
+                bytes_seen_so_far += s.len();
                 let best_prefix = if back == 0 {
                     find_longest_latest_prefix(s, prefix)
                 } else {
@@ -113,6 +133,64 @@ impl Lz77 {
                 offset: 0,
             })
         }
+    }
+
+    pub fn encode<W: std::io::Write>(
+        &mut self,
+        value: &[u8],
+        writer: &mut super::Writer<W>,
+    ) -> Result<(), std::io::Error> {
+        let chunks = self.eager(value);
+        Small::encode(&chunks.len(), writer, &mut self.count)?;
+        for chunk in chunks {
+            chunk.encode(writer, self)?;
+            self.shift_chunk(&chunk);
+        }
+        self.push_old(value.to_vec());
+        Ok(())
+    }
+    pub fn millibits(&mut self, value: &[u8]) -> Option<usize> {
+        let chunks = self.eager(value);
+        let mut tot = Small::millibits(&chunks.len(), &mut self.count)?;
+        for chunk in chunks {
+            tot += chunk.millibits(self)?;
+            self.shift_chunk(&chunk);
+        }
+        self.push_old(value.to_vec());
+        Some(tot)
+    }
+
+    pub fn decode<R: std::io::Read>(
+        &mut self,
+        reader: &mut super::Reader<R>,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut self.count)?;
+        let mut out = Vec::with_capacity(5 * count);
+        for _ in 0..count {
+            let chunk @ Chunk {
+                length,
+                back,
+                offset,
+                ..
+            } = <Chunk as Encode>::decode(reader, self)?;
+            out.extend_from_slice(&chunk.literal);
+            if length == 0 {
+                // Nothing to do here.
+            } else if back == 0 {
+                // We are repeating our own string.  In this case offset
+                // counts *backwards* and must be >= 1 so we shift it.
+                let offset = out.len() - 1 - offset;
+                out.reserve(length as usize);
+                for i in offset..offset + length as usize {
+                    out.push(out[i]);
+                }
+            } else {
+                self.shift_chunk(&chunk);
+                out.extend_from_slice(&self.old[0][offset..offset + length as usize]);
+            }
+        }
+        self.push_old(out.clone());
+        Ok(out)
     }
 }
 
@@ -346,57 +424,17 @@ impl EncodingStrategy<Vec<u8>> for Compressible {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        let chunks = ctx.eager(value);
-        Small::encode(&chunks.len(), writer, &mut ctx.count)?;
-        for chunk in chunks {
-            chunk.encode(writer, ctx)?;
-            ctx.shift_chunk(&chunk);
-        }
-        ctx.push_old(value.clone());
-        Ok(())
+        ctx.encode(value, writer)
     }
     fn millibits(value: &Vec<u8>, ctx: &mut Self::Context) -> Option<usize> {
-        let chunks = ctx.eager(value);
-        let mut tot = Small::millibits(&chunks.len(), &mut ctx.count)?;
-        for chunk in chunks {
-            tot += chunk.millibits(ctx)?;
-            ctx.shift_chunk(&chunk);
-        }
-        ctx.push_old(value.clone());
-        Some(tot)
+        ctx.millibits(value)
     }
 
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.count)?;
-        let mut out = Vec::with_capacity(5 * count);
-        for _ in 0..count {
-            let chunk @ Chunk {
-                length,
-                back,
-                offset,
-                ..
-            } = <Chunk as Encode>::decode(reader, ctx)?;
-            out.extend_from_slice(&chunk.literal);
-            if length == 0 {
-                // Nothing to do here.
-            } else if back == 0 {
-                // We are repeating our own string.  In this case offset
-                // counts *backwards* and must be >= 1 so we shift it.
-                let offset = out.len() - 1 - offset;
-                out.reserve(length as usize);
-                for i in offset..offset + length as usize {
-                    out.push(out[i]);
-                }
-            } else {
-                ctx.shift_chunk(&chunk);
-                out.extend_from_slice(&ctx.old[0][offset..offset + length as usize]);
-            }
-        }
-        ctx.push_old(out.clone());
-        Ok(out)
+        ctx.decode(reader)
     }
 }
 

@@ -433,76 +433,24 @@ impl Encode for Chunk {
 }
 
 impl EncodingStrategy<String> for Compressible {
-    type Context = Lz77;
+    type Context = super::bytes::Lz77;
     fn encode<W: std::io::Write>(
         value: &String,
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        let chunks = ctx.eager(value);
-        Small::encode(&chunks.len(), writer, &mut ctx.count)?;
-        for chunk in chunks {
-            chunk.encode(writer, ctx)?;
-            ctx.shift_chunk(&chunk);
-        }
-        ctx.push_old(value.clone());
-        Ok(())
+        ctx.encode(value.as_bytes(), writer)
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
-        let chunks = ctx.eager(value);
-        let mut tot = Small::millibits(&chunks.len(), &mut ctx.count)?;
-        for chunk in chunks {
-            tot += chunk.millibits(ctx)?;
-            ctx.shift_chunk(&chunk);
-        }
-        ctx.push_old(value.clone());
-        Some(tot)
+        ctx.millibits(value.as_bytes())
     }
 
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.count)?;
-        let mut out = String::with_capacity(5 * count);
-        for _ in 0..count {
-            let chunk @ Chunk {
-                length,
-                back,
-                offset,
-                ..
-            } = <Chunk as Encode>::decode(reader, ctx)?;
-            out.push_str(&chunk.literal);
-            if length == 0 {
-                // Nothing to do here.
-            } else if back == 0 {
-                // We are repeating our own string.  In this case offset
-                // counts *backwards* and must be >= 1 so we shift it.
-                let offset = out.len() - 1 - offset;
-                if offset + length as usize <= out.len() {
-                    // println!("We have from {offset} to {}", offset + length);
-                    let x = String::from(&out[offset..offset + length as usize]);
-                    out.push_str(&x);
-                } else {
-                    // println!("We are run length encoding");
-                    // With extra length this means we are using run length
-                    // encoding in effect, which is kind of a pain.
-                    let chunk = String::from(&out[offset..]);
-                    let final_length = out.len() + length as usize;
-                    while out.len() < final_length {
-                        out.push_str(&chunk);
-                    }
-                    while out.len() > final_length {
-                        out.pop();
-                    }
-                }
-            } else {
-                ctx.shift_chunk(&chunk);
-                out.push_str(&ctx.old[0][offset..offset + length as usize]);
-            }
-        }
-        ctx.push_old(out.clone());
-        Ok(out)
+        let bytes = ctx.decode(reader)?;
+        String::from_utf8(bytes).map_err(std::io::Error::other)
     }
 }
 
