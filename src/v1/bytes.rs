@@ -172,10 +172,11 @@ fn eager() {
 
 /// Returns offset and length of the longest prefix of the needle prefering a later one
 pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
-    let mut prefix = if needle.len() > 1 && needle.len() < 5 {
+    const MIN_MATCH: usize = 5;
+    let mut prefix = if needle.len() > 1 && needle.len() < MIN_MATCH {
         needle
     } else {
-        needle.split_at_checked(5)?.0
+        needle.split_at_checked(MIN_MATCH)?.0
     };
     let mut best = None;
     for offset in (0..(haystack.len() + 1).saturating_sub(prefix.len())).rev() {
