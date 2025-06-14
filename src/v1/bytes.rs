@@ -95,12 +95,21 @@ impl Lz77 {
                 } else {
                     find_first_longest_prefix(s, prefix, min_match)
                 };
-                if let Some((mut offset, length)) = best_prefix {
+                if let Some((mut offset, mut length)) = best_prefix {
                     min_match = length + 1;
-                    let length = -(length as i16); // so we can minimize
                     if back == 0 {
+                        if offset + length == s.len() {
+                            // We could keep repeating maybe?
+                            while length < 255
+                                && length < prefix.len()
+                                && s[offset + length % (s.len() - offset)] == prefix[length]
+                            {
+                                length += 1;
+                            }
+                        }
                         offset = s.len() - offset - 1;
                     }
+                    let length = -(length as i16); // so we can minimize
                     possible_chunks.push((length, back, offset));
                 }
             }
@@ -231,20 +240,12 @@ fn eager() {
     }
     assert_eq!(
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
-        vec![
-            Chunk {
-                literal: b"aaaaa".to_vec(),
-                length: 5,
-                back: 0,
-                offset: 4,
-            },
-            Chunk {
-                literal: b"".to_vec(),
-                length: 10,
-                back: 0,
-                offset: 9,
-            }
-        ]
+        vec![Chunk {
+            literal: b"aaaaa".to_vec(),
+            length: 15,
+            back: 0,
+            offset: 4,
+        },]
     );
 }
 
@@ -546,7 +547,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1537,
-        842,
+        839,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
@@ -554,7 +555,7 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1607,
-        1013,
+        1011,
     );
 
     compare_vecs(&[], 3000, 3000);

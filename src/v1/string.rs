@@ -552,7 +552,7 @@ fn size() {
     compare_small_bits("aaa", 20, 26);
     compare_small_bits("aaaa", 24, 30);
     compare_small_bits("aaaaaaaa", 31, 39);
-    compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa", 133, 119);
+    compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa", 133, 140);
     compare_small_bits("hello", 36, 42);
     compare_small_bits("hello world hello wood", 122, 116);
     compare_small_bits("hello world hello world", 127, 98);
@@ -567,7 +567,7 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1537,
-        842,
+        839,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -575,7 +575,7 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1607,
-        1013,
+        1011,
     );
 
     compare_vecs(&[], 3000, 3000);
@@ -620,7 +620,7 @@ fn size() {
         262073,
         145730,
     );
-    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209885, 179064);
+    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209885, 198308);
     compare_vecs(
         &[
             "hello world! 😊",
@@ -629,7 +629,7 @@ fn size() {
             "farewell sweet world! 😊",
         ],
         424130,
-        326121,
+        350634,
     );
     compare_vecs(
         &[
