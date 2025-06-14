@@ -1,3 +1,5 @@
+use crate::Sorted;
+
 use super::{byte::UBits, Compact, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
@@ -240,6 +242,54 @@ impl EncodingStrategy<usize> for Small {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct SortedContext {
+    previous: Option<usize>,
+    not_sorted: <bool as Encode>::Context,
+    value: <Small as EncodingStrategy<usize>>::Context,
+    difference: <Small as EncodingStrategy<usize>>::Context,
+}
+
+impl EncodingStrategy<usize> for Sorted {
+    type Context = SortedContext;
+    fn encode<W: Write>(
+        value: &usize,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        if let Some(previous) = ctx.previous.take() {
+            let not_sorted = *value < previous;
+            not_sorted.encode(writer, &mut ctx.not_sorted)?;
+            if not_sorted {
+                Small::encode(value, writer, &mut ctx.value)?;
+            } else {
+                Small::encode(&(*value - previous), writer, &mut ctx.difference)?;
+            }
+        } else {
+            Small::encode(value, writer, &mut ctx.value)?;
+        }
+        ctx.previous = Some(*value);
+        Ok(())
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+            if not_sorted {
+                Small::decode(reader, &mut ctx.value)?
+            } else {
+                previous + <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.difference)?
+            }
+        } else {
+            Small::decode(reader, &mut ctx.value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
     }
 }
 

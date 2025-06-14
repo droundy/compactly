@@ -28,6 +28,10 @@ pub struct Small;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Compressible;
 
+/// A strategy for encoding values that have been sorted.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Sorted;
+
 /// A strategy for encoding values that are often repeated.
 ///
 /// This can be shockingly efficient when there are just a few values for e.g. a

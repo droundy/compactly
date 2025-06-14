@@ -2,7 +2,7 @@ use super::{Encode, EncodingStrategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
-mod buffer;
+// mod buffer;
 
 #[derive(Default, Clone)]
 pub struct Lz77 {
