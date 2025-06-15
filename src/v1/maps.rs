@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Mapping, Normal};
+use crate::{Mapping, Normal, Sorted};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
@@ -69,8 +69,11 @@ fn hashmap() {
     // in arbitrary orders.
 }
 
-impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
-    type Context = MapContext<K, V, Normal, Normal>;
+impl<K: Ord, V: Encode> Encode for BTreeMap<K, V>
+where
+    Sorted: EncodingStrategy<K>,
+{
+    type Context = MapContext<K, V, Sorted, Normal>;
     #[inline]
     fn encode<W: Write>(
         &self,
@@ -79,7 +82,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
         for (k, v) in self {
-            k.encode(writer, &mut ctx.key)?;
+            Sorted::encode(k, writer, &mut ctx.key)?;
             v.encode(writer, &mut ctx.value)?;
         }
         Ok(())
@@ -93,7 +96,7 @@ impl<K: Encode + Ord, V: Encode> Encode for BTreeMap<K, V> {
         let mut map = Self::new();
         for _ in 0..len {
             map.insert(
-                Encode::decode(reader, &mut ctx.key)?,
+                Sorted::decode(reader, &mut ctx.key)?,
                 Encode::decode(reader, &mut ctx.value)?,
             );
         }
@@ -107,14 +110,14 @@ fn btreemap() {
     assert_size!(BTreeMap::<usize, usize>::new(), 1);
     assert_size!(BTreeMap::from([(0_usize, 0_usize)]), 1);
     assert_size!(BTreeMap::from_iter((0_usize..2).map(|v| (v, v))), 2);
-    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 1848);
+    assert_size!(BTreeMap::from_iter((0_usize..1_000).map(|v| (v, v))), 934);
     assert_size!(
         BTreeMap::from_iter((1_000_usize..2_000).map(|v| (v, v))),
-        1929
+        975
     );
     assert_size!(
         BTreeMap::from_iter((1_000_000_usize..1_001_000).map(|v| (v, v))),
-        1984
+        1005
     );
 }
 
