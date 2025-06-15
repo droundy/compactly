@@ -127,7 +127,7 @@ impl Encode for String {
 
 #[derive(Default, Clone)]
 pub struct SortedContext {
-    previous: Option<String>,
+    previous: String,
     shared_prefix: <Small as EncodingStrategy<usize>>::Context,
     len: <Small as EncodingStrategy<usize>>::Context,
     chars: <char as Encode>::Context,
@@ -141,18 +141,18 @@ impl EncodingStrategy<String> for Sorted {
     ) -> Result<String, std::io::Error> {
         let len: usize = Small::decode(reader, &mut ctx.len)?;
         let mut out = String::new();
-        if let Some(previous) = ctx.previous.take() {
+        if ctx.previous.is_empty() {
+            out.reserve_exact(len);
+        } else {
             let shared_prefix = Small::decode(reader, &mut ctx.shared_prefix)?;
             out.reserve_exact(shared_prefix + len);
-            out.extend(previous.chars().take(shared_prefix));
-            debug_assert!(shared_prefix <= previous.len());
-        } else {
-            out.reserve_exact(len);
+            out.extend(ctx.previous.chars().take(shared_prefix));
+            debug_assert!(shared_prefix <= ctx.previous.len());
         }
         for _ in 0..len {
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
-        ctx.previous = Some(out.clone());
+        ctx.previous = out.clone();
         Ok(out)
     }
     fn encode<W: std::io::Write>(
@@ -160,70 +160,50 @@ impl EncodingStrategy<String> for Sorted {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        if let Some(previous) = ctx.previous.take() {
-            let shared_prefix = if previous.is_empty() || value.is_empty() {
-                0
-            } else {
-                if let Some((count, _)) = value
-                    .chars()
-                    .zip(previous.chars())
-                    .enumerate()
-                    .skip_while(|(_, (a, b))| a == b)
-                    .next()
-                {
-                    count
-                } else {
-                    value.len().min(previous.len())
-                }
-            };
+        if ctx.previous.is_empty() {
+            let len = value.len();
+            Small::encode(&len, writer, &mut ctx.len)?;
+            for c in value.chars() {
+                c.encode(writer, &mut ctx.chars)?;
+            }
+        } else {
+            let shared_prefix = value
+                .chars()
+                .zip(ctx.previous.chars())
+                .take_while(|(a, b)| a == b)
+                .count();
             let len = value.len() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len)?;
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix)?;
             for c in value.chars().skip(shared_prefix) {
                 c.encode(writer, &mut ctx.chars)?;
             }
-        } else {
-            let len = value.len();
-            Small::encode(&len, writer, &mut ctx.len)?;
-            for c in value.chars() {
-                c.encode(writer, &mut ctx.chars)?;
-            }
         }
-        ctx.previous = Some(value.clone());
+        ctx.previous = value.clone();
         Ok(())
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = 0;
-        if let Some(previous) = ctx.previous.take() {
-            let shared_prefix = if previous.is_empty() || value.is_empty() {
-                0
-            } else {
-                if let Some((count, _)) = value
-                    .chars()
-                    .zip(previous.chars())
-                    .enumerate()
-                    .skip_while(|(_, (a, b))| a == b)
-                    .next()
-                {
-                    count
-                } else {
-                    value.len()
-                }
-            };
+        if ctx.previous.is_empty() {
+            let len = value.len();
+            tot += Small::millibits(&len, &mut ctx.len)?;
+            for c in value.chars() {
+                tot += c.millibits(&mut ctx.chars)?;
+            }
+        } else {
+            let shared_prefix = value
+                .chars()
+                .zip(ctx.previous.chars())
+                .take_while(|(a, b)| a == b)
+                .count();
             let len = value.len() - shared_prefix;
             tot += Small::millibits(&len, &mut ctx.len)?;
             tot += Small::millibits(&shared_prefix, &mut ctx.shared_prefix)?;
             for c in value.chars().skip(shared_prefix) {
                 tot += c.millibits(&mut ctx.chars)?;
             }
-        } else {
-            let len = value.len();
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            for c in value.chars() {
-                tot += c.millibits(&mut ctx.chars)?;
-            }
         }
-        ctx.previous = Some(value.clone());
+        ctx.previous = value.clone();
         Some(tot)
     }
 }
@@ -470,5 +450,5 @@ fn sorted() {
     use super::assert_bits;
 
     assert_bits!(strings.clone(), 5958);
-    assert_bits!(encoded_strings.clone(), 4963);
+    assert_bits!(encoded_strings.clone(), 4961);
 }
