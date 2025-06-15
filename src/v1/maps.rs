@@ -80,27 +80,17 @@ where
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        self.len().encode(writer, &mut ctx.len)?;
-        for (k, v) in self {
-            Sorted::encode(k, writer, &mut ctx.key)?;
-            v.encode(writer, &mut ctx.value)?;
-        }
-        Ok(())
+        Mapping::<Sorted, Normal>::encode(self, writer, ctx)
     }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut map = Self::new();
-        for _ in 0..len {
-            map.insert(
-                Sorted::decode(reader, &mut ctx.key)?,
-                Encode::decode(reader, &mut ctx.value)?,
-            );
-        }
-        Ok(map)
+        Mapping::<Sorted, Normal>::decode(reader, ctx)
+    }
+    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
+        Mapping::<Sorted, Normal>::millibits(self, ctx)
     }
 }
 
