@@ -1,4 +1,4 @@
-use crate::{Normal, Values};
+use crate::{Normal, Sorted, Values};
 
 use super::{Compact, Encode, EncodingStrategy};
 use std::{
@@ -65,25 +65,28 @@ fn hashset() {
     // in arbitrary orders.
 }
 
-impl<T: Encode + Ord> Encode for BTreeSet<T> {
-    type Context = SetContext<T, Normal>;
+impl<T: Ord> Encode for BTreeSet<T>
+where
+    Sorted: EncodingStrategy<T>,
+{
+    type Context = SetContext<T, Sorted>;
     #[inline]
     fn encode<W: Write>(
         &self,
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        Values::<Normal>::encode(self, writer, ctx)
+        Values::<Sorted>::encode(self, writer, ctx)
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        Values::<Normal>::millibits(self, ctx)
+        Values::<Sorted>::millibits(self, ctx)
     }
     #[inline]
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        Values::<Normal>::decode(reader, ctx)
+        Values::<Sorted>::decode(reader, ctx)
     }
 }
 
@@ -204,14 +207,16 @@ fn btreeset() {
     assert_bits!(BTreeSet::<usize>::new(), 3);
     assert_bits!(BTreeSet::from([0_usize]), 6);
     assert_bits!(BTreeSet::from([1_usize]), 6);
-    assert_bits!(BTreeSet::from([5_usize]), 11);
-    assert_bits!(BTreeSet::from([0_usize, 1]), 9);
+    assert_bits!(BTreeSet::from([5_usize]), 8);
+    assert_bits!(BTreeSet::from([0_usize, 1]), 10);
     assert_bits!(BTreeSet::from([0_usize, 1, 2]), 12);
-    assert_bits!(BTreeSet::from_iter(0_usize..70), 489);
-    assert_bits!(BTreeSet::from_iter(0_usize..1024), 7546);
+    assert_bits!(BTreeSet::from_iter(0_usize..70), 40);
+    assert_bits!(BTreeSet::from_iter(0_usize..1024), 86);
     assert_bits!(BTreeSet::from([false]), 4);
     assert_bits!(BTreeSet::from([true]), 4);
     assert_bits!(BTreeSet::from([false, true]), 6);
+    assert_bits!(BTreeSet::from_iter(1_000_000_u64..1_001_024), 176);
+    assert_bits!(BTreeSet::from_iter(2_000_000_u64..2_002_048), 271);
 }
 
 #[test]
@@ -228,4 +233,5 @@ fn compact_btreeset() {
     assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 62);
     assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 141);
     assert_bits!(Compact(BTreeSet::from_iter(1_000_000_u64..1_001_024)), 159);
+    assert_bits!(Compact(BTreeSet::from_iter(2_000_000_u64..2_002_048)), 242);
 }

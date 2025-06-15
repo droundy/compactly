@@ -1,70 +1,126 @@
-use super::{Encode, EncodingStrategy, Small, URange};
+use super::{Encode, EncodingStrategy, Reader, Small, URange, Writer};
+use crate::Sorted;
 use std::io::{Read, Write};
 
 macro_rules! impl_uint {
-    ($t:ident, $context:ident, $bits:literal) => {
-        #[derive(Clone, Copy)]
-        pub struct $context {
-            leading_zero: [<bool as Encode>::Context; $bits],
-            context: [<bool as Encode>::Context; $bits],
-        }
-        impl Default for $context {
-            #[inline]
-            fn default() -> Self {
-                Self {
-                    leading_zero: [Default::default(); $bits],
-                    context: [Default::default(); $bits],
-                }
-            }
-        }
+    ($t:ident, $mod:ident, $bits:literal) => {
+        mod $mod {
+            use super::*;
 
-        impl Encode for $t {
-            type Context = $context;
-            #[inline]
-            fn encode<W: Write>(
-                &self,
-                writer: &mut super::Writer<W>,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                let mut am_leading = true;
-                for i in (0..$bits).rev() {
-                    let bit = (*self & (1 << i)) != 0;
-                    if am_leading {
-                        bit.encode(writer, &mut ctx.leading_zero[i])?;
-                        am_leading = !bit;
-                    } else {
-                        bit.encode(writer, &mut ctx.context[i])?;
-                    }
-                }
-                Ok(())
+            #[derive(Clone, Copy)]
+            pub struct Context {
+                leading_zero: [<bool as Encode>::Context; $bits],
+                context: [<bool as Encode>::Context; $bits],
             }
-            #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
-                ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                let mut v = 0;
-                let mut am_leading = true;
-                for i in (0..$bits).rev() {
-                    let bit = if am_leading {
-                        let bit = bool::decode(reader, &mut ctx.leading_zero[i])?;
-                        am_leading = !bit;
-                        bit
-                    } else {
-                        bool::decode(reader, &mut ctx.context[i])?
-                    };
-                    if bit {
-                        v |= 1 << i;
+            impl Default for Context {
+                #[inline]
+                fn default() -> Self {
+                    Self {
+                        leading_zero: [Default::default(); $bits],
+                        context: [Default::default(); $bits],
                     }
                 }
-                Ok(v)
+            }
+
+            impl Encode for $t {
+                type Context = Context;
+                #[inline]
+                fn encode<W: Write>(
+                    &self,
+                    writer: &mut Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    let mut am_leading = true;
+                    for i in (0..$bits).rev() {
+                        let bit = (*self & (1 << i)) != 0;
+                        if am_leading {
+                            bit.encode(writer, &mut ctx.leading_zero[i])?;
+                            am_leading = !bit;
+                        } else {
+                            bit.encode(writer, &mut ctx.context[i])?;
+                        }
+                    }
+                    Ok(())
+                }
+                #[inline]
+                fn decode<R: Read>(
+                    reader: &mut Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let mut v = 0;
+                    let mut am_leading = true;
+                    for i in (0..$bits).rev() {
+                        let bit = if am_leading {
+                            let bit = bool::decode(reader, &mut ctx.leading_zero[i])?;
+                            am_leading = !bit;
+                            bit
+                        } else {
+                            bool::decode(reader, &mut ctx.context[i])?
+                        };
+                        if bit {
+                            v |= 1 << i;
+                        }
+                    }
+                    Ok(v)
+                }
+            }
+            #[derive(Default, Clone)]
+            pub struct SortedContext {
+                previous: Option<$t>,
+                not_sorted: <bool as Encode>::Context,
+                value: <Small as EncodingStrategy<$t>>::Context,
+                difference: <Small as EncodingStrategy<$t>>::Context,
+            }
+
+            impl EncodingStrategy<$t> for Sorted {
+                type Context = SortedContext;
+                fn encode<W: Write>(
+                    value: &$t,
+                    writer: &mut super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = *value < previous;
+                        not_sorted.encode(writer, &mut ctx.not_sorted)?;
+                        if not_sorted {
+                            Small::encode(value, writer, &mut ctx.value)?;
+                        } else {
+                            Small::encode(&(*value - previous), writer, &mut ctx.difference)?;
+                        }
+                    } else {
+                        Small::encode(value, writer, &mut ctx.value)?;
+                    }
+                    ctx.previous = Some(*value);
+                    Ok(())
+                }
+                fn decode<R: Read>(
+                    reader: &mut super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    let out = if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+                        if not_sorted {
+                            Small::decode(reader, &mut ctx.value)?
+                        } else {
+                            previous
+                                + <Small as EncodingStrategy<$t>>::decode(
+                                    reader,
+                                    &mut ctx.difference,
+                                )?
+                        }
+                    } else {
+                        Small::decode(reader, &mut ctx.value)?
+                    };
+                    ctx.previous = Some(out);
+                    Ok(out)
+                }
             }
         }
     };
 }
-impl_uint!(u64, U64Context, 64);
-impl_uint!(u32, U32Context, 32);
-impl_uint!(u16, U16Context, 16);
+impl_uint!(u64, u64_mod, 64);
+impl_uint!(u32, u32_mod, 32);
+impl_uint!(u16, u16_mod, 16);
 
 #[test]
 fn size_u64() {

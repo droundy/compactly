@@ -441,7 +441,7 @@ fn sorted() {
     use crate::{Encoded, Values};
     use std::collections::BTreeSet;
 
-    let strings: BTreeSet<String> = [
+    let strings: Vec<String> = [
         "alpha",
         "all",
         "amortization",
@@ -451,20 +451,24 @@ fn sorted() {
     ]
     .into_iter()
     .map(String::from)
-    .collect();
-    let encoded_strings: Encoded<BTreeSet<String>, Values<Sorted>> =
+    .collect::<BTreeSet<String>>()
+    .into_iter()
+    .collect::<Vec<_>>();
+    let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
-    assert_bits!(strings.clone(), 245);
-    assert_bits!(encoded_strings.clone(), 207);
+    assert_bits!(strings.clone(), 242);
+    assert_bits!(encoded_strings.clone(), 204);
 
-    let strings: BTreeSet<String> = COMPRESSIBLE_TEXT
+    let strings: Vec<String> = COMPRESSIBLE_TEXT
         .split(' ')
         .map(|s| s.to_string())
-        .collect();
-    let encoded_strings: Encoded<BTreeSet<String>, Values<Sorted>> =
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
     use super::assert_bits;
 
-    assert_bits!(strings.clone(), 5956);
-    assert_bits!(encoded_strings.clone(), 4961);
+    assert_bits!(strings.clone(), 5958);
+    assert_bits!(encoded_strings.clone(), 4963);
 }

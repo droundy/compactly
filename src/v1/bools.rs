@@ -1,5 +1,7 @@
-use super::bit_context::BitContext;
+use crate::Sorted;
+
 use super::Encode;
+use super::{bit_context::BitContext, EncodingStrategy};
 use std::io::{Read, Write};
 
 impl Encode for bool {
@@ -25,6 +27,26 @@ impl Encode for bool {
     #[inline]
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         Some(ctx.millibits_required(*self) as usize)
+    }
+}
+
+impl EncodingStrategy<bool> for Sorted {
+    type Context = BitContext;
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<bool, std::io::Error> {
+        bool::decode(reader, ctx)
+    }
+    fn encode<W: Write>(
+        value: &bool,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn millibits(value: &bool, ctx: &mut Self::Context) -> Option<usize> {
+        value.millibits(ctx)
     }
 }
 
