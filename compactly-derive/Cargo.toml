@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Derive macros for compactly crate"
 license = "MIT OR Apache-2.0"
+authors = ["David Roundy <daveroundy@gmail.com>"]
 
 [lib]
 proc-macro = true
