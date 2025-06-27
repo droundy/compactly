@@ -3,13 +3,7 @@ use std::collections::BTreeMap;
 const CSV: &str = include_str!("meteorites.csv"); // from NASA
 
 #[derive(
-    Debug,
-    PartialEq,
-    PartialOrd,
-    compactly::v0::Encode,
-    compactly::v1::Encode,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, PartialOrd, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
 )]
 pub enum NameType {
     Valid,
@@ -17,13 +11,7 @@ pub enum NameType {
 }
 
 #[derive(
-    Debug,
-    PartialEq,
-    PartialOrd,
-    compactly::v0::Encode,
-    compactly::v1::Encode,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, PartialOrd, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
 )]
 pub enum Fall {
     Fell,
@@ -31,13 +19,7 @@ pub enum Fall {
 }
 
 #[derive(
-    Debug,
-    PartialEq,
-    PartialOrd,
-    compactly::v0::Encode,
-    compactly::v1::Encode,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, PartialOrd, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
 )]
 pub struct Meteorite {
     name: String,
@@ -57,13 +39,7 @@ pub struct Meteorite {
 }
 
 #[derive(
-    Debug,
-    PartialEq,
-    PartialOrd,
-    compactly::v0::Encode,
-    compactly::v1::Encode,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, PartialOrd, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
 )]
 pub struct MeteoriteData {
     nametype: NameType,

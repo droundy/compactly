@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Normal, Small};
+use crate::{Normal, Small, Sorted};
 use std::io::{Read, Write};
 
 impl<T: Encode> Encode for Vec<T> {
@@ -85,6 +85,99 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         for v in value {
             tot += S::millibits(v, &mut ctx.values)?;
         }
+        Some(tot)
+    }
+}
+
+#[derive(Clone)]
+pub struct SortedContext<T: Encode> {
+    previous: Vec<T>,
+    shared_prefix: <Small as EncodingStrategy<usize>>::Context,
+    len: <Small as EncodingStrategy<usize>>::Context,
+    value: <T as Encode>::Context,
+}
+impl<T: Encode> Default for SortedContext<T> {
+    fn default() -> Self {
+        Self {
+            previous: Vec::new(),
+            shared_prefix: Default::default(),
+            len: Default::default(),
+            value: Default::default(),
+        }
+    }
+}
+
+impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
+    type Context = SortedContext<T>;
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<T>, std::io::Error> {
+        let len: usize = Small::decode(reader, &mut ctx.len)?;
+        let mut out = Vec::new();
+        if ctx.previous.is_empty() {
+            out.reserve_exact(len);
+        } else {
+            let shared_prefix: usize = Small::decode(reader, &mut ctx.shared_prefix)?;
+            out.reserve_exact(shared_prefix + len);
+            debug_assert!(shared_prefix <= ctx.previous.len());
+            out.extend_from_slice(&ctx.previous[..shared_prefix]);
+        }
+        for _ in 0..len {
+            out.push(T::decode(reader, &mut ctx.value)?);
+        }
+        ctx.previous = out.clone();
+        Ok(out)
+    }
+    fn encode<W: std::io::Write>(
+        value: &Vec<T>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        if ctx.previous.is_empty() {
+            let len = value.len();
+            Small::encode(&len, writer, &mut ctx.len)?;
+            for b in value {
+                b.encode(writer, &mut ctx.value)?;
+            }
+        } else {
+            let shared_prefix = value
+                .iter()
+                .zip(ctx.previous.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            let len = value.len() - shared_prefix;
+            Small::encode(&len, writer, &mut ctx.len)?;
+            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix)?;
+            for b in &value[shared_prefix..] {
+                b.encode(writer, &mut ctx.value)?;
+            }
+        }
+        ctx.previous = value.clone();
+        Ok(())
+    }
+    fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {
+        let mut tot = 0;
+        if ctx.previous.is_empty() {
+            let len = value.len();
+            tot += Small::millibits(&len, &mut ctx.len)?;
+            for b in value {
+                tot += b.millibits(&mut ctx.value)?;
+            }
+        } else {
+            let shared_prefix = value
+                .iter()
+                .zip(ctx.previous.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            let len = value.len() - shared_prefix;
+            tot += Small::millibits(&len, &mut ctx.len)?;
+            tot += Small::millibits(&shared_prefix, &mut ctx.shared_prefix)?;
+            for b in &value[shared_prefix..] {
+                tot += b.millibits(&mut ctx.value)?;
+            }
+        }
+        ctx.previous = value.clone();
         Some(tot)
     }
 }

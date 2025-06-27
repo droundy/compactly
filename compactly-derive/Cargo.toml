@@ -17,4 +17,3 @@ syn = "2.0.96"
 
 [dev-dependencies]
 compactly = { path = ".." }
-cabac.workspace = true

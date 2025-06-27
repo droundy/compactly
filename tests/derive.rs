@@ -11,8 +11,8 @@ macro_rules! assert_bits {
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
         );
-        let bytes = compactly::v0::encode(&v);
-        let decoded = compactly::v0::decode(&bytes);
+        let bytes = compactly::v1::encode(&v);
+        let decoded = compactly::v1::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
         assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
     };
@@ -23,7 +23,7 @@ pub(crate) use assert_bits;
 
 #[test]
 fn singlet_tuple() {
-    #[derive(Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub struct Tuple(usize);
 
     assert_bits!(Tuple(0), 3);
@@ -33,7 +33,7 @@ fn singlet_tuple() {
 
 #[test]
 fn pair_tuple() {
-    #[derive(Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub struct Tuple(usize, bool);
 
     assert_bits!(Tuple(0, false), 4);
@@ -44,7 +44,7 @@ fn pair_tuple() {
 
 #[test]
 fn zero_size() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub struct Tuple;
 
     assert_bits!(Tuple, 0);
@@ -54,7 +54,7 @@ fn zero_size() {
 
 #[test]
 fn record() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub struct Tuple {
         size: usize,
         happy: bool,
@@ -81,7 +81,7 @@ fn record() {
 
 #[test]
 fn simple_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum A {
         A,
         B,
@@ -92,7 +92,7 @@ fn simple_enum() {
     assert_bits!(A::A, 2);
     assert_bits!(A::D, 2);
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum Bool {
         True,
         False,
@@ -104,7 +104,7 @@ fn simple_enum() {
 
 #[test]
 fn bigger_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum A {
         A,
         B,
@@ -120,13 +120,13 @@ fn bigger_enum() {
 
     assert_bits!(A::A, 3);
     assert_bits!(A::D, 3);
-    assert_bits!(compactly::v0::URange::<10>::new(9), 4);
+    assert_bits!(compactly::v1::URange::<10>::new(9), 4);
     assert_bits!(A::J, 4);
 }
 
 #[test]
 fn weird_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum A {
         A { age: usize },
         B { age: bool },
@@ -138,7 +138,7 @@ fn weird_enum() {
 
 #[test]
 fn fancy_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum A {
         A {
             #[compactly(Small)]
@@ -152,7 +152,7 @@ fn fancy_enum() {
     assert_bits!(A::A { age: 51 }, 12);
     assert_bits!(A::B { big: false }, 2);
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum B {
         A { age: u64 },
         B { big: bool },
@@ -164,7 +164,7 @@ fn fancy_enum() {
 
 #[test]
 fn simplest_generics() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     struct A<T> {
         value: T,
     }
@@ -174,7 +174,7 @@ fn simplest_generics() {
 
 #[test]
 fn low_cardinality() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v0::Encode)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     struct Data {
         #[compactly(LowCardinality)]
         value: u64,

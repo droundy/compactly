@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Compressible, Normal, Small, Sorted, Values};
+use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
 // mod buffer;
@@ -615,87 +615,4 @@ fn size() {
         495559,
         413131,
     );
-}
-
-#[derive(Default, Clone)]
-pub struct SortedContext {
-    previous: Vec<u8>,
-    shared_prefix: <Small as EncodingStrategy<usize>>::Context,
-    len: <Small as EncodingStrategy<usize>>::Context,
-    byte: <u8 as Encode>::Context,
-}
-
-impl EncodingStrategy<Vec<u8>> for Sorted {
-    type Context = SortedContext;
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
-        ctx: &mut Self::Context,
-    ) -> Result<Vec<u8>, std::io::Error> {
-        let len: usize = Small::decode(reader, &mut ctx.len)?;
-        let mut out = Vec::new();
-        if ctx.previous.is_empty() {
-            out.reserve_exact(len);
-        } else {
-            let shared_prefix = Small::decode(reader, &mut ctx.shared_prefix)?;
-            out.reserve_exact(shared_prefix + len);
-            debug_assert!(shared_prefix <= ctx.previous.len());
-            out.extend_from_slice(&ctx.previous[..shared_prefix]);
-        }
-        for _ in 0..len {
-            out.push(u8::decode(reader, &mut ctx.byte)?);
-        }
-        ctx.previous = out.clone();
-        Ok(out)
-    }
-    fn encode<W: std::io::Write>(
-        value: &Vec<u8>,
-        writer: &mut super::Writer<W>,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        if ctx.previous.is_empty() {
-            let len = value.len();
-            Small::encode(&len, writer, &mut ctx.len)?;
-            for &b in value {
-                b.encode(writer, &mut ctx.byte)?;
-            }
-        } else {
-            let shared_prefix = value
-                .iter()
-                .zip(ctx.previous.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            let len = value.len() - shared_prefix;
-            Small::encode(&len, writer, &mut ctx.len)?;
-            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix)?;
-            for &b in &value[shared_prefix..] {
-                b.encode(writer, &mut ctx.byte)?;
-            }
-        }
-        ctx.previous = value.clone();
-        Ok(())
-    }
-    fn millibits(value: &Vec<u8>, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = 0;
-        if ctx.previous.is_empty() {
-            let len = value.len();
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            for &b in value {
-                tot += b.millibits(&mut ctx.byte)?;
-            }
-        } else {
-            let shared_prefix = value
-                .iter()
-                .zip(ctx.previous.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            let len = value.len() - shared_prefix;
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            tot += Small::millibits(&shared_prefix, &mut ctx.shared_prefix)?;
-            for &b in &value[shared_prefix..] {
-                tot += b.millibits(&mut ctx.byte)?;
-            }
-        }
-        ctx.previous = value.clone();
-        Some(tot)
-    }
 }

@@ -1,5 +1,4 @@
 mod encoded;
-pub mod v0;
 pub mod v1;
 
 /// A wrapper around a value causing it to be encoded with a particular strategy.
