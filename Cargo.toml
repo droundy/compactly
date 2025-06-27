@@ -8,7 +8,7 @@ authors = ["David Roundy <daveroundy@gmail.com>"]
 
 [dependencies]
 
-compactly-derive = { path = "compactly-derive" }
+compactly-derive = { version = "0.1.1", path = "compactly-derive" }
 
 [dev-dependencies]
 
