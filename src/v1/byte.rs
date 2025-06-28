@@ -403,14 +403,15 @@ fn size() {
 
 #[test]
 fn small() {
-    use super::{assert_bits, Compact};
+    use super::{assert_bits, Small};
+    use crate::Encoded;
     fn check_size(v: u8, expected: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Compact(v).millibits(&mut Default::default()),
+            Encoded::<u8, Small>::new(v).millibits(&mut Default::default()),
             Some(1000 * expected)
         );
-        assert_bits!(Compact(v), expected);
+        assert_bits!(Encoded::<u8, Small>::new(v), expected);
     }
 
     for x in 0..2 {
@@ -438,7 +439,7 @@ fn small() {
         check_size(x, 11);
     }
     assert_eq!(
-        Compact(255u8).millibits(&mut Default::default()),
+        Encoded::<u8, Small>::new(255u8).millibits(&mut Default::default()),
         Some(11000)
     );
 }

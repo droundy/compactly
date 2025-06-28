@@ -1,6 +1,7 @@
 use crate::Encoded;
 
 impl<T, S> Encoded<T, S> {
+    /// Create a new `Encoded` from a value.
     #[inline]
     pub fn new(value: T) -> Self {
         Self::from(value)

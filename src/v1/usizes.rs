@@ -1,13 +1,13 @@
 use crate::Sorted;
 
-use super::{byte::UBits, Compact, Encode, EncodingStrategy, Small, URange};
+use super::{byte::UBits, Encode, EncodingStrategy, Small, URange};
 use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
     small: <URange<4> as Encode>::Context,
-    big: <Compact<u64> as Encode>::Context,
+    big: <Small as EncodingStrategy<u64>>::Context,
 }
 
 impl Encode for usize {
@@ -23,7 +23,7 @@ impl Encode for usize {
             r.encode(writer, &mut ctx.small)
         } else {
             false.encode(writer, &mut ctx.less_than_four)?;
-            Compact((*self - 4) as u64).encode(writer, &mut ctx.big)
+            Small::encode(&((*self - 4) as u64), writer, &mut ctx.big)
         }
     }
     #[inline]
@@ -34,7 +34,7 @@ impl Encode for usize {
         if bool::decode(reader, &mut ctx.less_than_four)? {
             URange::<4>::decode(reader, &mut ctx.small).map(usize::from)
         } else {
-            let Compact(v) = Compact::<u64>::decode(reader, &mut ctx.big)?;
+            let v: u64 = Small::decode(reader, &mut ctx.big)?;
             usize::try_from(v + 4).map_err(std::io::Error::other)
         }
     }
@@ -47,7 +47,7 @@ impl Encode for usize {
             tot += r.millibits(&mut ctx.small)?;
         } else {
             tot += false.millibits(&mut ctx.less_than_four)?;
-            tot += Compact((*self - 4) as u64).millibits(&mut ctx.big)?;
+            tot += Small::millibits(&(*self as u64 - 4), &mut ctx.big)?;
         }
         Some(tot)
     }
@@ -296,12 +296,12 @@ impl EncodingStrategy<usize> for Sorted {
 #[test]
 fn size() {
     use super::assert_bits;
-    use super::Compact;
-    assert_bits!(Compact(0_u64), 3);
+    use crate::Encoded;
+    assert_bits!(Encoded::<_, Small>::new(0_u64), 3);
     assert_bits!(0_usize, 3);
-    assert_bits!(Compact(1_u64), 7);
+    assert_bits!(Encoded::<_, Small>::new(1_u64), 7);
     assert_bits!(1_usize, 3);
-    assert_bits!(Compact(2_u64), 7);
+    assert_bits!(Encoded::<_, Small>::new(2_u64), 7);
     assert_bits!(2_usize, 3);
     assert_bits!(3_usize, 1);
     assert_bits!(4_usize, 8);
@@ -309,20 +309,20 @@ fn size() {
     assert_bits!(6_usize, 8);
     assert_bits!(7_usize, 8);
     assert_bits!(8_usize, 9);
-    assert_bits!(Compact(16_u64), 10);
+    assert_bits!(Encoded::<_, Small>::new(16_u64), 10);
     assert_bits!(16_usize, 10);
-    assert_bits!(Compact(32_u64), 11);
+    assert_bits!(Encoded::<_, Small>::new(32_u64), 11);
     assert_bits!(32_usize, 11);
-    assert_bits!(Compact(64_u64), 12);
+    assert_bits!(Encoded::<_, Small>::new(64_u64), 12);
     assert_bits!(64_usize, 12);
-    assert_bits!(Compact(128_u64), 13);
+    assert_bits!(Encoded::<_, Small>::new(128_u64), 13);
     assert_bits!(128_usize, 13);
-    assert_bits!(Compact(256_u64), 14);
+    assert_bits!(Encoded::<_, Small>::new(256_u64), 14);
     assert_bits!(256_usize, 14);
     assert_bits!(512_usize, 15);
-    assert_bits!(Compact(1024_u64), 16);
+    assert_bits!(Encoded::<_, Small>::new(1024_u64), 16);
     assert_bits!(1024_usize, 16);
-    assert_bits!(Compact(1024_u64 * 1024), 26);
+    assert_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), 26);
     assert_bits!(1024_usize * 1024, 26);
     assert_bits!(1024_usize * 1024 * 1024, 36);
     assert_bits!(u32::MAX as usize, 38);
@@ -339,20 +339,21 @@ fn size() {
 
 #[test]
 fn small() {
-    use super::{assert_bits, Compact};
+    use super::assert_bits;
+    use crate::Encoded;
     fn check_size(v: usize, expected: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Compact(v).millibits(&mut Default::default()),
+            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
             Some(1000 * expected),
             "small wrong size"
         );
-        assert_bits!(Compact(v), expected);
+        assert_bits!(Encoded::<_, Small>::new(v), expected);
     }
     fn check_both(v: usize, expected: usize, normal: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Compact(v).millibits(&mut Default::default()),
+            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
             Some(1000 * expected),
             "small wrong size"
         );
@@ -361,7 +362,7 @@ fn small() {
             Some(1000 * normal),
             "normal wrong size"
         );
-        assert_bits!(Compact(v), expected);
+        assert_bits!(Encoded::<_, Small>::new(v), expected);
         assert_bits!(v, normal);
     }
 

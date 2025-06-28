@@ -1,6 +1,6 @@
-use crate::{Normal, Sorted, Values};
+use crate::{Normal, Small, Sorted, Values};
 
-use super::{Compact, Encode, EncodingStrategy};
+use super::{Encode, EncodingStrategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
@@ -93,8 +93,8 @@ where
 #[derive(Default, Clone)]
 pub struct CompactU64Set {
     size: <usize as Encode>::Context,
-    first: <Compact<u64> as Encode>::Context,
-    diff: <Compact<u64> as Encode>::Context,
+    first: <Small as EncodingStrategy<u64>>::Context,
+    diff: <Small as EncodingStrategy<u64>>::Context,
 }
 
 impl EncodingStrategy<BTreeSet<u64>> for super::Small {
@@ -107,10 +107,9 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         value.len().encode(writer, &mut ctx.size)?;
         let mut iter = value.iter().copied();
         if let Some(mut prev) = iter.next() {
-            Compact(prev).encode(writer, &mut ctx.first)?;
+            Small::encode(&prev, writer, &mut ctx.first)?;
             for v in iter {
-                let diff = Compact(v - prev);
-                diff.encode(writer, &mut ctx.diff)?;
+                Small::encode(&(v - prev), writer, &mut ctx.diff)?;
                 prev = v;
             }
         }
@@ -123,10 +122,10 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         let mut out = BTreeSet::new();
         let len = usize::decode(reader, &mut ctx.size)?;
         if len > 0 {
-            let Compact(mut prev) = Compact::<u64>::decode(reader, &mut ctx.first)?;
+            let mut prev = Small::decode(reader, &mut ctx.first)?;
             out.insert(prev);
             for _ in 1..len {
-                let Compact(diff) = Compact::<u64>::decode(reader, &mut ctx.diff)?;
+                let diff: u64 = Small::decode(reader, &mut ctx.diff)?;
                 prev += diff;
                 out.insert(prev);
             }
@@ -222,16 +221,29 @@ fn btreeset() {
 #[test]
 fn compact_btreeset() {
     use super::assert_bits;
-    assert_bits!(Compact(BTreeSet::<u64>::new()), 3);
-    assert_bits!(Compact(BTreeSet::from([0_u64])), 10);
-    assert_bits!(Compact(BTreeSet::from([1_u64])), 10);
-    assert_bits!(Compact(BTreeSet::from([5_u64])), 11);
-    assert_bits!(Compact(BTreeSet::from([u32::MAX as u64])), 40);
-    assert_bits!(Compact(BTreeSet::from([u64::MAX])), 72);
-    assert_bits!(Compact(BTreeSet::from([0_u64, 1])), 17);
-    assert_bits!(Compact(BTreeSet::from([0_u64, 1, 2])), 21);
-    assert_bits!(Compact(BTreeSet::from_iter(0_u64..70)), 62);
-    assert_bits!(Compact(BTreeSet::from_iter(0_u64..1024)), 141);
-    assert_bits!(Compact(BTreeSet::from_iter(1_000_000_u64..1_001_024)), 159);
-    assert_bits!(Compact(BTreeSet::from_iter(2_000_000_u64..2_002_048)), 242);
+    use crate::Encoded;
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::<u64>::new()), 3);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64])), 10);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([1_u64])), 10);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([5_u64])), 11);
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([u32::MAX as u64])),
+        40
+    );
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([u64::MAX])), 72);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1])), 17);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1, 2])), 21);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..70)), 62);
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..1024)),
+        141
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from_iter(1_000_000_u64..1_001_024)),
+        159
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
+        242
+    );
 }

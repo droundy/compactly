@@ -1,3 +1,8 @@
+//! The `v1` format of compactly.
+//!
+//! This format should be unmodified after the 1.0 release, except for addition
+//! of support for new strategies, which won't change the binary format of types
+//! that don't use those strategies.
 pub use compactly_derive::EncodeV1 as Encode;
 use std::io::{Read, Write};
 
@@ -27,15 +32,24 @@ pub use adapt::{Reader, Writer};
 pub use arith::Probability;
 pub use urange::URange;
 
+/// Trait for types that can be compactly encoded.
+///
+/// Normally you will derive this for your own types, although it can be
+/// implemented manually.
 pub trait Encode: Sized {
+    /// Context storing probability model for this type.
     type Context: Default + Clone;
 
+    /// Encode this value to the [`Writer<W>`].
     fn encode<W: Write>(
         &self,
         writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
+    /// Extimate the number of millibits required for this value.
+    ///
+    /// Returns `None` if this estimation has not been implemented.
     #[expect(unused_variables)]
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         // let mut counter = Writer::new(adapt::Counter::default());
@@ -44,12 +58,14 @@ pub trait Encode: Sized {
         None
     }
 
+    /// Decode value from ['Reader<R>`].
     fn decode<R: Read>(
         reader: &mut Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
 }
 
+/// Encode the `value` into a `Vec<u8>` of bytes.`
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     let mut writer = Writer::new(&mut out);
@@ -60,31 +76,53 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     out
 }
 
+/// Decode a value of this type from `bytes`.
+///
+/// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
     let mut reader = Reader::new(&mut bytes).unwrap();
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
+/// An encoding strategy for type `T`.
+///
+/// You *can* implement this for your own types, if you want them to support
+/// e.g. `Small` encodings.  But I expect this to be unusual.  It would be
+/// possible to create a `Derive` macro for this, but I don't think it is
+/// needed.  If you want such a macro file an issue.
+///
+/// Note that besides implementing existing strategies for your own types, you
+/// can also create entirely new strategies in your crates.  If you do that, you
+/// can use full paths in your derive macros, e.g.
+/// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
 pub trait EncodingStrategy<T> {
+    /// The conext (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 
+    /// Encode the value with this strategy.
     fn encode<W: Write>(
         value: &T,
         writer: &mut Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
+    /// Estimate the size of the encoded value using this stratgy.
     #[expect(unused_variables)]
     fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
         None
     }
 
+    /// Decode the value using this strategy.
     fn decode<R: Read>(
         reader: &mut Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error>;
 }
 
+/// Encode a value with a specific strategy (into a `Vec<u8>`).
+///
+/// I don't expect this to be used in practice, but it can be helpful for
+/// testing.
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
@@ -93,52 +131,13 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
     out
 }
 
+/// Decode a value with a specific strategy (from a bytes slice).
+///
+/// I don't expect this to be used in practice, but it can be helpful for
+/// testing.
 pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
     let mut reader = Reader::new(&mut bytes).unwrap();
     S::decode(&mut reader, &mut S::Context::default()).ok()
-}
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-
-pub struct Compact<T>(T);
-impl<T> Compact<T> {
-    pub fn new(value: T) -> Self {
-        Compact(value)
-    }
-}
-impl<T> std::ops::Deref for Compact<T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<T> std::ops::DerefMut for Compact<T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl<T> Encode for Compact<T>
-where
-    Small: EncodingStrategy<T>,
-{
-    type Context = <Small as EncodingStrategy<T>>::Context;
-    fn encode<W: Write>(
-        &self,
-        writer: &mut Writer<W>,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        <Small as EncodingStrategy<T>>::encode(self, writer, ctx)
-    }
-    fn decode<R: Read>(
-        reader: &mut Reader<R>,
-        ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        <Small as EncodingStrategy<T>>::decode(reader, ctx).map(Compact)
-    }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        <Small as EncodingStrategy<T>>::millibits(self, ctx)
-    }
 }
 
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
