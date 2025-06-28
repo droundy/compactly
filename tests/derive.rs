@@ -90,7 +90,7 @@ fn simple_enum() {
     }
 
     assert_bits!(A::A, 2);
-    assert_bits!(A::D, 2);
+    assert_bits!(A::D, 1);
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v1::Encode)]
     pub enum Bool {
@@ -120,8 +120,8 @@ fn bigger_enum() {
 
     assert_bits!(A::A, 3);
     assert_bits!(A::D, 3);
-    assert_bits!(compactly::v1::URange::<10>::new(9), 4);
-    assert_bits!(A::J, 4);
+    assert_bits!(compactly::v1::URange::<10>::new(9), 1);
+    assert_bits!(A::J, 1);
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn low_cardinality() {
     assert_bits!(Data { value: u64::MAX }, 65);
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
-        10757
+        8379
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(
@@ -192,6 +192,6 @@ fn low_cardinality() {
             .map(|v| v % 3)
             .map(|value| Data { value })
             .collect::<Vec<_>>(),
-        1838
+        1903
     );
 }

@@ -1,4 +1,4 @@
-use bincode::Options;
+use bincode1::{DefaultOptions, Options};
 use rand::{Rng, SeedableRng};
 use scaling::{bench_gen_env, bench_scaling_gen};
 
@@ -33,10 +33,10 @@ impl Encoding for Compactly {
 struct SerdeVar;
 impl Encoding for SerdeVar {
     fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        bincode::DefaultOptions::new().serialize(value).unwrap()
+        DefaultOptions::new().serialize(value).unwrap()
     }
     fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
-        bincode::DefaultOptions::new().deserialize(bytes).unwrap()
+        DefaultOptions::new().deserialize(bytes).unwrap()
     }
 }
 
@@ -44,12 +44,12 @@ impl Encoding for SerdeVar {
 struct ZstdSerdeVar;
 impl Encoding for ZstdSerdeVar {
     fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        let v = bincode::DefaultOptions::new().serialize(value).unwrap();
+        let v = DefaultOptions::new().serialize(value).unwrap();
         zstd::bulk::compress(v.as_slice(), 3).unwrap()
     }
     fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
         let v = zstd::bulk::decompress(bytes, 10_000_000).unwrap();
-        bincode::DefaultOptions::new().deserialize(&v).unwrap()
+        DefaultOptions::new().deserialize(&v).unwrap()
     }
 }
 
@@ -57,12 +57,12 @@ impl Encoding for ZstdSerdeVar {
 struct ZstdSerde;
 impl Encoding for ZstdSerde {
     fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        let v = bincode::serialize(value).unwrap();
+        let v = bincode1::serialize(value).unwrap();
         zstd::bulk::compress(v.as_slice(), 3).unwrap()
     }
     fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
         let v = zstd::bulk::decompress(bytes, 10_000_000).unwrap();
-        bincode::deserialize(&v).unwrap()
+        bincode1::deserialize(&v).unwrap()
     }
 }
 
