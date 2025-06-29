@@ -6,14 +6,17 @@ pub struct ArithState {
     hi: u64,
 }
 
+/// The probability that the bit will be false.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Probability {
+    /// The probability is `prob / 256`
     pub prob: u8,
 }
 
 pub const SHIFT: u8 = 8;
 
 impl Probability {
+    /// Create a new probability based on a given number of true and false observations
     pub const fn new(trues: u64, falses: u64) -> Self {
         let prob = if falses == 0 {
             1 * 256 / ((2 + trues) as u64)
@@ -35,10 +38,12 @@ impl std::fmt::Debug for Probability {
 }
 
 impl Probability {
+    /// The more likely value for the bit
     #[inline]
     pub fn likely_bit(&self) -> bool {
         self.prob < (1 << (SHIFT - 1))
     }
+    /// The probability of zero as an `f64` value.
     #[inline]
     pub fn as_f64(self) -> f64 {
         self.prob as f64 / (1_u64 << SHIFT) as f64

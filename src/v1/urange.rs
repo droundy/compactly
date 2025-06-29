@@ -1,10 +1,23 @@
 use super::Encode;
 use std::io::{Read, Write};
 
+/// A `usize` value restricted to have a value less than `N`.
+///
+/// This type is unseful if you want to compactly encode a value like the
+/// variant of an enum with a range that is known at compil time to be limited,
+/// with a range that may not be an integer number of bits.
+///
+/// Some values will take fewer bits than others, and *all* values will be
+/// adapted independently so if e.g. any two variants are exclusively present
+/// and equally likely, they will each take only a tiny bit more than a single
+/// bit to encode (eventually).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct URange<const N: usize>(usize);
 
 impl<const N: usize> URange<N> {
+    /// Construct a new `URange<N>`.
+    ///
+    /// Panics if the value is not less than `N`.
     #[inline]
     pub const fn new(value: usize) -> Self {
         if value < N {
