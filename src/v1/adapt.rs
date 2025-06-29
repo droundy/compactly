@@ -1,24 +1,42 @@
 use super::bit_context::BitContext;
+/// A wraper around a [`std::io::Write`] that enables range coding.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Writer<W> {
-    arith: super::arith::Writer<W>,
+pub struct Writer<W: std::io::Write> {
+    arith: Option<super::arith::Writer<W>>,
 }
 
 impl<W: std::io::Write> Writer<W> {
+    /// Create a new `Writer`
     pub fn new(write: W) -> Self {
         Self {
-            arith: super::arith::Writer::new(write),
+            arith: Some(super::arith::Writer::new(write)),
         }
     }
+    /// Encode a single bit with the given context.
     #[inline]
     pub fn encode(&mut self, value: bool, context: &mut BitContext) -> Result<(), std::io::Error> {
-        self.arith.encode(context.probability(), value)?;
+        self.arith
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("called encode after finish"))?
+            .encode(context.probability(), value)?;
         *context = context.adapt(value);
         Ok(())
     }
+    /// Finish encoding.  This is crucial
     #[inline]
-    pub fn finish(self) -> Result<W, std::io::Error> {
-        self.arith.finish()
+    pub fn finish(&mut self) -> Result<W, std::io::Error> {
+        self.arith
+            .take()
+            .ok_or_else(|| std::io::Error::other("finish called twice"))?
+            .finish()
+    }
+}
+
+impl<W: std::io::Write> Drop for Writer<W> {
+    fn drop(&mut self) {
+        if let Some(arith) = self.arith.take() {
+            arith.finish().ok();
+        }
     }
 }
 
@@ -41,31 +59,6 @@ impl<R: std::io::Read> Reader<R> {
     }
 }
 
-/// A simple Writer that just counts bytes, which can be used to estimate the encoded size.
-#[derive(Default)]
-pub struct Counter {
-    bytes: usize,
-}
-impl Counter {
-    pub fn len(&self) -> usize {
-        self.bytes
-    }
-}
-impl std::io::Write for Counter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.bytes += buf.len();
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-impl Writer<Counter> {
-    pub fn len(self) -> usize {
-        self.finish().map(|c| c.len()).unwrap_or_default()
-    }
-}
-
 #[test]
 fn encode_size() {
     fn measure_size(bits: &[bool], expected_bytes: usize) {
@@ -80,6 +73,7 @@ fn encode_size() {
             e.encode(bit, &mut context).unwrap();
         }
         e.finish().unwrap();
+        drop(e);
         assert_eq!(
             encoded.len(),
             expected_bytes,
@@ -164,6 +158,7 @@ fn write_read_correctly() {
                 writer.encode(bit, &mut context).unwrap();
             }
             writer.finish().unwrap();
+            drop(writer);
             // println!("Encoded is {encoded:?}");
 
             let mut bytes = encoded.as_slice();

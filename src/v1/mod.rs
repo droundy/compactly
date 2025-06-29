@@ -68,11 +68,13 @@ pub trait Encode: Sized {
 /// Encode the `value` into a `Vec<u8>` of bytes.`
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = Writer::new(&mut out);
-    value
-        .encode(&mut writer, &mut T::Context::default())
-        .unwrap();
-    writer.finish().unwrap();
+    {
+        let mut writer = Writer::new(&mut out);
+        value
+            .encode(&mut writer, &mut T::Context::default())
+            .unwrap();
+        writer.finish().unwrap();
+    }
     out
 }
 
@@ -125,9 +127,11 @@ pub trait EncodingStrategy<T> {
 /// testing.
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
-    let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
-    S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
-    writer.finish().unwrap();
+    {
+        let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
+        S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
+        writer.finish().unwrap();
+    }
     out
 }
 
