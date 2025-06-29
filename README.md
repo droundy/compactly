@@ -1,3 +1,7 @@
+[![Build Status](https://github.com/droundy/tinyset/actions/workflows/rust.yml/badge.svg)](https://github.com/droundy/compactly/actions)
+[![Crates.io version](https://img.shields.io/crates/v/compactly.svg)](https://crates.io/crates/compactly)
+![docs.rs](https://img.shields.io/docsrs/compactly)
+
 # Serialize your data compactly!
 
 This crate provides a serialization framework fundamentally similar to
