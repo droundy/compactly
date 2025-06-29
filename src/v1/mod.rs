@@ -16,6 +16,8 @@ mod bools;
 mod byte;
 mod bytes;
 mod floats;
+#[cfg(feature = "generate_bit_context")]
+pub mod generate_bit_context;
 mod ints;
 mod low_cardinality;
 mod maps;
@@ -29,7 +31,6 @@ mod vecs;
 
 use crate::{LowCardinality, Small};
 pub use adapt::{Reader, Writer};
-pub use arith::Probability;
 pub use ulessthan::ULessThan;
 
 /// Trait for types that can be compactly encoded.

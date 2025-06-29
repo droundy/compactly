@@ -1,4 +1,8 @@
-use compactly::v1::Probability;
+//! Generate the `bit_context` module.
+//!
+//! This generating code creates a finite set of BitContext states and
+//! transitions between them based on observations.
+use super::arith::Probability;
 
 struct BitC {
     name: String,
@@ -277,7 +281,8 @@ fn lookup_adapt(variants: &[Bucket]) {
 const MAX_PRODUCT: usize = 134;
 const COUNT_FOR_CONFIDENCE: usize = 4;
 
-fn main() {
+/// The program that actually outputs the generated code.
+pub fn main() {
     let mut variants = Vec::new();
     for falses in 0..MAX_PRODUCT - 1 {
         let mut trues = 0;

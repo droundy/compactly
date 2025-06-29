@@ -7,6 +7,10 @@ license = "MIT OR Apache-2.0"
 authors = ["David Roundy <daveroundy@gmail.com>"]
 readme = "README.md"
 
+[features]
+
+generate_bit_context = []
+
 [dependencies]
 
 compactly-derive = { version = "0.1.1", path = "compactly-derive" }
