@@ -1,0 +1,123 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
+  linux-test-no-rand:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose --no-default-features
+    - name: Run tests
+      run: cargo test --verbose --no-default-features
+
+  linux-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - 1.88.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+      - run: cargo check
+      - run: cargo check --no-default-features
+  wasm-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - 1.88.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          targets: wasm32-unknown-unknown
+      - run: cargo check --target wasm32-unknown-unknown --no-default-features
+  miri-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - nightly
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: miri
+      - name: miri test check_sets
+        run: cargo miri test check_sets
+      - name: miri test check_specific_sets
+        run: cargo miri test check_specific_sets
+      # The following is too slow to complete
+      # - name: miri test test_
+      #   run: cargo miri test test_
+      # The following test fails because for some reason proptest won't run under miri
+      # - name: miri test fits_
+      #   run: cargo miri test fits_
+
+  windows-test:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
+  windows-check:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - 1.88.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+      - run: cargo check --features compactserde
+
+  macos-check:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          - 1.88.0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+      - run: cargo check --features compactserde
