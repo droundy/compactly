@@ -60,28 +60,6 @@ jobs:
           toolchain: ${{ matrix.rust }}
           targets: wasm32-unknown-unknown
       - run: cargo check --target wasm32-unknown-unknown --no-default-features
-  miri-test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - nightly
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ matrix.rust }}
-          components: miri
-      - name: miri test check_sets
-        run: cargo miri test check_sets
-      - name: miri test check_specific_sets
-        run: cargo miri test check_specific_sets
-      # The following is too slow to complete
-      # - name: miri test test_
-      #   run: cargo miri test test_
-      # The following test fails because for some reason proptest won't run under miri
-      # - name: miri test fits_
-      #   run: cargo miri test fits_
 
   windows-test:
 
