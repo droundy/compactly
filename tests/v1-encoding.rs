@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Debug};
 
 fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
     let value_hash = rapidhash::rapidhash(&bincode1::serialize(value).unwrap());
@@ -19,7 +19,7 @@ fn validate_encoding<T: Debug + compactly::v1::Encode + serde::Serialize>(value:
 }
 
 #[test]
-fn remembered_to_turn_off_bool() {
+fn remembered_to_stop_creating_new_tests() {
     assert!(!AM_CREATING_NEW_TESTS);
 }
 
@@ -119,6 +119,54 @@ fn signed() {
     ]
     .into_iter()
     .map(Signed::from)
+    {
+        validate_encoding(&value);
+    }
+}
+
+#[test]
+fn string_collections() {
+    #[derive(Debug, compactly::v1::Encode, serde::Serialize, serde::Deserialize)]
+    struct Strings {
+        vec: Vec<String>,
+        #[compactly(Values<Sorted>)]
+        sorted_vec: Vec<String>,
+        #[compactly(Values<Compressible>)]
+        compressible_vec: Vec<String>,
+        #[compactly(Values<LowCardinality>)]
+        lc_vec: Vec<String>,
+        btree: BTreeSet<String>,
+        #[compactly(Values<Normal>)]
+        normal_btree: BTreeSet<String>,
+        #[compactly(Values<LowCardinality>)]
+        lc_btree: BTreeSet<String>,
+        // hash: HashSet<String>, hashset doesn't work since our filename switches around.  :(
+    }
+    impl From<&[&str]> for Strings {
+        fn from(value: &[&str]) -> Self {
+            let vec: Vec<String> = value.iter().map(|s| String::from(*s)).collect();
+            let btree: BTreeSet<String> = vec.clone().into_iter().collect();
+            Self {
+                normal_btree: btree.clone(),
+                lc_btree: btree.clone(),
+                btree,
+                // hash: vec.clone().into_iter().collect(),
+                compressible_vec: vec.clone(),
+                sorted_vec: vec.clone(),
+                lc_vec: vec.clone(),
+                vec,
+            }
+        }
+    }
+    for value in [
+        &[][..],
+        &["hello"],
+        &["hell", "world"],
+        &["hellish", "hello", "world", "", ""],
+        &["hellish", "", "hello", "world", "hellish", "", ""],
+    ]
+    .into_iter()
+    .map(Strings::from)
     {
         validate_encoding(&value);
     }
