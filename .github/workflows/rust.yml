@@ -21,6 +21,19 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
 
+  rebuild-bit-context:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Bit context unit tests
+      run: cargo test --features "generate_bit_context"
+    - name: Rebuild bit contex
+      run: ./src/v1/bit-context.sh
+    - name: Confirm no changes to the code
+      run: git diff || exit 1
+
   linux-test-no-rand:
 
     runs-on: ubuntu-latest
@@ -84,7 +97,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo check --features compactserde
+      - run: cargo check
 
   macos-check:
     runs-on: macos-latest
@@ -98,4 +111,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo check --features compactserde
+      - run: cargo check
