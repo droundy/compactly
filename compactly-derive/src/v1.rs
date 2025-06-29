@@ -139,7 +139,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         }
     });
     let num_variants = s.variants().len();
-    let discriminant_type = quote! { compactly::v1::URange<#num_variants> };
+    let discriminant_type = quote! { compactly::v1::ULessThan<#num_variants> };
     let get_discriminant = |variant: &VariantInfo| -> usize {
         s.variants()
             .iter()
@@ -151,7 +151,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::v1::URange::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant)?;
+            compactly::v1::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant)?;
         }
     });
 

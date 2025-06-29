@@ -1,12 +1,12 @@
 use crate::Sorted;
 
-use super::{byte::UBits, Encode, EncodingStrategy, Small, URange};
+use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
 use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
-    small: <URange<4> as Encode>::Context,
+    small: <ULessThan<4> as Encode>::Context,
     big: <Small as EncodingStrategy<u64>>::Context,
 }
 
@@ -18,7 +18,7 @@ impl Encode for usize {
         writer: &mut super::Writer<W>,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
-        if let Ok(r) = URange::<4>::try_from(*self) {
+        if let Ok(r) = ULessThan::<4>::try_from(*self) {
             true.encode(writer, &mut ctx.less_than_four)?;
             r.encode(writer, &mut ctx.small)
         } else {
@@ -32,7 +32,7 @@ impl Encode for usize {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.less_than_four)? {
-            URange::<4>::decode(reader, &mut ctx.small).map(usize::from)
+            ULessThan::<4>::decode(reader, &mut ctx.small).map(usize::from)
         } else {
             let v: u64 = Small::decode(reader, &mut ctx.big)?;
             usize::try_from(v + 4).map_err(std::io::Error::other)
@@ -42,7 +42,7 @@ impl Encode for usize {
     #[inline]
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = 0;
-        if let Ok(r) = URange::<4>::try_from(*self) {
+        if let Ok(r) = ULessThan::<4>::try_from(*self) {
             tot += true.millibits(&mut ctx.less_than_four)?;
             tot += r.millibits(&mut ctx.small)?;
         } else {

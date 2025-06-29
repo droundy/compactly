@@ -1,11 +1,11 @@
-use super::{bits::Bits, Encode, EncodingStrategy, URange};
+use super::{bits::Bits, Encode, EncodingStrategy, ULessThan};
 use crate::{Compressible, Small, Sorted};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct CharContext {
     is_ascii: <bool as Encode>::Context,
     ascii: <Bits<128> as Encode>::Context,
-    n_chunks: <URange<3> as Encode>::Context,
+    n_chunks: <ULessThan<3> as Encode>::Context,
     chunk1: <Bits<32> as Encode>::Context,
     chunks: [<Bits<64> as Encode>::Context; 3],
 }
@@ -31,7 +31,7 @@ impl Encode for char {
             } else {
                 2
             };
-            let n_chunks = URange::<3>::try_from(n_chunks).unwrap();
+            let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             n_chunks.encode(writer, &mut ctx.n_chunks)?;
             Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1)?;
             for i in 0_usize..1 + usize::from(n_chunks) {
@@ -54,7 +54,7 @@ impl Encode for char {
             } else {
                 2
             };
-            let n_chunks = URange::<3>::try_from(n_chunks).unwrap();
+            let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             tot += n_chunks.millibits(&mut ctx.n_chunks)?;
             tot += Bits::<32>::take_from(&mut x).millibits(&mut ctx.chunk1)?;
             for i in 0_usize..1 + usize::from(n_chunks) {
@@ -72,7 +72,7 @@ impl Encode for char {
             let v: u8 = Bits::<128>::decode(reader, &mut ctx.ascii)?.into();
             Ok(char::from(v))
         } else {
-            let n_chunks = URange::<3>::decode(reader, &mut ctx.n_chunks)?;
+            let n_chunks = ULessThan::<3>::decode(reader, &mut ctx.n_chunks)?;
             let mut out: u32 = u8::from(Bits::<32>::decode(reader, &mut ctx.chunk1)?) as u32;
             for i in 0_usize..1 + usize::from(n_chunks) {
                 let chunk = u8::from(Bits::<64>::decode(reader, &mut ctx.chunks[i])?) as u32;

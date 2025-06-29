@@ -120,7 +120,7 @@ fn bigger_enum() {
 
     assert_bits!(A::A, 3);
     assert_bits!(A::D, 3);
-    assert_bits!(compactly::v1::URange::<10>::new(9), 1);
+    assert_bits!(compactly::v1::ULessThan::<10>::new(9), 1);
     assert_bits!(A::J, 1);
 }
 

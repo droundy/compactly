@@ -23,14 +23,14 @@ mod option;
 mod sets;
 mod string;
 mod tuples;
-mod urange;
+mod ulessthan;
 mod usizes;
 mod vecs;
 
 use crate::{LowCardinality, Small};
 pub use adapt::{Reader, Writer};
 pub use arith::Probability;
-pub use urange::URange;
+pub use ulessthan::ULessThan;
 
 /// Trait for types that can be compactly encoded.
 ///

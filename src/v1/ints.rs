@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, Reader, Small, URange, Writer};
+use super::{Encode, EncodingStrategy, Reader, Small, ULessThan, Writer};
 use crate::Sorted;
 use std::io::{Read, Write};
 
@@ -200,7 +200,7 @@ macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
-            leading_zeros: <URange<{ $bits + 1 }> as Encode>::Context,
+            leading_zeros: <ULessThan<{ $bits + 1 }> as Encode>::Context,
             context: [<bool as Encode>::Context; $bits],
         }
         impl Default for $context {
@@ -220,7 +220,7 @@ macro_rules! impl_compact {
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let uleading = value.leading_zeros() as usize;
-                let leading_zeros = URange::<{ $bits + 1 }>::new(uleading);
+                let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
                 leading_zeros.encode(writer, &mut ctx.leading_zeros)?;
                 if uleading >= $bits - 1 {
                     return Ok(());
@@ -232,7 +232,7 @@ macro_rules! impl_compact {
             }
             fn millibits(value: &$t, ctx: &mut Self::Context) -> Option<usize> {
                 let uleading = value.leading_zeros() as usize;
-                let leading_zeros = URange::<{ $bits + 1 }>::new(uleading);
+                let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
                 let mut tot = leading_zeros.millibits(&mut ctx.leading_zeros)?;
                 if uleading >= $bits - 1 {
                     return Some(tot);
@@ -247,7 +247,7 @@ macro_rules! impl_compact {
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 let leading_zeros =
-                    URange::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
+                    ULessThan::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
                 let uleading = usize::from(leading_zeros);
                 if uleading >= $bits - 1 {
                     if uleading == $bits {
