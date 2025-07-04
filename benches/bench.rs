@@ -13,29 +13,46 @@ use std::{
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
+trait Encodable: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned {}
+impl<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned> Encodable
+    for T
+{
+}
+
 trait Encoding: Debug + Clone + Copy + Default {
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8>;
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T;
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8>;
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Compactly;
 impl Encoding for Compactly {
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
         compactly::v1::encode(value)
     }
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
         compactly::v1::decode(bytes).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CompactlyAns;
+impl Encoding for CompactlyAns {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
+        compactly::ans::encode(value)
+    }
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
+        compactly::ans::decode(bytes).unwrap()
     }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct SerdeVar;
 impl Encoding for SerdeVar {
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
         DefaultOptions::new().serialize(value).unwrap()
     }
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
         DefaultOptions::new().deserialize(bytes).unwrap()
     }
 }
@@ -43,11 +60,11 @@ impl Encoding for SerdeVar {
 #[derive(Debug, Clone, Copy, Default)]
 struct ZstdSerdeVar;
 impl Encoding for ZstdSerdeVar {
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
         let v = DefaultOptions::new().serialize(value).unwrap();
         zstd::bulk::compress(v.as_slice(), 3).unwrap()
     }
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
         let v = zstd::bulk::decompress(bytes, 10_000_000).unwrap();
         DefaultOptions::new().deserialize(&v).unwrap()
     }
@@ -56,11 +73,11 @@ impl Encoding for ZstdSerdeVar {
 #[derive(Debug, Clone, Copy, Default)]
 struct ZstdSerde;
 impl Encoding for ZstdSerde {
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
         let v = bincode1::serialize(value).unwrap();
         zstd::bulk::compress(v.as_slice(), 3).unwrap()
     }
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
         let v = zstd::bulk::decompress(bytes, 10_000_000).unwrap();
         bincode1::deserialize(&v).unwrap()
     }
@@ -78,20 +95,17 @@ fn mem_allocated<T>(f: impl Fn() -> T) -> (T, usize) {
     }
 }
 
-fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
-    name: &str,
-    mut gen: impl FnMut() -> T,
-) {
+fn bench_encoding<T: Encodable>(name: &str, mut gen: impl FnMut() -> T) {
     if name.len() <= 11 {
         println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "bincode", "zstd", "zstdfix"
+            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
+            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
         );
     } else {
         println!("\n{}", name);
         println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13}",
-            "", "compactly", "bincode", "zstd", "zstdfix"
+            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
+            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
         );
     }
 
@@ -99,6 +113,7 @@ fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "encode",
         &[
             bench_gen_env(&mut gen, |value| Compactly.encode(value)).ns_per_iter,
+            bench_gen_env(&mut gen, |value| CompactlyAns.encode(value)).ns_per_iter,
             bench_gen_env(&mut gen, |value| SerdeVar.encode(value)).ns_per_iter,
             bench_gen_env(&mut gen, |value| ZstdSerdeVar.encode(value)).ns_per_iter,
             bench_gen_env(&mut gen, |value| ZstdSerde.encode(value)).ns_per_iter,
@@ -109,6 +124,11 @@ fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         &[
             bench_gen_env(
                 || Compactly.encode(&gen()),
+                |bytes| Compactly.decode::<T>(bytes),
+            )
+            .ns_per_iter,
+            bench_gen_env(
+                || CompactlyAns.encode(&gen()),
                 |bytes| Compactly.decode::<T>(bytes),
             )
             .ns_per_iter,
@@ -141,6 +161,7 @@ fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "",
         &[
             get_size!(Compactly),
+            get_size!(CompactlyAns),
             get_size!(SerdeVar),
             get_size!(ZstdSerdeVar),
             get_size!(ZstdSerde),
@@ -156,6 +177,7 @@ fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "decoding",
         &[
             decoding_mem!(Compactly),
+            decoding_mem!(CompactlyAns),
             decoding_mem!(SerdeVar),
             decoding_mem!(ZstdSerdeVar),
             decoding_mem!(ZstdSerde),
@@ -163,20 +185,17 @@ fn bench_encoding<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
     );
 }
 
-fn bench_scaling<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
-    name: &str,
-    mut gen: impl FnMut(usize) -> T,
-) {
+fn bench_scaling<T: Encodable>(name: &str, mut gen: impl FnMut(usize) -> T) {
     if name.len() <= 11 {
         println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "bincode", "zstd", "zstdfix"
+            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
+            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
         );
     } else {
         println!("\n{}", name);
         println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13}",
-            "", "compactly", "bincode", "zstd", "zstdfix"
+            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
+            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
         );
     }
 
@@ -184,6 +203,7 @@ fn bench_scaling<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "encode",
         &[
             bench_scaling_gen(&mut gen, |value| Compactly.encode(value), 5).scaling,
+            bench_scaling_gen(&mut gen, |value| CompactlyAns.encode(value), 5).scaling,
             bench_scaling_gen(&mut gen, |value| SerdeVar.encode(value), 5).scaling,
             bench_scaling_gen(&mut gen, |value| ZstdSerdeVar.encode(value), 5).scaling,
             bench_scaling_gen(&mut gen, |value| ZstdSerde.encode(value), 5).scaling,
@@ -195,6 +215,12 @@ fn bench_scaling<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
             bench_scaling_gen(
                 |n| Compactly.encode(&gen(n)),
                 |bytes| Compactly.decode::<T>(bytes),
+                5,
+            )
+            .scaling,
+            bench_scaling_gen(
+                |n| CompactlyAns.encode(&gen(n)),
+                |bytes| CompactlyAns.decode::<T>(bytes),
                 5,
             )
             .scaling,
@@ -230,6 +256,7 @@ fn bench_scaling<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "",
         &[
             get_size!(Compactly),
+            get_size!(CompactlyAns),
             get_size!(SerdeVar),
             get_size!(ZstdSerdeVar),
             get_size!(ZstdSerde),
@@ -245,6 +272,7 @@ fn bench_scaling<T: compactly::v1::Encode + Serialize + DeserializeOwned>(
         "decode mem",
         &[
             decoding_mem!(Compactly),
+            decoding_mem!(CompactlyAns),
             decoding_mem!(SerdeVar),
             decoding_mem!(ZstdSerdeVar),
             decoding_mem!(ZstdSerde),
@@ -303,7 +331,7 @@ fn main() {
     bench_scaling("btreeset<usize>", |sz| {
         (0..sz).map(|_| rng.gen::<usize>()).collect::<BTreeSet<_>>()
     });
-    #[derive(Debug, Serialize, Deserialize, compactly::v1::Encode)]
+    #[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode)]
     struct CompactSet {
         #[compactly(Small)]
         set: BTreeSet<u64>,
@@ -325,7 +353,16 @@ fn main() {
     });
 
     #[derive(
-        compactly::v1::Encode, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Clone,
+        compactly::v1::Encode,
+        compactly::ans::Encode,
+        Serialize,
+        Deserialize,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        Clone,
     )]
     enum ThreeOptions {
         A,

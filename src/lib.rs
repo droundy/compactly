@@ -112,6 +112,7 @@
 //! compactly will adaptivly learn the distinct patterns of values for each
 //! field.
 
+pub mod ans;
 mod encoded;
 pub mod v1;
 
