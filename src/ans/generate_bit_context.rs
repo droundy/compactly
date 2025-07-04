@@ -2,7 +2,7 @@
 //!
 //! This generating code creates a finite set of BitContext states and
 //! transitions between them based on observations.
-use super::arith::Probability;
+use super::ans::Probability;
 
 struct BitC {
     name: String,
@@ -301,7 +301,7 @@ pub fn main() {
     const FILENAME: &str = file!();
     println!(
         r"//! Generated with `{FILENAME}`
-use super::arith::Probability;
+use super::ans::Probability;
 
 impl BitContext {{
 pub const CONFIDENT: Self = {confident_name};

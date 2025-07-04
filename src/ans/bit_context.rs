@@ -1,5 +1,5 @@
 //! Generated with `src/ans/generate_bit_context.rs`
-use super::arith::Probability;
+use super::ans::Probability;
 
 impl BitContext {
     pub const CONFIDENT: Self = True0False4;
