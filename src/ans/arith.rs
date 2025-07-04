@@ -116,7 +116,7 @@ impl ArithState {
         debug_assert!(self.hi > self.lo);
         let width = self.hi - self.lo;
         debug_assert!(self.lo >> 56 != self.hi >> 56);
-        self.lo + (width >> SHIFT) * prob as u64
+        self.lo + (width >> SHIFT) * prob.get() as u64
     }
 }
 
@@ -292,14 +292,15 @@ impl<R: Read> Reader<R> {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU8;
+
     use rand::Rng;
 
     use super::*;
 
     fn rand_prob() -> (Probability, bool) {
         let value_bool = rand::random::<bool>();
-        let prob = 1 + (rand::random::<u64>() % ((1 << SHIFT) - 1)) as u8;
-        (Probability { prob }, value_bool)
+        (rand::random::<Probability>(), value_bool)
     }
 
     #[test]
@@ -367,9 +368,23 @@ mod tests {
     fn zero_byte() {
         let mut s = ArithState::default();
         for _ in 0..7 {
-            assert_eq!(s.encode(Probability { prob: 127 }, false,).count, 0);
+            assert_eq!(
+                s.encode(
+                    Probability {
+                        prob: NonZeroU8::new(127).unwrap()
+                    },
+                    false,
+                )
+                .count,
+                0
+            );
         }
-        let bytes = s.encode(Probability { prob: 127 }, false);
+        let bytes = s.encode(
+            Probability {
+                prob: NonZeroU8::new(127).unwrap(),
+            },
+            false,
+        );
         assert_eq!(bytes.count, 1);
         assert_eq!(bytes.bytes, [0, 0, 0, 0, 0, 0, 0, 0]);
     }
@@ -377,11 +392,30 @@ mod tests {
     #[test]
     fn one_byte() {
         let mut s = ArithState::default();
-        assert_eq!(s.split(Probability { prob: 128 }) >> 8, (u64::MAX / 2) >> 8);
+        assert_eq!(
+            s.split(Probability {
+                prob: NonZeroU8::new(128).unwrap()
+            }) >> 8,
+            (u64::MAX / 2) >> 8
+        );
         for _ in 0..8 {
-            assert_eq!(s.encode(Probability { prob: 127 }, true,).count, 0);
+            assert_eq!(
+                s.encode(
+                    Probability {
+                        prob: NonZeroU8::new(127).unwrap()
+                    },
+                    true,
+                )
+                .count,
+                0
+            );
         }
-        let bytes = s.encode(Probability { prob: 127 }, true);
+        let bytes = s.encode(
+            Probability {
+                prob: NonZeroU8::new(127).unwrap(),
+            },
+            true,
+        );
         assert_eq!(bytes.count, 1);
         assert_eq!(bytes.bytes, [255, 0, 0, 0, 0, 0, 0, 0]);
     }

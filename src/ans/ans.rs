@@ -1,5 +1,3 @@
-use std::num::NonZeroU8;
-
 mod probability;
 pub use probability::Probability;
 
@@ -19,12 +17,12 @@ impl Coder {
         }
     }
 
-    /// Encode a bit using distribution Bernoulli(successes / 256).
-    pub fn encode(&mut self, b: bool, successes: NonZeroU8) {
-        let successes = State::from(successes.get());
-        let failures = 256 - successes;
+    /// Encode a bit using distribution Bernoulli(probability).
+    pub fn encode(&mut self, b: bool, probability: Probability) {
+        let zeros = State::from(probability);
+        let ones = 256 - zeros;
         // we use uniform of size matching the bit value to decode from state first
-        let freq = if b { successes } else { failures };
+        let freq = if b { zeros } else { ones };
         // shift data from state to bulk when it grows too much
         if self.state >> (State::BITS - 8) >= freq {
             self.bulk.push(self.state as u8);
@@ -33,24 +31,24 @@ impl Coder {
         // the code really starts here, decode digit from freq base
         let mut z = self.state % freq;
         if b {
-            z += failures;
+            z += ones;
         }
         // now encode new digit from 256 base
         self.state = (self.state / freq) * 256 + z;
     }
 
-    /// Decode a bit using distribution Bernoulli(successes / 256).
-    pub fn decode(&mut self, successes: NonZeroU8) -> bool {
-        let successes = State::from(successes.get());
-        let failures = 256 - successes;
+    /// Decode a bit using distribution Bernoulli(probability).
+    pub fn decode(&mut self, probability: Probability) -> bool {
+        let zeros = State::from(probability);
+        let ones = 256 - zeros;
         let mut z = self.state % 256;
-        let b = z >= failures;
+        let b = z >= ones;
         self.state /= 256;
         if b {
-            z -= failures;
-            self.state = self.state * successes + z;
+            z -= ones;
+            self.state = self.state * zeros + z;
         } else {
-            self.state = self.state * failures + z;
+            self.state = self.state * ones + z;
         }
         if self.state < 1 << (State::BITS - 8) {
             if let Some(u) = self.bulk.pop() {
@@ -67,14 +65,14 @@ fn check_ans_coder() {
     const SIZE: usize = 1000;
     data.resize_with(SIZE, || rand::random::<bool>());
     let mut distros = Vec::new();
-    distros.resize_with(SIZE, rand::random::<NonZeroU8>);
+    distros.resize_with(SIZE, rand::random::<Probability>);
     let mut coder = Coder::new();
-    for (b, successes) in data.iter().copied().zip(distros.iter().copied()).rev() {
+    for (b, probability) in data.iter().copied().zip(distros.iter().copied()).rev() {
         // rev here
-        coder.encode(b, successes);
+        coder.encode(b, probability);
     }
-    for (b, successes) in data.iter().copied().zip(distros.iter().copied()) {
-        assert_eq!(coder.decode(successes), b);
+    for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
+        assert_eq!(coder.decode(probability), b);
     }
     assert_eq!(coder, Coder::new());
 }
