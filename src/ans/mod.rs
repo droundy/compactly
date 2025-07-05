@@ -31,7 +31,7 @@ mod usizes;
 mod vecs;
 
 use crate::{LowCardinality, Small};
-pub use adapt::{Reader, Writer};
+pub use adapt::{RangeEncoder, Reader};
 pub use ulessthan::ULessThan;
 
 /// A place where we can put bits where we have estimated the probabilities.
@@ -79,7 +79,7 @@ pub trait Encode: Sized {
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     {
-        let mut writer = Writer::new(&mut out);
+        let mut writer = RangeEncoder::new(&mut out);
         value
             .encode(&mut writer, &mut T::Context::default())
             .unwrap();
@@ -138,7 +138,7 @@ pub trait EncodingStrategy<T> {
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     {
-        let mut writer = Writer::<&mut Vec<u8>>::new(&mut out);
+        let mut writer = RangeEncoder::<&mut Vec<u8>>::new(&mut out);
         S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
         writer.finish().unwrap();
     }

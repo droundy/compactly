@@ -1,11 +1,11 @@
 use super::bit_context::BitContext;
 /// A wraper around a [`std::io::Write`] that enables range coding.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Writer<W: std::io::Write> {
+pub struct RangeEncoder<W: std::io::Write> {
     arith: Option<super::arith::Writer<W>>,
 }
 
-impl<W: std::io::Write> Writer<W> {
+impl<W: std::io::Write> RangeEncoder<W> {
     /// Create a new `Writer`
     pub fn new(write: W) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl<W: std::io::Write> Writer<W> {
     }
 }
 
-impl<W: std::io::Write> super::EntropyCoder for Writer<W> {
+impl<W: std::io::Write> super::EntropyCoder for RangeEncoder<W> {
     fn encode(
         &mut self,
         probability: super::ans::Probability,
@@ -51,7 +51,7 @@ impl<W: std::io::Write> super::EntropyCoder for Writer<W> {
     }
 }
 
-impl<W: std::io::Write> Drop for Writer<W> {
+impl<W: std::io::Write> Drop for RangeEncoder<W> {
     fn drop(&mut self) {
         if let Some(arith) = self.arith.take() {
             arith.finish().ok();
@@ -89,7 +89,7 @@ fn encode_size() {
     fn measure_size(bits: &[bool], expected_bytes: usize) {
         let mut context = BitContext::default();
         let mut encoded = Vec::new();
-        let mut e = Writer::new(&mut encoded);
+        let mut e = RangeEncoder::new(&mut encoded);
         for bit in bits.iter().copied() {
             // println!(
             //     "Context is {context:?} with probability {}",
@@ -177,7 +177,7 @@ fn write_read_correctly() {
             // println!("\nTesting with {length} bits.");
             let mut context = BitContext::default();
             let mut encoded = Vec::new();
-            let mut writer = Writer::new(&mut encoded);
+            let mut writer = RangeEncoder::new(&mut encoded);
             for &bit in &bits[..length] {
                 // println!("Encoding {bit:?} with {context:x?}");
                 writer.encode(bit, &mut context).unwrap();
