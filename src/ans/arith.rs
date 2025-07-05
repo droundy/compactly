@@ -165,8 +165,12 @@ impl EntropyCoder for RangeCoder {
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
+}
+
+impl RangeCoder {
+    /// Produce output.
     #[inline]
-    fn finish(mut self) -> Vec<u8> {
+    pub fn finish(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
         self.bytes
     }

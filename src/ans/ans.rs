@@ -14,20 +14,7 @@ impl super::EntropyCoder for AnsCoder {
     fn encode(&mut self, probability: self::Probability, bit: bool) {
         self.bits.push((bit, probability));
     }
-    fn finish(self) -> Vec<u8> {
-        let mut coder = Encoder::new();
-        let mut out = Vec::new();
-        for (b, probability) in self.bits.into_iter().rev() {
-            if let Some(byte) = coder.encode(b, probability) {
-                out.push(byte);
-            }
-        }
-        out.extend(coder.finish_encoding());
-        out.reverse();
-        out
-    }
 }
-
 impl AnsCoder {
     #[inline]
     pub fn encode(&mut self, probability_of_false: Probability, value: bool) {

@@ -39,8 +39,6 @@ pub use ulessthan::ULessThan;
 pub trait EntropyCoder {
     /// Encode a given bit with its probability
     fn encode(&mut self, probability: ans::Probability, bit: bool);
-    /// Finish the encoding
-    fn finish(self) -> Vec<u8>;
 }
 
 /// Trait for types that can be compactly encoded.
