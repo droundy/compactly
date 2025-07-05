@@ -4,15 +4,10 @@ use std::io::Read;
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         for v in self {
-            v.encode(writer, ctx)?;
+            v.encode(writer, ctx);
         }
-        Ok(())
     }
     #[inline]
     fn decode<R: Read>(

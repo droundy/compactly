@@ -37,13 +37,9 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
     type Context = CacheContext<T>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let looked_up = ctx.cached.get(self).copied();
-        looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
+        looked_up.is_some().encode(writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
             idx.encode(writer, &mut ctx.index)
         } else {

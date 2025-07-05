@@ -24,14 +24,10 @@ macro_rules! impl_float {
         impl Encode for $t {
             type Context = $context;
             #[inline]
-            fn encode<E: super::EntropyCoder>(
-                &self,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                 let intvalue = *self as $intty;
                 let is_int = intvalue as $t == *self;
-                is_int.encode(writer, &mut ctx.is_int)?;
+                is_int.encode(writer, &mut ctx.is_int);
                 if is_int {
                     <Small as EncodingStrategy<$intty>>::encode(
                         &intvalue,
@@ -41,10 +37,9 @@ macro_rules! impl_float {
                 } else {
                     let mut bits = $intty::from_le_bytes(self.to_le_bytes());
                     for i in 0..$bits {
-                        (bits & 1 == 1).encode(writer, &mut ctx.context[i])?;
+                        (bits & 1 == 1).encode(writer, &mut ctx.context[i]);
                         bits = bits >> 1;
                     }
-                    Ok(())
                 }
             }
             #[inline]
@@ -77,14 +72,10 @@ macro_rules! impl_float {
         }
         impl EncodingStrategy<$t> for Decimal {
             type Context = $decimal;
-            fn encode<E: super::EntropyCoder>(
-                value: &$t,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            fn encode<E: super::EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let intvalue = *value as $sint;
                 let is_int = intvalue as $t == *value;
-                is_int.encode(writer, &mut ctx.is_int)?;
+                is_int.encode(writer, &mut ctx.is_int);
                 if is_int {
                     <Small as EncodingStrategy<$sint>>::encode(&intvalue, writer, &mut ctx.integer)
                 } else {
@@ -103,7 +94,7 @@ macro_rules! impl_float {
                             (power, int.parse::<$sint>().expect("bad float trimzeros"))
                         }
                     };
-                    <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent)?;
+                    <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent);
                     <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int)
                 }
             }

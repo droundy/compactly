@@ -43,22 +43,17 @@ impl<const N: usize> TryFrom<u8> for Bits<N> {
 impl<const N: usize> Encode for Bits<N> {
     type Context = BitsContext<N>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         debug_assert_eq!(N, 1 << Self::N_BITS);
         let mut filled_up = 0;
         let mut accumulated_value = 0;
         for i in 0..Self::N_BITS {
             let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = (self.value >> (Self::N_BITS - 1 - i)) & 1 == 1;
-            bit.encode(writer, ctx)?;
+            bit.encode(writer, ctx);
             filled_up += 1 << i;
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
-        Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut filled_up = 0;

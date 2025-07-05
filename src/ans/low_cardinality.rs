@@ -34,9 +34,9 @@ macro_rules! impl_low_cardinality {
                     value: &$t,
                     writer: &mut E,
                     ctx: &mut Self::Context,
-                ) -> Result<(), std::io::Error> {
+                ) {
                     let looked_up = ctx.cached.get(value).copied();
-                    looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
+                    looked_up.is_some().encode(writer, &mut ctx.is_cached);
                     if let Some(idx) = looked_up {
                         idx.encode(writer, &mut ctx.index)
                     } else {
@@ -80,16 +80,11 @@ where
         <usize as Encode>::Context,
         <LowCardinality as EncodingStrategy<T>>::Context,
     );
-    fn encode<E: super::EntropyCoder>(
-        value: &Vec<T>,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        value.len().encode(writer, &mut ctx.0)?;
+    fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
+        value.len().encode(writer, &mut ctx.0);
         for v in value {
-            LowCardinality::encode(&v, writer, &mut ctx.1)?;
+            LowCardinality::encode(&v, writer, &mut ctx.1);
         }
-        Ok(())
     }
     fn decode<R: std::io::Read>(
         reader: &mut super::Reader<R>,

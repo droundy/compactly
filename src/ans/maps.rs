@@ -32,17 +32,12 @@ impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContex
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.len().encode(writer, &mut ctx.len)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.len().encode(writer, &mut ctx.len);
         for (k, v) in self {
-            k.encode(writer, &mut ctx.key)?;
-            v.encode(writer, &mut ctx.value)?;
+            k.encode(writer, &mut ctx.key);
+            v.encode(writer, &mut ctx.value);
         }
-        Ok(())
     }
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,
@@ -75,11 +70,7 @@ where
 {
     type Context = MapContext<K, V, Sorted, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         Mapping::<Sorted, Normal>::encode(self, writer, ctx)
     }
     #[inline]
@@ -120,13 +111,12 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         value: &BTreeMap<K, V>,
         writer: &mut E,
         ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        value.len().encode(writer, &mut ctx.len)?;
+    ) {
+        value.len().encode(writer, &mut ctx.len);
         for (k, v) in value {
-            SK::encode(k, writer, &mut ctx.key)?;
-            SV::encode(v, writer, &mut ctx.value)?;
+            SK::encode(k, writer, &mut ctx.key);
+            SV::encode(v, writer, &mut ctx.value);
         }
-        Ok(())
     }
     #[inline]
     fn decode<R: Read>(
@@ -154,13 +144,12 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         value: &HashMap<K, V>,
         writer: &mut E,
         ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        value.len().encode(writer, &mut ctx.len)?;
+    ) {
+        value.len().encode(writer, &mut ctx.len);
         for (k, v) in value {
-            SK::encode(k, writer, &mut ctx.key)?;
-            SV::encode(v, writer, &mut ctx.value)?;
+            SK::encode(k, writer, &mut ctx.key);
+            SV::encode(v, writer, &mut ctx.value);
         }
-        Ok(())
     }
     #[inline]
     fn decode<R: Read>(

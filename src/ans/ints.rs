@@ -29,18 +29,17 @@ macro_rules! impl_uint {
                     &self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
-                ) -> Result<(), std::io::Error> {
+                ) {
                     let mut am_leading = true;
                     for i in (0..$bits).rev() {
                         let bit = (*self & (1 << i)) != 0;
                         if am_leading {
-                            bit.encode(writer, &mut ctx.leading_zero[i])?;
+                            bit.encode(writer, &mut ctx.leading_zero[i]);
                             am_leading = !bit;
                         } else {
-                            bit.encode(writer, &mut ctx.context[i])?;
+                            bit.encode(writer, &mut ctx.context[i]);
                         }
                     }
-                    Ok(())
                 }
                 #[inline]
                 fn decode<R: Read>(
@@ -78,20 +77,19 @@ macro_rules! impl_uint {
                     value: &$t,
                     writer: &mut E,
                     ctx: &mut Self::Context,
-                ) -> Result<(), std::io::Error> {
+                ) {
                     if let Some(previous) = ctx.previous.take() {
                         let not_sorted = *value < previous;
-                        not_sorted.encode(writer, &mut ctx.not_sorted)?;
+                        not_sorted.encode(writer, &mut ctx.not_sorted);
                         if not_sorted {
-                            Small::encode(value, writer, &mut ctx.value)?;
+                            Small::encode(value, writer, &mut ctx.value);
                         } else {
-                            Small::encode(&(*value - previous), writer, &mut ctx.difference)?;
+                            Small::encode(&(*value - previous), writer, &mut ctx.difference);
                         }
                     } else {
-                        Small::encode(value, writer, &mut ctx.value)?;
+                        Small::encode(value, writer, &mut ctx.value);
                     }
                     ctx.previous = Some(*value);
-                    Ok(())
                 }
                 fn decode<R: Read>(
                     reader: &mut super::Reader<R>,
@@ -214,21 +212,16 @@ macro_rules! impl_compact {
 
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
-            fn encode<E: super::EntropyCoder>(
-                value: &$t,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            fn encode<E: super::EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let uleading = value.leading_zeros() as usize;
                 let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
-                leading_zeros.encode(writer, &mut ctx.leading_zeros)?;
+                leading_zeros.encode(writer, &mut ctx.leading_zeros);
                 if uleading >= $bits - 1 {
-                    return Ok(());
+                    return;
                 }
                 for i in 0..($bits - 1) - uleading {
-                    ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i])?;
+                    ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i]);
                 }
-                Ok(())
             }
             fn millibits(value: &$t, ctx: &mut Self::Context) -> Option<usize> {
                 let uleading = value.leading_zeros() as usize;
@@ -334,11 +327,7 @@ macro_rules! impl_signed {
         impl Encode for $signed {
             type Context = <$unsigned as Encode>::Context;
             #[inline]
-            fn encode<E: super::EntropyCoder>(
-                &self,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
             }
             #[inline]
@@ -375,8 +364,8 @@ macro_rules! impl_signed {
                 value: &$signed,
                 writer: &mut E,
                 ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                (*value < 0).encode(writer, &mut ctx.is_negative)?;
+            ) {
+                (*value < 0).encode(writer, &mut ctx.is_negative);
                 if *value < 0 {
                     Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
                 } else {

@@ -1,5 +1,6 @@
 pub use super::ans::Probability;
-use std::io::{Read, Write};
+use super::EntropyCoder;
+use std::io::Read;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithState {
@@ -151,62 +152,23 @@ impl IntoIterator for Bytes {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg(test)]
-struct Encoder {
+/// Use range coding to encode bits.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RangeCoder {
     bytes: Vec<u8>,
     state: ArithState,
 }
 
-#[cfg(test)]
-impl Encoder {
-    pub fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            state: ArithState::default(),
-        }
-    }
+impl EntropyCoder for RangeCoder {
     #[inline]
-    pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
+    fn encode(&mut self, probability_of_false: Probability, value: bool) {
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
     #[inline]
-    pub fn finish(mut self) -> Vec<u8> {
+    fn finish(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
         self.bytes
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Writer<W> {
-    write: W,
-    state: ArithState,
-}
-
-impl<W: Write> Writer<W> {
-    pub fn new(write: W) -> Self {
-        Self {
-            write,
-            state: ArithState::default(),
-        }
-    }
-    #[inline]
-    pub fn encode(
-        &mut self,
-        probability_of_false: Probability,
-        value: bool,
-    ) -> std::io::Result<()> {
-        let bytes = self.state.encode(probability_of_false, value);
-        if bytes.count > 0 {
-            self.write.write(&bytes)?;
-        }
-        Ok(())
-    }
-    #[inline]
-    pub fn finish(mut self) -> std::io::Result<W> {
-        self.write.write(&[self.state.last_byte()])?;
-        Ok(self.write)
     }
 }
 
@@ -429,7 +391,7 @@ mod tests {
                 probs.push(rand_prob());
             }
             println!("\n\ntesting {probs:?}");
-            let mut encoder = Encoder::new();
+            let mut encoder = RangeCoder::default();
             for &(p, bit) in &probs {
                 encoder.encode(p, bit);
             }

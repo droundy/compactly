@@ -3,13 +3,7 @@ use super::{Encode, Reader};
 impl Encode for () {
     type Context = ();
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        _writer: &mut E,
-        _ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        Ok(())
-    }
+    fn encode<E: super::EntropyCoder>(&self, _writer: &mut E, _ctx: &mut Self::Context) {}
     #[inline]
     fn decode<R: std::io::Read>(
         _reader: &mut Reader<R>,
@@ -23,12 +17,8 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     type Context = (T1::Context, T2::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
         self.1.encode(writer, &mut ctx.1)
     }
 
@@ -48,13 +38,9 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     type Context = (T1::Context, T2::Context, T3::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
         self.2.encode(writer, &mut ctx.2)
     }
 
@@ -75,14 +61,10 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     type Context = (T1::Context, T2::Context, T3::Context, T4::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
-        self.2.encode(writer, &mut ctx.2)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+        self.2.encode(writer, &mut ctx.2);
         self.3.encode(writer, &mut ctx.3)
     }
 
@@ -110,15 +92,11 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
-        self.2.encode(writer, &mut ctx.2)?;
-        self.3.encode(writer, &mut ctx.3)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+        self.2.encode(writer, &mut ctx.2);
+        self.3.encode(writer, &mut ctx.3);
         self.4.encode(writer, &mut ctx.4)
     }
 
@@ -150,16 +128,12 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
-        self.2.encode(writer, &mut ctx.2)?;
-        self.3.encode(writer, &mut ctx.3)?;
-        self.4.encode(writer, &mut ctx.4)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+        self.2.encode(writer, &mut ctx.2);
+        self.3.encode(writer, &mut ctx.3);
+        self.4.encode(writer, &mut ctx.4);
         self.5.encode(writer, &mut ctx.5)
     }
 
@@ -193,17 +167,13 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
-        self.2.encode(writer, &mut ctx.2)?;
-        self.3.encode(writer, &mut ctx.3)?;
-        self.4.encode(writer, &mut ctx.4)?;
-        self.5.encode(writer, &mut ctx.5)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+        self.2.encode(writer, &mut ctx.2);
+        self.3.encode(writer, &mut ctx.3);
+        self.4.encode(writer, &mut ctx.4);
+        self.5.encode(writer, &mut ctx.5);
         self.6.encode(writer, &mut ctx.6)
     }
 
@@ -247,18 +217,14 @@ impl<
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        self.0.encode(writer, &mut ctx.0)?;
-        self.1.encode(writer, &mut ctx.1)?;
-        self.2.encode(writer, &mut ctx.2)?;
-        self.3.encode(writer, &mut ctx.3)?;
-        self.4.encode(writer, &mut ctx.4)?;
-        self.5.encode(writer, &mut ctx.5)?;
-        self.6.encode(writer, &mut ctx.6)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+        self.2.encode(writer, &mut ctx.2);
+        self.3.encode(writer, &mut ctx.3);
+        self.4.encode(writer, &mut ctx.4);
+        self.5.encode(writer, &mut ctx.5);
+        self.6.encode(writer, &mut ctx.6);
         self.7.encode(writer, &mut ctx.7)
     }
 

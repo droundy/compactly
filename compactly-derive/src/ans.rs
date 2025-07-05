@@ -130,11 +130,11 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         if let Some(Some(strategy)) = binding_strategies.get(binding) {
             let strategy = &strategy.0;
             quote! {
-                <#strategy as EncodingStrategy<#ty>>::encode(&#binding, writer, &mut ctx.#binding)?;
+                <#strategy as EncodingStrategy<#ty>>::encode(&#binding, writer, &mut ctx.#binding);
             }
         } else {
             quote! {
-                #binding.encode(writer, &mut ctx.#binding)?;
+                #binding.encode(writer, &mut ctx.#binding);
             }
         }
     });
@@ -151,7 +151,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::ans::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant)?;
+            compactly::ans::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant);
         }
     });
 
@@ -218,14 +218,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         gen impl Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
             type Context = DerivedContext #context_generics_without_bound;
-            fn encode<E: EntropyCoder>(
-                &self,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                 match self { #encode_discriminant }
                 match self { #encode_fields }
-                Ok(())
             }
             fn decode<R: std::io::Read>(
                 reader: &mut compactly::ans::Reader<R>,

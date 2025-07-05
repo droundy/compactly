@@ -6,11 +6,29 @@ use bytes::Bytes;
 type State = u64;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Writer {
+pub struct AnsCoder {
     bits: Vec<(bool, Probability)>,
 }
 
-impl Writer {
+impl super::EntropyCoder for AnsCoder {
+    fn encode(&mut self, probability: self::Probability, bit: bool) {
+        self.bits.push((bit, probability));
+    }
+    fn finish(self) -> Vec<u8> {
+        let mut coder = Encoder::new();
+        let mut out = Vec::new();
+        for (b, probability) in self.bits.into_iter().rev() {
+            if let Some(byte) = coder.encode(b, probability) {
+                out.push(byte);
+            }
+        }
+        out.extend(coder.finish_encoding());
+        out.reverse();
+        out
+    }
+}
+
+impl AnsCoder {
     #[inline]
     pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
         self.bits.push((value, probability_of_false));
@@ -123,7 +141,7 @@ fn check_ans_coder() {
     data.resize_with(SIZE, || rand::random::<bool>());
     let mut distros = Vec::new();
     distros.resize_with(SIZE, rand::random::<Probability>);
-    let mut writer = Writer::default();
+    let mut writer = AnsCoder::default();
     for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
         // rev here
         writer.encode(probability, b);

@@ -31,15 +31,16 @@ mod usizes;
 mod vecs;
 
 use crate::{LowCardinality, Small};
-pub use adapt::{RangeEncoder, Reader};
+pub use adapt::Reader;
+pub use arith::RangeCoder;
 pub use ulessthan::ULessThan;
 
 /// A place where we can put bits where we have estimated the probabilities.
 pub trait EntropyCoder {
     /// Encode a given bit with its probability
-    fn encode(&mut self, probability: ans::Probability, bit: bool) -> Result<(), std::io::Error>;
+    fn encode(&mut self, probability: ans::Probability, bit: bool);
     /// Finish the encoding
-    fn finish(&mut self) -> Result<(), std::io::Error>;
+    fn finish(self) -> Vec<u8>;
 }
 
 /// Trait for types that can be compactly encoded.
@@ -51,11 +52,7 @@ pub trait Encode: Sized {
     type Context: Default + Clone;
 
     /// Encode this value to the [`Writer<W>`].
-    fn encode<E: EntropyCoder>(
-        &self,
-        encoder: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error>;
+    fn encode<E: EntropyCoder>(&self, encoder: &mut E, ctx: &mut Self::Context);
 
     /// Extimate the number of millibits required for this value.
     ///
@@ -77,15 +74,9 @@ pub trait Encode: Sized {
 
 /// Encode the `value` into a `Vec<u8>` of bytes.`
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8);
-    {
-        let mut writer = RangeEncoder::new(&mut out);
-        value
-            .encode(&mut writer, &mut T::Context::default())
-            .unwrap();
-        writer.finish().unwrap();
-    }
-    out
+    let mut writer = arith::RangeCoder::default();
+    value.encode(&mut writer, &mut T::Context::default());
+    writer.finish()
 }
 
 /// Decode a value of this type from `bytes`.
@@ -112,11 +103,7 @@ pub trait EncodingStrategy<T> {
     type Context: Default + Clone;
 
     /// Encode the value with this strategy.
-    fn encode<E: EntropyCoder>(
-        value: &T,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error>;
+    fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context);
 
     /// Estimate the size of the encoded value using this stratgy.
     #[expect(unused_variables)]
@@ -136,13 +123,9 @@ pub trait EncodingStrategy<T> {
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8);
-    {
-        let mut writer = RangeEncoder::<&mut Vec<u8>>::new(&mut out);
-        S::encode(value, &mut writer, &mut S::Context::default()).unwrap();
-        writer.finish().unwrap();
-    }
-    out
+    let mut writer = RangeCoder::default();
+    S::encode(value, &mut writer, &mut S::Context::default());
+    writer.finish()
 }
 
 /// Decode a value with a specific strategy (from a bytes slice).
@@ -157,11 +140,7 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) ->
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
     type Context = S::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         S::encode(&self.value, writer, ctx)
     }
     #[inline]
@@ -183,11 +162,7 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
 impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     type Context = <T as Encode>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(
-        value: &T,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {
         value.encode(writer, ctx)
     }
     fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {

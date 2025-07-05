@@ -80,11 +80,7 @@ fn half(i: usize) -> usize {
 impl<const N: usize> Encode for ULessThan<N> {
     type Context = ULessThanContext<N>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
         let mut bits_chosen = 0;
@@ -105,7 +101,7 @@ impl<const N: usize> Encode for ULessThan<N> {
             //     filled_up + bits_chosen
             // );
             let ctx = ctx.index_mut(filled_up + bits_chosen);
-            bit.encode(writer, ctx)?;
+            bit.encode(writer, ctx);
             filled_up += i;
             if bit {
                 bits_chosen += 1 << i;
@@ -118,7 +114,6 @@ impl<const N: usize> Encode for ULessThan<N> {
             value_considered = half(possible_values_left);
             i += 1;
         }
-        Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut filled_up = 0;

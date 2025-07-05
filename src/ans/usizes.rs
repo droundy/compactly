@@ -13,16 +13,12 @@ pub struct UsizeContext {
 impl Encode for usize {
     type Context = UsizeContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         if let Ok(r) = ULessThan::<4>::try_from(*self) {
-            true.encode(writer, &mut ctx.less_than_four)?;
+            true.encode(writer, &mut ctx.less_than_four);
             r.encode(writer, &mut ctx.small)
         } else {
-            false.encode(writer, &mut ctx.less_than_four)?;
+            false.encode(writer, &mut ctx.less_than_four);
             Small::encode(&((*self - 4) as u64), writer, &mut ctx.big)
         }
     }
@@ -81,11 +77,7 @@ impl Default for SmallContext {
 
 impl EncodingStrategy<usize> for Small {
     type Context = SmallContext;
-    fn encode<E: super::EntropyCoder>(
-        value: &usize,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         let nonzero: UBits<3>;
         match *value {
             0 => {
@@ -98,46 +90,45 @@ impl EncodingStrategy<usize> for Small {
             }
             2..4 => {
                 nonzero = 2.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let b1: UBits<1> = (*value as u8 - 2).try_into().unwrap();
                 b1.encode(writer, &mut ctx.b1)
             }
             4..8 => {
                 nonzero = 3.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let b2: UBits<2> = (*value as u8 - 4).try_into().unwrap();
                 b2.encode(writer, &mut ctx.b2)
             }
             8..16 => {
                 nonzero = 4.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let b3: UBits<3> = (*value as u8 - 8).try_into().unwrap();
                 b3.encode(writer, &mut ctx.b3)
             }
             16..32 => {
                 nonzero = 5.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let b4: UBits<4> = (*value as u8 - 16).try_into().unwrap();
                 b4.encode(writer, &mut ctx.b4)
             }
             32..64 => {
                 nonzero = 6.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let b5: UBits<5> = (*value as u8 - 32).try_into().unwrap();
                 b5.encode(writer, &mut ctx.b5)
             }
             _ => {
                 nonzero = 7.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.small_nonzero)?;
+                nonzero.encode(writer, &mut ctx.small_nonzero);
                 let value = *value as u64;
                 let zeros = value.leading_zeros() as u8;
                 let bits_beyond_seven = (64 - 7 - zeros) as u8;
                 let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
-                bits_beyond_seven.encode(writer, &mut ctx.bits_beyond_seven)?;
+                bits_beyond_seven.encode(writer, &mut ctx.bits_beyond_seven);
                 for off in 0..6 + u8::from(bits_beyond_seven) {
-                    ((value >> off) & 1 == 1).encode(writer, &mut ctx.bits[off as usize])?;
+                    ((value >> off) & 1 == 1).encode(writer, &mut ctx.bits[off as usize]);
                 }
-                Ok(())
             }
         }
     }
@@ -255,24 +246,19 @@ pub struct SortedContext {
 
 impl EncodingStrategy<usize> for Sorted {
     type Context = SortedContext;
-    fn encode<E: super::EntropyCoder>(
-        value: &usize,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
             let not_sorted = *value < previous;
-            not_sorted.encode(writer, &mut ctx.not_sorted)?;
+            not_sorted.encode(writer, &mut ctx.not_sorted);
             if not_sorted {
-                Small::encode(value, writer, &mut ctx.value)?;
+                Small::encode(value, writer, &mut ctx.value);
             } else {
-                Small::encode(&(*value - previous), writer, &mut ctx.difference)?;
+                Small::encode(&(*value - previous), writer, &mut ctx.difference);
             }
         } else {
-            Small::encode(value, writer, &mut ctx.value)?;
+            Small::encode(value, writer, &mut ctx.value);
         }
         ctx.previous = Some(*value);
-        Ok(())
     }
     fn decode<R: Read>(
         reader: &mut super::Reader<R>,

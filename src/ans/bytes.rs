@@ -144,19 +144,14 @@ impl Lz77 {
         }
     }
 
-    pub fn encode<E: super::EntropyCoder>(
-        &mut self,
-        value: &[u8],
-        writer: &mut E,
-    ) -> Result<(), std::io::Error> {
+    pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
         let chunks = self.eager(value);
-        Small::encode(&chunks.len(), writer, &mut self.count)?;
+        Small::encode(&chunks.len(), writer, &mut self.count);
         for chunk in chunks {
-            chunk.encode(writer, self)?;
+            chunk.encode(writer, self);
             self.shift_chunk(&chunk);
         }
         self.push_old(value.to_vec());
-        Ok(())
     }
     pub fn millibits(&mut self, value: &[u8]) -> Option<usize> {
         let chunks = self.eager(value);
@@ -346,28 +341,23 @@ Lossless compression is used in cases where it is important that the original an
 
 impl Encode for Chunk {
     type Context = Lz77;
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let Chunk {
             literal,
             length,
             back,
             offset,
         } = self;
-        literal.encode(writer, &mut ctx.literal)?;
-        Small::encode(length, writer, &mut ctx.length)?;
+        literal.encode(writer, &mut ctx.literal);
+        Small::encode(length, writer, &mut ctx.length);
         if *length > 0 {
-            Small::encode(back, writer, &mut ctx.back)?;
+            Small::encode(back, writer, &mut ctx.back);
             if *back == 0 {
-                Small::encode(offset, writer, &mut ctx.self_offset)?;
+                Small::encode(offset, writer, &mut ctx.self_offset);
             } else {
-                Small::encode(offset, writer, &mut ctx.offset)?;
+                Small::encode(offset, writer, &mut ctx.offset);
             }
         }
-        Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let Chunk {
@@ -420,11 +410,7 @@ impl Encode for Chunk {
 
 impl EncodingStrategy<Vec<u8>> for Compressible {
     type Context = Lz77;
-    fn encode<E: super::EntropyCoder>(
-        value: &Vec<u8>,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value, writer)
     }
     fn millibits(value: &Vec<u8>, ctx: &mut Self::Context) -> Option<usize> {

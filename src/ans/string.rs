@@ -13,14 +13,10 @@ pub struct CharContext {
 impl Encode for char {
     type Context = CharContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let mut x = u32::from(*self);
         let is_ascii = x < 128;
-        is_ascii.encode(writer, &mut ctx.is_ascii)?;
+        is_ascii.encode(writer, &mut ctx.is_ascii);
         if is_ascii {
             Bits::<128>::take_from(&mut x).encode(writer, &mut ctx.ascii)
         } else {
@@ -32,12 +28,11 @@ impl Encode for char {
                 2
             };
             let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
-            n_chunks.encode(writer, &mut ctx.n_chunks)?;
-            Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1)?;
+            n_chunks.encode(writer, &mut ctx.n_chunks);
+            Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1);
             for i in 0_usize..1 + usize::from(n_chunks) {
-                Bits::<64>::take_from(&mut x).encode(writer, &mut ctx.chunks[i])?;
+                Bits::<64>::take_from(&mut x).encode(writer, &mut ctx.chunks[i]);
             }
-            Ok(())
         }
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
@@ -92,16 +87,11 @@ pub struct Context {
 impl Encode for String {
     type Context = Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        Small::encode(&self.chars().count(), writer, &mut ctx.len)?;
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&self.chars().count(), writer, &mut ctx.len);
         for b in self.chars() {
-            b.encode(writer, &mut ctx.chars)?;
+            b.encode(writer, &mut ctx.chars);
         }
-        Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = Small::millibits(&self.chars().count(), &mut ctx.len)?;
@@ -155,16 +145,12 @@ impl EncodingStrategy<String> for Sorted {
         ctx.previous = out.clone();
         Ok(out)
     }
-    fn encode<E: super::EntropyCoder>(
-        value: &String,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         if ctx.previous.is_empty() {
             let len = value.len();
-            Small::encode(&len, writer, &mut ctx.len)?;
+            Small::encode(&len, writer, &mut ctx.len);
             for c in value.chars() {
-                c.encode(writer, &mut ctx.chars)?;
+                c.encode(writer, &mut ctx.chars);
             }
         } else {
             let shared_prefix = value
@@ -173,14 +159,13 @@ impl EncodingStrategy<String> for Sorted {
                 .take_while(|(a, b)| a == b)
                 .count();
             let len = value.len() - shared_prefix;
-            Small::encode(&len, writer, &mut ctx.len)?;
-            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix)?;
+            Small::encode(&len, writer, &mut ctx.len);
+            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
             for c in value.chars().skip(shared_prefix) {
-                c.encode(writer, &mut ctx.chars)?;
+                c.encode(writer, &mut ctx.chars);
             }
         }
         ctx.previous = value.clone();
-        Ok(())
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = 0;
@@ -221,11 +206,7 @@ Lossless compression is used in cases where it is important that the original an
 
 impl EncodingStrategy<String> for Compressible {
     type Context = super::bytes::Lz77;
-    fn encode<E: super::EntropyCoder>(
-        value: &String,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value.as_bytes(), writer)
     }
     fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {

@@ -7,15 +7,10 @@ use std::io::Read;
 impl Encode for bool {
     type Context = BitContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         // println!("Encoding {self:?}");
-        writer.encode(ctx.probability(), *self)?;
+        writer.encode(ctx.probability(), *self);
         *ctx = ctx.adapt(*self);
-        Ok(())
     }
     #[inline]
     fn decode<R: Read>(
@@ -40,11 +35,7 @@ impl EncodingStrategy<bool> for Sorted {
     ) -> Result<bool, std::io::Error> {
         bool::decode(reader, ctx)
     }
-    fn encode<E: super::EntropyCoder>(
-        value: &bool,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &bool, writer: &mut E, ctx: &mut Self::Context) {
         value.encode(writer, ctx)
     }
     fn millibits(value: &bool, ctx: &mut Self::Context) -> Option<usize> {

@@ -5,11 +5,7 @@ use std::io::Read;
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         crate::Values::<Normal>::encode(self, writer, ctx)
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
@@ -69,16 +65,11 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         }
         Ok(x)
     }
-    fn encode<E: super::EntropyCoder>(
-        value: &Vec<T>,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
-        Small::encode(&value.len(), writer, &mut ctx.len)?;
+    fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&value.len(), writer, &mut ctx.len);
         for v in value {
-            S::encode(v, writer, &mut ctx.values)?;
+            S::encode(v, writer, &mut ctx.values);
         }
-        Ok(())
     }
     fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = Small::millibits(&value.len(), &mut ctx.len)?;
@@ -129,16 +120,12 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         ctx.previous = out.clone();
         Ok(out)
     }
-    fn encode<E: super::EntropyCoder>(
-        value: &Vec<T>,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         if ctx.previous.is_empty() {
             let len = value.len();
-            Small::encode(&len, writer, &mut ctx.len)?;
+            Small::encode(&len, writer, &mut ctx.len);
             for b in value {
-                b.encode(writer, &mut ctx.value)?;
+                b.encode(writer, &mut ctx.value);
             }
         } else {
             let shared_prefix = value
@@ -147,14 +134,13 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
                 .take_while(|(a, b)| a == b)
                 .count();
             let len = value.len() - shared_prefix;
-            Small::encode(&len, writer, &mut ctx.len)?;
-            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix)?;
+            Small::encode(&len, writer, &mut ctx.len);
+            Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
             for b in &value[shared_prefix..] {
-                b.encode(writer, &mut ctx.value)?;
+                b.encode(writer, &mut ctx.value);
             }
         }
         ctx.previous = value.clone();
-        Ok(())
     }
     fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {
         let mut tot = 0;

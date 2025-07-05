@@ -14,21 +14,16 @@ impl Default for ByteContext {
 impl Encode for u8 {
     type Context = ByteContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let mut filled_up = 0;
         let mut accumulated_value = 0;
         for i in 0..8 {
             let ctx = &mut ctx.0[filled_up + accumulated_value];
             let bit = (*self >> (7 - i)) & 1 == 1;
-            bit.encode(writer, ctx)?;
+            bit.encode(writer, ctx);
             filled_up += 1 << i;
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
-        Ok(())
     }
     fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
         let mut filled_up = 0;
@@ -82,18 +77,17 @@ macro_rules! small_num {
                     &self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
-                ) -> Result<(), std::io::Error> {
+                ) {
                     let value = u8::from(*self);
                     let mut filled_up = 0;
                     let mut accumulated_value = 0;
                     for i in 0..$nbits {
                         let ctx = &mut ctx.0[filled_up + accumulated_value];
                         let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
-                        bit.encode(writer, ctx)?;
+                        bit.encode(writer, ctx);
                         filled_up += 1 << i;
                         accumulated_value = 2 * accumulated_value + bit as usize;
                     }
-                    Ok(())
                 }
                 fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
                     let value = u8::from(*self);
@@ -178,11 +172,7 @@ small_num!(UBits<8>, 8, 255, 256, ub8);
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(
-        &self,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         (*self as u8).encode(writer, ctx)
     }
     #[inline]
@@ -209,11 +199,7 @@ pub struct SmallContext {
 
 impl EncodingStrategy<u8> for Small {
     type Context = SmallContext;
-    fn encode<E: super::EntropyCoder>(
-        value: &u8,
-        writer: &mut E,
-        ctx: &mut Self::Context,
-    ) -> Result<(), std::io::Error> {
+    fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         let nonzero: UBits<3>;
         match *value {
             0 => {
@@ -226,45 +212,45 @@ impl EncodingStrategy<u8> for Small {
             }
             2..4 => {
                 nonzero = 2.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
                 let b1: UBits<1> = (*value - 2).try_into().unwrap();
                 b1.encode(writer, &mut ctx.b1)
             }
             4..8 => {
                 nonzero = 3.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
                 let b2: UBits<2> = (*value - 4).try_into().unwrap();
                 b2.encode(writer, &mut ctx.b2)
             }
             8..16 => {
                 nonzero = 4.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
                 let b3: UBits<3> = (*value - 8).try_into().unwrap();
                 b3.encode(writer, &mut ctx.b3)
             }
             16..32 => {
                 nonzero = 5.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
                 let b4: UBits<4> = (*value - 16).try_into().unwrap();
                 b4.encode(writer, &mut ctx.b4)
             }
             32..64 => {
                 nonzero = 6.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
                 let b5: UBits<5> = (*value - 32).try_into().unwrap();
                 b5.encode(writer, &mut ctx.b5)
             }
             64..128 => {
                 nonzero = 7.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
-                false.encode(writer, &mut ctx.need_seven_bits)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
+                false.encode(writer, &mut ctx.need_seven_bits);
                 let b6: UBits<6> = (*value - 64).try_into().unwrap();
                 b6.encode(writer, &mut ctx.b6)
             }
             128..=255 => {
                 nonzero = 7.try_into().unwrap();
-                nonzero.encode(writer, &mut ctx.nonzero)?;
-                true.encode(writer, &mut ctx.need_seven_bits)?;
+                nonzero.encode(writer, &mut ctx.nonzero);
+                true.encode(writer, &mut ctx.need_seven_bits);
                 let b7: UBits<7> = (*value - 128).try_into().unwrap();
                 b7.encode(writer, &mut ctx.b7)
             }
