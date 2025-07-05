@@ -1,5 +1,5 @@
 use super::Encode;
-use std::io::{Read, Write};
+use std::io::Read;
 
 /// A unsigned integer with a value less than `N`.
 ///
@@ -80,9 +80,9 @@ fn half(i: usize) -> usize {
 impl<const N: usize> Encode for ULessThan<N> {
     type Context = ULessThanContext<N>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;

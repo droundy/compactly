@@ -37,9 +37,9 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
     type Context = CacheContext<T>;
     #[inline]
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let looked_up = ctx.cached.get(self).copied();

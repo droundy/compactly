@@ -25,9 +25,9 @@ impl<T, S: EncodingStrategy<T>> Clone for OptionContext<T, S> {
 impl<T: Encode> Encode for Option<T> {
     type Context = OptionContext<T, Normal>;
     #[inline]
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Some(v) = self {
@@ -62,9 +62,9 @@ macro_rules! option_encoding_strategy {
     ($t:ty, $strategy:ident) => {
         impl EncodingStrategy<Option<$t>> for $strategy {
             type Context = OptionContext<$t, $strategy>;
-            fn encode<W: std::io::Write>(
+            fn encode<E: super::EntropyCoder>(
                 value: &Option<$t>,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 if let Some(v) = value {
@@ -113,9 +113,9 @@ where
     LowCardinality: EncodingStrategy<T>,
 {
     type Context = LowContext<<LowCardinality as EncodingStrategy<T>>::Context>;
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &Option<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Some(v) = value {

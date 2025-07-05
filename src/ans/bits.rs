@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Read;
 
 use super::Encode;
 
@@ -43,9 +43,9 @@ impl<const N: usize> TryFrom<u8> for Bits<N> {
 impl<const N: usize> Encode for Bits<N> {
     type Context = BitsContext<N>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         debug_assert_eq!(N, 1 << Self::N_BITS);

@@ -1,6 +1,6 @@
 use super::{Encode, EncodingStrategy};
 use crate::{Decimal, Small};
-use std::io::{Read, Write};
+use std::io::Read;
 
 macro_rules! impl_float {
     ($t:ident, $intty:ident, $sint:ident, $context:ident, $decimal:ident, $bits:literal) => {
@@ -24,9 +24,9 @@ macro_rules! impl_float {
         impl Encode for $t {
             type Context = $context;
             #[inline]
-            fn encode<W: Write>(
+            fn encode<E: super::EntropyCoder>(
                 &self,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let intvalue = *self as $intty;
@@ -77,9 +77,9 @@ macro_rules! impl_float {
         }
         impl EncodingStrategy<$t> for Decimal {
             type Context = $decimal;
-            fn encode<W: Write>(
+            fn encode<E: super::EntropyCoder>(
                 value: &$t,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let intvalue = *value as $sint;

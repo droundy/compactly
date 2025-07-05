@@ -4,7 +4,7 @@
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
 pub use compactly_derive::EncodeAns as Encode;
-use std::io::{Read, Write};
+use std::io::Read;
 
 mod adapt;
 mod ans;
@@ -34,6 +34,14 @@ use crate::{LowCardinality, Small};
 pub use adapt::{Reader, Writer};
 pub use ulessthan::ULessThan;
 
+/// A place where we can put bits where we have estimated the probabilities.
+pub trait EntropyCoder {
+    /// Encode a given bit with its probability
+    fn encode(&mut self, probability: ans::Probability, bit: bool) -> Result<(), std::io::Error>;
+    /// Finish the encoding
+    fn finish(&mut self) -> Result<(), std::io::Error>;
+}
+
 /// Trait for types that can be compactly encoded.
 ///
 /// Normally you will derive this for your own types, although it can be
@@ -43,9 +51,9 @@ pub trait Encode: Sized {
     type Context: Default + Clone;
 
     /// Encode this value to the [`Writer<W>`].
-    fn encode<W: Write>(
+    fn encode<E: EntropyCoder>(
         &self,
-        writer: &mut Writer<W>,
+        encoder: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
@@ -104,9 +112,9 @@ pub trait EncodingStrategy<T> {
     type Context: Default + Clone;
 
     /// Encode the value with this strategy.
-    fn encode<W: Write>(
+    fn encode<E: EntropyCoder>(
         value: &T,
-        writer: &mut Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
@@ -149,9 +157,9 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) ->
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
     type Context = S::Context;
     #[inline]
-    fn encode<W: std::io::Write>(
+    fn encode<E: EntropyCoder>(
         &self,
-        writer: &mut Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         S::encode(&self.value, writer, ctx)
@@ -175,9 +183,9 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
 impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     type Context = <T as Encode>::Context;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: EntropyCoder>(
         value: &T,
-        writer: &mut Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.encode(writer, ctx)

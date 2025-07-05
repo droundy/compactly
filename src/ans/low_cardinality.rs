@@ -30,9 +30,9 @@ macro_rules! impl_low_cardinality {
             impl EncodingStrategy<$t> for LowCardinality {
                 type Context = CacheContext<$t>;
                 #[inline]
-                fn encode<W: std::io::Write>(
+                fn encode<E: super::super::EntropyCoder>(
                     value: &$t,
-                    writer: &mut super::super::Writer<W>,
+                    writer: &mut E,
                     ctx: &mut Self::Context,
                 ) -> Result<(), std::io::Error> {
                     let looked_up = ctx.cached.get(value).copied();
@@ -80,9 +80,9 @@ where
         <usize as Encode>::Context,
         <LowCardinality as EncodingStrategy<T>>::Context,
     );
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &Vec<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.0)?;

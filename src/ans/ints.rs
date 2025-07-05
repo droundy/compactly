@@ -1,6 +1,6 @@
-use super::{Encode, EncodingStrategy, Reader, Small, ULessThan, Writer};
+use super::{Encode, EncodingStrategy, Reader, Small, ULessThan};
 use crate::Sorted;
-use std::io::{Read, Write};
+use std::io::Read;
 
 macro_rules! impl_uint {
     ($t:ident, $mod:ident, $bits:literal) => {
@@ -25,9 +25,9 @@ macro_rules! impl_uint {
             impl Encode for $t {
                 type Context = Context;
                 #[inline]
-                fn encode<W: Write>(
+                fn encode<E: super::super::EntropyCoder>(
                     &self,
-                    writer: &mut Writer<W>,
+                    writer: &mut E,
                     ctx: &mut Self::Context,
                 ) -> Result<(), std::io::Error> {
                     let mut am_leading = true;
@@ -74,9 +74,9 @@ macro_rules! impl_uint {
 
             impl EncodingStrategy<$t> for Sorted {
                 type Context = SortedContext;
-                fn encode<W: Write>(
+                fn encode<E: super::super::EntropyCoder>(
                     value: &$t,
-                    writer: &mut super::Writer<W>,
+                    writer: &mut E,
                     ctx: &mut Self::Context,
                 ) -> Result<(), std::io::Error> {
                     if let Some(previous) = ctx.previous.take() {
@@ -214,9 +214,9 @@ macro_rules! impl_compact {
 
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
-            fn encode<W: Write>(
+            fn encode<E: super::EntropyCoder>(
                 value: &$t,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 let uleading = value.leading_zeros() as usize;
@@ -334,9 +334,9 @@ macro_rules! impl_signed {
         impl Encode for $signed {
             type Context = <$unsigned as Encode>::Context;
             #[inline]
-            fn encode<W: Write>(
+            fn encode<E: super::EntropyCoder>(
                 &self,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
@@ -371,9 +371,9 @@ macro_rules! impl_signed {
         impl EncodingStrategy<$signed> for Small {
             type Context = $context;
             #[inline]
-            fn encode<W: Write>(
+            fn encode<E: super::EntropyCoder>(
                 value: &$signed,
-                writer: &mut super::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 (*value < 0).encode(writer, &mut ctx.is_negative)?;

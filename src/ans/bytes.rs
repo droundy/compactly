@@ -144,10 +144,10 @@ impl Lz77 {
         }
     }
 
-    pub fn encode<W: std::io::Write>(
+    pub fn encode<E: super::EntropyCoder>(
         &mut self,
         value: &[u8],
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
     ) -> Result<(), std::io::Error> {
         let chunks = self.eager(value);
         Small::encode(&chunks.len(), writer, &mut self.count)?;
@@ -346,9 +346,9 @@ Lossless compression is used in cases where it is important that the original an
 
 impl Encode for Chunk {
     type Context = Lz77;
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let Chunk {
@@ -420,9 +420,9 @@ impl Encode for Chunk {
 
 impl EncodingStrategy<Vec<u8>> for Compressible {
     type Context = Lz77;
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &Vec<u8>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         ctx.encode(value, writer)

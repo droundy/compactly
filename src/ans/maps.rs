@@ -3,7 +3,7 @@ use crate::{Mapping, Normal, Sorted};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
-    io::{Read, Write},
+    io::Read,
 };
 
 pub struct MapContext<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> {
@@ -32,9 +32,9 @@ impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContex
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         self.len().encode(writer, &mut ctx.len)?;
@@ -75,9 +75,9 @@ where
 {
     type Context = MapContext<K, V, Sorted, Normal>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Mapping::<Sorted, Normal>::encode(self, writer, ctx)
@@ -116,9 +116,9 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
 {
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &BTreeMap<K, V>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.len)?;
@@ -150,9 +150,9 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
 {
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &HashMap<K, V>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.len)?;

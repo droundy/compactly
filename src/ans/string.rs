@@ -13,9 +13,9 @@ pub struct CharContext {
 impl Encode for char {
     type Context = CharContext;
     #[inline]
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut x = u32::from(*self);
@@ -92,9 +92,9 @@ pub struct Context {
 impl Encode for String {
     type Context = Context;
     #[inline]
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Small::encode(&self.chars().count(), writer, &mut ctx.len)?;
@@ -155,9 +155,9 @@ impl EncodingStrategy<String> for Sorted {
         ctx.previous = out.clone();
         Ok(out)
     }
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &String,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if ctx.previous.is_empty() {
@@ -221,9 +221,9 @@ Lossless compression is used in cases where it is important that the original an
 
 impl EncodingStrategy<String> for Compressible {
     type Context = super::bytes::Lz77;
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &String,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         ctx.encode(value.as_bytes(), writer)

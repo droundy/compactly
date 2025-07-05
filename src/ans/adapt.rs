@@ -24,11 +24,30 @@ impl<W: std::io::Write> Writer<W> {
     }
     /// Finish encoding.  This is crucial
     #[inline]
-    pub fn finish(&mut self) -> Result<W, std::io::Error> {
+    pub fn finish_and_get_writer(&mut self) -> Result<W, std::io::Error> {
         self.arith
             .take()
             .ok_or_else(|| std::io::Error::other("finish called twice"))?
             .finish()
+    }
+}
+
+impl<W: std::io::Write> super::EntropyCoder for Writer<W> {
+    fn encode(
+        &mut self,
+        probability: super::ans::Probability,
+        bit: bool,
+    ) -> Result<(), std::io::Error> {
+        self.arith
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("called encode after finish"))?
+            .encode(probability, bit)
+    }
+    /// Finish encoding.  This is crucial
+    #[inline]
+    fn finish(&mut self) -> Result<(), std::io::Error> {
+        self.finish_and_get_writer()?;
+        Ok(())
     }
 }
 
@@ -78,7 +97,7 @@ fn encode_size() {
             // );
             e.encode(bit, &mut context).unwrap();
         }
-        e.finish().unwrap();
+        e.finish_and_get_writer().unwrap();
         drop(e);
         assert_eq!(
             encoded.len(),
@@ -163,7 +182,7 @@ fn write_read_correctly() {
                 // println!("Encoding {bit:?} with {context:x?}");
                 writer.encode(bit, &mut context).unwrap();
             }
-            writer.finish().unwrap();
+            writer.finish_and_get_writer().unwrap();
             drop(writer);
             // println!("Encoded is {encoded:?}");
 

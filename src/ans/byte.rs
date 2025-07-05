@@ -1,6 +1,6 @@
 use super::{Encode, EncodingStrategy};
 use crate::Small;
-use std::io::{Read, Write};
+use std::io::Read;
 
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
@@ -14,9 +14,9 @@ impl Default for ByteContext {
 impl Encode for u8 {
     type Context = ByteContext;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let mut filled_up = 0;
@@ -63,7 +63,7 @@ impl Encode for u8 {
 macro_rules! small_num {
     ($t:ty, $nbits:literal, $maxval:literal, $doublemax:literal, $testname:ident) => {
         mod $testname {
-            use super::{Encode, Read, UBits, Write};
+            use super::{Encode, Read, UBits};
 
             #[derive(Clone)]
             pub struct Context([<bool as Encode>::Context; $doublemax]);
@@ -78,9 +78,9 @@ macro_rules! small_num {
             impl Encode for $t {
                 type Context = Context;
                 #[inline]
-                fn encode<W: Write>(
+                fn encode<E: super::super::EntropyCoder>(
                     &self,
-                    writer: &mut super::super::Writer<W>,
+                    writer: &mut E,
                     ctx: &mut Self::Context,
                 ) -> Result<(), std::io::Error> {
                     let value = u8::from(*self);
@@ -178,9 +178,9 @@ small_num!(UBits<8>, 8, 255, 256, ub8);
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         (*self as u8).encode(writer, ctx)
@@ -209,9 +209,9 @@ pub struct SmallContext {
 
 impl EncodingStrategy<u8> for Small {
     type Context = SmallContext;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &u8,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let nonzero: UBits<3>;

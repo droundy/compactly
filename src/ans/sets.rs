@@ -4,7 +4,7 @@ use super::{Encode, EncodingStrategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
-    io::{Read, Write},
+    io::Read,
 };
 
 pub struct SetContext<T, S: EncodingStrategy<T>> {
@@ -32,9 +32,9 @@ impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T, Normal>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Values::<Normal>::encode(self, writer, ctx)
@@ -71,9 +71,9 @@ where
 {
     type Context = SetContext<T, Sorted>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Values::<Sorted>::encode(self, writer, ctx)
@@ -99,9 +99,9 @@ pub struct CompactU64Set {
 
 impl EncodingStrategy<BTreeSet<u64>> for super::Small {
     type Context = CompactU64Set;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<u64>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.size)?;
@@ -136,9 +136,9 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
 
 impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S> {
     type Context = SetContext<T, S>;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.len)?;
@@ -169,9 +169,9 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
 
 impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {
     type Context = SetContext<T, S>;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &HashSet<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.len)?;

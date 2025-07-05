@@ -190,7 +190,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::ans::{Encode, EncodingStrategy};
+        use compactly::ans::{Encode, EncodingStrategy, EntropyCoder};
         use compactly::{Small, LowCardinality, Decimal, Compressible, Mapping, Normal, Sorted, Values};
 
         pub struct DerivedContext #context_generics {
@@ -218,9 +218,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         gen impl Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
             type Context = DerivedContext #context_generics_without_bound;
-            fn encode<W: std::io::Write>(
+            fn encode<E: EntropyCoder>(
                 &self,
-                writer: &mut compactly::ans::Writer<W>,
+                writer: &mut E,
                 ctx: &mut Self::Context,
             ) -> Result<(), std::io::Error> {
                 match self { #encode_discriminant }

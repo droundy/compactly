@@ -1,12 +1,12 @@
 use super::Encode;
-use std::io::{Read, Write};
+use std::io::Read;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         for v in self {

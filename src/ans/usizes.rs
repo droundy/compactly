@@ -1,7 +1,7 @@
 use crate::Sorted;
 
 use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
-use std::io::{Read, Write};
+use std::io::Read;
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
@@ -13,9 +13,9 @@ pub struct UsizeContext {
 impl Encode for usize {
     type Context = UsizeContext;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Ok(r) = ULessThan::<4>::try_from(*self) {
@@ -81,9 +81,9 @@ impl Default for SmallContext {
 
 impl EncodingStrategy<usize> for Small {
     type Context = SmallContext;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &usize,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         let nonzero: UBits<3>;
@@ -255,9 +255,9 @@ pub struct SortedContext {
 
 impl EncodingStrategy<usize> for Sorted {
     type Context = SortedContext;
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &usize,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if let Some(previous) = ctx.previous.take() {

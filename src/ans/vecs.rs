@@ -1,13 +1,13 @@
 use super::{Encode, EncodingStrategy};
 use crate::{Normal, Small, Sorted};
-use std::io::{Read, Write};
+use std::io::Read;
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
     #[inline]
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         &self,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         crate::Values::<Normal>::encode(self, writer, ctx)
@@ -69,9 +69,9 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         }
         Ok(x)
     }
-    fn encode<W: Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &Vec<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         Small::encode(&value.len(), writer, &mut ctx.len)?;
@@ -129,9 +129,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         ctx.previous = out.clone();
         Ok(out)
     }
-    fn encode<W: std::io::Write>(
+    fn encode<E: super::EntropyCoder>(
         value: &Vec<T>,
-        writer: &mut super::Writer<W>,
+        writer: &mut E,
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error> {
         if ctx.previous.is_empty() {
