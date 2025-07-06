@@ -42,8 +42,8 @@ impl<T: Encode> Encode for Option<T> {
         }
     }
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_some)? {
@@ -80,8 +80,8 @@ macro_rules! option_encoding_strategy {
                     false.millibits(&mut ctx.is_some)
                 }
             }
-            fn decode<R: std::io::Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Option<$t>, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_some)? {
@@ -117,8 +117,8 @@ where
             false.encode(writer, &mut ctx.is_some)
         }
     }
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Option<T>, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_some)? {

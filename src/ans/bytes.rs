@@ -164,9 +164,9 @@ impl Lz77 {
         Some(tot)
     }
 
-    pub fn decode<R: std::io::Read>(
+    pub fn decode<D: super::EntropyDecoder>(
         &mut self,
-        reader: &mut super::Reader<R>,
+        reader: &mut D,
     ) -> Result<Vec<u8>, std::io::Error> {
         let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut self.count)?;
         let mut out = Vec::with_capacity(5 * count);
@@ -378,8 +378,8 @@ impl Encode for Chunk {
         }
         Some(tot)
     }
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let literal = <Vec<u8> as Encode>::decode(reader, &mut ctx.literal)?;
@@ -417,8 +417,8 @@ impl EncodingStrategy<Vec<u8>> for Compressible {
         ctx.millibits(value)
     }
 
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
         ctx.decode(reader)

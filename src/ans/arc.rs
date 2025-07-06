@@ -48,8 +48,8 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
         }
     }
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let is_cached = bool::decode(reader, &mut ctx.is_cached)?;

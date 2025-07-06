@@ -1,27 +1,46 @@
 mod probability;
+
+use super::{EntropyCoder, EntropyDecoder};
 pub use probability::Probability;
 mod bytes;
 use bytes::Bytes;
 
 type State = u64;
 
+/// ANS entropy encoding.
+///
+/// Can be used to encode data.
+///
+/// # Example
+/// ```
+/// let encoded: Vec<u8> = compactly::ans::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
+/// assert_eq!(encoded.len(), 77);
+/// assert_eq!(compactly::ans::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
+/// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AnsCoder {
+pub struct Ans {
     bits: Vec<(bool, Probability)>,
 }
 
-impl super::EntropyCoder for AnsCoder {
-    fn encode(&mut self, probability: self::Probability, bit: bool) {
+impl EntropyCoder for Ans {
+    #[inline]
+    fn encode_bit(&mut self, probability: self::Probability, bit: bool) {
         self.bits.push((bit, probability));
     }
 }
-impl AnsCoder {
-    #[inline]
-    pub fn encode(&mut self, probability_of_false: Probability, value: bool) {
-        self.bits.push((value, probability_of_false));
+impl Ans {
+    /// Encode value directly to a `Vec<u8>`.
+    pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
+        <Self as EntropyCoder>::encode(value).into()
     }
+    /// Decode some encoded bytes.
+    pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
+        let mut reader = Decoder::from(bytes);
+        T::decode(&mut reader, &mut T::Context::default()).ok()
+    }
+    /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
-    pub fn finish(self) -> Vec<u8> {
+    pub fn into_vec(self) -> Vec<u8> {
         let mut coder = Encoder::new();
         let mut out = Vec::new();
         for (b, probability) in self.bits.into_iter().rev() {
@@ -32,6 +51,11 @@ impl AnsCoder {
         out.extend(coder.finish_encoding());
         out.reverse();
         out
+    }
+}
+impl From<Ans> for Vec<u8> {
+    fn from(value: Ans) -> Self {
+        value.into_vec()
     }
 }
 
@@ -46,6 +70,7 @@ impl Encoder {
     }
 
     /// Encode a bit using distribution Bernoulli(probability).
+    #[inline(always)]
     fn encode(&mut self, b: bool, probability: Probability) -> Option<u8> {
         let mut out = None;
         let zeros = State::from(probability);
@@ -83,8 +108,8 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
 }
 
-impl<'a> Decoder<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
+impl<'a> From<&'a [u8]> for Decoder<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
         let mut state: State = 0;
         if bytes.len() < 8 {
             for &b in bytes {
@@ -98,9 +123,15 @@ impl<'a> Decoder<'a> {
             Self { state, bytes }
         }
     }
+}
 
+impl<'a> EntropyDecoder for Decoder<'a> {
     /// Decode a bit using distribution Bernoulli(probability).
-    pub fn decode(&mut self, probability: Probability) -> bool {
+    #[inline(always)]
+    fn decode_bit_nonadaptive(
+        &mut self,
+        probability: self::Probability,
+    ) -> Result<bool, std::io::Error> {
         let zeros = State::from(probability);
         let ones = 256 - zeros;
         let mut z = self.state % 256;
@@ -117,7 +148,7 @@ impl<'a> Decoder<'a> {
                 self.state = (self.state << 8) | State::from(u);
             }
         }
-        b
+        Ok(b)
     }
 }
 
@@ -128,16 +159,16 @@ fn check_ans_coder() {
     data.resize_with(SIZE, || rand::random::<bool>());
     let mut distros = Vec::new();
     distros.resize_with(SIZE, rand::random::<Probability>);
-    let mut writer = AnsCoder::default();
+    let mut writer = Ans::default();
     for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
         // rev here
-        writer.encode(probability, b);
+        writer.encode_bit(probability, b);
     }
-    let bytes = writer.finish();
-    let mut decoder = Decoder::new(&bytes);
+    let bytes = writer.into_vec();
+    let mut decoder = Decoder::from(bytes.as_slice());
     for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
         println!("checking {b} {probability}");
-        assert_eq!(decoder.decode(probability), b);
+        assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
     }
     assert_eq!(decoder.state, 255);
 }

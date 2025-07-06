@@ -3,7 +3,6 @@ use crate::{Mapping, Normal, Sorted};
 use std::{
     collections::{BTreeMap, HashMap},
     hash::Hash,
-    io::Read,
 };
 
 pub struct MapContext<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> {
@@ -39,8 +38,8 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
             v.encode(writer, &mut ctx.value);
         }
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
@@ -74,8 +73,8 @@ where
         Mapping::<Sorted, Normal>::encode(self, writer, ctx)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Mapping::<Sorted, Normal>::decode(reader, ctx)
@@ -119,8 +118,8 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         }
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeMap<K, V>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
@@ -152,8 +151,8 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         }
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<HashMap<K, V>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;

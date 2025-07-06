@@ -1,6 +1,5 @@
 use super::{Encode, EncodingStrategy};
 use crate::{Decimal, Small};
-use std::io::Read;
 
 macro_rules! impl_float {
     ($t:ident, $intty:ident, $sint:ident, $context:ident, $decimal:ident, $bits:literal) => {
@@ -43,8 +42,8 @@ macro_rules! impl_float {
                 }
             }
             #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_int)? {
@@ -99,8 +98,8 @@ macro_rules! impl_float {
                 }
             }
 
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_int)? {

@@ -1,5 +1,5 @@
 pub use super::ans::Probability;
-use super::EntropyCoder;
+use super::{EntropyCoder, EntropyDecoder};
 use std::io::Read;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -153,26 +153,47 @@ impl IntoIterator for Bytes {
 }
 
 /// Use range coding to encode bits.
+///
+/// # Example
+/// ```
+/// let encoded: Vec<u8> = compactly::ans::Range::encode(&vec![5u64, 4, 3, 2, 1]);
+/// assert_eq!(encoded.len(), 23);
+/// assert_eq!(compactly::ans::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
+/// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RangeCoder {
+pub struct Range {
     bytes: Vec<u8>,
     state: ArithState,
 }
 
-impl EntropyCoder for RangeCoder {
+impl EntropyCoder for Range {
     #[inline]
-    fn encode(&mut self, probability_of_false: Probability, value: bool) {
+    fn encode_bit(&mut self, probability_of_false: Probability, value: bool) {
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
 }
 
-impl RangeCoder {
-    /// Produce output.
+impl Range {
+    /// Encode value directly to a `Vec<u8>`.
+    pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
+        <Self as EntropyCoder>::encode(value).into()
+    }
+    /// Decode some encoded bytes.
+    pub fn decode<T: super::Encode>(mut bytes: &[u8]) -> Option<T> {
+        let mut reader = super::arith::Reader::new(&mut bytes).unwrap();
+        T::decode(&mut reader, &mut T::Context::default()).ok()
+    }
+    /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
-    pub fn finish(mut self) -> Vec<u8> {
+    pub fn into_vec(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
         self.bytes
+    }
+}
+impl From<Range> for Vec<u8> {
+    fn from(value: Range) -> Self {
+        value.into_vec()
     }
 }
 
@@ -248,9 +269,15 @@ impl<R: Read> Reader<R> {
         r.read_bytes(8)?;
         Ok(r)
     }
+}
+
+impl<R: std::io::Read> EntropyDecoder for Reader<R> {
     #[inline]
-    pub fn decode(&mut self, p: Probability) -> std::io::Result<bool> {
-        let (out, sz) = self.state.decode(p, self.value);
+    fn decode_bit_nonadaptive(
+        &mut self,
+        probability: super::ans::Probability,
+    ) -> Result<bool, std::io::Error> {
+        let (out, sz) = self.state.decode(probability, self.value);
         self.read_bytes(sz)?;
         Ok(out)
     }
@@ -395,11 +422,11 @@ mod tests {
                 probs.push(rand_prob());
             }
             println!("\n\ntesting {probs:?}");
-            let mut encoder = RangeCoder::default();
+            let mut encoder = Range::default();
             for &(p, bit) in &probs {
-                encoder.encode(p, bit);
+                encoder.encode_bit(p, bit);
             }
-            let bytes = encoder.finish();
+            let bytes = encoder.into_vec();
             println!("\n\nEncoded random as: {bytes:02x?}\n");
             let mut decoder = Decoder::new(bytes);
             for &(p, bit) in &probs {

@@ -1,12 +1,12 @@
-use super::{Encode, Reader};
+use super::Encode;
 
 impl Encode for () {
     type Context = ();
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, _writer: &mut E, _ctx: &mut Self::Context) {}
     #[inline]
-    fn decode<R: std::io::Read>(
-        _reader: &mut Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        _reader: &mut D,
         _ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(())
@@ -23,8 +23,8 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -45,8 +45,8 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -69,8 +69,8 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -101,8 +101,8 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -138,8 +138,8 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -178,8 +178,8 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((
@@ -229,8 +229,8 @@ impl<
     }
 
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok((

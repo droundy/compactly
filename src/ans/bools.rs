@@ -2,22 +2,21 @@ use crate::Sorted;
 
 use super::Encode;
 use super::{bit_context::BitContext, EncodingStrategy};
-use std::io::Read;
 
 impl Encode for bool {
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         // println!("Encoding {self:?}");
-        writer.encode(ctx.probability(), *self);
+        writer.encode_bit(ctx.probability(), *self);
         *ctx = ctx.adapt(*self);
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let b = reader.decode(ctx)?;
+        let b = reader.decode_bit(ctx)?;
         // println!("Decoding {b:?}");
         Ok(b)
     }
@@ -29,8 +28,8 @@ impl Encode for bool {
 
 impl EncodingStrategy<bool> for Sorted {
     type Context = BitContext;
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<bool, std::io::Error> {
         bool::decode(reader, ctx)

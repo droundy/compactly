@@ -4,7 +4,6 @@ use super::{Encode, EncodingStrategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
-    io::Read,
 };
 
 pub struct SetContext<T, S: EncodingStrategy<T>> {
@@ -39,8 +38,8 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
         Values::<Normal>::millibits(self, ctx)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Values::<Normal>::decode(reader, ctx)
@@ -74,8 +73,8 @@ where
         Values::<Sorted>::millibits(self, ctx)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Values::<Sorted>::decode(reader, ctx)
@@ -106,8 +105,8 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
             }
         }
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<u64>, std::io::Error> {
         let mut out = BTreeSet::new();
@@ -144,8 +143,8 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         }
         Some(tot)
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
@@ -172,8 +171,8 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
         }
         Some(tot)
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<HashSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;

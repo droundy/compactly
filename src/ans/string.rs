@@ -59,8 +59,8 @@ impl Encode for char {
         }
     }
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_ascii)? {
@@ -102,8 +102,8 @@ impl Encode for String {
         Some(tot)
     }
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Small::decode(reader, &mut ctx.len)?;
@@ -125,8 +125,8 @@ pub struct SortedContext {
 
 impl EncodingStrategy<String> for Sorted {
     type Context = SortedContext;
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let len: usize = Small::decode(reader, &mut ctx.len)?;
@@ -213,8 +213,8 @@ impl EncodingStrategy<String> for Compressible {
         ctx.millibits(value.as_bytes())
     }
 
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let bytes = ctx.decode(reader)?;

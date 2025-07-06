@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use super::Encode;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -69,8 +67,8 @@ impl<const N: usize> Encode for Bits<N> {
         Some(tot)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;

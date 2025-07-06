@@ -1,6 +1,5 @@
 use super::{Encode, EncodingStrategy};
 use crate::Small;
-use std::io::Read;
 
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
@@ -39,8 +38,8 @@ impl Encode for u8 {
         Some(tot)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;
@@ -58,7 +57,7 @@ impl Encode for u8 {
 macro_rules! small_num {
     ($t:ty, $nbits:literal, $maxval:literal, $doublemax:literal, $testname:ident) => {
         mod $testname {
-            use super::{Encode, Read, UBits};
+            use super::{Encode, UBits};
 
             #[derive(Clone)]
             pub struct Context([<bool as Encode>::Context; $doublemax]);
@@ -104,8 +103,8 @@ macro_rules! small_num {
                     Some(tot)
                 }
                 #[inline]
-                fn decode<R: Read>(
-                    reader: &mut super::super::Reader<R>,
+                fn decode<D: super::super::EntropyDecoder>(
+                    reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
                     let mut filled_up = 0;
@@ -176,8 +175,8 @@ impl Encode for i8 {
         (*self as u8).encode(writer, ctx)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         <u8 as Encode>::decode(reader, ctx).map(|v| v as i8)
@@ -313,8 +312,8 @@ impl EncodingStrategy<u8> for Small {
             }
         }
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
         let nonzero: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.nonzero)?.into();

@@ -1,5 +1,4 @@
 use super::Encode;
-use std::io::Read;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
@@ -10,8 +9,8 @@ impl<T: Encode, const N: usize> Encode for [T; N] {
         }
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut x = Vec::with_capacity(N);

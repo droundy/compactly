@@ -45,8 +45,8 @@ macro_rules! impl_low_cardinality {
                     }
                 }
                 #[inline]
-                fn decode<R: std::io::Read>(
-                    reader: &mut super::super::Reader<R>,
+                fn decode<D: super::super::EntropyDecoder>(
+                    reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
                     let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
@@ -86,8 +86,8 @@ where
             LowCardinality::encode(&v, writer, &mut ctx.1);
         }
     }
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let n = usize::decode(reader, &mut ctx.0)?;

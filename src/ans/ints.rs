@@ -1,6 +1,5 @@
-use super::{Encode, EncodingStrategy, Reader, Small, ULessThan};
+use super::{Encode, EncodingStrategy, Small, ULessThan};
 use crate::Sorted;
-use std::io::Read;
 
 macro_rules! impl_uint {
     ($t:ident, $mod:ident, $bits:literal) => {
@@ -42,8 +41,8 @@ macro_rules! impl_uint {
                     }
                 }
                 #[inline]
-                fn decode<R: Read>(
-                    reader: &mut Reader<R>,
+                fn decode<D: super::super::EntropyDecoder>(
+                    reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
                     let mut v = 0;
@@ -91,8 +90,8 @@ macro_rules! impl_uint {
                     }
                     ctx.previous = Some(*value);
                 }
-                fn decode<R: Read>(
-                    reader: &mut super::Reader<R>,
+                fn decode<D: super::super::EntropyDecoder>(
+                    reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
                     let out = if let Some(previous) = ctx.previous.take() {
@@ -235,8 +234,8 @@ macro_rules! impl_compact {
                 }
                 Some(tot)
             }
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 let leading_zeros =
@@ -331,8 +330,8 @@ macro_rules! impl_signed {
                 $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
             }
             #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
                 let v = $unsigned::decode(reader, ctx)?;
@@ -382,8 +381,8 @@ macro_rules! impl_signed {
                 Some(tot)
             }
             #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
+            fn decode<D: super::EntropyDecoder>(
+                reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$signed, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_negative)? {

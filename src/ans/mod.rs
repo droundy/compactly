@@ -4,9 +4,7 @@
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
 pub use compactly_derive::EncodeAns as Encode;
-use std::io::Read;
 
-mod adapt;
 mod ans;
 mod arc;
 mod arith;
@@ -31,14 +29,40 @@ mod usizes;
 mod vecs;
 
 use crate::{LowCardinality, Small};
-pub use adapt::Reader;
-pub use arith::RangeCoder;
+pub use ans::Ans;
+pub use arith::Range;
 pub use ulessthan::ULessThan;
 
 /// A place where we can put bits where we have estimated the probabilities.
-pub trait EntropyCoder {
+pub trait EntropyCoder: Default {
     /// Encode a given bit with its probability
-    fn encode(&mut self, probability: ans::Probability, bit: bool);
+    fn encode_bit(&mut self, probability: ans::Probability, bit: bool);
+
+    /// Encode the `value` into a `Vec<u8>` of bytes.`
+    fn encode<T: Encode>(value: &T) -> Self {
+        let mut writer = Self::default();
+        value.encode(&mut writer, &mut T::Context::default());
+        writer
+    }
+}
+
+/// A way .
+pub trait EntropyDecoder {
+    /// Decode a given bit with the given probability
+    fn decode_bit_nonadaptive(
+        &mut self,
+        probability: ans::Probability,
+    ) -> Result<bool, std::io::Error>;
+
+    /// Encode a given bit with its probability
+    fn decode_bit(
+        &mut self,
+        context: &mut bit_context::BitContext,
+    ) -> Result<bool, std::io::Error> {
+        let bit = self.decode_bit_nonadaptive(context.probability())?;
+        *context = context.adapt(bit);
+        Ok(bit)
+    }
 }
 
 /// Trait for types that can be compactly encoded.
@@ -64,24 +88,24 @@ pub trait Encode: Sized {
     }
 
     /// Decode value from ['Reader<R>`].
-    fn decode<R: Read>(
-        reader: &mut Reader<R>,
+    fn decode<D: EntropyDecoder>(
+        entropy_decoder: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
 }
 
 /// Encode the `value` into a `Vec<u8>` of bytes.`
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
-    let mut writer = arith::RangeCoder::default();
+    let mut writer = arith::Range::default();
     value.encode(&mut writer, &mut T::Context::default());
-    writer.finish()
+    writer.into_vec()
 }
 
 /// Decode a value of this type from `bytes`.
 ///
 /// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
-    let mut reader = Reader::new(&mut bytes).unwrap();
+    let mut reader = arith::Reader::new(&mut bytes).unwrap();
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
@@ -110,8 +134,8 @@ pub trait EncodingStrategy<T> {
     }
 
     /// Decode the value using this strategy.
-    fn decode<R: Read>(
-        reader: &mut Reader<R>,
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error>;
 }
@@ -121,9 +145,9 @@ pub trait EncodingStrategy<T> {
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
 pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
-    let mut writer = RangeCoder::default();
+    let mut writer = Range::default();
     S::encode(value, &mut writer, &mut S::Context::default());
-    writer.finish()
+    writer.into_vec()
 }
 
 /// Decode a value with a specific strategy (from a bytes slice).
@@ -131,7 +155,7 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
 pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
-    let mut reader = Reader::new(&mut bytes).unwrap();
+    let mut reader = arith::Reader::new(&mut bytes).unwrap();
     S::decode(&mut reader, &mut S::Context::default()).ok()
 }
 
@@ -146,8 +170,8 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
         S::millibits(&self.value, ctx)
     }
     #[inline]
-    fn decode<R: std::io::Read>(
-        reader: &mut Reader<R>,
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
@@ -166,8 +190,8 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
         value.millibits(ctx)
     }
-    fn decode<R: Read>(
-        reader: &mut Reader<R>,
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error> {
         T::decode(reader, ctx)

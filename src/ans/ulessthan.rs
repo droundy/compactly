@@ -1,5 +1,4 @@
 use super::Encode;
-use std::io::Read;
 
 /// A unsigned integer with a value less than `N`.
 ///
@@ -153,8 +152,8 @@ impl<const N: usize> Encode for ULessThan<N> {
         Some(tot)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut filled_up = 0;

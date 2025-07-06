@@ -1,6 +1,5 @@
 use super::{Encode, EncodingStrategy};
 use crate::{Normal, Small, Sorted};
-use std::io::Read;
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
@@ -12,8 +11,8 @@ impl<T: Encode> Encode for Vec<T> {
         crate::Values::<Normal>::millibits(self, ctx)
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         crate::Values::<Normal>::decode(reader, ctx)
@@ -54,8 +53,8 @@ impl<T, S: EncodingStrategy<T>> Clone for Context<T, S> {
 
 impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
     type Context = Context<T, S>;
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
@@ -100,8 +99,8 @@ impl<T: Encode> Default for SortedContext<T> {
 
 impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
     type Context = SortedContext<T>;
-    fn decode<R: std::io::Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let len: usize = Small::decode(reader, &mut ctx.len)?;

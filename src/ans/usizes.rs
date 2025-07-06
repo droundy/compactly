@@ -1,7 +1,6 @@
 use crate::Sorted;
 
 use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
-use std::io::Read;
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
@@ -23,8 +22,8 @@ impl Encode for usize {
         }
     }
     #[inline]
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.less_than_four)? {
@@ -188,8 +187,8 @@ impl EncodingStrategy<usize> for Small {
             }
         }
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {
         let nz = u8::from(<UBits<3> as Encode>::decode(
@@ -260,8 +259,8 @@ impl EncodingStrategy<usize> for Sorted {
         }
         ctx.previous = Some(*value);
     }
-    fn decode<R: Read>(
-        reader: &mut super::Reader<R>,
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {
         let out = if let Some(previous) = ctx.previous.take() {
