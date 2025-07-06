@@ -195,7 +195,6 @@ fn probability_millibits() {
     }
     const REST: &str = r#"];
         let idx = self.prob.get() as usize + bit as usize * 256;
-        println!("idx is {idx}");
         super::Millibits::new(LOOKUP[idx] as usize)
     } 
 }"#;

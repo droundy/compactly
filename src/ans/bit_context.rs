@@ -2765,7 +2765,6 @@ impl Probability {
             4540, 4678, 4830, 5000, 5192, 5415, 5678, 6000, 6415, 7000, 8000,
         ];
         let idx = self.prob.get() as usize + bit as usize * 256;
-        println!("idx is {idx}");
         super::Millibits::new(LOOKUP[idx] as usize)
     }
 }
