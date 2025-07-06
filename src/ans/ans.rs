@@ -172,3 +172,11 @@ fn check_ans_coder() {
     }
     assert_eq!(decoder.state, 255);
 }
+
+#[test]
+fn ans_is_reasonable() {
+    let data = vec![true; 1024 * 8];
+    assert_eq!(super::Range::encode(&data).len(), 16);
+    assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
+    assert_eq!(Ans::encode(&data).len(), 7153); // FIXME this is not reasonable.
+}
