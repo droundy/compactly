@@ -155,7 +155,7 @@ impl<'a> EntropyDecoder for Decoder<'a> {
 #[test]
 fn check_ans_coder() {
     let mut data = Vec::new();
-    const SIZE: usize = 1000;
+    const SIZE: usize = 100_000;
     data.resize_with(SIZE, || rand::random::<bool>());
     let mut distros = Vec::new();
     distros.resize_with(SIZE, rand::random::<Probability>);

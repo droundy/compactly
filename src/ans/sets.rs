@@ -166,7 +166,7 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
 
 #[test]
 fn btreeset() {
-    use super::assert_bits;
+    use super::{assert_ans_bits, assert_bits};
     assert_bits!(BTreeSet::<usize>::new(), 3);
     assert_bits!(BTreeSet::from([0_usize]), 6);
     assert_bits!(BTreeSet::from([1_usize]), 6);
@@ -180,11 +180,12 @@ fn btreeset() {
     assert_bits!(BTreeSet::from([false, true]), 6);
     assert_bits!(BTreeSet::from_iter(1_000_000_u64..1_001_024), 176);
     assert_bits!(BTreeSet::from_iter(2_000_000_u64..2_002_048), 271);
+    assert_ans_bits!(BTreeSet::from_iter(2_000_000_u64..2_002_048), 271);
 }
 
 #[test]
 fn compact_btreeset() {
-    use super::assert_bits;
+    use super::{assert_ans_bits, assert_bits};
     use crate::Encoded;
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::<u64>::new()), 3);
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64])), 10);
@@ -207,6 +208,10 @@ fn compact_btreeset() {
         159
     );
     assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
+        242
+    );
+    assert_ans_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
         242
     );

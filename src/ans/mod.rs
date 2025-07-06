@@ -252,3 +252,59 @@ macro_rules! assert_bits {
 }
 #[cfg(test)]
 pub(crate) use assert_bits;
+
+#[cfg(test)]
+macro_rules! assert_ans_bits {
+    ($v:expr, $size:expr) => {
+        let ans = $v;
+        let bytes = super::Ans::encode(&ans);
+        let decoded = super::Ans::decode(&bytes);
+        assert_eq!(decoded, Some(ans), "decoded value is incorrect");
+        let v = (
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+        );
+        let bytes = super::Ans::encode(&v);
+        let decoded = super::Ans::decode(&bytes);
+        assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
+        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
+    };
+    ($v:expr, $size:expr, $msg:expr) => {
+        let ans = $v;
+        let bytes = super::Ans::encode(&ans);
+        let decoded = super::Ans::decode(&bytes);
+        assert_eq!(decoded, Some(ans), "decoded value is incorrect: {}", $msg);
+        let v = (
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+            ($v, $v, $v, $v, $v, $v, $v, $v),
+        );
+        let bytes = super::Ans::encode(&v);
+        let decoded = super::Ans::decode(&bytes);
+        assert_eq!(
+            decoded,
+            Some(v),
+            "decoded tuple value is incorrect: {}",
+            $msg
+        );
+        assert_eq!(
+            (bytes.len() + 4) / 8,
+            $size,
+            "unexpected number of bits: {}",
+            $msg
+        );
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_ans_bits;
