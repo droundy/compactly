@@ -20,10 +20,6 @@ impl Encode for bool {
         // println!("Decoding {b:?}");
         Ok(b)
     }
-    #[inline]
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        Some(ctx.millibits_required(*self) as usize)
-    }
 }
 
 impl EncodingStrategy<bool> for Sorted {
@@ -36,9 +32,6 @@ impl EncodingStrategy<bool> for Sorted {
     }
     fn encode<E: super::EntropyCoder>(value: &bool, writer: &mut E, ctx: &mut Self::Context) {
         value.encode(writer, ctx)
-    }
-    fn millibits(value: &bool, ctx: &mut Self::Context) -> Option<usize> {
-        value.millibits(ctx)
     }
 }
 
@@ -57,18 +50,33 @@ fn size() {
 
 #[test]
 fn millibits_required() {
+    use super::Millibits;
     let mut bc = BitContext::default();
     assert_eq!(bc.probability().as_f64(), 0.5);
 
-    assert_eq!(bc.millibits_required(true), 1000);
+    assert_eq!(false.millibits(), Millibits::bits(1));
+    assert_eq!(true.millibits(), Millibits::bits(1));
+
+    macro_rules! assert_millibits {
+        ($bit:literal, $ctx:expr, $expected:expr) => {{
+            let mut mb = Millibits::new(0);
+            $bit.encode(&mut mb, $ctx);
+            assert_eq!(mb, $expected);
+        }};
+    }
+
+    assert_millibits!(true, &mut bc, Millibits::bits(1));
 
     assert_eq!(bc, BitContext::True1False0);
     assert!(bc.probability().as_f64() < 0.5);
 
-    assert_eq!(BitContext::True1False0.millibits_required(true), 582);
+    assert_millibits!(true, &mut BitContext::True1False0, Millibits::new(582));
+    assert_millibits!(false, &mut BitContext::True1False0, Millibits::new(1590));
 
-    assert_eq!(bc.millibits_required(true), 582);
-    assert_eq!(bc.millibits_required(true), 415);
-    assert_eq!(bc.millibits_required(false), 2327);
-    assert_eq!(bc.millibits_required(false), 1590);
+    assert_millibits!(true, &mut bc, Millibits::new(582));
+    assert_millibits!(true, &mut bc, Millibits::new(415));
+    assert_millibits!(false, &mut bc, Millibits::new(2327));
+    assert_millibits!(false, &mut bc, Millibits::new(1590));
+    assert_millibits!(false, &mut bc, Millibits::new(1218));
+    assert_millibits!(false, &mut bc, Millibits::new(1000));
 }

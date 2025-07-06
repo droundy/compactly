@@ -34,9 +34,6 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         Values::<Normal>::encode(self, writer, ctx)
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        Values::<Normal>::millibits(self, ctx)
-    }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -68,9 +65,6 @@ where
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         Values::<Sorted>::encode(self, writer, ctx)
-    }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        Values::<Sorted>::millibits(self, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -136,13 +130,6 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
             S::encode(v, writer, &mut ctx.values);
         }
     }
-    fn millibits(value: &BTreeSet<T>, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = value.len().millibits(&mut ctx.len)?;
-        for v in value {
-            tot += S::millibits(v, &mut ctx.values)?;
-        }
-        Some(tot)
-    }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -163,13 +150,6 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
         for v in value {
             S::encode(v, writer, &mut ctx.values);
         }
-    }
-    fn millibits(value: &HashSet<T>, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = value.len().millibits(&mut ctx.len)?;
-        for v in value {
-            tot += S::millibits(v, &mut ctx.values)?;
-        }
-        Some(tot)
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,

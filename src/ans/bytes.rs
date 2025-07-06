@@ -51,7 +51,7 @@ impl Lz77 {
         let mut out = Vec::new();
         let mut ctx = self.clone();
         while let Some(chunk) = ctx.eager_chunk(&mut value, &mut sofar) {
-            chunk.millibits(&mut ctx);
+            chunk.encode(&mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
         out
@@ -153,16 +153,6 @@ impl Lz77 {
         }
         self.push_old(value.to_vec());
     }
-    pub fn millibits(&mut self, value: &[u8]) -> Option<usize> {
-        let chunks = self.eager(value);
-        let mut tot = Small::millibits(&chunks.len(), &mut self.count)?;
-        for chunk in chunks {
-            tot += chunk.millibits(self)?;
-            self.shift_chunk(&chunk);
-        }
-        self.push_old(value.to_vec());
-        Some(tot)
-    }
 
     pub fn decode<D: super::EntropyDecoder>(
         &mut self,
@@ -219,19 +209,15 @@ fn eager() {
     assert_literal!(b"aaa");
     {
         let mut ctx = Lz77::default();
-        let millibits_of_literals = Lz77::default()
-            .eager(b"aaa")
-            .into_iter()
-            .map(|c| c.millibits(&mut ctx).unwrap())
-            .sum::<usize>();
-        assert_eq!(millibits_of_literals, 22976);
-        let mb_of_vec = Lz77::default()
-            .eager(b"aaa")
-            .millibits(&mut Default::default())
-            .unwrap();
-        assert_eq!(mb_of_vec, 25976);
-        let mb_of_string = b"aaa".to_vec().millibits(&mut Default::default()).unwrap();
-        assert_eq!(mb_of_string, 19976);
+        let mut millibits_of_literals = super::Millibits::new(0);
+        for chunk in Lz77::default().eager(b"aaa") {
+            chunk.encode(&mut millibits_of_literals, &mut ctx);
+        }
+        assert_eq!(millibits_of_literals, super::Millibits::new(22976));
+        let mb_of_vec = Lz77::default().eager(b"aaa").millibits();
+        assert_eq!(mb_of_vec, super::Millibits::new(25976));
+        let mb_of_string = b"aaa".to_vec().millibits();
+        assert_eq!(mb_of_string, super::Millibits::new(19976));
     }
     assert_eq!(
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
@@ -359,25 +345,6 @@ impl Encode for Chunk {
             }
         }
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let Chunk {
-            literal,
-            length,
-            back,
-            offset,
-        } = self;
-        let mut tot = literal.millibits(&mut ctx.literal)?;
-        tot += Small::millibits(length, &mut ctx.length)?;
-        if *length > 0 {
-            tot += Small::millibits(back, &mut ctx.back)?;
-            tot += if *back == 0 {
-                Small::millibits(offset, &mut ctx.self_offset)?
-            } else {
-                Small::millibits(offset, &mut ctx.offset)?
-            };
-        }
-        Some(tot)
-    }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -412,9 +379,6 @@ impl EncodingStrategy<Vec<u8>> for Compressible {
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value, writer)
-    }
-    fn millibits(value: &Vec<u8>, ctx: &mut Self::Context) -> Option<usize> {
-        ctx.millibits(value)
     }
 
     fn decode<D: super::EntropyDecoder>(
@@ -465,14 +429,14 @@ fn size() {
 
         println!("normal millibits b{s:?}");
         assert_eq!(
-            normal.millibits(&mut Default::default()),
-            Some(expected_normal),
+            normal.millibits(),
+            super::Millibits::new(expected_normal),
             "normal millibits b{s:?}"
         );
         println!("small millibits b{s:?}");
         assert_eq!(
-            small.millibits(&mut Default::default()),
-            Some(expected_small),
+            small.millibits(),
+            super::Millibits::new(expected_small),
             "small millibits b{s:?}"
         );
         assert_bits!(
@@ -491,8 +455,8 @@ fn size() {
     }
     compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
 
-    assert_eq!(true.millibits(&mut Default::default()), Some(1000));
-    assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
+    assert_eq!(true.millibits(), super::Millibits::bits(1));
+    assert_eq!('a'.millibits(), super::Millibits::bits(8));
     assert_eq!(
         Chunk {
             literal: b"a".to_vec(),
@@ -500,8 +464,8 @@ fn size() {
             back: 0,
             offset: 0
         }
-        .millibits(&mut Default::default()),
-        Some(14000)
+        .millibits(),
+        super::Millibits::bits(14)
     );
     assert_eq!(
         Chunk {
@@ -510,8 +474,8 @@ fn size() {
             offset: 0,
             length: 2
         }
-        .millibits(&mut Default::default()),
-        Some(13000)
+        .millibits(),
+        super::Millibits::bits(13)
     );
     compare_small_bits(b"", 3, 3);
     compare_small_bits(b"a", 11, 17);
@@ -546,23 +510,19 @@ fn size() {
 
     compare_vecs(&[], 3000, 3000);
     assert_eq!(
-        b"h".to_vec().millibits(&mut Default::default()),
-        Some(11000),
+        b"h".to_vec().millibits(),
+        super::Millibits::bits(11),
         "just h string"
     );
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    assert_eq!(
-        s.millibits(&mut Default::default()),
-        Some(39424),
-        "just a string"
-    );
+    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
     assert_bits!(s.clone(), 40);
 
     let s = b"hello world this is a string".to_vec();
     assert_eq!(
-        s.millibits(&mut Default::default()),
-        Some(165025),
+        s.millibits(),
+        super::Millibits::new(165025),
         "just a string"
     );
     assert_bits!(s.clone(), 165);

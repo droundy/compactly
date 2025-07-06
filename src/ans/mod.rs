@@ -20,6 +20,7 @@ pub mod generate_bit_context;
 mod ints;
 mod low_cardinality;
 mod maps;
+mod millibits;
 mod option;
 mod sets;
 mod string;
@@ -31,6 +32,7 @@ mod vecs;
 use crate::{LowCardinality, Small};
 pub use ans::Ans;
 pub use arith::Range;
+pub use millibits::Millibits;
 pub use ulessthan::ULessThan;
 
 /// A place where we can put bits where we have estimated the probabilities.
@@ -76,22 +78,18 @@ pub trait Encode: Sized {
     /// Encode this value to the [`Writer<W>`].
     fn encode<E: EntropyCoder>(&self, encoder: &mut E, ctx: &mut Self::Context);
 
-    /// Extimate the number of millibits required for this value.
-    ///
-    /// Returns `None` if this estimation has not been implemented.
-    #[expect(unused_variables)]
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        // let mut counter = Writer::new(adapt::Counter::default());
-        // self.encode(&mut counter, ctx).ok();
-        // counter.len() * 8000
-        None
-    }
-
     /// Decode value from ['Reader<R>`].
     fn decode<D: EntropyDecoder>(
         entropy_decoder: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
+
+    /// Estimate the size of this value
+    fn millibits(&self) -> Millibits {
+        let mut m = Millibits::default();
+        self.encode(&mut m, &mut Self::Context::default());
+        m
+    }
 }
 
 /// Encode the `value` into a `Vec<u8>` of bytes.`
@@ -127,12 +125,6 @@ pub trait EncodingStrategy<T> {
     /// Encode the value with this strategy.
     fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context);
 
-    /// Estimate the size of the encoded value using this stratgy.
-    #[expect(unused_variables)]
-    fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
-        None
-    }
-
     /// Decode the value using this strategy.
     fn decode<D: EntropyDecoder>(
         reader: &mut D,
@@ -166,10 +158,6 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
         S::encode(&self.value, writer, ctx)
     }
     #[inline]
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        S::millibits(&self.value, ctx)
-    }
-    #[inline]
     fn decode<D: EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -186,9 +174,6 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     #[inline]
     fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {
         value.encode(writer, ctx)
-    }
-    fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
-        value.millibits(ctx)
     }
     fn decode<D: EntropyDecoder>(
         reader: &mut D,

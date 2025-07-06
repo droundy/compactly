@@ -79,9 +79,6 @@ where
     ) -> Result<Self, std::io::Error> {
         Mapping::<Sorted, Normal>::decode(reader, ctx)
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        Mapping::<Sorted, Normal>::millibits(self, ctx)
-    }
 }
 
 #[test]

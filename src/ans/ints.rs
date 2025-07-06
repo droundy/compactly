@@ -222,18 +222,6 @@ macro_rules! impl_compact {
                     ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i]);
                 }
             }
-            fn millibits(value: &$t, ctx: &mut Self::Context) -> Option<usize> {
-                let uleading = value.leading_zeros() as usize;
-                let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
-                let mut tot = leading_zeros.millibits(&mut ctx.leading_zeros)?;
-                if uleading >= $bits - 1 {
-                    return Some(tot);
-                }
-                for i in 0..($bits - 1) - uleading {
-                    tot += ((value >> i) & 1 == 1).millibits(&mut ctx.context[i])?;
-                }
-                Some(tot)
-            }
             fn decode<D: super::EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
@@ -370,15 +358,6 @@ macro_rules! impl_signed {
                 } else {
                     Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
                 }
-            }
-            fn millibits(value: &$signed, ctx: &mut Self::Context) -> Option<usize> {
-                let mut tot = (*value < 0).millibits(&mut ctx.is_negative)?;
-                if *value < 0 {
-                    tot += Small::millibits(&value.abs_diff(-1), &mut ctx.negative)?;
-                } else {
-                    tot += Small::millibits(&value.abs_diff(0), &mut ctx.positive)?;
-                }
-                Some(tot)
             }
             #[inline]
             fn decode<D: super::EntropyDecoder>(

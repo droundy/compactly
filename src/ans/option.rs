@@ -34,14 +34,6 @@ impl<T: Encode> Encode for Option<T> {
         }
     }
     #[inline]
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        if let Some(v) = self {
-            Some(true.millibits(&mut ctx.is_some)? + v.millibits(&mut ctx.value)?)
-        } else {
-            false.millibits(&mut ctx.is_some)
-        }
-    }
-    #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -68,16 +60,6 @@ macro_rules! option_encoding_strategy {
                     $strategy::encode(v, writer, &mut ctx.value)
                 } else {
                     false.encode(writer, &mut ctx.is_some)
-                }
-            }
-            fn millibits(value: &Option<$t>, ctx: &mut Self::Context) -> Option<usize> {
-                if let Some(v) = value {
-                    Some(
-                        true.millibits(&mut ctx.is_some)?
-                            + $strategy::millibits(v, &mut ctx.value)?,
-                    )
-                } else {
-                    false.millibits(&mut ctx.is_some)
                 }
             }
             fn decode<D: super::EntropyDecoder>(

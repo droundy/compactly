@@ -35,29 +35,6 @@ impl Encode for char {
             }
         }
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut x = u32::from(*self);
-        let is_ascii = x < 128;
-        let mut tot = is_ascii.millibits(&mut ctx.is_ascii)?;
-        if is_ascii {
-            Some(tot + Bits::<128>::take_from(&mut x).millibits(&mut ctx.ascii)?)
-        } else {
-            let n_chunks = if x < 32 * 64 {
-                0
-            } else if x < 32 * 64 * 64 {
-                1
-            } else {
-                2
-            };
-            let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
-            tot += n_chunks.millibits(&mut ctx.n_chunks)?;
-            tot += Bits::<32>::take_from(&mut x).millibits(&mut ctx.chunk1)?;
-            for i in 0_usize..1 + usize::from(n_chunks) {
-                tot += Bits::<64>::take_from(&mut x).millibits(&mut ctx.chunks[i])?;
-            }
-            Some(tot)
-        }
-    }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -92,14 +69,6 @@ impl Encode for String {
         for b in self.chars() {
             b.encode(writer, &mut ctx.chars);
         }
-    }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = Small::millibits(&self.chars().count(), &mut ctx.len)?;
-        for b in self.chars() {
-            tot += b.millibits(&mut ctx.chars)?;
-        }
-        // println!("{self:?}: {tot}");
-        Some(tot)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -167,30 +136,6 @@ impl EncodingStrategy<String> for Sorted {
         }
         ctx.previous = value.clone();
     }
-    fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = 0;
-        if ctx.previous.is_empty() {
-            let len = value.len();
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            for c in value.chars() {
-                tot += c.millibits(&mut ctx.chars)?;
-            }
-        } else {
-            let shared_prefix = value
-                .chars()
-                .zip(ctx.previous.chars())
-                .take_while(|(a, b)| a == b)
-                .count();
-            let len = value.len() - shared_prefix;
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            tot += Small::millibits(&shared_prefix, &mut ctx.shared_prefix)?;
-            for c in value.chars().skip(shared_prefix) {
-                tot += c.millibits(&mut ctx.chars)?;
-            }
-        }
-        ctx.previous = value.clone();
-        Some(tot)
-    }
 }
 
 #[cfg(test)]
@@ -208,9 +153,6 @@ impl EncodingStrategy<String> for Compressible {
     type Context = super::bytes::Lz77;
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value.as_bytes(), writer)
-    }
-    fn millibits(value: &String, ctx: &mut Self::Context) -> Option<usize> {
-        ctx.millibits(value.as_bytes())
     }
 
     fn decode<D: super::EntropyDecoder>(
@@ -265,14 +207,14 @@ fn size() {
 
         println!("normal millibits {value:?}");
         assert_eq!(
-            normal.millibits(&mut Default::default()),
-            Some(expected_normal),
+            normal.millibits(),
+            super::Millibits::new(expected_normal),
             "normal millibits {value:?}"
         );
         println!("small millibits {value:?}");
         assert_eq!(
-            small.millibits(&mut Default::default()),
-            Some(expected_small),
+            small.millibits(),
+            super::Millibits::new(expected_small),
             "small millibits {value:?}"
         );
         assert_bits!(
@@ -291,9 +233,9 @@ fn size() {
     }
     compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
 
-    assert_eq!(true.millibits(&mut Default::default()), Some(1000));
-    assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
-    assert_eq!('😊'.millibits(&mut Default::default()), Some(20000));
+    assert_eq!(true.millibits(), super::Millibits::bits(1));
+    assert_eq!('a'.millibits(), super::Millibits::bits(8));
+    assert_eq!('😊'.millibits(), super::Millibits::bits(20));
     compare_small_bits("", 3, 3);
     compare_small_bits("a", 11, 17);
     compare_small_bits("aa", 17, 23);
@@ -327,25 +269,21 @@ fn size() {
     );
 
     compare_vecs(&[], 3000, 3000);
-    assert_eq!('h'.millibits(&mut Default::default()), Some(8000), "just h");
+    assert_eq!('h'.millibits(), super::Millibits::bits(8), "just h");
     assert_eq!(
-        "h".to_string().millibits(&mut Default::default()),
-        Some(11000),
+        "h".to_string().millibits(),
+        super::Millibits::bits(11),
         "just h string"
     );
 
     let s = "aaaaaaaaaaaaaaaa".to_string();
-    assert_eq!(
-        s.millibits(&mut Default::default()),
-        Some(39424),
-        "just a string"
-    );
+    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
     assert_bits!(s.clone(), 40);
 
     let s = "hello world this is a string".to_string();
     assert_eq!(
-        s.millibits(&mut Default::default()),
-        Some(165025),
+        s.millibits(),
+        super::Millibits::new(165025),
         "just a string"
     );
     assert_bits!(s.clone(), 165);

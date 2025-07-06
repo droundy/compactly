@@ -24,19 +24,6 @@ impl Encode for u8 {
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        let mut tot = 0;
-        for i in 0..8 {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = (*self >> (7 - i)) & 1 == 1;
-            tot += bit.millibits(ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-        }
-        Some(tot)
-    }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -88,20 +75,6 @@ macro_rules! small_num {
                         accumulated_value = 2 * accumulated_value + bit as usize;
                     }
                 }
-                fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-                    let value = u8::from(*self);
-                    let mut filled_up = 0;
-                    let mut accumulated_value = 0;
-                    let mut tot = 0;
-                    for i in 0..$nbits {
-                        let ctx = &mut ctx.0[filled_up + accumulated_value];
-                        let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
-                        tot += bit.millibits(ctx)?;
-                        filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
-                    }
-                    Some(tot)
-                }
                 #[inline]
                 fn decode<D: super::super::EntropyDecoder>(
                     reader: &mut D,
@@ -127,7 +100,7 @@ macro_rules! small_num {
                     let encoded = super::super::encode(&v);
                     let decoded = super::super::decode::<$t>(&encoded).unwrap();
                     assert_eq!(v, decoded);
-                    assert_eq!(v.millibits(&mut Default::default()), Some($nbits * 1000));
+                    assert_eq!(v.millibits(), super::super::Millibits::bits($nbits));
                 }
             }
         }
@@ -255,63 +228,6 @@ impl EncodingStrategy<u8> for Small {
             }
         }
     }
-    fn millibits(value: &u8, ctx: &mut Self::Context) -> Option<usize> {
-        let nonzero: UBits<3>;
-        match *value {
-            0 => {
-                nonzero = 0.try_into().unwrap();
-                nonzero.millibits(&mut ctx.nonzero)
-            }
-            1 => {
-                nonzero = 1.try_into().unwrap();
-                nonzero.millibits(&mut ctx.nonzero)
-            }
-            2..4 => {
-                nonzero = 2.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.nonzero)?;
-                let b1: UBits<1> = (*value - 2).try_into().unwrap();
-                Some(tot + b1.millibits(&mut ctx.b1)?)
-            }
-            4..8 => {
-                nonzero = 3.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.nonzero)?;
-                let b2: UBits<2> = (*value - 4).try_into().unwrap();
-                Some(tot + b2.millibits(&mut ctx.b2)?)
-            }
-            8..16 => {
-                nonzero = 4.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.nonzero)?;
-                let b3: UBits<3> = (*value - 8).try_into().unwrap();
-                Some(tot + b3.millibits(&mut ctx.b3)?)
-            }
-            16..32 => {
-                nonzero = 5.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.nonzero)?;
-                let b4: UBits<4> = (*value - 16).try_into().unwrap();
-                Some(tot + b4.millibits(&mut ctx.b4)?)
-            }
-            32..64 => {
-                nonzero = 6.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.nonzero)?;
-                let b5: UBits<5> = (*value - 32).try_into().unwrap();
-                Some(tot + b5.millibits(&mut ctx.b5)?)
-            }
-            64..128 => {
-                nonzero = 7.try_into().unwrap();
-                let mut tot = nonzero.millibits(&mut ctx.nonzero)?;
-                tot += false.millibits(&mut ctx.need_seven_bits)?;
-                let b6: UBits<6> = (*value - 64).try_into().unwrap();
-                Some(tot + b6.millibits(&mut ctx.b6)?)
-            }
-            128..=255 => {
-                nonzero = 7.try_into().unwrap();
-                let mut tot = nonzero.millibits(&mut ctx.nonzero)?;
-                tot += true.millibits(&mut ctx.need_seven_bits)?;
-                let b7: UBits<7> = (*value - 128).try_into().unwrap();
-                Some(tot + b7.millibits(&mut ctx.b7)?)
-            }
-        }
-    }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -393,8 +309,8 @@ fn small() {
     fn check_size(v: u8, expected: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Encoded::<u8, Small>::new(v).millibits(&mut Default::default()),
-            Some(1000 * expected)
+            Encoded::<u8, Small>::new(v).millibits(),
+            super::Millibits::bits(expected)
         );
         assert_bits!(Encoded::<u8, Small>::new(v), expected);
     }
@@ -424,7 +340,7 @@ fn small() {
         check_size(x, 11);
     }
     assert_eq!(
-        Encoded::<u8, Small>::new(255u8).millibits(&mut Default::default()),
-        Some(11000)
+        Encoded::<u8, Small>::new(255u8).millibits(),
+        super::Millibits::bits(11)
     );
 }

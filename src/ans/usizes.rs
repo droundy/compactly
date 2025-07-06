@@ -33,19 +33,6 @@ impl Encode for usize {
             usize::try_from(v + 4).map_err(std::io::Error::other)
         }
     }
-
-    #[inline]
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = 0;
-        if let Ok(r) = ULessThan::<4>::try_from(*self) {
-            tot += true.millibits(&mut ctx.less_than_four)?;
-            tot += r.millibits(&mut ctx.small)?;
-        } else {
-            tot += false.millibits(&mut ctx.less_than_four)?;
-            tot += Small::millibits(&(*self as u64 - 4), &mut ctx.big)?;
-        }
-        Some(tot)
-    }
 }
 
 #[derive(Clone)]
@@ -131,62 +118,7 @@ impl EncodingStrategy<usize> for Small {
             }
         }
     }
-    fn millibits(value: &usize, ctx: &mut Self::Context) -> Option<usize> {
-        let nonzero: UBits<3>;
-        match *value {
-            0 => {
-                nonzero = 0.try_into().unwrap();
-                nonzero.millibits(&mut ctx.small_nonzero)
-            }
-            1 => {
-                nonzero = 1.try_into().unwrap();
-                nonzero.millibits(&mut ctx.small_nonzero)
-            }
-            2..4 => {
-                nonzero = 2.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let b1: UBits<1> = (*value as u8 - 2).try_into().unwrap();
-                Some(tot + b1.millibits(&mut ctx.b1)?)
-            }
-            4..8 => {
-                nonzero = 3.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let b2: UBits<2> = (*value as u8 - 4).try_into().unwrap();
-                Some(tot + b2.millibits(&mut ctx.b2)?)
-            }
-            8..16 => {
-                nonzero = 4.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let b3: UBits<3> = (*value as u8 - 8).try_into().unwrap();
-                Some(tot + b3.millibits(&mut ctx.b3)?)
-            }
-            16..32 => {
-                nonzero = 5.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let b4: UBits<4> = (*value as u8 - 16).try_into().unwrap();
-                Some(tot + b4.millibits(&mut ctx.b4)?)
-            }
-            32..64 => {
-                nonzero = 6.try_into().unwrap();
-                let tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let b5: UBits<5> = (*value as u8 - 32).try_into().unwrap();
-                Some(tot + b5.millibits(&mut ctx.b5)?)
-            }
-            _ => {
-                nonzero = 7.try_into().unwrap();
-                let mut tot = nonzero.millibits(&mut ctx.small_nonzero)?;
-                let value = *value as u64;
-                let zeros = value.leading_zeros() as u8;
-                let bits_beyond_seven = (64 - 7 - zeros) as u8;
-                let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
-                tot += bits_beyond_seven.millibits(&mut ctx.bits_beyond_seven)?;
-                for off in 0..6 + u8::from(bits_beyond_seven) {
-                    tot += ((value >> off) & 1 == 1).millibits(&mut ctx.bits[off as usize])?;
-                }
-                Some(tot)
-            }
-        }
-    }
+
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
@@ -329,8 +261,8 @@ fn small() {
     fn check_size(v: usize, expected: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
-            Some(1000 * expected),
+            Encoded::<_, Small>::new(v).millibits(),
+            super::Millibits::bits(expected),
             "small wrong size"
         );
         assert_bits!(Encoded::<_, Small>::new(v), expected);
@@ -338,13 +270,13 @@ fn small() {
     fn check_both(v: usize, expected: usize, normal: usize) {
         println!("Checking {v}");
         assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
-            Some(1000 * expected),
+            Encoded::<_, Small>::new(v).millibits(),
+            super::Millibits::bits(expected),
             "small wrong size"
         );
         assert_eq!(
-            v.millibits(&mut Default::default()),
-            Some(1000 * normal),
+            v.millibits(),
+            super::Millibits::bits(normal),
             "normal wrong size"
         );
         assert_bits!(Encoded::<_, Small>::new(v), expected);

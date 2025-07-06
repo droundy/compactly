@@ -53,19 +53,6 @@ impl<const N: usize> Encode for Bits<N> {
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        let mut tot = 0;
-        for i in 0..Self::N_BITS {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = (self.value >> (Self::N_BITS - 1 - i)) & 1 == 1;
-            tot += bit.millibits(ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-        }
-        Some(tot)
-    }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,

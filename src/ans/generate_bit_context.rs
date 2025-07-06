@@ -175,36 +175,31 @@ fn lookup_probability(variants: &[Bucket]) {
     println!(r"}}");
 }
 
-fn lookup_bits_required(variants: &[Bucket]) {
-    let sz = 2 * variants.len();
+fn probability_millibits() {
     println!(
-        r"#[inline] pub fn millibits_required(&mut self, bit: bool) -> u32 {{
-        const LOOKUP: [u32; {sz}] = ["
+        r"
+        impl Probability {{
+           pub fn millibits(self, bit: bool) -> super::Millibits {{
+        const LOOKUP: [u32; 512] = [0,"
     );
 
-    for BitC {
-        name, probability, ..
-    } in variants.iter().map(|b| b.bitc())
-    {
-        let bits = (-1000.0 * probability.as_f64().log2()).min(u32::MAX as f64) as u32;
-        println!("        {bits}, // {name} for false")
+    for i in (1..=255).chain(1..2).chain((1..=255).rev()) {
+        let bits = (-1000.0
+            * Probability {
+                prob: NonZeroU8::new(i).unwrap(),
+            }
+            .as_f64()
+            .log2()
+            .min(u32::MAX as f64)) as u32;
+        println!("        {bits},")
     }
-    for BitC {
-        name, probability, ..
-    } in variants.iter().map(|b| b.bitc())
-    {
-        let bits = (-1000.0 * (1.0 - probability.as_f64()).log2()).min(u32::MAX as f64) as u32;
-        println!("        {bits}, // {name} for true")
-    }
-    let half_sz = sz / 2;
-    println!(
-        "];
-    let out = LOOKUP[(*self as usize) + (bit as usize)*{half_sz}];
-    *self = self.adapt(bit);
-    out"
-    );
-
-    println!(r"}}");
+    const REST: &str = r#"];
+        let idx = self.prob.get() as usize + bit as usize * 256;
+        println!("idx is {idx}");
+        super::Millibits::new(LOOKUP[idx] as usize)
+    } 
+}"#;
+    println!("{REST}");
 }
 
 fn print_adapt(variants: &[Bucket]) {
@@ -344,9 +339,10 @@ impl BitContext {{"
         probability(&variants);
         print_adapt(&variants);
     }
-    lookup_bits_required(&variants);
 
     println!("}}");
+
+    probability_millibits();
 
     println!(r"// Count of variants: {}", variants.len());
 }

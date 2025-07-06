@@ -7,9 +7,6 @@ impl<T: Encode> Encode for Vec<T> {
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         crate::Values::<Normal>::encode(self, writer, ctx)
     }
-    fn millibits(&self, ctx: &mut Self::Context) -> Option<usize> {
-        crate::Values::<Normal>::millibits(self, ctx)
-    }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -69,13 +66,6 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         for v in value {
             S::encode(v, writer, &mut ctx.values);
         }
-    }
-    fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = Small::millibits(&value.len(), &mut ctx.len)?;
-        for v in value {
-            tot += S::millibits(v, &mut ctx.values)?;
-        }
-        Some(tot)
     }
 }
 
@@ -140,29 +130,5 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             }
         }
         ctx.previous = value.clone();
-    }
-    fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {
-        let mut tot = 0;
-        if ctx.previous.is_empty() {
-            let len = value.len();
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            for b in value {
-                tot += b.millibits(&mut ctx.value)?;
-            }
-        } else {
-            let shared_prefix = value
-                .iter()
-                .zip(ctx.previous.iter())
-                .take_while(|(a, b)| a == b)
-                .count();
-            let len = value.len() - shared_prefix;
-            tot += Small::millibits(&len, &mut ctx.len)?;
-            tot += Small::millibits(&shared_prefix, &mut ctx.shared_prefix)?;
-            for b in &value[shared_prefix..] {
-                tot += b.millibits(&mut ctx.value)?;
-            }
-        }
-        ctx.previous = value.clone();
-        Some(tot)
     }
 }
