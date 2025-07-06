@@ -3,6 +3,7 @@
 //! This generating code creates a finite set of BitContext states and
 //! transitions between them based on observations.
 use super::ans::Probability;
+use std::num::NonZeroU8;
 
 struct BitC {
     name: String,
@@ -40,8 +41,10 @@ impl Distribution {
     /// The probability choice that minimizes the encoded size.
     fn best(self) -> (Probability, f64) {
         let mut best_entropy = f64::MAX;
-        let mut best_probability = Probability { prob: 0 };
-        for prob in 1..255 {
+        let mut best_probability = Probability {
+            prob: NonZeroU8::new(1).unwrap(),
+        };
+        for prob in (1..255).map(|p| NonZeroU8::new(p).unwrap()) {
             let prob = Probability { prob };
             let s = self.entropy(prob);
             // println!("{:.8}: {s}   --- best is {best_probability}", prob.as_f64());
