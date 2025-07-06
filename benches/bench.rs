@@ -1,4 +1,5 @@
 use bincode1::{DefaultOptions, Options};
+use compactly::ans::Ans;
 use rand::{Rng, SeedableRng};
 use scaling::{bench_gen_env, bench_scaling_gen};
 
@@ -39,10 +40,10 @@ impl Encoding for Compactly {
 struct CompactlyAns;
 impl Encoding for CompactlyAns {
     fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
-        compactly::ans::encode(value)
+        Ans::encode(value)
     }
     fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
-        compactly::ans::decode(bytes).unwrap()
+        Ans::decode(bytes).unwrap()
     }
 }
 

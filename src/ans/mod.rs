@@ -57,6 +57,7 @@ pub trait EntropyDecoder {
     ) -> Result<bool, std::io::Error>;
 
     /// Encode a given bit with its probability
+    #[inline(always)]
     fn decode_bit(
         &mut self,
         context: &mut bit_context::BitContext,

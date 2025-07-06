@@ -14,7 +14,7 @@ type State = u64;
 /// # Example
 /// ```
 /// let encoded: Vec<u8> = compactly::ans::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
-/// assert_eq!(encoded.len(), 77);
+/// assert_eq!(encoded.len(), 24);
 /// assert_eq!(compactly::ans::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -66,15 +66,15 @@ pub struct Encoder {
 
 impl Encoder {
     pub fn new() -> Self {
-        Self { state: 255 }
+        Self { state: 0 }
     }
 
     /// Encode a bit using distribution Bernoulli(probability).
     #[inline(always)]
     fn encode(&mut self, b: bool, probability: Probability) -> Option<u8> {
         let mut out = None;
-        let zeros = State::from(probability);
-        let ones = 256 - zeros;
+        let ones = State::from(probability);
+        let zeros = 256 - ones;
         // we use uniform of size matching the bit value to decode from state first
         let freq = if b { zeros } else { ones };
         // shift data from state to bulk when it grows too much
@@ -132,8 +132,8 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         &mut self,
         probability: self::Probability,
     ) -> Result<bool, std::io::Error> {
-        let zeros = State::from(probability);
-        let ones = 256 - zeros;
+        let ones = State::from(probability);
+        let zeros = 256 - ones;
         let mut z = self.state % 256;
         let b = z >= ones;
         self.state /= 256;
@@ -170,7 +170,7 @@ fn check_ans_coder() {
         println!("checking {b} {probability}");
         assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
     }
-    assert_eq!(decoder.state, 255);
+    assert_eq!(decoder.state, 0);
 }
 
 #[test]
@@ -178,5 +178,5 @@ fn ans_is_reasonable() {
     let data = vec![true; 1024 * 8];
     assert_eq!(super::Range::encode(&data).len(), 16);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
-    assert_eq!(Ans::encode(&data).len(), 7153); // FIXME this is not reasonable.
+    assert_eq!(Ans::encode(&data).len(), 16);
 }
