@@ -29,10 +29,10 @@ trait Encoding: Debug + Clone + Copy + Default {
 struct Compactly;
 impl Encoding for Compactly {
     fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
-        compactly::v1::encode(value)
+        compactly::ans::Range::encode(value)
     }
     fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
-        compactly::v1::decode(bytes).unwrap()
+        compactly::ans::Range::decode(bytes).unwrap()
     }
 }
 

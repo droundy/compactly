@@ -5,7 +5,8 @@ pub use probability::Probability;
 mod bytes;
 use bytes::Bytes;
 
-type State = u64;
+type State = u32;
+const STATE_BYTES: usize = std::mem::size_of::<State>();
 
 /// ANS entropy encoding.
 ///
@@ -61,17 +62,80 @@ impl From<Ans> for Vec<u8> {
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct Encoder {
-    state: State,
+    state: StateOnly,
 }
 
 impl Encoder {
     pub fn new() -> Self {
-        Self { state: 0 }
+        Self {
+            state: StateOnly { state: 0 },
+        }
     }
 
     /// Encode a bit using distribution Bernoulli(probability).
     #[inline(always)]
     fn encode(&mut self, b: bool, probability: Probability) -> Option<u8> {
+        let (out, state) = self.state.encode(b, probability);
+        self.state = state;
+        out
+    }
+
+    pub fn finish_encoding(&mut self) -> Bytes {
+        let mut bytes = Bytes::default();
+        for _ in 0..STATE_BYTES {
+            bytes.push(self.state.state as u8);
+            self.state.state >>= 8;
+        }
+        bytes
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct Decoder<'a> {
+    state: StateOnly,
+    bytes: &'a [u8],
+}
+
+impl<'a> From<&'a [u8]> for Decoder<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        let mut state: State = 0;
+        if bytes.len() < STATE_BYTES {
+            for &b in bytes {
+                state = (state << 8) | State::from(b);
+            }
+            let state = StateOnly { state };
+            Self { state, bytes: &[] }
+        } else {
+            let state = State::from_be_bytes(bytes[0..STATE_BYTES].try_into().unwrap());
+            let bytes = &bytes[STATE_BYTES..];
+            let state = StateOnly { state };
+            Self { state, bytes }
+        }
+    }
+}
+
+impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Decode a bit using distribution Bernoulli(probability).
+    #[inline(always)]
+    fn decode_bit_nonadaptive(
+        &mut self,
+        probability: self::Probability,
+    ) -> Result<bool, std::io::Error> {
+        let (b, state) = self
+            .state
+            .decode(probability, || self.bytes.split_off_first().copied());
+        self.state = state;
+        Ok(b)
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+struct StateOnly {
+    state: State,
+}
+impl StateOnly {
+    #[inline(always)]
+    fn encode(mut self, b: bool, probability: Probability) -> (Option<u8>, Self) {
         let mut out = None;
         let ones = State::from(probability);
         let zeros = 256 - ones;
@@ -88,50 +152,20 @@ impl Encoder {
             z += ones;
         }
         // now encode new digit from 256 base
-        self.state = (self.state / freq) * 256 + z;
-        out
+        (
+            out,
+            Self {
+                state: (self.state / freq) * 256 + z,
+            },
+        )
     }
 
-    pub fn finish_encoding(&mut self) -> Bytes {
-        let mut bytes = Bytes::default();
-        while self.state > 0 {
-            bytes.push(self.state as u8);
-            self.state >>= 8;
-        }
-        bytes
-    }
-}
-
-#[derive(Eq, PartialEq, Debug)]
-pub struct Decoder<'a> {
-    state: State,
-    bytes: &'a [u8],
-}
-
-impl<'a> From<&'a [u8]> for Decoder<'a> {
-    fn from(bytes: &'a [u8]) -> Self {
-        let mut state: State = 0;
-        if bytes.len() < 8 {
-            for &b in bytes {
-                state = (state << 8) | State::from(b);
-            }
-
-            Self { state, bytes: &[] }
-        } else {
-            let state = State::from_be_bytes(bytes[0..8].try_into().unwrap());
-            let bytes = &bytes[8..];
-            Self { state, bytes }
-        }
-    }
-}
-
-impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Decode a bit using distribution Bernoulli(probability).
     #[inline(always)]
-    fn decode_bit_nonadaptive(
-        &mut self,
-        probability: self::Probability,
-    ) -> Result<bool, std::io::Error> {
+    fn decode(
+        mut self,
+        probability: Probability,
+        next_byte: impl FnOnce() -> Option<u8>,
+    ) -> (bool, Self) {
         let ones = State::from(probability);
         let zeros = 256 - ones;
         let mut z = self.state % 256;
@@ -144,33 +178,59 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             self.state = self.state * ones + z;
         }
         if self.state < 1 << (State::BITS - 8) {
-            if let Some(&u) = self.bytes.split_off_first() {
+            if let Some(u) = next_byte() {
                 self.state = (self.state << 8) | State::from(u);
             }
         }
-        Ok(b)
+        (b, self)
+    }
+}
+
+#[test]
+fn check_state_only() {
+    for probability in (1..255).map(|i| Probability {
+        prob: i.try_into().unwrap(),
+    }) {
+        for state in (0 as State..u16::MAX as State)
+            // .chain((0..u16::MAX as State).map(|i| u32::MAX as State - i))
+            // .chain((0..u16::MAX as State).map(|i| u32::MAX as State + i))
+            .chain((0..u16::MAX as State).map(|i| State::MAX - i))
+        {
+            for b in [true, false] {
+                // println!("Testing with state={state:x} probability={probability:?} bool={b}");
+                let (mut next_byte, s) = StateOnly { state }.encode(b, probability);
+                let next = || next_byte.take();
+                let (bout, again) = s.decode(probability, next);
+                assert_eq!(bout, b);
+                assert_eq!(again.state, state);
+                // If encoding produced a byte, then decoding must consume it.
+                assert!(next_byte.is_none());
+            }
+        }
     }
 }
 
 #[test]
 fn check_ans_coder() {
-    let mut data = Vec::new();
-    const SIZE: usize = 100_000;
-    data.resize_with(SIZE, || rand::random::<bool>());
-    let mut distros = Vec::new();
-    distros.resize_with(SIZE, rand::random::<Probability>);
-    let mut writer = Ans::default();
-    for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-        // rev here
-        writer.encode_bit(probability, b);
+    for _ in 1..10_000 {
+        let mut data = Vec::new();
+        const SIZE: usize = 1_000;
+        data.resize_with(SIZE, || rand::random::<bool>());
+        let mut distros = Vec::new();
+        distros.resize_with(SIZE, rand::random::<Probability>);
+        let mut writer = Ans::default();
+        for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
+            // rev here
+            writer.encode_bit(probability, b);
+        }
+        let bytes = writer.into_vec();
+        let mut decoder = Decoder::from(bytes.as_slice());
+        for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
+            // println!("checking {b} {probability}");
+            assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
+        }
+        assert_eq!(decoder.state.state, 0);
     }
-    let bytes = writer.into_vec();
-    let mut decoder = Decoder::from(bytes.as_slice());
-    for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-        println!("checking {b} {probability}");
-        assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
-    }
-    assert_eq!(decoder.state, 0);
 }
 
 #[test]
