@@ -44,7 +44,7 @@ pub struct SmallContext {
     b4: <UBits<4> as Encode>::Context,
     b5: <UBits<5> as Encode>::Context,
     bits_beyond_seven: <UBits<6> as Encode>::Context,
-    bits: [<bool as Encode>::Context; 63],
+    bits: [<bool as Encode>::Context; 64],
 }
 impl Default for SmallContext {
     fn default() -> Self {
@@ -56,7 +56,7 @@ impl Default for SmallContext {
             b4: Default::default(),
             b5: Default::default(),
             bits_beyond_seven: Default::default(),
-            bits: [Default::default(); 63],
+            bits: [Default::default(); 64],
         }
     }
 }
@@ -319,5 +319,31 @@ fn small() {
     }
     for x in 256..512 {
         check_size(x, 17);
+    }
+}
+
+#[test]
+fn correctness() {
+    use crate::Encoded;
+    for v in (0..u16::MAX as usize)
+        .chain((0..u16::MAX as usize).map(|i| u32::MAX as usize - i))
+        .chain((0..u16::MAX as usize).map(|i| u32::MAX as usize + i))
+        .chain((0..u16::MAX as usize).map(|i| usize::MAX - i))
+    {
+        let encoded = super::encode(&v);
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(v));
+
+        let encoded = super::encode(&Encoded::<_, Small>::new(v));
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(Encoded::<_, Small>::new(v)));
+
+        let encoded = super::Ans::encode(&v);
+        let decoded = super::Ans::decode(&encoded);
+        assert_eq!(decoded, Some(v));
+
+        let encoded = super::Range::encode(&v);
+        let decoded = super::Range::decode(&encoded);
+        assert_eq!(decoded, Some(v));
     }
 }
