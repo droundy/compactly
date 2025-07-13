@@ -116,7 +116,7 @@ impl EncodingStrategy<String> for Sorted {
     }
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         if ctx.previous.is_empty() {
-            let len = value.len();
+            let len = value.chars().count();
             Small::encode(&len, writer, &mut ctx.len);
             for c in value.chars() {
                 c.encode(writer, &mut ctx.chars);
@@ -127,7 +127,7 @@ impl EncodingStrategy<String> for Sorted {
                 .zip(ctx.previous.chars())
                 .take_while(|(a, b)| a == b)
                 .count();
-            let len = value.len() - shared_prefix;
+            let len = value.chars().count() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len);
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
             for c in value.chars().skip(shared_prefix) {
@@ -370,4 +370,20 @@ fn sorted() {
 
     assert_bits!(strings.clone(), 5958);
     assert_bits!(encoded_strings.clone(), 4961);
+}
+
+#[test]
+fn crash_from_bench() {
+    use super::{assert_ans_bits, assert_bits};
+    use crate::{Encoded, Values};
+    let names = ["Al", "Aïr"];
+    let vec = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
+    assert_bits!(vec.clone(), 54);
+    assert_ans_bits!(vec.clone(), 54);
+    let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
+    assert_bits!(compressible.clone(), 69);
+    assert_ans_bits!(compressible.clone(), 69);
+    let sorted = Encoded::<Vec<String>, Values<Sorted>>::new(vec.clone());
+    assert_bits!(sorted.clone(), 51);
+    assert_ans_bits!(sorted.clone(), 51);
 }

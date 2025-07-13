@@ -121,7 +121,11 @@ macro_rules! impl_float {
                         <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
                     let int = <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int)?;
                     let s = if power > 0 {
-                        format!("{int}{0:0$}", power as usize)
+                        let mut s = format!("{int}");
+                        for _ in 0..power {
+                            s.push('0');
+                        }
+                        s
                     } else {
                         format!("{int}.0e{power}")
                     };
@@ -157,6 +161,8 @@ fn decimal_float() {
     test_value(1.0_f64.exp(), 67, 65);
     test_value(0.0, 9, 3);
     test_value(8.0, 11, 10);
+    test_value(8e200, 23, 65);
+    test_value(8e300, 24, 65);
 
     test32(1.0_f32.exp(), 38, 33);
     test32(0.1, 14, 33);
