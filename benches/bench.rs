@@ -130,7 +130,7 @@ fn bench_encoding<T: Encodable>(name: &str, mut gen: impl FnMut() -> T) {
             .ns_per_iter,
             bench_gen_env(
                 || CompactlyAns.encode(&gen()),
-                |bytes| Compactly.decode::<T>(bytes),
+                |bytes| CompactlyAns.decode::<T>(bytes),
             )
             .ns_per_iter,
             bench_gen_env(
