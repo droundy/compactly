@@ -119,10 +119,6 @@ macro_rules! impl_float {
                     } else {
                         format!("{int}.0e{power}")
                     };
-                    println!(
-                        "str is {s:?} with length {} with int {int} and power {power}",
-                        s.len()
-                    );
                     Ok(s.parse().expect("bad decode str"))
                 }
             }
