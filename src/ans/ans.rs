@@ -66,6 +66,7 @@ pub struct Encoder {
 }
 
 impl Encoder {
+    #[inline(always)]
     pub fn new() -> Self {
         Self {
             state: StateOnly { state: 0 },
@@ -80,9 +81,10 @@ impl Encoder {
         out
     }
 
+    #[inline(always)]
     pub fn finish_encoding(&mut self) -> Bytes {
         let mut bytes = Bytes::default();
-        for _ in 0..STATE_BYTES {
+        while self.state.state != 0 {
             bytes.push(self.state.state as u8);
             self.state.state >>= 8;
         }
@@ -97,12 +99,15 @@ pub struct Decoder<'a> {
 }
 
 impl<'a> From<&'a [u8]> for Decoder<'a> {
+    #[inline(always)]
     fn from(bytes: &'a [u8]) -> Self {
         let mut state: State = 0;
         if bytes.len() < STATE_BYTES {
+            let extra_zeros = STATE_BYTES - bytes.len();
             for &b in bytes {
                 state = (state << 8) | State::from(b);
             }
+            state <<= 8 * extra_zeros;
             let state = StateOnly { state };
             Self { state, bytes: &[] }
         } else {
