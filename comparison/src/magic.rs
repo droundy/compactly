@@ -2,19 +2,25 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct FullSet {
     meta: Meta,
     pub data: Set,
 }
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct Meta {
     version: String,
     date: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct Set {
     baseSetSize: usize,
     block: Option<String>,
@@ -23,7 +29,9 @@ pub struct Set {
     pub cards: Vec<Card>,
 }
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct Card {
     #[compactly(LowCardinality)]
     artist: Option<String>,
@@ -158,14 +166,18 @@ pub struct Card {
     watermark: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct LeadershipSkills {
     brawl: bool,
     commander: bool,
     oathbreaker: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone)]
+#[derive(
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+)]
 pub struct Identifiers {
     #[compactly(Compressible)]
     abuId: Option<String>,

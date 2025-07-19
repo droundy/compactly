@@ -1,18 +1,29 @@
 use bincode::Options;
 use compactly::ans::Ans;
 use scaling::bench;
+use std::collections::BTreeSet;
+use std::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Serialize};
 
+trait Encodable:
+    compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned + PartialEq + Debug
+{
+}
+
+impl<T> Encodable for T where
+    T: compactly::v1::Encode
+        + compactly::ans::Encode
+        + Serialize
+        + DeserializeOwned
+        + PartialEq
+        + Debug
+{
+}
+
 trait Encoding: std::fmt::Debug + Clone + Copy + Default {
-    fn encode<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        value: &T,
-    ) -> Vec<u8>;
-    fn decode<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        bytes: &[u8],
-    ) -> T;
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8>;
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T;
     const NAME: &str;
     fn name(self) -> String {
         Self::NAME.into()
@@ -28,6 +39,21 @@ impl Encoding for CompactlyV1 {
     }
     fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
         compactly::v1::decode(bytes).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CompactlyRange;
+impl Encoding for CompactlyRange {
+    const NAME: &str = "compactly-range";
+    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
+        compactly::ans::Range::encode(value)
+    }
+    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+        compactly::ans::Range::decode(bytes).unwrap()
     }
 }
 
@@ -77,16 +103,10 @@ struct Zstd<E: Encoding> {
 }
 impl<E: Encoding> Encoding for Zstd<E> {
     const NAME: &str = "zstd other";
-    fn encode<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        value: &T,
-    ) -> Vec<u8> {
+    fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
         zstd::bulk::compress(self.encoding.encode(value).as_slice(), self.level).unwrap()
     }
-    fn decode<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        bytes: &[u8],
-    ) -> T {
+    fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
         self.encoding.decode(
             zstd::bulk::decompress(bytes, 10_000_000)
                 .unwrap()
@@ -98,14 +118,19 @@ impl<E: Encoding> Encoding for Zstd<E> {
     }
 }
 
-fn bench_one<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-    e: impl Encoding,
-    values: &[T],
-) {
+fn bench_one<T: Encodable>(e: impl Encoding, values: &[T]) {
     let encoding_ms = bench(|| values.iter().map(|v| e.encode(v)).collect::<Vec<_>>()).ns_per_iter
         * 1e-6
         / values.len() as f64;
     let encoded = values.iter().map(|v| e.encode(v)).collect::<Vec<_>>();
+
+    // To test that we decode correctly we can uncomment this.
+    let decoded = encoded
+        .iter()
+        .map(|bytes| e.decode::<T>(&bytes))
+        .collect::<Vec<_>>();
+    assert_eq!(values, decoded);
+
     let decoding_ms = bench(|| {
         encoded
             .iter()
@@ -135,10 +160,7 @@ fn fmt_ms(ms: f64) -> String {
     }
 }
 
-fn bench_all<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned>(
-    name: &str,
-    values: &[T],
-) {
+fn bench_all<T: Encodable>(name: &str, values: &[T]) {
     println!("{name}:");
     {
         let size = "size";
@@ -157,6 +179,7 @@ fn bench_all<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + Des
         );
     }
     bench_one(CompactlyV1, values);
+    bench_one(CompactlyRange, values);
     bench_one(CompactlyAns, values);
     bench_one(
         Zstd {
@@ -201,14 +224,30 @@ fn format_sz(sz: f64) -> String {
 }
 
 fn main() {
+    let suicide_vec = comparison::suicides_per_million()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    bench_all("suicide data", &[suicide_vec]);
+    let suicide_rates = comparison::suicides_per_million()
+        .values()
+        .copied()
+        .collect::<Vec<_>>();
+    bench_all("suicide rates", &[suicide_rates]);
+    bench_all("suicide", &[comparison::suicides_per_million()]);
+    let names = comparison::meteorites::meteorite_names()
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<String>>();
+    bench_all("meteorite names", &[names]);
     bench_all("mtg tenth edition", &[comparison::tenth_edition()]);
     bench_all("single cards", &comparison::tenth_edition().data.cards);
-    bench_all("suicide", &[comparison::suicides_per_million()]);
     let individual_suicide = comparison::suicides_per_million()
         .iter()
         .map(|(factors, value)| (factors.clone(), *value))
         .collect::<Vec<_>>();
     bench_all("individual suicide", &individual_suicide);
+    bench_all("suicide", &[comparison::suicides_per_million()]);
     bench_all("meteorites", &[comparison::meteorites::meteorites()]);
     bench_all("single meteorites", &comparison::meteorites::meteorites());
     bench_all(
@@ -217,7 +256,12 @@ fn main() {
     );
 
     #[derive(
-        compactly::v1::Encode, compactly::ans::Encode, serde::Serialize, serde::Deserialize,
+        compactly::v1::Encode,
+        compactly::ans::Encode,
+        serde::Serialize,
+        serde::Deserialize,
+        PartialEq,
+        Debug,
     )]
     struct MetNames {
         #[compactly(Mapping<Compressible, Normal>)]
