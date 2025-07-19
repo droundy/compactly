@@ -103,11 +103,9 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
     fn from(bytes: &'a [u8]) -> Self {
         let mut state: State = 0;
         if bytes.len() < STATE_BYTES {
-            let extra_zeros = STATE_BYTES - bytes.len();
-            for &b in bytes {
-                state = (state << 8) | State::from(b);
+            for &b in bytes.iter() {
+                state = state << 8 | State::from(b);
             }
-            state <<= 8 * extra_zeros;
             let state = StateOnly { state };
             Self { state, bytes: &[] }
         } else {
@@ -217,24 +215,26 @@ fn check_state_only() {
 
 #[test]
 fn check_ans_coder() {
-    for _ in 1..10_000 {
-        let mut data = Vec::new();
-        const SIZE: usize = 1_000;
-        data.resize_with(SIZE, || rand::random::<bool>());
-        let mut distros = Vec::new();
-        distros.resize_with(SIZE, rand::random::<Probability>);
-        let mut writer = Ans::default();
-        for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-            // rev here
-            writer.encode_bit(probability, b);
+    for size in (0..32).chain([100, 1_000, 10_000]) {
+        println!("testing with size {size}");
+        for _ in 0..size.min(1000) + 1000 {
+            let mut data = Vec::new();
+            data.resize_with(size, || rand::random::<bool>());
+            let mut distros = Vec::new();
+            distros.resize_with(size, rand::random::<Probability>);
+            let mut writer = Ans::default();
+            for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
+                // rev here
+                writer.encode_bit(probability, b);
+            }
+            let bytes = writer.into_vec();
+            let mut decoder = Decoder::from(bytes.as_slice());
+            for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
+                // println!("checking {b} {probability}");
+                assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
+            }
+            assert_eq!(decoder.state.state, 0);
         }
-        let bytes = writer.into_vec();
-        let mut decoder = Decoder::from(bytes.as_slice());
-        for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-            // println!("checking {b} {probability}");
-            assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
-        }
-        assert_eq!(decoder.state.state, 0);
     }
 }
 
