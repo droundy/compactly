@@ -111,7 +111,7 @@ impl EncodingStrategy<String> for Sorted {
         for _ in 0..len {
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
-        ctx.previous = out.clone();
+        ctx.previous.clone_from(&out);
         Ok(out)
     }
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
@@ -134,7 +134,7 @@ impl EncodingStrategy<String> for Sorted {
                 c.encode(writer, &mut ctx.chars);
             }
         }
-        ctx.previous = value.clone();
+        ctx.previous.clone_from(value);
     }
 }
 
