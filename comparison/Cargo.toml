@@ -18,3 +18,7 @@ zstd = "0.13.2"
 [[bench]]
 name = "bench"
 harness = false
+
+[[bench]]
+name = "ans"
+harness = false

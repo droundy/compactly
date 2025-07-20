@@ -27,6 +27,9 @@ serde = { version = "1.0", features = ["derive"] }
 zstd = "0.13.2"
 rapidhash = "1.4.0"
 
+[profile.bench]
+debug = true
+
 [workspace]
 
 members = [
