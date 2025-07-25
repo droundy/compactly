@@ -258,7 +258,11 @@ pub(crate) use assert_bits;
 #[cfg(test)]
 macro_rules! raw_bits {
     ($v:expr, $size:expr) => {
-        let (bits, entropy) = super::Raw::sizes(&$v);
+        let v = $v;
+        let encoded = super::Raw::encode(&v);
+        let decoded = super::Raw::decode(&encoded);
+        assert_eq!(decoded, Some(v));
+        let (bits, entropy) = super::Raw::sizes(&v);
         assert_eq!(bits, $size, "unexpected number of raw bits");
         assert_eq!(entropy, super::Millibits::bits($size), "unexpected entropy");
     };
