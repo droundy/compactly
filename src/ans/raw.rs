@@ -48,9 +48,9 @@ impl Raw {
         <Self as EntropyCoder>::encode(value).entropy
     }
     /// Estimate the number of millibits after entropy encoding.
-    pub fn sizes<T: super::Encode>(value: &T) -> (u32, Millibits) {
+    pub fn sizes<T: super::Encode>(value: &T) -> (usize, Millibits) {
         let x = <Self as EntropyCoder>::encode(value);
-        (x.num_bits, x.entropy)
+        (x.num_bits as usize, x.entropy)
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {

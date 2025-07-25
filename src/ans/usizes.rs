@@ -257,7 +257,7 @@ fn size() {
 
 #[test]
 fn small() {
-    use super::assert_bits;
+    use super::raw_bits;
     use crate::Encoded;
     fn check_size(v: usize, expected: usize) {
         println!("Checking {v}");
@@ -266,7 +266,7 @@ fn small() {
             super::Millibits::bits(expected),
             "small wrong size"
         );
-        assert_bits!(Encoded::<_, Small>::new(v), expected);
+        raw_bits!(Encoded::<_, Small>::new(v), expected);
     }
     fn check_both(v: usize, expected: usize, normal: usize) {
         println!("Checking {v}");
@@ -280,8 +280,8 @@ fn small() {
             super::Millibits::bits(normal),
             "normal wrong size"
         );
-        assert_bits!(Encoded::<_, Small>::new(v), expected);
-        assert_bits!(v, normal);
+        raw_bits!(Encoded::<_, Small>::new(v), expected);
+        raw_bits!(v, normal);
     }
 
     check_both(0, 3, 3);
