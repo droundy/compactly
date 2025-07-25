@@ -212,45 +212,46 @@ impl EncodingStrategy<usize> for Sorted {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::{raw_bits, Millibits};
     use crate::Encoded;
-    assert_bits!(Encoded::<_, Small>::new(0_u64), 3);
-    assert_bits!(0_usize, 3);
-    assert_bits!(Encoded::<_, Small>::new(1_u64), 7);
-    assert_bits!(1_usize, 3);
-    assert_bits!(Encoded::<_, Small>::new(2_u64), 7);
-    assert_bits!(2_usize, 3);
-    assert_bits!(3_usize, 1);
-    assert_bits!(4_usize, 8);
-    assert_bits!(5_usize, 8);
-    assert_bits!(6_usize, 8);
-    assert_bits!(7_usize, 8);
-    assert_bits!(8_usize, 9);
-    assert_bits!(Encoded::<_, Small>::new(16_u64), 10);
-    assert_bits!(16_usize, 10);
-    assert_bits!(Encoded::<_, Small>::new(32_u64), 11);
-    assert_bits!(32_usize, 11);
-    assert_bits!(Encoded::<_, Small>::new(64_u64), 12);
-    assert_bits!(64_usize, 12);
-    assert_bits!(Encoded::<_, Small>::new(128_u64), 13);
-    assert_bits!(128_usize, 13);
-    assert_bits!(Encoded::<_, Small>::new(256_u64), 14);
-    assert_bits!(256_usize, 14);
-    assert_bits!(512_usize, 15);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64), 16);
-    assert_bits!(1024_usize, 16);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), 26);
-    assert_bits!(1024_usize * 1024, 26);
-    assert_bits!(1024_usize * 1024 * 1024, 36);
-    assert_bits!(u32::MAX as usize, 38);
+    raw_bits!(Encoded::<_, Small>::new(0_u64), 7);
+    raw_bits!(0_usize, 3);
+    raw_bits!(Encoded::<_, Small>::new(1_u64), 7);
+    raw_bits!(1_usize, 3);
+    raw_bits!(Encoded::<_, Small>::new(2_u64), 7);
+    raw_bits!(2_usize, 3);
+    raw_bits!(3_usize, 3);
+    raw_bits!(4_usize, 8);
+    raw_bits!(5_usize, 8);
+    raw_bits!(6_usize, 8);
+    raw_bits!(7_usize, 8);
+    raw_bits!(8_usize, 9);
+    raw_bits!(Encoded::<_, Small>::new(16_u64), 10);
+    raw_bits!(16_usize, 10);
+    raw_bits!(Encoded::<_, Small>::new(32_u64), 11);
+    raw_bits!(32_usize, 11);
+    raw_bits!(Encoded::<_, Small>::new(64_u64), 12);
+    raw_bits!(64_usize, 12);
+    raw_bits!(Encoded::<_, Small>::new(128_u64), 13);
+    raw_bits!(128_usize, 13);
+    raw_bits!(Encoded::<_, Small>::new(256_u64), 14);
+    raw_bits!(256_usize, 14);
+    raw_bits!(512_usize, 15);
+    raw_bits!(Encoded::<_, Small>::new(1024_u64), 16);
+    raw_bits!(1024_usize, 16);
+    raw_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), 26);
+    raw_bits!(1024_usize * 1024, 26);
+    raw_bits!(1024_usize * 1024 * 1024, 36);
+    raw_bits!(u32::MAX as usize, 38);
     // Note the code will work for u32, but the following two tests will fail.
-    assert_bits!(1024_usize * 1024 * 1024 * 1024, 46);
-    assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
-    assert_bits!([0_usize; 128], 20);
-    assert_bits!([1_usize; 19], 13);
-    assert_bits!(
+    raw_bits!(1024_usize * 1024 * 1024 * 1024, 46);
+    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
+    raw_bits!([0_usize; 128], 384, Millibits::new(20013));
+    raw_bits!([1_usize; 19], 57, Millibits::new(12834));
+    raw_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        19
+        78,
+        Millibits::new(18846)
     );
 }
 
