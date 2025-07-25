@@ -25,7 +25,7 @@ pub struct Ans {
 
 impl EntropyCoder for Ans {
     #[inline]
-    fn encode_bit(&mut self, probability: self::Probability, bit: bool) {
+    fn encode_bit(&mut self, probability: Probability, bit: bool) {
         self.bits.push((bit, probability));
     }
 }
@@ -120,10 +120,7 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
 impl<'a> EntropyDecoder for Decoder<'a> {
     /// Decode a bit using distribution Bernoulli(probability).
     #[inline(always)]
-    fn decode_bit_nonadaptive(
-        &mut self,
-        probability: self::Probability,
-    ) -> Result<bool, std::io::Error> {
+    fn decode_bit_nonadaptive(&mut self, probability: Probability) -> Result<bool, std::io::Error> {
         let (b, state) = self
             .state
             .decode(probability, || self.bytes.split_off_first().copied());

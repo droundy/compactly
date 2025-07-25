@@ -22,6 +22,7 @@ mod low_cardinality;
 mod maps;
 mod millibits;
 mod option;
+mod raw;
 mod sets;
 mod string;
 mod tuples;
@@ -33,6 +34,7 @@ use crate::{LowCardinality, Small};
 pub use ans::Ans;
 pub use arith::Range;
 pub use millibits::Millibits;
+pub use raw::Raw;
 pub use ulessthan::ULessThan;
 
 /// A place where we can put bits where we have estimated the probabilities.
