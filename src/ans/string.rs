@@ -166,17 +166,17 @@ impl EncodingStrategy<String> for Compressible {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::{assert_bits, raw_bits, Millibits};
     use crate::Encoded;
 
-    assert_bits!("".to_string(), 3);
-    assert_bits!("a".to_string(), 11);
-    assert_bits!("A".to_string(), 11);
-    assert_bits!("É".to_string(), 16);
-    assert_bits!("😊".to_string(), 23);
-    assert_bits!("hello world".to_string(), 74);
-    assert_bits!("Hello world".to_string(), 76);
-    assert_bits!("hhhhhhhhhhh".to_string(), 35);
+    raw_bits!("".to_string(), 3);
+    raw_bits!("a".to_string(), 11);
+    raw_bits!("A".to_string(), 11);
+    raw_bits!("É".to_string(), 16);
+    raw_bits!("😊".to_string(), 23);
+    raw_bits!("hello world".to_string(), 94, Millibits::new(73790));
+    raw_bits!("Hello world".to_string(), 94, Millibits::new(76281));
+    raw_bits!("hhhhhhhhhhh".to_string(), 94, Millibits::new(34464));
 
     fn compare_small_bits(value: &str, expected_normal: usize, expected_small: usize) {
         assert_bits!(

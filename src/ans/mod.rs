@@ -261,8 +261,8 @@ macro_rules! raw_bits {
         let v = $v;
         let encoded = super::Raw::encode(&v);
         let decoded = super::Raw::decode(&encoded);
-        assert_eq!(decoded, Some(v));
         let (bits, entropy) = super::Raw::sizes(&v);
+        assert_eq!(decoded, Some(v));
         assert_eq!(bits, $size, "unexpected number of raw bits");
         assert_eq!(entropy, super::Millibits::bits($size), "unexpected entropy");
     };
