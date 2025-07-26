@@ -1,4 +1,4 @@
-use compactly::ans::Ans;
+use compactly::ans::{Ans, Raw};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
@@ -79,7 +79,26 @@ impl Encoding for CompactlyAns {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct CompactlyRaw;
+impl Encoding for CompactlyRaw {
+    const NAME: &str = "compactly-raw";
+    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
+        Raw::encode(value)
+    }
+    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+        self,
+        bytes: &[u8],
+    ) -> Option<T> {
+        Raw::decode(bytes)
+    }
+}
+
 fn just_encode<T: Encodable>(e: impl Encoding, values: &[T]) {
+    println!("encoding {}", e.name());
     let mut total_size = 0;
     for _ in 0..100_000 {
         total_size += values.iter().map(|v| e.encode(v).len()).sum::<usize>();
@@ -88,6 +107,7 @@ fn just_encode<T: Encodable>(e: impl Encoding, values: &[T]) {
 }
 
 fn just_decode<T: Encodable>(e: impl Encoding, values: &[T]) {
+    println!("decoding {}", e.name());
     let encoded = values.iter().map(|v| e.encode(v)).collect::<Vec<_>>();
     let mut all = 0;
     for _ in 0..100_000 {
@@ -113,24 +133,29 @@ fn main() {
     // bench_all("suicide rates", &[suicide_rates]);
     // bench_all("suicide", &[comparison::suicides_per_million()]);
 
-    let algorithm = "ans";
+    const POSSIBLE_ALGORITHMS: &[&str] = &["ans", "raw", "v1", "range"];
+    let algorithm = std::env::args()
+        .find(|a| POSSIBLE_ALGORITHMS.contains(&a.as_str()))
+        .unwrap_or("ans".to_string());
     let values = vec![comparison::meteorites::meteorite_names()
         .keys()
         .cloned()
         .collect::<BTreeSet<String>>()];
 
-    if false {
-        match algorithm {
-            "ans" => just_encode(CompactlyAns, &values),
-            "v1" => just_encode(CompactlyV1, &values),
-            "range" => just_encode(CompactlyRange, &values),
+    if std::env::args().any(|a| a == "decode") {
+        match algorithm.as_str() {
+            "ans" => just_decode(CompactlyAns, &values),
+            "raw" => just_decode(CompactlyRaw, &values),
+            "v1" => just_decode(CompactlyV1, &values),
+            "range" => just_decode(CompactlyRange, &values),
             _ => panic!("unrecognized algorithm"),
         }
     } else {
-        match algorithm {
-            "ans" => just_decode(CompactlyAns, &values),
-            "v1" => just_decode(CompactlyV1, &values),
-            "range" => just_decode(CompactlyRange, &values),
+        match algorithm.as_str() {
+            "ans" => just_encode(CompactlyAns, &values),
+            "raw" => just_encode(CompactlyRaw, &values),
+            "v1" => just_encode(CompactlyV1, &values),
+            "range" => just_encode(CompactlyRange, &values),
             _ => panic!("unrecognized algorithm"),
         }
     }

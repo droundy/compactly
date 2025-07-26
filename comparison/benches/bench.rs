@@ -1,5 +1,5 @@
 use bincode::Options;
-use compactly::ans::Ans;
+use compactly::ans::{Ans, Raw};
 use scaling::bench;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
@@ -69,6 +69,21 @@ impl Encoding for CompactlyAns {
     }
     fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
         Ans::decode(bytes).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CompactlyRaw;
+impl Encoding for CompactlyRaw {
+    const NAME: &str = "compactly-raw";
+    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+        self,
+        value: &T,
+    ) -> Vec<u8> {
+        Raw::encode(value)
+    }
+    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+        Raw::decode(bytes).unwrap()
     }
 }
 
@@ -181,6 +196,7 @@ fn bench_all<T: Encodable>(name: &str, values: &[T]) {
     bench_one(CompactlyV1, values);
     bench_one(CompactlyRange, values);
     bench_one(CompactlyAns, values);
+    bench_one(CompactlyRaw, values);
     bench_one(
         Zstd {
             encoding: BincodeVar,

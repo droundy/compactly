@@ -1,11 +1,21 @@
 pub use super::ans::Probability;
-use super::{EntropyCoder, EntropyDecoder, Millibits};
+#[cfg(test)]
+use super::Millibits;
+use super::{EntropyCoder, EntropyDecoder};
 
 /// Raw non-entropy encoding.
 ///
 /// Can be used to encode data without accounting for probabilities.  This is
-/// inefficient, because all the probability tracking is done anyhow, but is
-/// also useful for testing.
+/// probably inefficient, because all the probability tracking is done anyhow,
+/// so it is really intended for testing.
+///
+/// Raw encoding *will* encode and decode faster than `Ans` or `Range`, and for
+/// small data where the adaptive modeling never really gets much information it
+/// *may* be useful.  It *is* more compact than encodings such as bincode, because
+/// data is encoded in an integer number of *bits* rather than an integer number
+/// of *bytes*, and the variable length integers can thus be smaller.  Even
+/// unicode is encoded just a little more compactly (beyond ASCII) because it
+/// removes a few redundant bits from UTF8.
 ///
 /// # Example
 /// ```
@@ -17,13 +27,17 @@ use super::{EntropyCoder, EntropyDecoder, Millibits};
 pub struct Raw {
     bits: Vec<u8>,
     num_bits: u32,
+    #[cfg(test)]
     entropy: Millibits,
 }
 
 impl EntropyCoder for Raw {
     #[inline]
-    fn encode_bit(&mut self, probability: Probability, bit: bool) {
-        self.entropy += probability.millibits(bit);
+    fn encode_bit(&mut self, _probability: Probability, bit: bool) {
+        #[cfg(test)]
+        {
+            self.entropy += _probability.millibits(bit);
+        }
         let bit = u8::from(bit);
         let which_bit = self.num_bits & 7;
         if which_bit == 0 {
@@ -44,10 +58,12 @@ impl Raw {
         <Self as EntropyCoder>::encode(value).num_bits
     }
     /// Estimate the number of millibits after entropy encoding.
+    #[cfg(test)]
     pub fn entropy<T: super::Encode>(value: &T) -> Millibits {
         <Self as EntropyCoder>::encode(value).entropy
     }
     /// Estimate the number of millibits after entropy encoding.
+    #[cfg(test)]
     pub fn sizes<T: super::Encode>(value: &T) -> (usize, Millibits) {
         let x = <Self as EntropyCoder>::encode(value);
         (x.num_bits as usize, x.entropy)
