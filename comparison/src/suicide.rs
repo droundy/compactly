@@ -86,7 +86,7 @@ pub struct SuicideFactors {
 
 pub fn suicides_per_million() -> HashMap<SuicideFactors, u16> {
     let mut out = HashMap::new();
-    for line in CSV.lines().take(2) {
+    for line in CSV.lines() {
         if let [sex_race_age, year, rate] = line.split(',').collect::<Vec<_>>().as_slice() {
             let year: u16 = year.parse().unwrap();
             if let [sex, race, age] = sex_race_age.split(": ").collect::<Vec<_>>().as_slice() {
