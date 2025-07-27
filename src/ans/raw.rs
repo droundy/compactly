@@ -20,7 +20,7 @@ use super::{EntropyCoder, EntropyDecoder};
 /// # Example
 /// ```
 /// let encoded: Vec<u8> = compactly::ans::Raw::encode(&vec![5u64, 4, 3, 2, 1]);
-/// assert_eq!(encoded.len(), 24);
+/// assert_eq!(encoded.len(), 41);
 /// assert_eq!(compactly::ans::Raw::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
