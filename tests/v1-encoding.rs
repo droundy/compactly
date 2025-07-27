@@ -3,12 +3,14 @@ use std::{collections::BTreeSet, fmt::Debug};
 fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
     let value_hash = rapidhash::rapidhash(&bincode1::serialize(value).unwrap());
     let typename = std::any::type_name::<T>();
-    let function_name = typename
-        .strip_prefix("v1_encoding::")
-        .unwrap()
-        .split_once("::")
-        .unwrap()
-        .0;
+    let function_name = if let Some(typename) = typename.strip_prefix("v1_encoding::") {
+        typename.split_once("::").unwrap().0.to_string()
+    } else {
+        typename
+            .replace(']', "")
+            .replace('[', "")
+            .replace("; ", "-count-")
+    };
     format!("tests/v1-encoding/{function_name}-{value_hash:016x}")
 }
 
@@ -33,6 +35,13 @@ AM_CREATING_NEW_TESTS=true cargo test --test v1-encoding
     ));
     let encoded = compactly::v1::encode(value);
     assert_eq!(encoded, bytes, "encoded changed for {value:?}");
+}
+
+fn validate_eq<T: Debug + PartialEq + compactly::v1::Encode + serde::Serialize>(value: &T) {
+    validate_encoding(value);
+    let encoded = compactly::v1::encode(value);
+    let decoded: T = compactly::v1::decode(&encoded).unwrap();
+    assert_eq!(&decoded, value);
 }
 
 #[test]
@@ -223,8 +232,12 @@ fn bytes_collections() {
             }
         }
     }
+    let all_possible_bytes = (0u8..255).collect::<Vec<_>>();
     for value in [
         &[][..],
+        &[all_possible_bytes.as_slice()].as_slice(),
+        &[all_possible_bytes.as_slice(), b"hello"],
+        &[b"hello world", all_possible_bytes.as_slice()],
         &[b"hello".as_slice()],
         &[b"hell", b"world"],
         &[b"hellish", b"hello", b"world", b"", b""],
@@ -235,4 +248,49 @@ fn bytes_collections() {
     {
         validate_encoding(&value);
     }
+}
+
+#[test]
+fn small_bytes() {
+    #[derive(Debug, PartialEq, compactly::v1::Encode, serde::Serialize, serde::Deserialize)]
+    struct Bytes {
+        vec: Vec<u8>,
+        #[compactly(Values<Small>)]
+        small_vec: Vec<u8>,
+    }
+    impl From<&[u8]> for Bytes {
+        fn from(value: &[u8]) -> Self {
+            let vec: Vec<u8> = value.to_vec();
+            Self {
+                small_vec: vec.clone(),
+                vec,
+            }
+        }
+    }
+    let all_possible_bytes = (0u8..255).collect::<Vec<_>>();
+    validate_eq(&Bytes::from(all_possible_bytes.as_slice()));
+}
+
+#[test]
+fn arc_bytes() {
+    use std::sync::Arc;
+    #[derive(
+        Debug, PartialEq, Eq, Hash, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
+    )]
+    struct Bytes {
+        vec: Vec<Arc<u8>>,
+    }
+    impl From<&[u8]> for Bytes {
+        fn from(value: &[u8]) -> Self {
+            let vec = value.iter().map(|&b| Arc::new(b)).collect();
+            Self { vec }
+        }
+    }
+    let all_possible_bytes = (0u8..255).chain((0u8..255).rev()).collect::<Vec<_>>();
+    validate_eq(&Bytes::from(all_possible_bytes.as_slice()));
+}
+
+#[test]
+fn arrays() {
+    validate_eq(&[0u16, 1, u16::MAX]);
 }
