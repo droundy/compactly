@@ -2,7 +2,14 @@ use std::{collections::BTreeSet, fmt::Debug};
 
 fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
     let value_hash = rapidhash::rapidhash(&bincode1::serialize(value).unwrap());
-    format!("tests/v1-encoding/{value_hash:016x}")
+    let typename = std::any::type_name::<T>();
+    let function_name = typename
+        .strip_prefix("v1_encoding::")
+        .unwrap()
+        .split_once("::")
+        .unwrap()
+        .0;
+    format!("tests/v1-encoding/{function_name}-{value_hash:016x}")
 }
 
 // Set this to `true` while creating new tests.
@@ -10,12 +17,22 @@ const AM_CREATING_NEW_TESTS: bool = false;
 
 fn validate_encoding<T: Debug + compactly::v1::Encode + serde::Serialize>(value: &T) {
     let p = filename(value);
-    if AM_CREATING_NEW_TESTS && !std::fs::exists(&p).expect("Unable to look for files?") {
+    if std::env::var("AM_CREATING_NEW_TESTS").ok() == Some("true".to_string())
+        && !std::fs::exists(&p).expect("Unable to look for files?")
+    {
+        println!("Am creating a new encoded file at {p}");
         std::fs::write(filename(value), compactly::encode(value)).unwrap();
     }
-    let bytes = std::fs::read(&p).expect(&format!("file {p} does not exist for {value:?}"));
+    let bytes = std::fs::read(&p).expect(&format!(
+        "file {p} does not exist for {value:?}
+If you are creating a new test for which there is no comparison on disk, run this with
+
+AM_CREATING_NEW_TESTS=true cargo test --test v1-encoding
+
+"
+    ));
     let encoded = compactly::v1::encode(value);
-    assert_eq!(encoded, bytes);
+    assert_eq!(encoded, bytes, "encoded changed for {value:?}");
 }
 
 #[test]
@@ -167,6 +184,54 @@ fn string_collections() {
     ]
     .into_iter()
     .map(Strings::from)
+    {
+        validate_encoding(&value);
+    }
+}
+
+#[test]
+fn bytes_collections() {
+    #[derive(Debug, compactly::v1::Encode, serde::Serialize, serde::Deserialize)]
+    struct ByteCollections {
+        vec: Vec<Vec<u8>>,
+        #[compactly(Values<Sorted>)]
+        sorted_vec: Vec<Vec<u8>>,
+        #[compactly(Values<Compressible>)]
+        compressible_vec: Vec<Vec<u8>>,
+        #[compactly(Values<LowCardinality>)]
+        lc_vec: Vec<Vec<u8>>,
+        btree: BTreeSet<Vec<u8>>,
+        #[compactly(Values<Normal>)]
+        normal_btree: BTreeSet<Vec<u8>>,
+        #[compactly(Values<LowCardinality>)]
+        lc_btree: BTreeSet<Vec<u8>>,
+        // hash: HashSet<Vec<u8>>, hashset doesn't work since our filename switches around.  :(
+    }
+    impl From<&[&[u8]]> for ByteCollections {
+        fn from(value: &[&[u8]]) -> Self {
+            let vec: Vec<Vec<u8>> = value.iter().map(|s| (*s).to_vec()).collect();
+            let btree: BTreeSet<Vec<u8>> = vec.clone().into_iter().collect();
+            Self {
+                normal_btree: btree.clone(),
+                lc_btree: btree.clone(),
+                btree,
+                // hash: vec.clone().into_iter().collect(),
+                compressible_vec: vec.clone(),
+                sorted_vec: vec.clone(),
+                lc_vec: vec.clone(),
+                vec,
+            }
+        }
+    }
+    for value in [
+        &[][..],
+        &[b"hello".as_slice()],
+        &[b"hell", b"world"],
+        &[b"hellish", b"hello", b"world", b"", b""],
+        &[b"hellish", b"", b"hello", b"world", b"hellish", b"", b""],
+    ]
+    .into_iter()
+    .map(ByteCollections::from)
     {
         validate_encoding(&value);
     }
