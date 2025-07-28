@@ -184,12 +184,16 @@ fn string_collections() {
             }
         }
     }
+    let textgen = CompressibleText { x: 13 };
+    let big_text = textgen.take(512).collect::<Vec<_>>();
+    let ref_text = big_text.iter().map(|s| s.as_str()).collect::<Vec<_>>();
     for value in [
         &[][..],
         &["hello"],
         &["hell", "world"],
         &["hellish", "hello", "world", "", ""],
         &["hellish", "", "hello", "world", "hellish", "", ""],
+        ref_text.as_slice(),
     ]
     .into_iter()
     .map(Strings::from)
@@ -232,6 +236,7 @@ fn bytes_collections() {
             }
         }
     }
+
     let all_possible_bytes = (0u8..255).collect::<Vec<_>>();
     for value in [
         &[][..],
@@ -293,4 +298,47 @@ fn arc_bytes() {
 #[test]
 fn arrays() {
     validate_eq(&[0u16, 1, u16::MAX]);
+    validate_eq(&[0u16, 1, 2, 3, 0, u16::MAX]);
+    validate_eq(&BTreeSet::from([0u16, 1, 2, 3, 0, u16::MAX]));
+}
+
+#[test]
+fn bools() {
+    validate_eq(&[true, true, true, true, false, false]);
+    validate_eq(&[false, true]);
+    validate_eq(&BTreeSet::from([false, true]));
+    validate_eq(&BTreeSet::from([false]));
+}
+
+struct CompressibleText {
+    x: u64,
+}
+
+impl CompressibleText {
+    fn rng(&mut self) -> usize {
+        self.x = self.x.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = self.x;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        (z ^ (z >> 31)) as usize
+    }
+    fn string(&mut self) -> String {
+        let mut out = String::new();
+        while out.len() < 1024 && self.rng() % 13 != 0 {
+            const WORDS: &[&str] = &[
+                "hello", "hell", "world", "the", "is", "this", "of", "goodbye", "farewell",
+            ];
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(WORDS[self.rng() % WORDS.len()]);
+        }
+        out
+    }
+}
+impl Iterator for CompressibleText {
+    type Item = String;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.string())
+    }
 }
