@@ -66,9 +66,20 @@ fn remembered_to_stop_creating_new_tests() {
 
 #[test]
 fn unsigned() {
-    #[derive(Debug, compactly::v1::Encode, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Debug,
+        compactly::v1::Encode,
+        serde::Serialize,
+        serde::Deserialize,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+    )]
     struct Unsigned {
         u64: u64,
+        #[compactly(Sorted)]
+        sorted64: u64,
         u32: u32,
         u16: u16,
         u8: u8,
@@ -78,6 +89,7 @@ fn unsigned() {
         fn from(value: u64) -> Self {
             Unsigned {
                 u64: value,
+                sorted64: value,
                 u32: value as u32,
                 u16: value as u16,
                 u8: value as u8,
@@ -85,15 +97,15 @@ fn unsigned() {
             }
         }
     }
-    for value in [
+    let values: Vec<Unsigned> = [
         0_u64,
         1,
         2,
         3,
         4,
-        5,
         6,
         7,
+        5,
         u64::MAX,
         u64::MAX - 1,
         u32::MAX as u64,
@@ -105,9 +117,11 @@ fn unsigned() {
     ]
     .into_iter()
     .map(Unsigned::from)
-    {
-        validate_encoding(&value);
+    .collect();
+    for &value in &values {
+        validate_eq(&value);
     }
+    validate_eq(&values);
 }
 
 #[test]
