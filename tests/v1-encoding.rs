@@ -9,8 +9,14 @@ fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
         typename.split_once("::").unwrap().0.to_string()
     } else {
         typename
+            .replace("alloc::collections::", "")
+            .replace("alloc::vec::", "")
+            .replace("alloc::string::", "")
             .replace(']', "")
             .replace('[', "")
+            .replace('<', "-")
+            .replace('>', "-")
+            .replace(':', "_")
             .replace("; ", "-count-")
     };
     format!("tests/v1-encoding/{function_name}-{value_hash:016x}")
