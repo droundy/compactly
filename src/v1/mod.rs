@@ -98,7 +98,7 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
 /// can also create entirely new strategies in your crates.  If you do that, you
 /// can use full paths in your derive macros, e.g.
 /// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
-pub trait EncodingStrategy<T> {
+pub trait EncodingStrategy<T>: Copy {
     /// The conext (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 

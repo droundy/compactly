@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Decimal, Small};
+use crate::{Decimal, LowCardinality, Small};
 use std::io::{Read, Write};
 
 macro_rules! impl_float {
@@ -74,6 +74,15 @@ macro_rules! impl_float {
             int: <Small as EncodingStrategy<$sint>>::Context,
             is_int: <bool as Encode>::Context,
             integer: <Small as EncodingStrategy<$sint>>::Context,
+            /// Normal means not infinity, NaN, etc.
+            is_normal: <bool as Encode>::Context,
+            /// In case of abnormal numbers, we just use a LowCardinality
+            /// encoding of the bytes
+            ///
+            /// This is a bit lazy, but ensures that we get a bitwise identical
+            /// NaN in case that matters.
+            abnormal:
+                <LowCardinality as EncodingStrategy<[u8; std::mem::size_of::<$t>()]>>::Context,
         }
         impl EncodingStrategy<$t> for Decimal {
             type Context = $decimal;
@@ -90,21 +99,36 @@ macro_rules! impl_float {
                 } else {
                     // This is very hokey.
                     let d = format!("{value}");
-                    let (power, int) = if let Some((a, b)) = d.split_once('.') {
+                    if let Some((power, int)) = if let Some((a, b)) = d.split_once('.') {
                         let power = -(b.len() as i16);
                         let int = format!("{a}{b}");
-                        (power, int.parse::<$sint>().expect("bad float {a}{b}"))
+                        Some((power, int.parse::<$sint>().expect("bad float {a}{b}")))
                     } else {
                         let int = d.trim_end_matches('0');
                         let power = (d.len() - int.len()) as i16;
                         if int.is_empty() {
-                            (0, 0)
+                            Some((0, 0))
+                        } else if let Ok(mantissa) = int.parse::<$sint>() {
+                            Some((power, mantissa))
                         } else {
-                            (power, int.parse::<$sint>().expect("bad float trimzeros"))
+                            None
                         }
-                    };
-                    <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent)?;
-                    <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int)
+                    } {
+                        true.encode(writer, &mut ctx.is_normal)?;
+                        <Small as EncodingStrategy<i16>>::encode(
+                            &power,
+                            writer,
+                            &mut ctx.exponent,
+                        )?;
+                        <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int)
+                    } else {
+                        false.encode(writer, &mut ctx.is_normal)?;
+                        <LowCardinality as EncodingStrategy<
+                                                    [u8; std::mem::size_of::<$t>()],
+                                                >>::encode(
+                                                    &value.to_be_bytes(), writer, &mut ctx.abnormal
+                                                )
+                    }
                 }
             }
 
@@ -116,7 +140,7 @@ macro_rules! impl_float {
                     let intvalue =
                         <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.integer)?;
                     Ok(intvalue as $t)
-                } else {
+                } else if bool::decode(reader, &mut ctx.is_normal)? {
                     let power =
                         <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
                     let int = <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int)?;
@@ -130,6 +154,11 @@ macro_rules! impl_float {
                         format!("{int}.0e{power}")
                     };
                     Ok(s.parse().expect("bad decode str"))
+                } else {
+                    let bytes = <LowCardinality as EncodingStrategy<
+                        [u8; std::mem::size_of::<$t>()],
+                    >>::decode(reader, &mut ctx.abnormal)?;
+                    Ok($t::from_be_bytes(bytes))
                 }
             }
         }

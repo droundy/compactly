@@ -71,6 +71,41 @@ impl_low_cardinality!(String, string);
 impl_low_cardinality!(Vec<u8>, bytes);
 impl_low_cardinality!(u64, mod_u64);
 
+impl<const N: usize, T: Encode + Clone + Hash + Eq> EncodingStrategy<[T; N]> for LowCardinality {
+    type Context = CacheContext<[T; N]>;
+    fn encode<W: std::io::Write>(
+        value: &[T; N],
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        let looked_up = ctx.cached.get(value).copied();
+        looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
+        if let Some(idx) = looked_up {
+            idx.encode(writer, &mut ctx.index)
+        } else {
+            ctx.cached.insert(value.clone(), ctx.cached.len());
+            value.encode(writer, &mut ctx.context)
+        }
+    }
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<[T; N], std::io::Error> {
+        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+        if is_cached {
+            let idx = usize::decode(reader, &mut ctx.index)?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let value = <[T; N]>::decode(reader, &mut ctx.context)?;
+            ctx.cache.push(value.clone());
+            Ok(value)
+        }
+    }
+}
+
 impl<T> EncodingStrategy<Vec<T>> for LowCardinality
 where
     T: Encode,

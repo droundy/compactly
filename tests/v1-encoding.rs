@@ -1,5 +1,7 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
+use compactly::Small;
+
 fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
     let value_hash = rapidhash::rapidhash(&bincode1::serialize(value).unwrap());
     let typename = std::any::type_name::<T>();
@@ -41,6 +43,19 @@ fn validate_eq<T: Debug + PartialEq + compactly::v1::Encode + serde::Serialize>(
     validate_encoding(value);
     let encoded = compactly::v1::encode(value);
     let decoded: T = compactly::v1::decode(&encoded).unwrap();
+    assert_eq!(&decoded, value);
+}
+
+fn validate_strategy<
+    S: compactly::v1::EncodingStrategy<T>,
+    T: Debug + PartialEq + compactly::v1::Encode + serde::Serialize + Clone,
+>(
+    strategy: S,
+    value: &T,
+) {
+    validate_encoding(value);
+    let encoded = compactly::v1::encode_with(strategy, value);
+    let decoded: T = compactly::v1::decode_with(strategy, &encoded).unwrap();
     assert_eq!(&decoded, value);
 }
 
@@ -200,6 +215,7 @@ fn string_collections() {
     {
         validate_encoding(&value);
     }
+    validate_encoding(&String::from_utf8(vec![b'a'; 1024 * 1024]).unwrap());
 }
 
 #[test]
@@ -308,6 +324,100 @@ fn bools() {
     validate_eq(&[false, true]);
     validate_eq(&BTreeSet::from([false, true]));
     validate_eq(&BTreeSet::from([false]));
+}
+
+#[test]
+fn byte() {
+    validate_eq(&i8::MIN);
+    validate_eq(&i8::MAX);
+    validate_eq(&-1_i8);
+    validate_eq(&0_i8);
+    validate_eq(&3_i8);
+    validate_strategy(Small, &3i16);
+}
+
+#[test]
+fn floats() {
+    #[derive(Debug, compactly::v1::Encode, serde::Serialize, Clone, Copy)]
+    struct F32 {
+        v: f32,
+        #[compactly(Decimal)]
+        decimal: f32,
+    }
+    impl F32 {
+        fn new(value: f32) -> Self {
+            F32 {
+                v: value,
+                decimal: value,
+            }
+        }
+    }
+    impl PartialEq for F32 {
+        fn eq(&self, other: &Self) -> bool {
+            self.v.to_be_bytes() == other.v.to_be_bytes()
+                && self.decimal.to_be_bytes() == other.decimal.to_be_bytes()
+        }
+    }
+    #[derive(Debug, compactly::v1::Encode, serde::Serialize, Clone, Copy)]
+    struct F64 {
+        v: f64,
+        #[compactly(Decimal)]
+        decimal: f64,
+    }
+    impl F64 {
+        fn new(value: f64) -> Self {
+            F64 {
+                v: value,
+                decimal: value,
+            }
+        }
+    }
+    impl PartialEq for F64 {
+        fn eq(&self, other: &Self) -> bool {
+            self.v.to_be_bytes() == other.v.to_be_bytes()
+                && self.decimal.to_be_bytes() == other.decimal.to_be_bytes()
+        }
+    }
+    let f32s = [
+        0.0_f32,
+        1.0,
+        2.0,
+        std::f32::consts::PI,
+        0.1,
+        f32::MAX,
+        f32::MIN,
+        f32::MIN_POSITIVE,
+        std::f32::NAN,
+        std::f32::INFINITY,
+        std::f32::NEG_INFINITY,
+    ]
+    .into_iter()
+    .map(F32::new)
+    .collect::<Vec<_>>();
+    let f64s = [
+        0.0_f64,
+        1.0,
+        2.0,
+        std::f64::consts::PI,
+        0.1,
+        f64::MAX,
+        f64::MIN,
+        f64::MIN_POSITIVE,
+        std::f64::NAN,
+        std::f64::INFINITY,
+        std::f64::NEG_INFINITY,
+    ]
+    .into_iter()
+    .map(F64::new)
+    .collect::<Vec<_>>();
+    for &value in &f32s {
+        validate_eq(&value);
+    }
+    validate_eq(&f32s);
+    for &value in &f64s {
+        validate_eq(&value);
+    }
+    validate_eq(&f64s);
 }
 
 struct CompressibleText {
