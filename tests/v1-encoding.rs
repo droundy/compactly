@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
-use compactly::Small;
+use compactly::{LowCardinality, Small, Values};
 
 fn filename<T: compactly::v1::Encode + serde::Serialize>(value: &T) -> String {
     let value_hash = rapidhash::rapidhash(&bincode1::serialize(value).unwrap());
@@ -420,6 +420,9 @@ fn floats() {
         std::f64::NAN,
         std::f64::INFINITY,
         std::f64::NEG_INFINITY,
+        std::f64::NAN,
+        std::f64::INFINITY,
+        std::f64::NEG_INFINITY,
     ]
     .into_iter()
     .map(F64::new)
@@ -432,6 +435,15 @@ fn floats() {
         validate_eq(&value);
     }
     validate_eq(&f64s);
+}
+
+#[test]
+fn low_cardinality() {
+    validate_strategy(LowCardinality, &vec![0u64, 0, 0, 0, 1, u64::MAX]);
+    validate_strategy(
+        Values::<LowCardinality>::default(),
+        &vec![0u64, 0, 0, 0, 1, u64::MAX],
+    );
 }
 
 struct CompressibleText {
