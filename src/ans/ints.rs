@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy, Small, ULessThan};
-use crate::Sorted;
+use crate::{Incompressible, Sorted};
 
 macro_rules! impl_uint {
     ($t:ident, $mod:ident, $bits:literal) => {
@@ -62,6 +62,7 @@ macro_rules! impl_uint {
                     Ok(v)
                 }
             }
+
             #[derive(Default, Clone)]
             pub struct SortedContext {
                 previous: Option<$t>,
@@ -110,6 +111,23 @@ macro_rules! impl_uint {
                     };
                     ctx.previous = Some(out);
                     Ok(out)
+                }
+            }
+
+            impl EncodingStrategy<$t> for Incompressible {
+                type Context = Context;
+                fn encode<E: super::super::EntropyCoder>(
+                    value: &$t,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    value.encode(writer, ctx)
+                }
+                fn decode<D: super::super::EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    <$t as Encode>::decode(reader, ctx)
                 }
             }
         }

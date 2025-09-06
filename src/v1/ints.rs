@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy, Reader, Small, ULessThan, Writer};
-use crate::Sorted;
+use crate::{Incompressible, Sorted};
 use std::io::{Read, Write};
 
 macro_rules! impl_uint {
@@ -62,6 +62,23 @@ macro_rules! impl_uint {
                         }
                     }
                     Ok(v)
+                }
+            }
+
+            impl EncodingStrategy<$t> for Incompressible {
+                type Context = Context;
+                fn encode<W: Write>(
+                    value: &$t,
+                    writer: &mut super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    value.encode(writer, ctx)
+                }
+                fn decode<R: Read>(
+                    reader: &mut super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    <$t as Encode>::decode(reader, ctx)
                 }
             }
             #[derive(Default, Clone)]

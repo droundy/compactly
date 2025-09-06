@@ -144,6 +144,14 @@ pub struct Small;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Compressible;
 
+/// A strategy for encoding values that cannot be compressed.
+///
+/// Examples would be encrypted or random bytes.  In this case, `compactly`
+/// abandons any attempt at compression (e.g. variable bitlength) and also
+/// adopts a faster algorithm where possible.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Incompressible;
+
 /// A strategy for encoding values that have been sorted.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sorted;
