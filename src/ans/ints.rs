@@ -115,19 +115,21 @@ macro_rules! impl_uint {
             }
 
             impl EncodingStrategy<$t> for Incompressible {
-                type Context = Context;
+                type Context = ();
                 fn encode<E: super::super::EntropyCoder>(
                     value: &$t,
                     writer: &mut E,
-                    ctx: &mut Self::Context,
+                    _ctx: &mut Self::Context,
                 ) {
-                    value.encode(writer, ctx)
+                    writer.encode_incompressible_bytes(&value.to_le_bytes())
                 }
                 fn decode<D: super::super::EntropyDecoder>(
                     reader: &mut D,
-                    ctx: &mut Self::Context,
+                    _ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
-                    <$t as Encode>::decode(reader, ctx)
+                    let mut b = [0; std::mem::size_of::<$t>()];
+                    reader.decode_incompressible_bytes(&mut b)?;
+                    Ok($t::from_le_bytes(b))
                 }
             }
         }

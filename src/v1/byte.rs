@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::Small;
+use crate::{Incompressible, Small};
 use std::io::{Read, Write};
 
 #[derive(Clone)]
@@ -57,6 +57,23 @@ impl Encode for u8 {
             accumulated_value = 2 * accumulated_value + bit as usize;
         }
         Ok(accumulated_value as u8)
+    }
+}
+
+impl EncodingStrategy<u8> for Incompressible {
+    type Context = ByteContext;
+    fn encode<W: Write>(
+        value: &u8,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn decode<R: Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        <u8 as Encode>::decode(reader, ctx)
     }
 }
 

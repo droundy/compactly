@@ -37,6 +37,8 @@ pub use millibits::Millibits;
 pub use raw::Raw;
 pub use ulessthan::ULessThan;
 
+const FIFTY_PERCENT: ans::Probability = ans::Probability::new(127, 127);
+
 /// A place where we can put bits where we have estimated the probabilities.
 pub trait EntropyCoder: Default {
     /// Encode a given bit with its probability
@@ -47,6 +49,20 @@ pub trait EntropyCoder: Default {
         let mut writer = Self::default();
         value.encode(&mut writer, &mut T::Context::default());
         writer
+    }
+
+    /// Encode a given slice of incompressible bytes.
+    ///
+    /// Note that ideall implementations will do something more efficient than
+    /// just omitting to track probabilities, but the default implementation
+    /// should suffice for correctness.
+    fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        for mut b in bytes.iter().copied() {
+            for _ in 0..8 {
+                self.encode_bit(FIFTY_PERCENT, (b & 1) == 1);
+                b >>= 1;
+            }
+        }
     }
 }
 
@@ -67,6 +83,19 @@ pub trait EntropyDecoder {
         let bit = self.decode_bit_nonadaptive(context.probability())?;
         *context = context.adapt(bit);
         Ok(bit)
+    }
+
+    /// Decode a fixed number of incompressible bytes into a slice.
+    #[inline(always)]
+    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+        for v in bytes {
+            let mut b = 0;
+            for i in 0..8 {
+                b = b | ((self.decode_bit_nonadaptive(FIFTY_PERCENT)? as u8) << i);
+            }
+            *v = b;
+        }
+        Ok(())
     }
 }
 
