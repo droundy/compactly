@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::Small;
+use crate::{Incompressible, Small};
 
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
@@ -267,6 +267,21 @@ impl EncodingStrategy<u8> for Small {
             }
             _ => unreachable!(),
         }
+    }
+}
+
+impl EncodingStrategy<u8> for Incompressible {
+    type Context = ();
+    fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, _ctx: &mut Self::Context) {
+        writer.encode_incompressible_bytes(&[*value])
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        let mut byte = [0u8];
+        reader.decode_incompressible_bytes(&mut byte)?;
+        Ok(byte[0])
     }
 }
 
