@@ -8,6 +8,9 @@ use bytes::Bytes;
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
 
+const MAGIC_HAS_INCOMPRESSIBLE: u8 = 0;
+const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 1;
+
 /// ANS entropy encoding.
 ///
 /// Can be used to encode data.
@@ -21,12 +24,18 @@ const STATE_BYTES: usize = std::mem::size_of::<State>();
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ans {
     bits: Vec<(bool, Probability)>,
+    incompressible_bytes: Vec<u8>,
 }
 
 impl EntropyCoder for Ans {
     #[inline]
     fn encode_bit(&mut self, probability: Probability, bit: bool) {
         self.bits.push((bit, probability));
+    }
+
+    #[inline]
+    fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        self.incompressible_bytes.extend_from_slice(bytes);
     }
 }
 impl Ans {
@@ -50,7 +59,26 @@ impl Ans {
             }
         }
         out.extend(coder.finish_encoding());
-        out.reverse();
+
+        if !self.incompressible_bytes.is_empty() {
+            out.extend((self.incompressible_bytes.len() as u64).to_le_bytes());
+            out.push(MAGIC_HAS_INCOMPRESSIBLE);
+            out.reverse();
+            // Add the incompressible bytes in reverse at the end of the output, so
+            // that we can read them back without knowing how many incompressible
+            // bytes there are.
+            println!(
+                "incompressible bytes start as {:?}",
+                self.incompressible_bytes
+            );
+            out.extend_from_slice(&self.incompressible_bytes);
+        } else {
+            let last = out.last().copied();
+            if last == Some(MAGIC_HAS_INCOMPRESSIBLE) || last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
+                out.push(MAGIC_LACKS_INCOMPRESSIBLE);
+            }
+            out.reverse();
+        }
         out
     }
 }
@@ -95,24 +123,45 @@ impl Encoder {
 #[derive(Eq, PartialEq, Debug)]
 pub struct Decoder<'a> {
     state: StateOnly,
+    /// The compressed bytes.
     bytes: &'a [u8],
+    /// The incompressible set of bytes.
+    incompressible: &'a [u8],
 }
 
 impl<'a> From<&'a [u8]> for Decoder<'a> {
     #[inline(always)]
     fn from(bytes: &'a [u8]) -> Self {
         let mut state: State = 0;
+        let first = bytes.first().copied();
+        let (bytes, incompressible) = if first == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
+            (&bytes[1..], [].as_slice())
+        } else if first == Some(MAGIC_HAS_INCOMPRESSIBLE) {
+            let len = bytes[1..].first_chunk::<8>().copied().unwrap_or_default();
+            let len = u64::from_be_bytes(len); // it got reversed so we read as big-endian
+            bytes[9..].split_at(bytes.len() - 9 - len as usize)
+        } else {
+            (bytes, [].as_slice())
+        };
         if bytes.len() < STATE_BYTES {
             for &b in bytes.iter() {
                 state = state << 8 | State::from(b);
             }
             let state = StateOnly { state };
-            Self { state, bytes: &[] }
+            Self {
+                state,
+                bytes: &[],
+                incompressible,
+            }
         } else {
             let state = State::from_be_bytes(bytes[0..STATE_BYTES].try_into().unwrap());
             let bytes = &bytes[STATE_BYTES..];
             let state = StateOnly { state };
-            Self { state, bytes }
+            Self {
+                state,
+                bytes,
+                incompressible,
+            }
         }
     }
 }
@@ -126,6 +175,21 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             .decode(probability, || self.bytes.split_off_first().copied());
         self.state = state;
         Ok(b)
+    }
+
+    #[inline(always)]
+    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+        if self.incompressible.len() < bytes.len() {
+            return Err(std::io::Error::other(format!(
+                "insufficient incompressible bytes: {} < {}",
+                self.bytes.len(),
+                bytes.len()
+            )));
+        }
+        let (b, incompressible) = self.incompressible.split_at(bytes.len());
+        self.incompressible = incompressible;
+        bytes.copy_from_slice(b);
+        Ok(())
     }
 }
 
@@ -241,4 +305,101 @@ fn ans_is_reasonable() {
     assert_eq!(super::Range::encode(&data).len(), 16);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
     assert_eq!(Ans::encode(&data).len(), 16);
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::ans::bit_context::BitContext;
+
+    fn rand_context() -> (BitContext, bool) {
+        let value_bool = rand::random::<bool>();
+        (rand::random::<BitContext>(), value_bool)
+    }
+
+    #[test]
+    fn normal() {
+        for _ in 0..10_000 {
+            let num_bits = rand::random::<usize>() % 256;
+            let mut probs = Vec::new();
+            for _ in 0..num_bits {
+                probs.push(rand_context());
+            }
+            println!("\n\ntesting {probs:?}");
+            let mut encoder = Ans::default();
+
+            for &(p, bit) in &probs {
+                encoder.encode_bit(p.probability(), bit);
+            }
+
+            let bytes = encoder.into_vec();
+
+            let mut decoder = Decoder::from(bytes.as_slice());
+
+            for &(p, bit) in &probs {
+                println!("Decoding before {p:?} {bit:?}");
+                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+            }
+        }
+    }
+
+    #[test]
+    fn incompressible() {
+        for _ in 0..10_000 {
+            let num_bits = rand::random::<usize>() % 256;
+            let mut probs = Vec::new();
+            let mut after_probs = Vec::new();
+            for _ in 0..num_bits {
+                probs.push(rand_context());
+                after_probs.push(rand_context());
+            }
+            let num_inc = rand::random::<usize>() % 9;
+            let mut inc = Vec::new();
+            for _ in 0..num_inc {
+                let num_bytes = rand::random::<usize>() % 9;
+                let mut bytes: Vec<u8> = Vec::new();
+                for _ in 0..num_bytes {
+                    bytes.push(rand::random());
+                }
+                inc.push(bytes);
+            }
+            println!("\n\ntesting {probs:?}\n\n{inc:?}");
+            let mut encoder = Ans::default();
+
+            for &(p, bit) in &probs {
+                encoder.encode_bit(p.probability(), bit);
+            }
+            for bytes in &inc {
+                encoder.encode_incompressible_bytes(bytes);
+            }
+            for &(p, bit) in &after_probs {
+                encoder.encode_bit(p.probability(), bit);
+            }
+
+            let bytes = encoder.into_vec();
+            println!("\n\nEncoded random as: {bytes:02x?}\n");
+
+            println!(
+                "encoded ends with incompressible {:?}",
+                &bytes[bytes.len() - inc.iter().map(|x| x.len()).sum::<usize>()..]
+            );
+
+            let mut decoder = Decoder::from(bytes.as_slice());
+
+            for &(p, bit) in &probs {
+                println!("Decoding before {p:?} {bit:?}");
+                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+            }
+            for b in &inc {
+                println!("decoding {b:?}");
+                let mut v = vec![0u8; b.len()];
+                decoder.decode_incompressible_bytes(&mut v).unwrap();
+                assert_eq!(&v, b);
+            }
+            for &(p, bit) in &after_probs {
+                println!("Decoding after {p:?} {bit:?}");
+                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+            }
+        }
+    }
 }

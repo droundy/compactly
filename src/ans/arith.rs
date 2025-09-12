@@ -164,14 +164,26 @@ impl IntoIterator for Bytes {
 pub struct Range {
     bytes: Vec<u8>,
     state: ArithState,
+    // last_byte_was_incompressible: bool,
 }
 
 impl EntropyCoder for Range {
     #[inline]
     fn encode_bit(&mut self, probability_of_false: Probability, value: bool) {
+        // self.last_byte_was_incompressible = false;
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
     }
+
+    // #[inline]
+    // fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+    //     if !self.last_byte_was_incompressible {
+    //         self.bytes.push(self.state.last_byte());
+    //     }
+    //     self.bytes.extend_from_slice(bytes);
+    //     self.state = ArithState::default();
+    //     self.last_byte_was_incompressible = true;
+    // }
 }
 
 impl Range {
@@ -234,6 +246,7 @@ pub struct Reader<R> {
     read: R,
     state: ArithState,
     value: u64,
+    // last_byte_was_incompressible: bool,
 }
 
 impl<R: Read> Reader<R> {
@@ -261,13 +274,12 @@ impl<R: Read> Reader<R> {
         Ok(())
     }
     pub fn new(read: R) -> std::io::Result<Self> {
-        let mut r = Self {
+        Ok(Self {
             value: 0,
             read,
             state: ArithState::default(),
-        };
-        r.read_bytes(8)?;
-        Ok(r)
+            // last_byte_was_incompressible: true,
+        })
     }
 }
 
@@ -277,10 +289,31 @@ impl<R: std::io::Read> EntropyDecoder for Reader<R> {
         &mut self,
         probability: super::ans::Probability,
     ) -> Result<bool, std::io::Error> {
+        // if self.last_byte_was_incompressible {
+        //     self.read_bytes(8)?;
+        // }
         let (out, sz) = self.state.decode(probability, self.value);
         self.read_bytes(sz)?;
+        // self.last_byte_was_incompressible = false;
         Ok(out)
     }
+
+    // #[inline]
+    // fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+    //     if self.last_byte_was_incompressible {
+    //         self.read.read_exact(bytes)
+    //     } else {
+    //         let value = self.value.to_be_bytes();
+    //         if bytes.len() > 7 {
+    //             bytes[..7].copy_from_slice(&value[1..]);
+    //             self.read.read_exact(&mut bytes[7..])?;
+    //             self.read_bytes(8)
+    //         } else {
+    //             bytes.copy_from_slice(&value[1..bytes.len() + 1]);
+    //             self.read_bytes(bytes.len() + 1)
+    //         }
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -289,11 +322,18 @@ mod tests {
 
     use rand::Rng;
 
+    use crate::ans::bit_context::BitContext;
+
     use super::*;
 
     fn rand_prob() -> (Probability, bool) {
         let value_bool = rand::random::<bool>();
         (rand::random::<Probability>(), value_bool)
+    }
+
+    fn rand_context() -> (BitContext, bool) {
+        let value_bool = rand::random::<bool>();
+        (rand::random::<BitContext>(), value_bool)
     }
 
     #[test]
@@ -432,6 +472,61 @@ mod tests {
             for &(p, bit) in &probs {
                 println!("Decoding {p:?} {bit:?}");
                 assert_eq!(decoder.decode(p), bit);
+            }
+        }
+    }
+
+    #[test]
+    fn incompressible() {
+        for _ in 0..10_000 {
+            let num_bits = rand::random::<usize>() % 256;
+            let mut probs = Vec::new();
+            let mut after_probs = Vec::new();
+            for _ in 0..num_bits {
+                probs.push(rand_context());
+                after_probs.push(rand_context());
+            }
+            let num_inc = rand::random::<usize>() % 9;
+            let mut inc = Vec::new();
+            for _ in 0..num_inc {
+                let num_bytes = rand::random::<usize>() % 9;
+                let mut bytes: Vec<u8> = Vec::new();
+                for _ in 0..num_bytes {
+                    bytes.push(rand::random());
+                }
+                inc.push(bytes);
+            }
+            println!("\n\ntesting {probs:?}");
+            let mut encoder = Range::default();
+
+            for &(p, bit) in &probs {
+                encoder.encode_bit(p.probability(), bit);
+            }
+            for bytes in &inc {
+                encoder.encode_incompressible_bytes(bytes);
+            }
+            for &(p, bit) in &after_probs {
+                encoder.encode_bit(p.probability(), bit);
+            }
+
+            let bytes = encoder.into_vec();
+            println!("\n\nEncoded random as: {bytes:02x?}\n");
+
+            let mut reader = Reader::new(bytes.as_slice()).unwrap();
+
+            for &(p, bit) in &probs {
+                println!("Decoding before {p:?} {bit:?}");
+                assert_eq!(reader.decode_bit(&mut p.clone()).unwrap(), bit);
+            }
+            for b in &inc {
+                println!("decoding {b:?}");
+                let mut v = vec![0u8; b.len()];
+                reader.decode_incompressible_bytes(&mut v).unwrap();
+                assert_eq!(&v, b);
+            }
+            for &(p, bit) in &after_probs {
+                println!("Decoding after {p:?} {bit:?}");
+                assert_eq!(reader.decode_bit(&mut p.clone()).unwrap(), bit);
             }
         }
     }

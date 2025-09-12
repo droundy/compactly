@@ -275,6 +275,31 @@ fn lookup_adapt(variants: &[Bucket]) {
     println!("}}");
 }
 
+fn print_random(variants: &[Bucket]) {
+    let num_variants = variants.len();
+    println!(
+        "
+#[cfg(test)]
+mod myrand {{
+use rand::distributions::{{Distribution, Standard}};
+use rand::Rng;
+use super::BitContext;
+use BitContext::*;
+impl Distribution<BitContext> for Standard {{
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BitContext {{
+        match rng.gen_range(0..{num_variants}) {{"
+    );
+
+    for (i, BitC { name, .. }) in variants.iter().map(|b| b.bitc()).enumerate() {
+        println!("            {i} => {name},");
+    }
+    let last = variants.first().unwrap().bitc().name;
+    println!(
+        " _ => {last}
+    }} }} }} }}"
+    );
+}
+
 const MAX_PRODUCT: usize = 134;
 const COUNT_FOR_CONFIDENCE: usize = 4;
 
@@ -342,6 +367,8 @@ impl BitContext {{"
     println!("}}");
 
     probability_millibits();
+
+    print_random(&variants);
 
     println!(r"// Count of variants: {}", variants.len());
 }
