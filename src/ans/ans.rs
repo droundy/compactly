@@ -61,7 +61,17 @@ impl Ans {
         out.extend(coder.finish_encoding());
 
         if !self.incompressible_bytes.is_empty() {
-            out.extend((self.incompressible_bytes.len() as u64).to_le_bytes());
+            let mut len = self.incompressible_bytes.len();
+            // This is a funny tweak on LEB128.  We encode the length as 7-bit
+            // bytes that are encoded little-endian, but then reversed and
+            // decoded big-endian.  The "final" byte is indicated by the most
+            // significant bit being set.
+            out.push((len & 127) as u8 | 128);
+            len >>= 7;
+            while len > 0 {
+                out.push((len & 127) as u8);
+                len >>= 7;
+            }
             out.push(MAGIC_HAS_INCOMPRESSIBLE);
             out.reverse();
             // Add the incompressible bytes in reverse at the end of the output, so
@@ -137,9 +147,16 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
         let (bytes, incompressible) = if first == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
             (&bytes[1..], [].as_slice())
         } else if first == Some(MAGIC_HAS_INCOMPRESSIBLE) {
-            let len = bytes[1..].first_chunk::<8>().copied().unwrap_or_default();
-            let len = u64::from_be_bytes(len); // it got reversed so we read as big-endian
-            bytes[9..].split_at(bytes.len() - 9 - len as usize)
+            let mut bytes = &bytes[1..];
+            let mut incompressible_len = 0;
+            while let Some((&b, rest)) = bytes.split_first() {
+                bytes = rest;
+                incompressible_len = (incompressible_len << 7) | (b & 127) as usize;
+                if b & 127 != b {
+                    break;
+                }
+            }
+            bytes.split_at(bytes.len() - incompressible_len)
         } else {
             (bytes, [].as_slice())
         };
@@ -356,7 +373,15 @@ mod test {
             let num_inc = rand::random::<usize>() % 9;
             let mut inc = Vec::new();
             for _ in 0..num_inc {
-                let num_bytes = rand::random::<usize>() % 9;
+                // Attempt to get random bytes with a wide distribution of
+                // number of bits required.
+                let mut num_bytes = rand::random::<usize>() % 9;
+                if num_bytes == 8 {
+                    num_bytes = rand::random::<usize>() % 512;
+                    if num_bytes > 500 {
+                        num_bytes = rand::random::<usize>() % 512_000;
+                    }
+                }
                 let mut bytes: Vec<u8> = Vec::new();
                 for _ in 0..num_bytes {
                     bytes.push(rand::random());
