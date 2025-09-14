@@ -8,8 +8,8 @@ use bytes::Bytes;
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
 
-const MAGIC_HAS_INCOMPRESSIBLE: u8 = 0;
-const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 1;
+const MAGIC_HAS_INCOMPRESSIBLE: u8 = 137;
+const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
 
 /// ANS entropy encoding.
 ///
@@ -51,6 +51,7 @@ impl Ans {
     /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
+        println!("using into_vec");
         let mut coder = Encoder::new();
         let mut out = Vec::new();
         for (b, probability) in self.bits.into_iter().rev() {
@@ -62,6 +63,7 @@ impl Ans {
 
         if !self.incompressible_bytes.is_empty() {
             let mut len = self.incompressible_bytes.len();
+            println!("It has {len} incompressible");
             // This is a funny tweak on LEB128.  We encode the length as 7-bit
             // bytes that are encoded little-endian, but then reversed and
             // decoded big-endian.  The "final" byte is indicated by the most
@@ -83,6 +85,7 @@ impl Ans {
             );
             out.extend_from_slice(&self.incompressible_bytes);
         } else {
+            println!("Nothing incompressible here");
             let last = out.last().copied();
             if last == Some(MAGIC_HAS_INCOMPRESSIBLE) || last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
                 out.push(MAGIC_LACKS_INCOMPRESSIBLE);

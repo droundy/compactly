@@ -233,6 +233,7 @@ macro_rules! assert_bits {
     ($v:expr, $size:expr) => {
         let ans = $v;
         let bytes = super::encode(&ans);
+        println!("Bytes are {bytes:?} for {ans:?}");
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(ans), "decoded value is incorrect");
         let v = (
