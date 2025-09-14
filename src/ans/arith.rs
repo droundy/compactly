@@ -1,6 +1,5 @@
 pub use super::ans::Probability;
 use super::{EntropyCoder, EntropyDecoder};
-use std::io::Read;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithState {
@@ -180,8 +179,8 @@ impl Range {
         <Self as EntropyCoder>::encode(value).into()
     }
     /// Decode some encoded bytes.
-    pub fn decode<T: super::Encode>(mut bytes: &[u8]) -> Option<T> {
-        let mut reader = super::arith::Reader::new(&mut bytes).unwrap();
+    pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
+        let mut reader = super::arith::Decoder::new(&bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
     /// Convert the encoded value in to a `Vec` of bytes.
@@ -197,88 +196,49 @@ impl From<Range> for Vec<u8> {
     }
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct Decoder {
-    bytes: Vec<u8>,
+pub struct Decoder<'a> {
+    bytes: &'a [u8],
     state: ArithState,
     value: u64,
 }
 
-#[cfg(test)]
-impl Decoder {
-    pub fn new(mut bytes: Vec<u8>) -> Self {
-        bytes.reverse();
-        let mut value = 0;
-        for _ in 0..8 {
-            value = (value << 8) + bytes.pop().unwrap_or_default() as u64;
-        }
+impl<'a> Decoder<'a> {
+    pub fn new(bytes: &'a [u8]) -> Self {
+        let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
+            (u64::from_be_bytes(first), rest)
+        } else {
+            let mut b = [0; 8];
+            b[..bytes.len()].copy_from_slice(bytes);
+            (u64::from_be_bytes(b), [].as_slice())
+        };
         Self {
             bytes,
             state: ArithState::default(),
             value,
         }
     }
-    #[inline]
-    pub fn decode(&mut self, p: Probability) -> bool {
-        let (out, sz) = self.state.decode(p, self.value);
-        for _ in 0..sz {
-            self.value = (self.value << 8) + self.bytes.pop().unwrap_or_default() as u64;
-        }
-        out
-    }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Reader<R> {
-    read: R,
-    state: ArithState,
-    value: u64,
-}
-
-impl<R: Read> Reader<R> {
-    #[inline]
-    fn read_bytes(&mut self, sz: usize) -> Result<(), std::io::Error> {
-        if sz == 0 {
-            return Ok(());
-        }
-        let mut bytes = [0; 8];
-        let mut bytes_to_read = &mut bytes[(8 - sz)..];
-        while !bytes_to_read.is_empty() {
-            let bytes_read = self.read.read(bytes_to_read)?;
-            if bytes_read == 0 {
-                // we have a small value and that is find, the remaining bytes are zero.
-                break;
-            }
-            bytes_to_read = &mut bytes_to_read[bytes_read..];
-        }
-        let value = u64::from_be_bytes(bytes);
-        if sz == 8 {
-            self.value = value;
+    fn pop_next_byte(&mut self) -> u8 {
+        if let Some((&b, r)) = self.bytes.split_first() {
+            self.bytes = r;
+            b
         } else {
-            self.value = value + (self.value << (8 * sz));
+            0
         }
-        Ok(())
-    }
-    pub fn new(read: R) -> std::io::Result<Self> {
-        let mut r = Self {
-            value: 0,
-            read,
-            state: ArithState::default(),
-        };
-        r.read_bytes(8)?;
-        Ok(r)
     }
 }
 
-impl<R: std::io::Read> EntropyDecoder for Reader<R> {
+impl<'a> EntropyDecoder for Decoder<'a> {
     #[inline]
     fn decode_bit_nonadaptive(
         &mut self,
         probability: super::ans::Probability,
     ) -> Result<bool, std::io::Error> {
         let (out, sz) = self.state.decode(probability, self.value);
-        self.read_bytes(sz)?;
+        for _ in 0..sz {
+            self.value = (self.value << 8) + self.pop_next_byte() as u64;
+        }
         Ok(out)
     }
 }
@@ -428,10 +388,10 @@ mod tests {
             }
             let bytes = encoder.into_vec();
             println!("\n\nEncoded random as: {bytes:02x?}\n");
-            let mut decoder = Decoder::new(bytes);
+            let mut decoder = Decoder::new(&bytes);
             for &(p, bit) in &probs {
                 println!("Decoding {p:?} {bit:?}");
-                assert_eq!(decoder.decode(p), bit);
+                assert_eq!(decoder.decode_bit_nonadaptive(p).unwrap(), bit);
             }
         }
     }

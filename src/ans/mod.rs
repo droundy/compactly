@@ -135,7 +135,7 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 ///
 /// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Reader::new(&mut bytes).unwrap();
+    let mut reader = arith::Decoder::new(&mut bytes);
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
@@ -179,7 +179,7 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
 pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Reader::new(&mut bytes).unwrap();
+    let mut reader = arith::Decoder::new(&mut bytes);
     S::decode(&mut reader, &mut S::Context::default()).ok()
 }
 
