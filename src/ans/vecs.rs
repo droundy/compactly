@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Normal, Small, Sorted};
+use crate::{Incompressible, Normal, Small, Sorted};
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
@@ -130,5 +130,21 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             }
         }
         ctx.previous = value.clone();
+    }
+}
+
+impl EncodingStrategy<Vec<u8>> for Incompressible {
+    type Context = <Small as EncodingStrategy<usize>>::Context;
+    fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&value.len(), writer, ctx);
+        writer.encode_incompressible_bytes(&value)
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = vec![0; Small::decode(reader, ctx)?];
+        reader.decode_incompressible_bytes(&mut out)?;
+        Ok(out)
     }
 }

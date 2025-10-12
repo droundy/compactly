@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Normal, Small, Sorted};
+use crate::{Incompressible, Normal, Small, Sorted};
 use std::io::{Read, Write};
 
 impl<T: Encode> Encode for Vec<T> {
@@ -179,5 +179,25 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         }
         ctx.previous = value.clone();
         Some(tot)
+    }
+}
+
+impl EncodingStrategy<Vec<u8>> for Incompressible {
+    type Context = <Vec<u8> as Encode>::Context;
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        <Vec<u8> as Encode>::decode(reader, ctx)
+    }
+    fn encode<W: std::io::Write>(
+        value: &Vec<u8>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        value.encode(writer, ctx)
+    }
+    fn millibits(value: &Vec<u8>, ctx: &mut Self::Context) -> Option<usize> {
+        value.millibits(ctx)
     }
 }

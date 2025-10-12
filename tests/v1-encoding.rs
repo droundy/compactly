@@ -332,6 +332,33 @@ fn arc_bytes() {
 }
 
 #[test]
+fn incompressible() {
+    #[derive(
+        Debug, PartialEq, Eq, Hash, compactly::v1::Encode, serde::Serialize, serde::Deserialize,
+    )]
+    struct Data {
+        #[compactly(Values<Incompressible>)]
+        individually_incompressible: Vec<u8>,
+        #[compactly(Incompressible)]
+        incompressible: Vec<u8>,
+        #[compactly(Compressible)]
+        compressible: Vec<u8>,
+    }
+    impl From<&[u8]> for Data {
+        fn from(value: &[u8]) -> Self {
+            Self {
+                individually_incompressible: value.to_vec(),
+                incompressible: value.to_vec(),
+                compressible: value.to_vec(),
+            }
+        }
+    }
+    let all_possible_bytes = (0u8..255).chain((0u8..255).rev()).collect::<Vec<_>>();
+    validate_eq(&Data::from(all_possible_bytes.as_slice()));
+    validate_eq(&Data::from([].as_slice()));
+}
+
+#[test]
 fn arrays() {
     validate_eq(&[0u16, 1, u16::MAX]);
     validate_eq(&[0u16, 1, 2, 3, 0, u16::MAX]);
