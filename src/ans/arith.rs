@@ -59,7 +59,19 @@ impl ArithState {
 
     #[inline]
     pub fn last_byte(self) -> u8 {
-        (self.hi >> 56) as u8
+        let hi = (self.hi >> 56) as u8;
+        let lo = (self.lo >> 56) as u8;
+        // when convenient, we'd like to avoid ending with a magic byte.
+        if hi == MAGIC_HAS_INCOMPRESSIBLE[1] || hi == MAGIC_LACKS_INCOMPRESSIBLE[1] {
+            if lo < hi && lo + 1 < hi {
+                // being cautious unless lo == hi == 255
+                lo + 1
+            } else {
+                hi
+            }
+        } else {
+            hi
+        }
     }
 
     /// Returns a set of bytes to be written out.
@@ -162,6 +174,7 @@ impl IntoIterator for Bytes {
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Range {
     bytes: Vec<u8>,
+    incompressible_bytes: Vec<u8>,
     state: ArithState,
 }
 
@@ -170,6 +183,11 @@ impl EntropyCoder for Range {
     fn encode_bit(&mut self, probability_of_false: Probability, value: bool) {
         self.bytes
             .extend_from_slice(&self.state.encode(probability_of_false, value));
+    }
+
+    #[inline]
+    fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        self.incompressible_bytes.extend_from_slice(bytes);
     }
 }
 
@@ -187,7 +205,30 @@ impl Range {
     #[inline]
     pub fn into_vec(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
-        self.bytes
+        if self.incompressible_bytes.is_empty() {
+            if self.bytes.last_chunk().copied() == Some(MAGIC_HAS_INCOMPRESSIBLE)
+                || self.bytes.last_chunk().copied() == Some(MAGIC_LACKS_INCOMPRESSIBLE)
+            {
+                self.bytes.extend_from_slice(&MAGIC_LACKS_INCOMPRESSIBLE);
+            }
+            self.bytes
+        } else {
+            let mut len = self.incompressible_bytes.len();
+            self.incompressible_bytes.extend_from_slice(&self.bytes);
+            // This is a funny tweak on LEB128.  We encode the length as 7-bit
+            // bytes that are encoded little-endian, but then we decode it in
+            // reversed so it is decoded big-endian.  The "final" byte is
+            // indicated by the most significant bit being set.
+            self.incompressible_bytes.push((len & 127) as u8 | 128);
+            len >>= 7;
+            while len > 0 {
+                self.incompressible_bytes.push((len & 127) as u8);
+                len >>= 7;
+            }
+            self.incompressible_bytes
+                .extend_from_slice(&MAGIC_HAS_INCOMPRESSIBLE);
+            self.incompressible_bytes
+        }
     }
 }
 impl From<Range> for Vec<u8> {
@@ -201,10 +242,32 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
     state: ArithState,
     value: u64,
+    /// The incompressible set of bytes.
+    incompressible: &'a [u8],
 }
+
+const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = [b'Y', b'a'];
+const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = [b'N', b'o'];
 
 impl<'a> Decoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
+        let last = bytes.last_chunk().copied();
+        let (bytes, incompressible) = if last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
+            (&bytes[..bytes.len() - 2], [].as_slice())
+        } else if last == Some(MAGIC_HAS_INCOMPRESSIBLE) {
+            let mut bytes = &bytes[..bytes.len() - 2];
+            let mut incompressible_len = 0;
+            while let Some((&b, rest)) = bytes.split_last() {
+                bytes = rest;
+                incompressible_len = (incompressible_len << 7) | (b & 127) as usize;
+                if b & 127 != b {
+                    break;
+                }
+            }
+            bytes.split_at(incompressible_len)
+        } else {
+            (bytes, [].as_slice())
+        };
         let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
             (u64::from_be_bytes(first), rest)
         } else {
@@ -216,6 +279,7 @@ impl<'a> Decoder<'a> {
             bytes,
             state: ArithState::default(),
             value,
+            incompressible,
         }
     }
 
