@@ -51,7 +51,6 @@ impl Ans {
     /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
-        println!("using into_vec");
         let mut coder = Encoder::new();
         let mut out = Vec::new();
         for (b, probability) in self.bits.into_iter().rev() {
@@ -63,7 +62,6 @@ impl Ans {
 
         if !self.incompressible_bytes.is_empty() {
             let mut len = self.incompressible_bytes.len();
-            println!("It has {len} incompressible");
             // This is a funny tweak on LEB128.  We encode the length as 7-bit
             // bytes that are encoded little-endian, but then reversed and
             // decoded big-endian.  The "final" byte is indicated by the most
@@ -79,13 +77,8 @@ impl Ans {
             // Add the incompressible bytes in reverse at the end of the output, so
             // that we can read them back without knowing how many incompressible
             // bytes there are.
-            println!(
-                "incompressible bytes start as {:?}",
-                self.incompressible_bytes
-            );
             out.extend_from_slice(&self.incompressible_bytes);
         } else {
-            println!("Nothing incompressible here");
             let last = out.last().copied();
             if last == Some(MAGIC_HAS_INCOMPRESSIBLE) || last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
                 out.push(MAGIC_LACKS_INCOMPRESSIBLE);

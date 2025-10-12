@@ -149,6 +149,11 @@ pub struct Compressible;
 /// Examples would be encrypted or random bytes.  In this case, `compactly`
 /// abandons any attempt at compression (e.g. variable bitlength) and also
 /// adopts a faster algorithm where possible.
+///
+/// Note: there is a small 2-3 byte overhead (on an entire encoded value) for
+/// using `Incompressible` at all.  So ideally you would want to use it only
+/// when the encoded size is significant (so a couple of extra bytes won't
+/// matter) and encoding and decoding speed is important.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Incompressible;
 
