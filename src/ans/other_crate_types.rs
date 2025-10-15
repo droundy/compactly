@@ -40,3 +40,25 @@ mod nonmax {
     impl_encode_nonmax!(nonmax::NonMaxU32, u32);
     impl_encode_nonmax!(nonmax::NonMaxU64, u64);
 }
+
+#[cfg(feature = "uuid")]
+mod uuid {
+    use super::super::Encode;
+    use uuid::Uuid;
+
+    impl Encode for Uuid {
+        type Context = <(u64, u64) as Encode>::Context;
+        #[inline]
+        fn encode<E: super::super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+            self.as_u64_pair().encode(writer, ctx)
+        }
+        #[inline]
+        fn decode<D: super::super::EntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let (high, low) = <(u64, u64) as Encode>::decode(reader, ctx)?;
+            Ok(Uuid::from_u64_pair(high, low))
+        }
+    }
+}

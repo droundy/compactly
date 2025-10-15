@@ -16,6 +16,7 @@ generate_bit_context = []
 compactly-derive = { version = "0.1.3", path = "compactly-derive" }
 
 nonmax = { version = "0.5.5", optional = true }
+uuid = { version = "1.18.1", optional = true }
 
 [dev-dependencies]
 
