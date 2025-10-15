@@ -22,6 +22,7 @@ mod low_cardinality;
 mod maps;
 mod millibits;
 mod option;
+mod other_crate_types;
 mod raw;
 mod sets;
 mod string;

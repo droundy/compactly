@@ -1,6 +1,6 @@
 [package]
 name = "compactly"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Compactly encode data types using adaptive arithmetic coding"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,9 @@ generate_bit_context = []
 
 [dependencies]
 
-compactly-derive = { version = "0.1.2", path = "compactly-derive" }
+compactly-derive = { version = "0.1.3", path = "compactly-derive" }
+
+nonmax = { version = "0.5.5", optional = true }
 
 [dev-dependencies]
 
