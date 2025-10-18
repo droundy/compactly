@@ -139,7 +139,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         }
     });
     let num_variants = s.variants().len();
-    let discriminant_type = quote! { compactly::ans::ULessThan<#num_variants> };
+    let discriminant_type = quote! { compactly::v2::ULessThan<#num_variants> };
     let get_discriminant = |variant: &VariantInfo| -> usize {
         s.variants()
             .iter()
@@ -151,7 +151,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::ans::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant);
+            compactly::v2::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant);
         }
     });
 
@@ -190,7 +190,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::ans::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+        use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
         use compactly::{Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal, Sorted, Values};
 
         pub struct DerivedContext #context_generics {

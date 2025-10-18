@@ -10,6 +10,9 @@ readme = "README.md"
 [features]
 
 generate_bit_context = []
+v1 = []
+v2 = []
+default = ["v1", "v2"]
 
 [dependencies]
 

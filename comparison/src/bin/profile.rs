@@ -1,17 +1,17 @@
-use compactly::ans::{Ans, Raw};
+use compactly::v2::{Ans, Raw};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Serialize};
 
 trait Encodable:
-    compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned + PartialEq + Debug
+    compactly::v1::Encode + compactly::v2::Encode + Serialize + DeserializeOwned + PartialEq + Debug
 {
 }
 
 impl<T> Encodable for T where
     T: compactly::v1::Encode
-        + compactly::ans::Encode
+        + compactly::v2::Encode
         + Serialize
         + DeserializeOwned
         + PartialEq
@@ -47,17 +47,14 @@ impl Encoding for CompactlyV1 {
 struct CompactlyRange;
 impl Encoding for CompactlyRange {
     const NAME: &str = "compactly-range";
-    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        value: &T,
-    ) -> Vec<u8> {
-        compactly::ans::Range::encode(value)
+    fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+        compactly::v2::Range::encode(value)
     }
-    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+    fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(
         self,
         bytes: &[u8],
     ) -> Option<T> {
-        compactly::ans::Range::decode(bytes)
+        compactly::v2::Range::decode(bytes)
     }
 }
 
@@ -65,13 +62,10 @@ impl Encoding for CompactlyRange {
 struct CompactlyAns;
 impl Encoding for CompactlyAns {
     const NAME: &str = "compactly-ans";
-    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        value: &T,
-    ) -> Vec<u8> {
+    fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
         Ans::encode(value)
     }
-    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+    fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(
         self,
         bytes: &[u8],
     ) -> Option<T> {
@@ -83,13 +77,10 @@ impl Encoding for CompactlyAns {
 struct CompactlyRaw;
 impl Encoding for CompactlyRaw {
     const NAME: &str = "compactly-raw";
-    fn encode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
-        self,
-        value: &T,
-    ) -> Vec<u8> {
+    fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
         Raw::encode(value)
     }
-    fn decode<T: compactly::ans::Encode + Serialize + DeserializeOwned>(
+    fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(
         self,
         bytes: &[u8],
     ) -> Option<T> {
@@ -176,7 +167,7 @@ fn main() {
 
     // #[derive(
     //     compactly::v1::Encode,
-    //     compactly::ans::Encode,
+    //     compactly::v2::Encode,
     //     serde::Serialize,
     //     serde::Deserialize,
     //     PartialEq,

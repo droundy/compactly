@@ -14,7 +14,7 @@ const CSV: &str = include_str!("suicide.csv");
     Ord,
     Hash,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     Serialize,
     Deserialize,
 )]
@@ -33,7 +33,7 @@ pub struct Age {
     Ord,
     Hash,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     Serialize,
     Deserialize,
 )]
@@ -52,7 +52,7 @@ pub enum Sex {
     Ord,
     Hash,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     Serialize,
     Deserialize,
 )]
@@ -73,7 +73,7 @@ pub enum Race {
     Ord,
     Hash,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     Serialize,
     Deserialize,
 )]

@@ -17,9 +17,9 @@ const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
 ///
 /// # Example
 /// ```
-/// let encoded: Vec<u8> = compactly::ans::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
+/// let encoded: Vec<u8> = compactly::v2::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
 /// assert_eq!(encoded.len(), 24);
-/// assert_eq!(compactly::ans::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
+/// assert_eq!(compactly::v2::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ans {
@@ -322,8 +322,8 @@ fn ans_is_reasonable() {
 
 #[cfg(test)]
 mod test {
+    use super::super::bit_context::BitContext;
     use super::*;
-    use crate::ans::bit_context::BitContext;
 
     fn rand_context() -> (BitContext, bool) {
         let value_bool = rand::random::<bool>();

@@ -1,5 +1,6 @@
+#![cfg(all(feature = "v1", feature = "v2"))]
 use bincode1::{DefaultOptions, Options};
-use compactly::ans::Ans;
+use compactly::v2::Ans;
 use rand::{Rng, SeedableRng};
 use scaling::{bench_gen_env, bench_scaling_gen};
 
@@ -14,8 +15,8 @@ use std::{
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-trait Encodable: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned {}
-impl<T: compactly::v1::Encode + compactly::ans::Encode + Serialize + DeserializeOwned> Encodable
+trait Encodable: compactly::v1::Encode + compactly::v2::Encode + Serialize + DeserializeOwned {}
+impl<T: compactly::v1::Encode + compactly::v2::Encode + Serialize + DeserializeOwned> Encodable
     for T
 {
 }
@@ -29,10 +30,10 @@ trait Encoding: Debug + Clone + Copy + Default {
 struct Compactly;
 impl Encoding for Compactly {
     fn encode<T: Encodable>(self, value: &T) -> Vec<u8> {
-        compactly::ans::Range::encode(value)
+        compactly::v2::Range::encode(value)
     }
     fn decode<T: Encodable>(self, bytes: &[u8]) -> T {
-        compactly::ans::Range::decode(bytes).unwrap()
+        compactly::v2::Range::decode(bytes).unwrap()
     }
 }
 
@@ -332,7 +333,7 @@ fn main() {
     bench_scaling("btreeset<usize>", |sz| {
         (0..sz).map(|_| rng.gen::<usize>()).collect::<BTreeSet<_>>()
     });
-    #[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode)]
+    #[derive(Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode)]
     struct CompactSet {
         #[compactly(Small)]
         set: BTreeSet<u64>,
@@ -355,7 +356,7 @@ fn main() {
 
     #[derive(
         compactly::v1::Encode,
-        compactly::ans::Encode,
+        compactly::v2::Encode,
         Serialize,
         Deserialize,
         PartialEq,

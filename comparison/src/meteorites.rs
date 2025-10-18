@@ -7,7 +7,7 @@ const CSV: &str = include_str!("meteorites.csv"); // from NASA
     PartialEq,
     PartialOrd,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     serde::Serialize,
     serde::Deserialize,
 )]
@@ -21,7 +21,7 @@ pub enum NameType {
     PartialEq,
     PartialOrd,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     serde::Serialize,
     serde::Deserialize,
 )]
@@ -35,7 +35,7 @@ pub enum Fall {
     PartialEq,
     PartialOrd,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     serde::Serialize,
     serde::Deserialize,
 )]
@@ -61,7 +61,7 @@ pub struct Meteorite {
     PartialEq,
     PartialOrd,
     compactly::v1::Encode,
-    compactly::ans::Encode,
+    compactly::v2::Encode,
     serde::Serialize,
     serde::Deserialize,
 )]

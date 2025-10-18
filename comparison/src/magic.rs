@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct FullSet {
     meta: Meta,
@@ -11,7 +11,7 @@ pub struct FullSet {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct Meta {
     version: String,
@@ -19,7 +19,7 @@ pub struct Meta {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct Set {
     baseSetSize: usize,
@@ -30,7 +30,7 @@ pub struct Set {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct Card {
     #[compactly(LowCardinality)]
@@ -167,7 +167,7 @@ pub struct Card {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct LeadershipSkills {
     brawl: bool,
@@ -176,7 +176,7 @@ pub struct LeadershipSkills {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::ans::Encode, Clone, PartialEq,
+    Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct Identifiers {
     #[compactly(Compressible)]

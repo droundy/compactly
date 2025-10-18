@@ -112,11 +112,14 @@
 //! compactly will adaptivly learn the distinct patterns of values for each
 //! field.
 
-pub mod ans;
 mod encoded;
+#[cfg(feature = "v1")]
 pub mod v1;
+#[cfg(feature = "v2")]
+pub mod v2;
 
-pub use v1::{decode, encode, Encode};
+#[cfg(feature = "v2")]
+pub use v2::{decode, encode, Encode};
 
 /// A wrapper around a value causing it to be encoded with a particular strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

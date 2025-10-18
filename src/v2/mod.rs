@@ -3,7 +3,7 @@
 //! This format should be unmodified after the 1.0 release, except for addition
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
-pub use compactly_derive::EncodeAns as Encode;
+pub use compactly_derive::EncodeV2 as Encode;
 
 mod ans;
 mod arc;

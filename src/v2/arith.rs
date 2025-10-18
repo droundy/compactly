@@ -167,9 +167,9 @@ impl IntoIterator for Bytes {
 ///
 /// # Example
 /// ```
-/// let encoded: Vec<u8> = compactly::ans::Range::encode(&vec![5u64, 4, 3, 2, 1]);
+/// let encoded: Vec<u8> = compactly::v2::Range::encode(&vec![5u64, 4, 3, 2, 1]);
 /// assert_eq!(encoded.len(), 23);
-/// assert_eq!(compactly::ans::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
+/// assert_eq!(compactly::v2::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Range {

@@ -1,6 +1,6 @@
 fn main() {
     #[cfg(feature = "generate_bit_context")]
     {
-        compactly::ans::generate_bit_context::main();
+        compactly::v2::generate_bit_context::main();
     }
 }

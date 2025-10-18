@@ -1,3 +1,4 @@
+#![cfg(feature = "v1")]
 use std::{collections::BTreeSet, fmt::Debug};
 
 use compactly::{LowCardinality, Small, Values};
@@ -31,7 +32,7 @@ fn validate_encoding<T: Debug + compactly::v1::Encode + serde::Serialize>(value:
         && !std::fs::exists(&p).expect("Unable to look for files?")
     {
         println!("Am creating a new encoded file at {p}");
-        std::fs::write(filename(value), compactly::encode(value)).unwrap();
+        std::fs::write(filename(value), compactly::v1::encode(value)).unwrap();
     }
     let bytes = std::fs::read(&p).expect(&format!(
         "file {p} does not exist for {value:?}
