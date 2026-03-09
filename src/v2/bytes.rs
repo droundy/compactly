@@ -18,7 +18,7 @@ pub struct Lz77 {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Chunk {
-    literal: Vec<u8>,
+    literal: Box<[u8]>,
     /// Number of bytes in the chunk.
     length: u8,
     /// Value of 0 indicates current string, otherwise count back in old.
@@ -51,9 +51,15 @@ impl Lz77 {
         let mut out = Vec::new();
         let mut ctx = self.clone();
         while let Some(chunk) = ctx.eager_chunk(&mut value, &mut sofar) {
+            // println!(
+            //     "so far I found {} chunks and {} bytes to go.",
+            //     out.len(),
+            //     value.len()
+            // );
             chunk.encode(&mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
+        println!("Finished with eager");
         out
     }
     fn eager_chunk(&mut self, value: &mut &[u8], sofar: &mut Vec<u8>) -> Option<Chunk> {
@@ -118,7 +124,7 @@ impl Lz77 {
                 *value = &value[length as usize..];
                 sofar.extend_from_slice(&prefix[..length as usize]);
                 let chunk = Chunk {
-                    literal,
+                    literal: literal.into_boxed_slice(),
                     length,
                     back,
                     offset,
@@ -136,7 +142,7 @@ impl Lz77 {
             None
         } else {
             Some(Chunk {
-                literal,
+                literal: literal.into_boxed_slice(),
                 length: 0,
                 back: 0,
                 offset: 0,
@@ -145,7 +151,9 @@ impl Lz77 {
     }
 
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
+        println!("Choosing chunks with value of length {}", value.len());
         let chunks = self.eager(value);
+        println!("Compressing {} chunks", chunks.len());
         Small::encode(&chunks.len(), writer, &mut self.count);
         for chunk in chunks {
             chunk.encode(writer, self);
@@ -196,7 +204,7 @@ fn eager() {
             assert_eq!(
                 Lz77::default().eager($s),
                 vec![Chunk {
-                    literal: $s.to_vec(),
+                    literal: $s.to_vec().into_boxed_slice(),
                     length: 0,
                     back: 0,
                     offset: 0
@@ -222,7 +230,7 @@ fn eager() {
     assert_eq!(
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
         vec![Chunk {
-            literal: b"aaaaa".to_vec(),
+            literal: b"aaaaa".to_vec().into_boxed_slice(),
             length: 15,
             back: 0,
             offset: 4,
@@ -349,7 +357,7 @@ impl Encode for Chunk {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let literal = <Vec<u8> as Encode>::decode(reader, &mut ctx.literal)?;
+        let literal = <Box<[u8]> as Encode>::decode(reader, &mut ctx.literal)?;
         let length = <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
         if length > 0 {
             let back = Small::decode(reader, &mut ctx.back)?;
@@ -459,7 +467,7 @@ fn size() {
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
     assert_eq!(
         Chunk {
-            literal: b"a".to_vec(),
+            literal: b"a".to_vec().into_boxed_slice(),
             length: 0,
             back: 0,
             offset: 0
@@ -469,7 +477,7 @@ fn size() {
     );
     assert_eq!(
         Chunk {
-            literal: Vec::new(),
+            literal: Box::new([]),
             back: 0,
             offset: 0,
             length: 2

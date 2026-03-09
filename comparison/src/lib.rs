@@ -1,3 +1,4 @@
+pub mod books;
 mod magic;
 pub mod meteorites;
 pub mod suicide;

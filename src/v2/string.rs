@@ -152,6 +152,7 @@ Lossless compression is used in cases where it is important that the original an
 impl EncodingStrategy<String> for Compressible {
     type Context = super::bytes::Lz77;
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
+        println!("Encoding a compressible string");
         ctx.encode(value.as_bytes(), writer)
     }
 

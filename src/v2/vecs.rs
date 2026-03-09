@@ -15,6 +15,21 @@ impl<T: Encode> Encode for Vec<T> {
         crate::Values::<Normal>::decode(reader, ctx)
     }
 }
+
+impl<T: Encode> Encode for Box<[T]> {
+    type Context = Context<T, Normal>;
+    #[inline]
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        crate::Values::<Normal>::encode(self, writer, ctx)
+    }
+    #[inline]
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        crate::Values::<Normal>::decode(reader, ctx)
+    }
+}
 #[test]
 fn size() {
     use super::assert_bits;
@@ -62,6 +77,27 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         Ok(x)
     }
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&value.len(), writer, &mut ctx.len);
+        for v in value {
+            S::encode(v, writer, &mut ctx.values);
+        }
+    }
+}
+
+impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> {
+    type Context = Context<T, S>;
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Box<[T]>, std::io::Error> {
+        let n = Small::decode(reader, &mut ctx.len)?;
+        let mut x = Vec::with_capacity(n);
+        for _ in 0..n {
+            x.push(S::decode(reader, &mut ctx.values)?);
+        }
+        Ok(x.into_boxed_slice())
+    }
+    fn encode<E: super::EntropyCoder>(value: &Box<[T]>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
         for v in value {
             S::encode(v, writer, &mut ctx.values);

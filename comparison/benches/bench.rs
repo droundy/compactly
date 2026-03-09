@@ -184,10 +184,10 @@ fn bench_all<T: Encodable>(name: &str, values: &[T]) {
             "--------"
         );
     }
-    bench_one(CompactlyV1, values);
     bench_one(CompactlyRange, values);
     bench_one(CompactlyAns, values);
-    bench_one(CompactlyRaw, values);
+    // bench_one(CompactlyV1, values);
+    // bench_one(CompactlyRaw, values);
     bench_one(
         Zstd {
             encoding: BincodeVar,
@@ -231,6 +231,7 @@ fn format_sz(sz: f64) -> String {
 }
 
 fn main() {
+    bench_all("books", &comparison::books::books());
     let suicide_vec = comparison::suicides_per_million()
         .keys()
         .cloned()
