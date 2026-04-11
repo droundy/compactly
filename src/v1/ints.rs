@@ -347,95 +347,161 @@ fn compact_u32() {
 }
 
 macro_rules! impl_signed {
-    ($signed:ident, $unsigned:ident, $context:ident) => {
-        impl Encode for $signed {
-            type Context = <$unsigned as Encode>::Context;
-            #[inline]
-            fn encode<W: Write>(
-                &self,
-                writer: &mut super::Writer<W>,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
+    ($signed:ident, $unsigned:ident, $mod:ident) => {
+        mod $mod {
+            use super::*;
+            impl Encode for $signed {
+                type Context = <$unsigned as Encode>::Context;
+                #[inline]
+                fn encode<W: Write>(
+                    &self,
+                    writer: &mut super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
+                }
+                #[inline]
+                fn decode<R: Read>(
+                    reader: &mut super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let v = $unsigned::decode(reader, ctx)?;
+                    Ok($signed::from_le_bytes(v.to_le_bytes()))
+                }
             }
-            #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
-                ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                let v = $unsigned::decode(reader, ctx)?;
-                Ok($signed::from_le_bytes(v.to_le_bytes()))
-            }
-        }
 
-        #[derive(Clone)]
-        pub struct $context {
-            is_negative: <bool as Encode>::Context,
-            positive: <Small as EncodingStrategy<$unsigned>>::Context,
-            negative: <Small as EncodingStrategy<$unsigned>>::Context,
-        }
-        impl Default for $context {
-            #[inline]
-            fn default() -> Self {
-                Self {
-                    is_negative: Default::default(),
-                    positive: Default::default(),
-                    negative: Default::default(),
+            #[derive(Clone)]
+            pub struct Context {
+                is_negative: <bool as Encode>::Context,
+                positive: <Small as EncodingStrategy<$unsigned>>::Context,
+                negative: <Small as EncodingStrategy<$unsigned>>::Context,
+            }
+            impl Default for Context {
+                #[inline]
+                fn default() -> Self {
+                    Self {
+                        is_negative: Default::default(),
+                        positive: Default::default(),
+                        negative: Default::default(),
+                    }
                 }
             }
-        }
 
-        impl EncodingStrategy<$signed> for Small {
-            type Context = $context;
-            #[inline]
-            fn encode<W: Write>(
-                value: &$signed,
-                writer: &mut super::Writer<W>,
-                ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
-                (*value < 0).encode(writer, &mut ctx.is_negative)?;
-                if *value < 0 {
-                    Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
-                } else {
-                    Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+            impl EncodingStrategy<$signed> for Small {
+                type Context = Context;
+                #[inline]
+                fn encode<W: Write>(
+                    value: &$signed,
+                    writer: &mut super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    (*value < 0).encode(writer, &mut ctx.is_negative)?;
+                    if *value < 0 {
+                        Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
+                    } else {
+                        Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+                    }
+                }
+                fn millibits(value: &$signed, ctx: &mut Self::Context) -> Option<usize> {
+                    let mut tot = (*value < 0).millibits(&mut ctx.is_negative)?;
+                    if *value < 0 {
+                        tot += Small::millibits(&value.abs_diff(-1), &mut ctx.negative)?;
+                    } else {
+                        tot += Small::millibits(&value.abs_diff(0), &mut ctx.positive)?;
+                    }
+                    Some(tot)
+                }
+                #[inline]
+                fn decode<R: Read>(
+                    reader: &mut super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    if bool::decode(reader, &mut ctx.is_negative)? {
+                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
+                            reader,
+                            &mut ctx.negative,
+                        )?;
+                        Ok(-1 - (p as $signed))
+                    } else {
+                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
+                            reader,
+                            &mut ctx.positive,
+                        )?;
+                        Ok(p as $signed)
+                    }
                 }
             }
-            fn millibits(value: &$signed, ctx: &mut Self::Context) -> Option<usize> {
-                let mut tot = (*value < 0).millibits(&mut ctx.is_negative)?;
-                if *value < 0 {
-                    tot += Small::millibits(&value.abs_diff(-1), &mut ctx.negative)?;
-                } else {
-                    tot += Small::millibits(&value.abs_diff(0), &mut ctx.positive)?;
-                }
-                Some(tot)
+            #[derive(Default, Clone)]
+            pub struct SortedContext {
+                previous: Option<$signed>,
+                not_sorted: <bool as Encode>::Context,
+                value: <Small as EncodingStrategy<$signed>>::Context,
+                difference: <Small as EncodingStrategy<$unsigned>>::Context,
             }
-            #[inline]
-            fn decode<R: Read>(
-                reader: &mut super::Reader<R>,
-                ctx: &mut Self::Context,
-            ) -> Result<$signed, std::io::Error> {
-                if bool::decode(reader, &mut ctx.is_negative)? {
-                    let p =
-                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.negative)?;
-                    Ok(-1 - (p as $signed))
-                } else {
-                    let p =
-                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.positive)?;
-                    Ok(p as $signed)
+
+            impl EncodingStrategy<$signed> for Sorted {
+                type Context = SortedContext;
+                fn encode<W: Write>(
+                    value: &$signed,
+                    writer: &mut super::Writer<W>,
+                    ctx: &mut Self::Context,
+                ) -> Result<(), std::io::Error> {
+                    if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = *value < previous;
+                        not_sorted.encode(writer, &mut ctx.not_sorted)?;
+                        if not_sorted {
+                            Small::encode(value, writer, &mut ctx.value)?;
+                        } else {
+                            Small::encode(
+                                &(value.abs_diff(previous)),
+                                writer,
+                                &mut ctx.difference,
+                            )?;
+                        }
+                    } else {
+                        Small::encode(value, writer, &mut ctx.value)?;
+                    }
+                    ctx.previous = Some(*value);
+                    Ok(())
+                }
+                fn decode<R: Read>(
+                    reader: &mut super::Reader<R>,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    let out = if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+                        if not_sorted {
+                            Small::decode(reader, &mut ctx.value)?
+                        } else {
+                            previous
+                                .checked_add_unsigned(
+                                    <Small as EncodingStrategy<$unsigned>>::decode(
+                                        reader,
+                                        &mut ctx.difference,
+                                    )?,
+                                )
+                                .ok_or_else(|| std::io::Error::other("invalid addition"))?
+                        }
+                    } else {
+                        Small::decode(reader, &mut ctx.value)?
+                    };
+                    ctx.previous = Some(out);
+                    Ok(out)
                 }
             }
         }
     };
 }
 
-impl_signed!(i16, u16, SignedI16Context);
-impl_signed!(i32, u32, SignedI32Context);
-impl_signed!(i64, u64, SignedI64Context);
+impl_signed!(i16, u16, mod_i16);
+impl_signed!(i32, u32, mod_i32);
+impl_signed!(i64, u64, mod_i64);
 
 #[test]
 fn signed() {
-    use super::assert_bits;
+    use super::{assert_bits, assert_size};
     use crate::{Encoded, Small};
+    use std::collections::BTreeSet;
 
     assert_bits!(Encoded::<_, Small>::new(0_i32), 7);
     assert_bits!(Encoded::<_, Small>::new(1_i32), 7);
@@ -474,4 +540,7 @@ fn signed() {
         println!("testing {v}");
         assert_bits!(v, 25);
     }
+
+    assert_size!(BTreeSet::from([-1i16, 0, 1, 2]), 4);
+    assert_size!(BTreeSet::from([i16::MIN, i16::MAX]), 6);
 }

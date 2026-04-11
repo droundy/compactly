@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, Small, ULessThan};
+use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan};
 use crate::{Incompressible, Sorted};
 
 macro_rules! impl_uint {
@@ -24,11 +24,7 @@ macro_rules! impl_uint {
             impl Encode for $t {
                 type Context = Context;
                 #[inline]
-                fn encode<E: super::super::EntropyCoder>(
-                    &self,
-                    writer: &mut E,
-                    ctx: &mut Self::Context,
-                ) {
+                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     let mut am_leading = true;
                     for i in (0..$bits).rev() {
                         let bit = (*self & (1 << i)) != 0;
@@ -41,7 +37,7 @@ macro_rules! impl_uint {
                     }
                 }
                 #[inline]
-                fn decode<D: super::super::EntropyDecoder>(
+                fn decode<D: EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
@@ -73,11 +69,7 @@ macro_rules! impl_uint {
 
             impl EncodingStrategy<$t> for Sorted {
                 type Context = SortedContext;
-                fn encode<E: super::super::EntropyCoder>(
-                    value: &$t,
-                    writer: &mut E,
-                    ctx: &mut Self::Context,
-                ) {
+                fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                     if let Some(previous) = ctx.previous.take() {
                         let not_sorted = *value < previous;
                         not_sorted.encode(writer, &mut ctx.not_sorted);
@@ -91,7 +83,7 @@ macro_rules! impl_uint {
                     }
                     ctx.previous = Some(*value);
                 }
-                fn decode<D: super::super::EntropyDecoder>(
+                fn decode<D: EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
@@ -116,14 +108,10 @@ macro_rules! impl_uint {
 
             impl EncodingStrategy<$t> for Incompressible {
                 type Context = ();
-                fn encode<E: super::super::EntropyCoder>(
-                    value: &$t,
-                    writer: &mut E,
-                    _ctx: &mut Self::Context,
-                ) {
+                fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, _ctx: &mut Self::Context) {
                     writer.encode_incompressible_bytes(&value.to_le_bytes())
                 }
-                fn decode<D: super::super::EntropyDecoder>(
+                fn decode<D: EntropyDecoder>(
                     reader: &mut D,
                     _ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
@@ -231,7 +219,7 @@ macro_rules! impl_compact {
 
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
-            fn encode<E: super::EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
+            fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let uleading = value.leading_zeros() as usize;
                 let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
                 leading_zeros.encode(writer, &mut ctx.leading_zeros);
@@ -242,7 +230,7 @@ macro_rules! impl_compact {
                     ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i]);
                 }
             }
-            fn decode<D: super::EntropyDecoder>(
+            fn decode<D: EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
@@ -330,82 +318,143 @@ fn compact_u32() {
 }
 
 macro_rules! impl_signed {
-    ($signed:ident, $unsigned:ident, $context:ident) => {
-        impl Encode for $signed {
-            type Context = <$unsigned as Encode>::Context;
-            #[inline]
-            fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
-            }
-            #[inline]
-            fn decode<D: super::EntropyDecoder>(
-                reader: &mut D,
-                ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                let v = $unsigned::decode(reader, ctx)?;
-                Ok($signed::from_le_bytes(v.to_le_bytes()))
-            }
-        }
-
-        #[derive(Clone)]
-        pub struct $context {
-            is_negative: <bool as Encode>::Context,
-            positive: <Small as EncodingStrategy<$unsigned>>::Context,
-            negative: <Small as EncodingStrategy<$unsigned>>::Context,
-        }
-        impl Default for $context {
-            #[inline]
-            fn default() -> Self {
-                Self {
-                    is_negative: Default::default(),
-                    positive: Default::default(),
-                    negative: Default::default(),
+    ($signed:ident, $unsigned:ident, $mod:ident) => {
+        mod $mod {
+            use super::*;
+            impl Encode for $signed {
+                type Context = <$unsigned as Encode>::Context;
+                #[inline]
+                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                    $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
+                }
+                #[inline]
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let v = $unsigned::decode(reader, ctx)?;
+                    Ok($signed::from_le_bytes(v.to_le_bytes()))
                 }
             }
-        }
 
-        impl EncodingStrategy<$signed> for Small {
-            type Context = $context;
-            #[inline]
-            fn encode<E: super::EntropyCoder>(
-                value: &$signed,
-                writer: &mut E,
-                ctx: &mut Self::Context,
-            ) {
-                (*value < 0).encode(writer, &mut ctx.is_negative);
-                if *value < 0 {
-                    Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
-                } else {
-                    Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+            #[derive(Clone)]
+            pub struct Context {
+                is_negative: <bool as Encode>::Context,
+                positive: <Small as EncodingStrategy<$unsigned>>::Context,
+                negative: <Small as EncodingStrategy<$unsigned>>::Context,
+            }
+            impl Default for Context {
+                #[inline]
+                fn default() -> Self {
+                    Self {
+                        is_negative: Default::default(),
+                        positive: Default::default(),
+                        negative: Default::default(),
+                    }
                 }
             }
-            #[inline]
-            fn decode<D: super::EntropyDecoder>(
-                reader: &mut D,
-                ctx: &mut Self::Context,
-            ) -> Result<$signed, std::io::Error> {
-                if bool::decode(reader, &mut ctx.is_negative)? {
-                    let p =
-                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.negative)?;
-                    Ok(-1 - (p as $signed))
-                } else {
-                    let p =
-                        <Small as EncodingStrategy<$unsigned>>::decode(reader, &mut ctx.positive)?;
-                    Ok(p as $signed)
+
+            impl EncodingStrategy<$signed> for Small {
+                type Context = Context;
+                #[inline]
+                fn encode<E: EntropyCoder>(
+                    value: &$signed,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    (*value < 0).encode(writer, &mut ctx.is_negative);
+                    if *value < 0 {
+                        Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
+                    } else {
+                        Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+                    }
+                }
+                #[inline]
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    if bool::decode(reader, &mut ctx.is_negative)? {
+                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
+                            reader,
+                            &mut ctx.negative,
+                        )?;
+                        Ok(-1 - (p as $signed))
+                    } else {
+                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
+                            reader,
+                            &mut ctx.positive,
+                        )?;
+                        Ok(p as $signed)
+                    }
+                }
+            }
+            #[derive(Default, Clone)]
+            pub struct SortedContext {
+                previous: Option<$signed>,
+                not_sorted: <bool as Encode>::Context,
+                value: <Small as EncodingStrategy<$signed>>::Context,
+                difference: <Small as EncodingStrategy<$unsigned>>::Context,
+            }
+
+            impl EncodingStrategy<$signed> for Sorted {
+                type Context = SortedContext;
+                fn encode<E: EntropyCoder>(
+                    value: &$signed,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = *value < previous;
+                        not_sorted.encode(writer, &mut ctx.not_sorted);
+                        if not_sorted {
+                            Small::encode(value, writer, &mut ctx.value);
+                        } else {
+                            Small::encode(&(value.abs_diff(previous)), writer, &mut ctx.difference);
+                        }
+                    } else {
+                        Small::encode(value, writer, &mut ctx.value);
+                    }
+                    ctx.previous = Some(*value);
+                }
+                fn decode<E: EntropyDecoder>(
+                    reader: &mut E,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    let out = if let Some(previous) = ctx.previous.take() {
+                        let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+                        if not_sorted {
+                            Small::decode(reader, &mut ctx.value)?
+                        } else {
+                            previous
+                                .checked_add_unsigned(
+                                    <Small as EncodingStrategy<$unsigned>>::decode(
+                                        reader,
+                                        &mut ctx.difference,
+                                    )?,
+                                )
+                                .ok_or_else(|| std::io::Error::other("invalid addition"))?
+                        }
+                    } else {
+                        Small::decode(reader, &mut ctx.value)?
+                    };
+                    ctx.previous = Some(out);
+                    Ok(out)
                 }
             }
         }
     };
 }
 
-impl_signed!(i16, u16, SignedI16Context);
-impl_signed!(i32, u32, SignedI32Context);
-impl_signed!(i64, u64, SignedI64Context);
+impl_signed!(i16, u16, mod_i16);
+impl_signed!(i32, u32, mod_i32);
+impl_signed!(i64, u64, mod_i64);
 
 #[test]
 fn signed() {
-    use super::assert_bits;
+    use super::{assert_bits, raw_bits};
     use crate::{Encoded, Small};
+    use std::collections::BTreeSet;
 
     assert_bits!(Encoded::<_, Small>::new(0_i32), 7);
     assert_bits!(Encoded::<_, Small>::new(1_i32), 7);
@@ -444,4 +493,10 @@ fn signed() {
         println!("testing {v}");
         assert_bits!(v, 25);
     }
+
+    use super::Millibits;
+    raw_bits!(BTreeSet::from([-1i16, 0, 1, 2]), 32, Millibits::new(25982));
+    raw_bits!(BTreeSet::from([-1i64, 0, 1, 2]), 40, Millibits::new(31976));
+    raw_bits!(BTreeSet::from([i16::MIN, i16::MAX]), 42);
+    raw_bits!(BTreeSet::from([i64::MIN, i64::MAX]), 142);
 }
