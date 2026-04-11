@@ -225,7 +225,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             fn decode<D: EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
+            ) -> Result<Self, std::io::Error> {25982
                 let discriminant: #discriminant_type = Encode::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
