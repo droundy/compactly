@@ -39,7 +39,6 @@ pub(crate) fn derive_compactly(
     let mut bound_names = BTreeSet::new();
 
     s.binding_name(|field, i| {
-        println!("Field: {:?}", field);
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
                 for idx in 0..10_000 {
