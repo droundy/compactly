@@ -15,7 +15,8 @@ impl EncodingStrategy {
             .iter()
             .filter_map(|a| {
                 if a.path().is_ident("compactly") {
-                    let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
+                    let strategy: syn::Type =
+                        a.parse_args().expect("Unrecognize strategy");
                     Some(EncodingStrategy(strategy))
                 } else {
                     None
@@ -25,18 +26,24 @@ impl EncodingStrategy {
         match attrs.as_slice() {
             [] => None,
             [s] => Some(s.clone()),
-            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
+            _ => panic!(
+                "Cannot support multiple encoding strategies: {binding:?}"
+            ),
         }
     }
 }
 
-pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
+pub(crate) fn derive_compactly(
+    mut s: synstructure::Structure,
+) -> proc_macro2::TokenStream {
     let mut bound_names = BTreeSet::new();
+
     s.binding_name(|field, i| {
+        println!("Field: {:?}", field);
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
-                for i in 0..10_000 {
-                    let ident = Ident::new(&format!("{name}_{i}"), Span::call_site());
+                for idx in 0..10_000 {
+                    let ident = Ident::new(&format!("{name}_{idx}"), Span::call_site());
                     if !bound_names.contains(&ident) {
                         bound_names.insert(ident.clone());
                         return ident;
@@ -48,7 +55,15 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 name.clone()
             }
         } else {
-            let ident = Ident::new(&format!("__binding_{i}"), Span::call_site());
+            let ident = {
+                let ident = Ident::new(&format!("__binding_{i}"), Span::call_site());
+            if bound_names.contains(&ident){
+                crate::get_unique_name(&bound_names, "__binding_", 10000)
+            }
+            else {
+                ident
+            }
+        };
             assert!(!bound_names.contains(&ident));
             bound_names.insert(ident.clone());
             ident
@@ -56,7 +71,8 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     });
 
     let encode_trait = syn::parse_str::<TraitBound>("Encode").unwrap();
-    let (_impl_generics, _ty_generics, where_clause) = s.ast().generics.split_for_impl();
+    let (_impl_generics, _ty_generics, where_clause) =
+        s.ast().generics.split_for_impl();
     let mut where_clause = where_clause.cloned();
     s.add_trait_bounds(
         &encode_trait,
@@ -87,12 +103,11 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     } else {
         quote! { <#(#context_types),*> }
     };
-    let mut binding_strategies: HashMap<Ident, Option<EncodingStrategy>> = HashMap::new();
+    let mut binding_strategies: HashMap<Ident, Option<EncodingStrategy>> =
+        HashMap::new();
     let mut strategies = Vec::new();
-    for binding in s
-        .variants()
-        .iter()
-        .flat_map(|variant| variant.bindings().iter())
+    for binding in
+        s.variants().iter().flat_map(|variant| variant.bindings().iter())
     {
         let strategy = EncodingStrategy::parse(binding);
         strategies.push(strategy.clone());
@@ -121,7 +136,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let bindings = s
         .variants()
         .iter()
-        .flat_map(|variant| variant.bindings().iter().map(|binding| &binding.binding))
+        .flat_map(|variant| {
+            variant.bindings().iter().map(|binding| &binding.binding)
+        })
         .collect::<Vec<_>>();
 
     let encode_fields = s.each(|binding| {
