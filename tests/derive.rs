@@ -66,6 +66,35 @@ fn zero_size() {
 }
 
 #[test]
+fn newtype() {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        compactly::v2::Encode,
+        // compactly::v1::Encode,
+    )]
+    #[compactly(Sorted, Small)]
+    pub struct NewType(u32);
+
+    // assert_bits!(NewType(0), 32, 32);
+    // assert_bits!(NewType(13), 32, 32);
+    assert_eq!(
+        compactly::v2::encode_with(compactly::Sorted, &NewType(0)).len(),
+        1
+    );
+    // assert_bits!(
+    //     std::collections::BTreeSet::from([NewType(0), NewType(1)]),
+    //     33,
+    //     33
+    // );
+}
+
+#[test]
 fn record() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple {

@@ -17,3 +17,5 @@ syn = "2.0.96"
 
 [dev-dependencies]
 compactly = { path = ".." }
+prettyplease = "0.2.37"
+expect-test = "1.5.1"

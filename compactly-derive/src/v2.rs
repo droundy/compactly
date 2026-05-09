@@ -1,28 +1,31 @@
 use std::collections::{BTreeSet, HashMap};
 
 use proc_macro2::{Ident, Span};
-use quote::quote;
-use syn::{GenericParam, TraitBound};
+use quote::{quote, ToTokens};
+use syn::{Attribute, GenericParam, TraitBound};
 use synstructure::{BindingInfo, VariantInfo};
 
 #[derive(Debug, Clone)]
 struct EncodingStrategy(syn::Type);
 impl EncodingStrategy {
+    fn parse_attrs(attrs: &[Attribute]) -> Vec<EncodingStrategy> {
+        let mut strategies: Vec<EncodingStrategy> = Vec::new();
+        for a in attrs {
+            if a.path().is_ident("compactly") {
+                a.parse_nested_meta(|meta| {
+                    strategies.push(EncodingStrategy(syn::Type::Path(syn::TypePath {
+                        qself: None,
+                        path: meta.path,
+                    })));
+                    Ok(())
+                })
+                .expect("compactly wants a list of strategies: {a}");
+            }
+        }
+        strategies
+    }
     fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
-        let attrs = binding
-            .ast()
-            .attrs
-            .iter()
-            .filter_map(|a| {
-                if a.path().is_ident("compactly") {
-                    let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
-                    Some(EncodingStrategy(strategy))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        match attrs.as_slice() {
+        match Self::parse_attrs(&binding.ast().attrs).as_slice() {
             [] => None,
             [s] => Some(s.clone()),
             _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
@@ -188,6 +191,40 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
     };
 
+    let strategies_to_impl = EncodingStrategy::parse_attrs(&s.ast().attrs);
+    let impl_strategies = if strategies_to_impl.is_empty() {
+        Vec::new()
+    } else {
+        let typename = s.ast().ident.clone();
+        assert_eq!(num_variants, 1, "Cannot derive strategy for an enum");
+        let bindings = s.variants()[0].bindings();
+        assert_eq!(
+            bindings.len(),
+            1,
+            "Can only derive strategy for newtype structs"
+        );
+        let binding = &bindings[0];
+        strategies_to_impl
+        .into_iter()
+        .map(|EncodingStrategy(strategy)| {
+            let ty = binding.ast().ty.clone();
+            let field_name = binding.ast().ident.as_ref().map(|i| i.to_token_stream()).unwrap_or(quote! {0});
+            let decoded = s.variants()[0].construct(|_, _| quote! { <#strategy as EncodingStrategy<#ty>>::decode(reader, ctx)? });
+            quote! {
+                impl EncodingStrategy<#typename> for #strategy {
+                    type Context = <#strategy as EncodingStrategy<#ty>>::Context;
+                    fn encode<E: EntropyCoder>(value: &#typename, writer: &mut E, ctx: &mut Self::Context) {
+                        <#strategy as EncodingStrategy<#ty>>::encode(&value.#field_name, writer, ctx)
+                    }
+                    fn decode<D: EntropyDecoder>(reader: &mut D, ctx: &mut Self::Context) -> Result<#typename, std::io::Error> {
+                        Ok(#decoded)
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+    };
+
     s.gen_impl(quote! {
         extern crate compactly;
         use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
@@ -214,6 +251,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             }
         }
 
+        #(#impl_strategies)*
 
         gen impl Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
@@ -231,4 +269,298 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             }
         }
     })
+}
+
+#[cfg(test)]
+fn pretty(tokens: proc_macro2::TokenStream) -> String {
+    if let Ok(syntax_tree) = syn::parse2::<syn::File>(tokens.clone()) {
+        prettyplease::unparse(&syntax_tree)
+    } else {
+        tokens.to_string()
+    }
+}
+
+#[test]
+fn impl_two_strategies() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        #[compactly(Small)]
+        #[compactly(Sorted)]
+        pub struct NewType(u32);
+    };
+    let s = synstructure::Structure::new(&di);
+
+    expect_test::expect![[r#"
+        const _: () = {
+            extern crate compactly;
+            use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+            use compactly::{
+                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
+                Sorted, Values,
+            };
+            pub struct DerivedContext {
+                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                __binding_0: <u32 as Encode>::Context,
+            }
+            impl Default for DerivedContext {
+                fn default() -> Self {
+                    Self {
+                        discriminant: Default::default(),
+                        __binding_0: Default::default(),
+                    }
+                }
+            }
+            impl Clone for DerivedContext {
+                fn clone(&self) -> Self {
+                    Self {
+                        discriminant: self.discriminant.clone(),
+                        __binding_0: self.__binding_0.clone(),
+                    }
+                }
+            }
+            impl EncodingStrategy<NewType> for Small {
+                type Context = <Small as EncodingStrategy<u32>>::Context;
+                fn encode<E: EntropyCoder>(
+                    value: &NewType,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    <Small as EncodingStrategy<u32>>::encode(&value.0, writer, ctx)
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<NewType, std::io::Error> {
+                    Ok(NewType(<Small as EncodingStrategy<u32>>::decode(reader, ctx)?))
+                }
+            }
+            impl EncodingStrategy<NewType> for Sorted {
+                type Context = <Sorted as EncodingStrategy<u32>>::Context;
+                fn encode<E: EntropyCoder>(
+                    value: &NewType,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    <Sorted as EncodingStrategy<u32>>::encode(&value.0, writer, ctx)
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<NewType, std::io::Error> {
+                    Ok(NewType(<Sorted as EncodingStrategy<u32>>::decode(reader, ctx)?))
+                }
+            }
+            impl Encode for NewType {
+                #![allow(unused_variables, non_shorthand_field_patterns)]
+                type Context = DerivedContext;
+                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                    match self {
+                        NewType(ref __binding_0) => {
+                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                                .encode(writer, &mut ctx.discriminant);
+                        }
+                    }
+                    match self {
+                        NewType(ref __binding_0) => {
+                            __binding_0.encode(writer, &mut ctx.__binding_0);
+                        }
+                    }
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                        reader,
+                        &mut ctx.discriminant,
+                    )?;
+                    Ok(
+                        match usize::from(discriminant) {
+                            0usize => NewType(Encode::decode(reader, &mut ctx.__binding_0)?),
+                            _ => {
+                                return Err(
+                                    std::io::Error::other(
+                                        "This discriminant should be impossible",
+                                    ),
+                                );
+                            }
+                        },
+                    )
+                }
+            }
+        };
+    "#]]
+    .assert_eq(&pretty(derive_compactly(s)));
+}
+
+#[test]
+fn impl_strategies() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        #[compactly(Sorted)]
+        pub struct NewType(u32);
+    };
+    let s = synstructure::Structure::new(&di);
+
+    expect_test::expect![[r#"
+        const _: () = {
+            extern crate compactly;
+            use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+            use compactly::{
+                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
+                Sorted, Values,
+            };
+            pub struct DerivedContext {
+                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                __binding_0: <u32 as Encode>::Context,
+            }
+            impl Default for DerivedContext {
+                fn default() -> Self {
+                    Self {
+                        discriminant: Default::default(),
+                        __binding_0: Default::default(),
+                    }
+                }
+            }
+            impl Clone for DerivedContext {
+                fn clone(&self) -> Self {
+                    Self {
+                        discriminant: self.discriminant.clone(),
+                        __binding_0: self.__binding_0.clone(),
+                    }
+                }
+            }
+            impl EncodingStrategy<NewType> for Sorted {
+                type Context = <Sorted as EncodingStrategy<u32>>::Context;
+                fn encode<E: EntropyCoder>(
+                    value: &NewType,
+                    writer: &mut E,
+                    ctx: &mut Self::Context,
+                ) {
+                    <Sorted as EncodingStrategy<u32>>::encode(&value.0, writer, ctx)
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<NewType, std::io::Error> {
+                    Ok(NewType(<Sorted as EncodingStrategy<u32>>::decode(reader, ctx)?))
+                }
+            }
+            impl Encode for NewType {
+                #![allow(unused_variables, non_shorthand_field_patterns)]
+                type Context = DerivedContext;
+                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                    match self {
+                        NewType(ref __binding_0) => {
+                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                                .encode(writer, &mut ctx.discriminant);
+                        }
+                    }
+                    match self {
+                        NewType(ref __binding_0) => {
+                            __binding_0.encode(writer, &mut ctx.__binding_0);
+                        }
+                    }
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                        reader,
+                        &mut ctx.discriminant,
+                    )?;
+                    Ok(
+                        match usize::from(discriminant) {
+                            0usize => NewType(Encode::decode(reader, &mut ctx.__binding_0)?),
+                            _ => {
+                                return Err(
+                                    std::io::Error::other(
+                                        "This discriminant should be impossible",
+                                    ),
+                                );
+                            }
+                        },
+                    )
+                }
+            }
+        };
+    "#]]
+    .assert_eq(&pretty(derive_compactly(s)));
+}
+
+#[test]
+fn impl_newtype() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct NewType(u32);
+    };
+    let s = synstructure::Structure::new(&di);
+
+    expect_test::expect![[r#"
+        const _: () = {
+            extern crate compactly;
+            use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+            use compactly::{
+                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
+                Sorted, Values,
+            };
+            pub struct DerivedContext {
+                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                __binding_0: <u32 as Encode>::Context,
+            }
+            impl Default for DerivedContext {
+                fn default() -> Self {
+                    Self {
+                        discriminant: Default::default(),
+                        __binding_0: Default::default(),
+                    }
+                }
+            }
+            impl Clone for DerivedContext {
+                fn clone(&self) -> Self {
+                    Self {
+                        discriminant: self.discriminant.clone(),
+                        __binding_0: self.__binding_0.clone(),
+                    }
+                }
+            }
+            impl Encode for NewType {
+                #![allow(unused_variables, non_shorthand_field_patterns)]
+                type Context = DerivedContext;
+                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                    match self {
+                        NewType(ref __binding_0) => {
+                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                                .encode(writer, &mut ctx.discriminant);
+                        }
+                    }
+                    match self {
+                        NewType(ref __binding_0) => {
+                            __binding_0.encode(writer, &mut ctx.__binding_0);
+                        }
+                    }
+                }
+                fn decode<D: EntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<Self, std::io::Error> {
+                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                        reader,
+                        &mut ctx.discriminant,
+                    )?;
+                    Ok(
+                        match usize::from(discriminant) {
+                            0usize => NewType(Encode::decode(reader, &mut ctx.__binding_0)?),
+                            _ => {
+                                return Err(
+                                    std::io::Error::other(
+                                        "This discriminant should be impossible",
+                                    ),
+                                );
+                            }
+                        },
+                    )
+                }
+            }
+        };
+    "#]]
+    .assert_eq(&pretty(derive_compactly(s)));
 }
