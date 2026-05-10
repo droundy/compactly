@@ -166,8 +166,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let decode_variants = s
         .variants()
         .iter()
-        .enumerate()
-        .map(|(_, variant)| {
+        .map(|variant| {
             let decoding = variant
                 .bindings()
                 .iter()
