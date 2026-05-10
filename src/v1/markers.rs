@@ -56,29 +56,26 @@ impl Encode for PhantomPinned {
         Some(0)
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
+use super::assert_size;
 
-    #[test]
-    fn phantom_data_encoding() {
-        assert_bits!(PhantomData::<u32>, 0);
-        assert_bits!(PhantomData::<String>, 0);
-        assert_bits!(PhantomData::<Vec<i32>>, 0);
+#[test]
+fn phantom_data_encoding() {
+    assert_size!(PhantomData::<u32>, 1);
+    assert_size!(PhantomData::<String>, 1);
+    assert_size!(PhantomData::<Vec<i32>>, 1);
 
-        let phantom_vec: Vec<PhantomData<bool>> = vec![PhantomData; 1000];
-        assert_bits!(phantom_vec, 3); // Only the length encoding, no data
-    }
+    let phantom_vec: Vec<PhantomData<bool>> = vec![PhantomData; 1000];
+    assert_size!(phantom_vec, 3); // Only the length encoding, no data
+}
 
-    #[test]
-    fn phantom_pinned_encoding() {
-        assert_bits!(PhantomPinned, 0);
+#[test]
+fn phantom_pinned_encoding() {
+    assert_size!(PhantomPinned, 1);
 
-        let encoded = super::super::encode(&PhantomPinned);
-        let decoded: Option<PhantomPinned> = super::super::decode(&encoded);
-        assert_eq!(decoded, Some(PhantomPinned));
-
-        // Arrays of PhantomPinned only encode length
-        assert_bits!([PhantomPinned; 256], 8);
-    }
+    let encoded = super::super::encode(&PhantomPinned);
+    let decoded: Option<PhantomPinned> = super::super::decode(&encoded);
+    assert_eq!(decoded, Some(PhantomPinned));
+    assert_size!([PhantomPinned; 256], 1);
 }

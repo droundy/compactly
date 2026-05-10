@@ -31,9 +31,6 @@ macro_rules! assert_bits {
     };
 }
 
-#[cfg(test)]
-pub(crate) use assert_bits;
-
 #[test]
 fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
@@ -243,17 +240,17 @@ fn low_cardinality() {
 
 #[test]
 fn unnamed_variants() {
-    #[derive( compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(compactly::v2::Encode, compactly::v1::Encode)]
     enum SomeEnum {
         ValueHolder(String),
         OtherValue(u16),
         EvenMoreValues(String),
-        FourthValue(SubEnum)
+        FourthValue(SubEnum),
     }
 
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
     enum SubEnum {
         One,
-        Two
+        Two,
     }
 }
