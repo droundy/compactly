@@ -64,10 +64,8 @@ fn zero_size() {
 
 #[test]
 fn derive_strategy_for_newtype() {
-    use compactly::{v2, Compressible, Mapping, Small, Sorted};
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, compactly::v2::Encode, compactly::v1::Encode,
-    )]
+    use compactly::{v1, v2, Compressible, Mapping, Small, Sorted};
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
     #[compactly(Sorted)]
     pub struct NewType(u32);
 
@@ -80,16 +78,14 @@ fn derive_strategy_for_newtype() {
     //     33
     // );
 
-    #[derive(
-        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, compactly::v2::Encode, compactly::v1::Encode,
-    )]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
     #[compactly(Sorted)]
     #[compactly(Small)]
     pub struct Both(u32);
 
     assert_eq!(v2::encode_with(Sorted, &Both(0)).len(), 1);
 
-    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(Clone, Debug, PartialEq, v2::Encode, v1::Encode)]
     #[compactly(Mapping<Small, Compressible>)]
     pub struct Map(std::collections::BTreeMap<u32, String>);
 
