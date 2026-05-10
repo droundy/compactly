@@ -7,7 +7,7 @@
 This crate provides a serialization framework fundamentally similar to
 [serde](https://docs.rs/serde) or [bincode](https://docs.rs/bincode), which
 enables you to derive a trait [`Encode`] and then use this trait to
-[`encode`] and to ['decode`] your data, but much more compactly than bincode
+[`encode`] and to [`decode`] your data, but much more compactly than bincode
 or other formats.
 
 # How to use
@@ -33,12 +33,12 @@ let square = Shape { corners: vec![
 
 let encoded: Vec<u8> = compactly::encode(&square);
 let encoded_bincode: Vec<u8> = bincode::encode_to_vec(&square, bincode::config::standard()).unwrap();
-assert_eq!(encoded.len(), encoded_bincode.len() / 10); // compaclty encoded is less than 10% of bincode
+assert_eq!(encoded.len(), encoded_bincode.len() / 10); // compactly encoded is less than 10% of bincode
 ```
 
 # Using a stable format
 
-If you are encoding your data for temmporary use (e.g. a cache or network
+If you are encoding your data for temporary use (e.g. a cache or network
 transit with the same version of `compactly`), the above works great.
 However, if you are looking to encode your data persistently across
 versions, you will want to use `compactly::v1` which will result in a
@@ -85,7 +85,7 @@ let encoded: Vec<u8> = compactly::v1::encode(&Human::default());
 |----------|---------|--------|
 | [Normal] | Default strategy | Encode based on data type alone. |
 | [Small]  | Values are small | Use a var-int encoding, or whatever might be appropriate for "small" data of this type. |
-| [Decimal]| Numbers may be decimals | Optimize for floating point numbers encoded with limited decimal precision.  Any data may be stored compactly, but this will take etra time to check if values could be *more* compactly stored as decimals. |
+| [Decimal]| Numbers may be decimals | Optimize for floating point numbers encoded with limited decimal precision.  Any data may be stored compactly, but this will take extra time to check if values could be *more* compactly stored as decimals. |
 | [LowCardinality] | Low cardinality | There are few values which are frequently repeated, so store each value only once.  Be aware that this could double memory use, as it will store a mapping between values and `usize`. |
 | [Sorted] | Values probably sorted | Assume that the values are likely to arrive in sorted order.  Typically this will lead to storing differences between successive values. |
 | [Compressible] | Expensive compression may be used | Take whatever time is needed to compress this data.  For `String` and `Vec<u8>` this enables [LZ77-style compression](https://en.wikipedia.org/wiki/LZ77_and_LZ78) which can be very slow, but also can provide very good compression for natural language data. |
@@ -99,7 +99,7 @@ This crate encodes data using
 coding](https://en.wikipedia.org/wiki/Range_coding).  Each type that can be
 encoded (and really each strategy for each type) has a
 [Context][Encode::Context]. which is a type that holds the model for the
-distribution of values. As the data is necoded, this model is updated (this
+distribution of values. As the data is encoded, this model is updated (this
 is the essence of [adaptive
 coding](https://en.wikipedia.org/wiki/Adaptive_coding)),
 
@@ -112,5 +112,5 @@ actual data), common values should be encoded in fewer bits.
 When you derive [`Encode`] for a struct (or enum), compactly will create a
 new [`Encode::Context`] which stores distinct `Context` values for each
 field of your struct (or enum), which means that as your data is encoded,
-compactly will adaptivly learn the distinct patterns of values for each
+compactly will adaptively learn the distinct patterns of values for each
 field.

@@ -240,3 +240,20 @@ fn low_cardinality() {
         1903,
     );
 }
+
+#[test]
+fn unnamed_variants() {
+    #[derive( compactly::v2::Encode, compactly::v1::Encode)]
+    enum SomeEnum {
+        ValueHolder(String),
+        OtherValue(u16),
+        EvenMoreValues(String),
+        FourthValue(SubEnum)
+    }
+
+    #[derive(compactly::v2::Encode, compactly::v1::Encode)]
+    enum SubEnum {
+        One,
+        Two
+    }
+}

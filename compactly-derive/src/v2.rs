@@ -51,7 +51,15 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 name.clone()
             }
         } else {
-            let ident = Ident::new(&format!("__binding_{i}"), Span::call_site());
+            let ident = {
+                let ident = Ident::new(&format!("__binding_{i}"), Span::call_site());
+            if bound_names.contains(&ident){
+                crate::get_unique_name(&bound_names, "__binding_", 10000)
+            }
+            else {
+                ident
+            }
+        };
             assert!(!bound_names.contains(&ident));
             bound_names.insert(ident.clone());
             ident
