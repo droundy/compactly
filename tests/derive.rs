@@ -243,15 +243,15 @@ fn low_cardinality() {
 #[test]
 fn unnamed_variants() {
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
-    enum SomeEnum {
+    enum _SomeEnum {
         ValueHolder(String),
         OtherValue(u16),
         EvenMoreValues(String),
-        FourthValue(SubEnum),
+        FourthValue(_SubEnum),
     }
 
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
-    enum SubEnum {
+    enum _SubEnum {
         One,
         Two,
     }
