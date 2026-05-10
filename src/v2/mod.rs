@@ -20,6 +20,7 @@ pub mod generate_bit_context;
 mod ints;
 mod low_cardinality;
 mod maps;
+mod markers;
 mod millibits;
 mod option;
 mod other_crate_types;
@@ -30,7 +31,6 @@ mod tuples;
 mod ulessthan;
 mod usizes;
 mod vecs;
-mod markers;
 
 use crate::{LowCardinality, Small};
 pub use ans::Ans;

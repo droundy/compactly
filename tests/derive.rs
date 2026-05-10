@@ -31,9 +31,6 @@ macro_rules! assert_bits {
     };
 }
 
-#[cfg(test)]
-pub(crate) use assert_bits;
-
 #[test]
 fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
@@ -66,32 +63,34 @@ fn zero_size() {
 }
 
 #[test]
-fn newtype() {
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        compactly::v2::Encode,
-        // compactly::v1::Encode,
-    )]
-    #[compactly(Sorted, Small)]
+fn derive_strategy_for_newtype() {
+    use compactly::{v1, v2, Compressible, Mapping, Small, Sorted};
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
+    #[compactly(Sorted)]
     pub struct NewType(u32);
 
     // assert_bits!(NewType(0), 32, 32);
     // assert_bits!(NewType(13), 32, 32);
-    assert_eq!(
-        compactly::v2::encode_with(compactly::Sorted, &NewType(0)).len(),
-        1
-    );
+    assert_eq!(v2::encode_with(Sorted, &NewType(0)).len(), 1);
     // assert_bits!(
     //     std::collections::BTreeSet::from([NewType(0), NewType(1)]),
     //     33,
     //     33
     // );
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
+    #[compactly(Sorted)]
+    #[compactly(Small)]
+    pub struct Both(u32);
+
+    assert_eq!(v2::encode_with(Sorted, &Both(0)).len(), 1);
+
+    #[derive(Clone, Debug, PartialEq, v2::Encode, v1::Encode)]
+    #[compactly(Mapping<Small, Compressible>)]
+    pub struct Map(std::collections::BTreeMap<u32, String>);
+
+    let strategy: Mapping<Small, Compressible> = Mapping::default();
+    assert_eq!(v2::encode_with(strategy, &Map([].into())).len(), 1);
 }
 
 #[test]
@@ -243,17 +242,17 @@ fn low_cardinality() {
 
 #[test]
 fn unnamed_variants() {
-    #[derive( compactly::v2::Encode, compactly::v1::Encode)]
-    enum SomeEnum {
+    #[derive(compactly::v2::Encode, compactly::v1::Encode)]
+    enum _SomeEnum {
         ValueHolder(String),
         OtherValue(u16),
         EvenMoreValues(String),
-        FourthValue(SubEnum)
+        FourthValue(_SubEnum),
     }
 
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
-    enum SubEnum {
+    enum _SubEnum {
         One,
-        Two
+        Two,
     }
 }
