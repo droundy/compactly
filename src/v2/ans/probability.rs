@@ -19,11 +19,11 @@ impl Probability {
     /// Create a new probability based on a given number of true and false observations
     pub const fn new(trues: u64, falses: u64) -> Self {
         let prob = if falses == 0 {
-            1 * 256 / ((2 + trues) as u64)
+            256 / (2 + trues)
         } else if trues == 0 {
-            (1 + falses) as u64 * 256 / ((2 + falses) as u64)
+            (1 + falses) * 256 / (2 + falses)
         } else {
-            falses as u64 * 256 / ((trues + falses) as u64)
+            falses * 256 / (trues + falses)
         };
         let prob = prob as u8;
         Probability {

@@ -42,8 +42,8 @@ impl ArithState {
                 //     println!("hi_byte {hi_byte:02x}");
                 // }
                 if lo_byte == hi_byte {
-                    self.lo = self.lo << 8;
-                    self.hi = self.hi << 8;
+                    self.lo <<= 8;
+                    self.hi <<= 8;
                     // #[cfg(test)]
                     // {
                     //     println!("next_byte resetting to {self:x?}");
@@ -198,7 +198,7 @@ impl Range {
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = super::arith::Decoder::new(&bytes);
+        let mut reader = super::arith::Decoder::new(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
     /// Convert the encoded value in to a `Vec` of bytes.
@@ -246,8 +246,8 @@ pub struct Decoder<'a> {
     incompressible: &'a [u8],
 }
 
-const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = [b'Y', b'a'];
-const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = [b'N', b'o'];
+const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = *b"Ya";
+const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = *b"No";
 
 impl<'a> Decoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {

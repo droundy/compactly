@@ -19,11 +19,11 @@ impl Probability {
     /// Create a new probability based on a given number of true and false observations
     pub const fn new(trues: u64, falses: u64) -> Self {
         let prob = if falses == 0 {
-            1 * 256 / ((2 + trues) as u64)
+            256 / (2 + trues)
         } else if trues == 0 {
-            (1 + falses) as u64 * 256 / ((2 + falses) as u64)
+            (1 + falses) * 256 / (2 + falses)
         } else {
-            falses as u64 * 256 / ((trues + falses) as u64)
+            falses * 256 / (trues + falses)
         };
         Probability { prob: prob as u8 }
     }
@@ -97,8 +97,8 @@ impl ArithState {
                 //     println!("hi_byte {hi_byte:02x}");
                 // }
                 if lo_byte == hi_byte {
-                    self.lo = self.lo << 8;
-                    self.hi = self.hi << 8;
+                    self.lo <<= 8;
+                    self.hi <<= 8;
                     // #[cfg(test)]
                     // {
                     //     println!("next_byte resetting to {self:x?}");
@@ -254,13 +254,13 @@ impl<W: Write> Writer<W> {
     ) -> std::io::Result<()> {
         let bytes = self.state.encode(probability_of_false, value);
         if bytes.count > 0 {
-            self.write.write(&bytes)?;
+            self.write.write_all(&bytes)?;
         }
         Ok(())
     }
     #[inline]
     pub fn finish(mut self) -> std::io::Result<W> {
-        self.write.write(&[self.state.last_byte()])?;
+        self.write.write_all(&[self.state.last_byte()])?;
         Ok(self.write)
     }
 }

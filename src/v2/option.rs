@@ -17,7 +17,7 @@ impl<T, S: EncodingStrategy<T>> Default for OptionContext<T, S> {
 impl<T, S: EncodingStrategy<T>> Clone for OptionContext<T, S> {
     fn clone(&self) -> Self {
         Self {
-            is_some: self.is_some.clone(),
+            is_some: self.is_some,
             value: self.value.clone(),
         }
     }

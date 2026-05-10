@@ -93,7 +93,7 @@ pub trait EntropyDecoder {
         for v in bytes {
             let mut b = 0;
             for i in 0..8 {
-                b = b | ((self.decode_bit_nonadaptive(FIFTY_PERCENT)? as u8) << i);
+                b |= (self.decode_bit_nonadaptive(FIFTY_PERCENT)? as u8) << i;
             }
             *v = b;
         }
@@ -136,8 +136,8 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 /// Decode a value of this type from `bytes`.
 ///
 /// Returns `None` if the bytes do not encode a valid value.
-pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Decoder::new(&mut bytes);
+pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
+    let mut reader = arith::Decoder::new(bytes);
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
@@ -180,8 +180,8 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
 ///
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
-pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, mut bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Decoder::new(&mut bytes);
+pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, bytes: &[u8]) -> Option<T> {
+    let mut reader = arith::Decoder::new(bytes);
     S::decode(&mut reader, &mut S::Context::default()).ok()
 }
 

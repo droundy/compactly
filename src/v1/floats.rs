@@ -42,7 +42,7 @@ macro_rules! impl_float {
                     let mut bits = $intty::from_le_bytes(self.to_le_bytes());
                     for i in 0..$bits {
                         (bits & 1 == 1).encode(writer, &mut ctx.context[i])?;
-                        bits = bits >> 1;
+                        bits >>= 1;
                     }
                     Ok(())
                 }
@@ -60,7 +60,7 @@ macro_rules! impl_float {
                     let mut bits: $intty = 0;
                     for i in 0..$bits {
                         if bool::decode(reader, &mut ctx.context[i])? {
-                            bits = bits | (1 << i);
+                            bits |= (1 << i);
                         }
                     }
                     Ok($t::from_le_bytes(bits.to_le_bytes()))
