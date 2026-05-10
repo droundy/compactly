@@ -64,26 +64,16 @@ fn zero_size() {
 
 #[test]
 fn derive_strategy_for_newtype() {
+    use compactly::{v2, Compressible, Mapping, Small, Sorted};
     #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        compactly::v2::Encode,
-        // compactly::v1::Encode,
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, compactly::v2::Encode, compactly::v1::Encode,
     )]
     #[compactly(Sorted)]
     pub struct NewType(u32);
 
     // assert_bits!(NewType(0), 32, 32);
     // assert_bits!(NewType(13), 32, 32);
-    assert_eq!(
-        compactly::v2::encode_with(compactly::Sorted, &NewType(0)).len(),
-        1
-    );
+    assert_eq!(v2::encode_with(Sorted, &NewType(0)).len(), 1);
     // assert_bits!(
     //     std::collections::BTreeSet::from([NewType(0), NewType(1)]),
     //     33,
@@ -91,58 +81,20 @@ fn derive_strategy_for_newtype() {
     // );
 
     #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        compactly::v2::Encode,
-        // compactly::v1::Encode,
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, compactly::v2::Encode, compactly::v1::Encode,
     )]
     #[compactly(Sorted)]
     #[compactly(Small)]
     pub struct Both(u32);
 
-    // assert_bits!(NewType(0), 32, 32);
-    // assert_bits!(NewType(13), 32, 32);
-    assert_eq!(
-        compactly::v2::encode_with(compactly::Sorted, &Both(0)).len(),
-        1
-    );
-    // assert_bits!(
-    //     std::collections::BTreeSet::from([NewType(0), NewType(1)]),
-    //     33,
-    //     33
-    // );
+    assert_eq!(v2::encode_with(Sorted, &Both(0)).len(), 1);
 
-    #[derive(
-        Clone,
-        Debug,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        compactly::v2::Encode,
-        // compactly::v1::Encode,
-    )]
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
     #[compactly(Mapping<Small, Compressible>)]
     pub struct Map(std::collections::BTreeMap<u32, String>);
 
-    // assert_bits!(NewType(0), 32, 32);
-    // assert_bits!(NewType(13), 32, 32);
-    let strategy: compactly::Mapping<compactly::Small, compactly::Compressible> =
-        compactly::Mapping::default();
-    assert_eq!(
-        compactly::v2::encode_with(strategy, &Map([].into())).len(),
-        1
-    );
-    // assert_bits!(
-    //     std::collections::BTreeSet::from([NewType(0), NewType(1)]),
-    //     33,
-    //     33
-    // );
+    let strategy: Mapping<Small, Compressible> = Mapping::default();
+    assert_eq!(v2::encode_with(strategy, &Map([].into())).len(), 1);
 }
 
 #[test]
