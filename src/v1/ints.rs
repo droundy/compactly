@@ -82,7 +82,7 @@ macro_rules! impl_uint {
                 }
             }
             #[derive(Default, Clone)]
-            pub struct SortedContext {
+            pub struct SortedIntContext {
                 previous: Option<$t>,
                 not_sorted: <bool as Encode>::Context,
                 value: <Small as EncodingStrategy<$t>>::Context,
@@ -90,7 +90,7 @@ macro_rules! impl_uint {
             }
 
             impl EncodingStrategy<$t> for Sorted {
-                type Context = SortedContext;
+                type Context = SortedIntContext;
                 fn encode<W: Write>(
                     value: &$t,
                     writer: &mut super::Writer<W>,

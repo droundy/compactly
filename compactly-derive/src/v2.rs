@@ -9,20 +9,17 @@ use synstructure::{BindingInfo, VariantInfo};
 struct EncodingStrategy(syn::Type);
 impl EncodingStrategy {
     fn parse_attrs(attrs: &[Attribute]) -> Vec<EncodingStrategy> {
-        let mut strategies: Vec<EncodingStrategy> = Vec::new();
-        for a in attrs {
-            if a.path().is_ident("compactly") {
-                a.parse_nested_meta(|meta| {
-                    strategies.push(EncodingStrategy(syn::Type::Path(syn::TypePath {
-                        qself: None,
-                        path: meta.path,
-                    })));
-                    Ok(())
-                })
-                .expect("compactly wants a list of strategies: {a}");
-            }
-        }
-        strategies
+        attrs
+            .iter()
+            .filter_map(|a| {
+                if a.path().is_ident("compactly") {
+                    let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
+                    Some(EncodingStrategy(strategy))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
     }
     fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
         match Self::parse_attrs(&binding.ast().attrs).as_slice() {
