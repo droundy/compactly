@@ -231,7 +231,7 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7120);
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
@@ -241,7 +241,7 @@ fn size() {
     compare_small_bits("aa", 17, 23);
     compare_small_bits("aaa", 20, 26);
     compare_small_bits("aaaa", 24, 30);
-    compare_small_bits("aaaaaaaa", 31, 39);
+    compare_small_bits("aaaaaaaa", 31, 37);
     compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa", 133, 140);
     compare_small_bits("hello", 36, 42);
     compare_small_bits("hello world hello wood", 122, 116);

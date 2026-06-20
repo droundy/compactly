@@ -4,6 +4,16 @@ use std::collections::VecDeque;
 
 // mod buffer;
 
+const MIN_MATCH: usize = 5;
+const MAX_CHAIN: usize = 256;
+const LZ77_HASH_SIZE: usize = 1 << 16; // 65536 buckets
+
+#[inline]
+fn lz77_hash(bytes: &[u8]) -> usize {
+    let v = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    (v.wrapping_mul(0x9E3779B9) >> 16) as usize
+}
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: VecDeque<Vec<u8>>,
@@ -47,21 +57,30 @@ impl Lz77 {
     }
     fn eager(&self, mut value: &[u8]) -> Vec<Chunk> {
         assert!(self.old.len() < 255);
-        let mut sofar = Vec::with_capacity(value.len());
+        let mut sofar: Vec<u8> = Vec::new();
+        // Hash chain for fast sofar matching. hash_head[h] is the most recent position
+        // in sofar whose first 4 bytes hash to h. hash_next[p] links to the previous
+        // position with the same hash, forming a chain newest→oldest.
+        let mut hash_head = vec![u32::MAX; LZ77_HASH_SIZE];
+        let mut hash_next: Vec<u32> = Vec::new();
         let mut out = Vec::new();
         let mut ctx = self.clone();
-        while let Some(chunk) = ctx.eager_chunk(&mut value, &mut sofar) {
-            // println!(
-            //     "so far I found {} chunks and {} bytes to go.",
-            //     out.len(),
-            //     value.len()
-            // );
+        while let Some(chunk) =
+            ctx.eager_chunk(&mut value, &mut sofar, &mut hash_head, &mut hash_next)
+        {
             chunk.encode(&mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
         out
     }
-    fn eager_chunk(&mut self, value: &mut &[u8], sofar: &mut Vec<u8>) -> Option<Chunk> {
+    fn eager_chunk(
+        &mut self,
+        value: &mut &[u8],
+        sofar: &mut Vec<u8>,
+        hash_head: &mut Vec<u32>,
+        hash_next: &mut Vec<u32>,
+    ) -> Option<Chunk> {
+        const BACK_WINDOW: usize = 64 * 1024;
         let mut literal = Vec::with_capacity(value.len());
         while !value.is_empty() {
             let prefix = if value.len() > u8::MAX as usize {
@@ -69,72 +88,139 @@ impl Lz77 {
             } else {
                 *value
             };
-            let sofar_clone = sofar.clone();
-            let mut possible_chunks = Vec::new();
-            let mut min_match = 0;
-            let mut bytes_seen_so_far = 0;
-            for (back, mut s) in std::iter::once(sofar_clone.as_slice())
-                .chain(self.old.iter().map(|s| s.as_slice()))
-                .enumerate()
-                .map(|(back, s)| (back as u8, s))
-            {
-                const BACK_WINDOW: usize = 3 * 1024;
-                if bytes_seen_so_far > BACK_WINDOW {
-                    break;
-                }
-                if bytes_seen_so_far + s.len() > BACK_WINDOW {
-                    let remaining = bytes_seen_so_far + s.len() - BACK_WINDOW;
-                    if back > 0 {
-                        if let Some((new_s, _)) = &s.split_at_checked(remaining) {
-                            s = new_s;
-                        }
-                    } else {
-                        if let Some((_, new_s)) = &s.split_at_checked(s.len() - remaining) {
-                            s = new_s;
+
+            // Hash-chain lookup for sofar matches: O(MAX_CHAIN) instead of O(window).
+            let mut best_sofar: Option<(usize, usize)> = None; // (sofar position, length)
+            if prefix.len() >= MIN_MATCH {
+                let h = lz77_hash(prefix);
+                let min_valid = sofar.len().saturating_sub(BACK_WINDOW);
+                let mut candidate = hash_head[h] as usize;
+                let mut chain = 0;
+                while candidate != u32::MAX as usize
+                    && candidate >= min_valid
+                    && chain < MAX_CHAIN
+                {
+                    let cand = &sofar[candidate..];
+                    if cand.len() >= MIN_MATCH
+                        && cand[0] == prefix[0]
+                        && cand[1] == prefix[1]
+                        && cand[2] == prefix[2]
+                        && cand[3] == prefix[3]
+                    {
+                        let length = 4
+                            + prefix[4..]
+                                .iter()
+                                .zip(&cand[4..])
+                                .take_while(|(a, b)| a == b)
+                                .count();
+                        if length >= MIN_MATCH
+                            && best_sofar.map_or(true, |(_, bl)| length > bl)
+                        {
+                            best_sofar = Some((candidate, length));
+                            if length == prefix.len() {
+                                break;
+                            }
                         }
                     }
+                    candidate = hash_next.get(candidate).copied().unwrap_or(u32::MAX) as usize;
+                    chain += 1;
                 }
-                bytes_seen_so_far += s.len();
-                let best_prefix = if back == 0 {
-                    find_longest_latest_prefix(s, prefix)
+            }
+
+            // Linear scan in old strings; must beat best_sofar to be chosen.
+            let sofar_best_len = best_sofar.map_or(0, |(_, l)| l);
+            let sofar_back_len = sofar.len().min(BACK_WINDOW);
+            let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
+            let mut min_old = sofar_best_len;
+            let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
+            for (i, old_s) in self.old.iter().enumerate() {
+                if old_budget == 0 {
+                    break;
+                }
+                let use_s = if old_s.len() > old_budget {
+                    &old_s[..old_budget]
                 } else {
-                    find_first_longest_prefix(s, prefix, min_match)
+                    old_s.as_slice()
                 };
-                if let Some((mut offset, mut length)) = best_prefix {
-                    min_match = length + 1;
-                    if back == 0 {
-                        if offset + length == s.len() {
-                            // We could keep repeating maybe?
+                old_budget = old_budget.saturating_sub(use_s.len());
+                // When min_old is 0 (no prior match), use min_match=0 to allow
+                // matching short sequences (2-4 bytes) verbatim in old strings.
+                let search_min = if min_old == 0 { 0 } else { min_old + 1 };
+                if let Some((offset, length)) =
+                    find_first_longest_prefix(use_s, prefix, search_min)
+                {
+                    best_old = Some(((i + 1) as u8, offset, length));
+                    min_old = length;
+                }
+            }
+
+            // Choose best match: prefer longer; ties go to sofar (back=0, cheaper offset).
+            let chosen = match (best_sofar, best_old) {
+                (None, None) => None,
+                (None, Some((back, offset, length))) => Some((back, offset, length)),
+                (Some((sofar_pos, sofar_len)), old_opt) => {
+                    if old_opt.map_or(false, |(_, _, ol)| ol > sofar_len) {
+                        let (back, offset, length) = old_opt.unwrap();
+                        Some((back, offset, length))
+                    } else {
+                        // Apply wrap-around extension when match reaches end of sofar.
+                        let mut length = sofar_len;
+                        if sofar_pos + length == sofar.len() {
+                            let period = sofar.len() - sofar_pos;
                             while length < 255
                                 && length < prefix.len()
-                                && s[offset + length % (s.len() - offset)] == prefix[length]
+                                && sofar[sofar_pos + length % period] == prefix[length]
                             {
                                 length += 1;
                             }
                         }
-                        offset = s.len() - offset - 1;
+                        Some((0u8, sofar.len() - sofar_pos - 1, length))
                     }
-                    let length = -(length as i16); // so we can minimize
-                    possible_chunks.push((length, back, offset));
                 }
-            }
-            if let Some((l, back, offset)) = possible_chunks.into_iter().min() {
-                let length = (-l) as u8; // safe because l is negative and less than 256.
-                *value = &value[length as usize..];
-                sofar.extend_from_slice(&prefix[..length as usize]);
+            };
+
+            if let Some((back, offset, length)) = chosen {
+                *value = &value[length..];
+                let new_start = sofar.len();
+                sofar.extend_from_slice(&prefix[..length]);
+                hash_next.resize(sofar.len(), u32::MAX);
+                // Insert all positions that now have MIN_MATCH bytes for the first time.
+                // This includes "seam" positions (new_start-(MIN_MATCH-1)..new_start-1)
+                // that span old sofar bytes and new match bytes, plus positions within
+                // the match itself.
+                let first_insert = new_start.saturating_sub(MIN_MATCH - 1);
+                let last_insert = sofar.len().saturating_sub(MIN_MATCH);
+                for p in first_insert..=last_insert {
+                    // Hash needs 4 bytes; skip if near end (e.g. short match < 4 bytes).
+                    if p + 4 <= sofar.len() {
+                        let h = lz77_hash(&sofar[p..]);
+                        let old = hash_head[h];
+                        hash_head[h] = p as u32;
+                        hash_next[p] = old;
+                    }
+                }
                 let chunk = Chunk {
                     literal: literal.into_boxed_slice(),
-                    length,
+                    length: length as u8,
                     back,
                     offset,
                 };
                 self.shift_chunk(&chunk);
                 return Some(chunk);
             }
-            // We are forced to emit a literal byte
+
+            // No match: emit literal byte and update hash chain.
             let (&first, rest) = value.split_first()?;
             literal.push(first);
             sofar.push(first);
+            hash_next.push(u32::MAX);
+            if sofar.len() >= MIN_MATCH {
+                let insert_pos = sofar.len() - MIN_MATCH;
+                let h = lz77_hash(&sofar[insert_pos..]);
+                let old = hash_head[h];
+                hash_head[h] = insert_pos as u32;
+                hash_next[insert_pos] = old;
+            }
             *value = rest;
         }
         if literal.is_empty() {
@@ -236,6 +322,7 @@ fn eager() {
 }
 
 /// Returns offset and length of the longest prefix of the needle prefering a later one
+#[cfg(test)]
 pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
     const MIN_MATCH: usize = 5;
     let mut prefix = if needle.len() > 1 && needle.len() < MIN_MATCH {
@@ -458,7 +545,7 @@ fn size() {
             format!("small b{s:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7120);
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
@@ -487,7 +574,7 @@ fn size() {
     compare_small_bits(b"aa", 17, 23);
     compare_small_bits(b"aaa", 20, 26);
     compare_small_bits(b"aaaa", 24, 30);
-    compare_small_bits(b"aaaaaaaa", 31, 39);
+    compare_small_bits(b"aaaaaaaa", 31, 37);
     compare_small_bits(b"hello", 36, 42);
     compare_small_bits(b"hello world hello wood", 122, 116);
     compare_small_bits(b"hello world hello world", 127, 98);
@@ -567,3 +654,4 @@ fn size() {
         413131,
     );
 }
+
