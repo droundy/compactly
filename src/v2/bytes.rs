@@ -59,7 +59,6 @@ impl Lz77 {
             chunk.encode(&mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
-        println!("Finished with eager");
         out
     }
     fn eager_chunk(&mut self, value: &mut &[u8], sofar: &mut Vec<u8>) -> Option<Chunk> {
@@ -151,9 +150,7 @@ impl Lz77 {
     }
 
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
-        println!("Choosing chunks with value of length {}", value.len());
         let chunks = self.eager(value);
-        println!("Compressing {} chunks", chunks.len());
         Small::encode(&chunks.len(), writer, &mut self.count);
         for chunk in chunks {
             chunk.encode(writer, self);
