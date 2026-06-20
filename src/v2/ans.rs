@@ -250,7 +250,7 @@ impl StateOnly {
         self.state >>= 8;
         // Branchless: compute both paths and select via CMOV.
         // z.wrapping_sub(ones) is only used when b=true (z >= ones), so no actual underflow.
-        let state_b = self.state * zeros + z.wrapping_sub(ones);
+        let state_b = (self.state * zeros).wrapping_add(z.wrapping_sub(ones));
         let state_nb = self.state * ones + z;
         self.state = if b { state_b } else { state_nb };
         if self.state < 1 << (State::BITS - 8) {
