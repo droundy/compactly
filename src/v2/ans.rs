@@ -245,15 +245,14 @@ impl StateOnly {
     ) -> (bool, Self) {
         let ones = State::from(probability);
         let zeros = 256 - ones;
-        let mut z = self.state % 256;
+        let z = self.state & 255;
         let b = z >= ones;
-        self.state /= 256;
-        if b {
-            z -= ones;
-            self.state = self.state * zeros + z;
-        } else {
-            self.state = self.state * ones + z;
-        }
+        self.state >>= 8;
+        // Branchless: compute both paths and select via CMOV.
+        // z.wrapping_sub(ones) is only used when b=true (z >= ones), so no actual underflow.
+        let state_b = self.state * zeros + z.wrapping_sub(ones);
+        let state_nb = self.state * ones + z;
+        self.state = if b { state_b } else { state_nb };
         if self.state < 1 << (State::BITS - 8) {
             if let Some(u) = next_byte() {
                 self.state = (self.state << 8) | State::from(u);
