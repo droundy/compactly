@@ -206,51 +206,72 @@ macro_rules! impl_compact {
         #[derive(Clone)]
         pub struct $context {
             leading_zeros: <ULessThan<{ $bits + 1 }> as Encode>::Context,
-            context: [<bool as Encode>::Context; $bits],
+            // partial[lz][i]: context for bit i of the partial top byte, given lz leading zeros.
+            // Only partial_bits = (sig_bits % 8) bits are used per lz, where sig_bits = $bits-1-lz.
+            partial: [[<bool as Encode>::Context; 8]; $bits],
         }
         impl Default for $context {
             fn default() -> Self {
                 Self {
                     leading_zeros: Default::default(),
-                    context: [Default::default(); $bits],
+                    partial: [[Default::default(); 8]; $bits],
                 }
             }
         }
 
         impl EncodingStrategy<$t> for Small {
             type Context = $context;
+            #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
-                let uleading = value.leading_zeros() as usize;
-                let leading_zeros = ULessThan::<{ $bits + 1 }>::new(uleading);
-                leading_zeros.encode(writer, &mut ctx.leading_zeros);
-                if uleading >= $bits - 1 {
-                    return;
+                let lz = value.leading_zeros() as usize;
+                ULessThan::<{ $bits + 1 }>::new(lz).encode(writer, &mut ctx.leading_zeros);
+                if lz >= $bits - 1 {
+                    return; // value is either 0 or 1
                 }
-                for i in 0..($bits - 1) - uleading {
-                    ((value >> i) & 1 == 1).encode(writer, &mut ctx.context[i]);
+                // sig_bits bits below the implicit leading 1 need encoding.
+                let sig_bits = $bits - 1 - lz;
+                let full_bytes = sig_bits / 8;
+                let partial_bits = sig_bits % 8;
+                let value_bytes = value.to_le_bytes();
+                if full_bytes > 0 {
+                    writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
+                }
+                // Encode partial bits (bits 0..partial_bits of value_bytes[full_bytes]).
+                // The leading 1 is at bit partial_bits of value_bytes[full_bytes]; not encoded.
+                for i in 0..partial_bits {
+                    let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
+                    bit.encode(writer, &mut ctx.partial[lz][i]);
                 }
             }
+            #[inline]
             fn decode<D: EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                let leading_zeros =
-                    ULessThan::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
-                let uleading = usize::from(leading_zeros);
-                if uleading >= $bits - 1 {
-                    if uleading == $bits {
-                        return Ok(0);
-                    } else {
-                        return Ok(1);
+                let lz = usize::from(ULessThan::<{ $bits + 1 }>::decode(
+                    reader,
+                    &mut ctx.leading_zeros,
+                )?);
+                if lz >= $bits {
+                    return Ok(0);
+                } else if lz == $bits - 1 {
+                    return Ok(1);
+                }
+                let sig_bits = $bits - 1 - lz;
+                let full_bytes = sig_bits / 8;
+                let partial_bits = sig_bits % 8;
+                let mut value_bytes = [0u8; std::mem::size_of::<$t>()];
+                if full_bytes > 0 {
+                    reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
+                }
+                for i in 0..partial_bits {
+                    if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                        value_bytes[full_bytes] |= 1 << i;
                     }
                 }
-                let mut out = 1 << ($bits - 1 - uleading);
-                for i in 0..($bits - 1) - uleading {
-                    if bool::decode(reader, &mut ctx.context[i])? {
-                        out |= 1 << i;
-                    }
-                }
-                Ok(out)
+                // Restore the implicit leading 1.
+                value_bytes[full_bytes] |= 1 << partial_bits;
+                Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
             }
         }
     };
@@ -275,7 +296,7 @@ fn compact_u16() {
     assert_bits!(Encoded::<_, Small>::new(8_u16), 7);
     assert_bits!(Encoded::<_, Small>::new(u16::MAX), 19);
     assert_bits!([Encoded::<_, Small>::new(0_u16); 128], 30);
-    assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], 128);
+    assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], 1098);
     assert_bits!([Encoded::<_, Small>::new(1_u16); 2], 8);
     assert_bits!([Encoded::<_, Small>::new(1_u16); 19], 22);
     assert_bits!(
@@ -298,9 +319,9 @@ fn compact_u32() {
     assert_bits!(Encoded::<_, Small>::new(6_u32), 7);
     assert_bits!(Encoded::<_, Small>::new(7_u32), 7);
     assert_bits!(Encoded::<_, Small>::new(8_u32), 8);
-    assert_bits!(Encoded::<_, Small>::new(u32::MAX), 36);
+    assert_bits!(Encoded::<_, Small>::new(u32::MAX), 37);
     assert_bits!([Encoded::<_, Small>::new(0_u32); 128], 40);
-    assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], 242);
+    assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], 3153);
     assert_bits!([Encoded::<_, Small>::new(1_u32); 2], 10);
     assert_bits!([Encoded::<_, Small>::new(1_u32); 19], 26);
     assert_bits!(
@@ -459,8 +480,8 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(0_i32), 7);
     assert_bits!(Encoded::<_, Small>::new(1_i32), 7);
     assert_bits!(Encoded::<_, Small>::new(-1_i32), 3);
-    assert_bits!(Encoded::<_, Small>::new(i32::MAX), 36);
-    assert_bits!(Encoded::<_, Small>::new(i32::MIN), 36);
+    assert_bits!(Encoded::<_, Small>::new(i32::MAX), 37);
+    assert_bits!(Encoded::<_, Small>::new(i32::MIN), 37);
     for v in [i32::MIN, i32::MAX, 0, 1, 7, 137, i32::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 32);
@@ -483,8 +504,8 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(0_i64), 8);
     assert_bits!(Encoded::<_, Small>::new(1_i64), 8);
     assert_bits!(Encoded::<_, Small>::new(-1_i64), 3);
-    assert_bits!(Encoded::<_, Small>::new(i64::MAX), 68);
-    assert_bits!(Encoded::<_, Small>::new(i64::MIN), 68);
+    assert_bits!(Encoded::<_, Small>::new(i64::MAX), 70);
+    assert_bits!(Encoded::<_, Small>::new(i64::MIN), 70);
     for v in [i64::MIN, 0, 1, 7, 137, i64::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 64);

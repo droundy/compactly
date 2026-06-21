@@ -174,7 +174,7 @@ fn btreeset() {
     assert_bits!(BTreeSet::from([0_usize, 1]), 10);
     assert_bits!(BTreeSet::from([0_usize, 1, 2]), 12);
     assert_bits!(BTreeSet::from_iter(0_usize..70), 40);
-    assert_bits!(BTreeSet::from_iter(0_usize..1024), 86);
+    assert_bits!(BTreeSet::from_iter(0_usize..1024), 87);
     assert_bits!(BTreeSet::from([false]), 4);
     assert_bits!(BTreeSet::from([true]), 4);
     assert_bits!(BTreeSet::from([false, true]), 6);
@@ -193,9 +193,9 @@ fn compact_btreeset() {
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([5_u64])), 11);
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from([u32::MAX as u64])),
-        40
+        41
     );
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([u64::MAX])), 72);
+    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([u64::MAX])), 73);
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1])), 17);
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1, 2])), 21);
     assert_bits!(Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..70)), 62);
@@ -205,14 +205,14 @@ fn compact_btreeset() {
     );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(1_000_000_u64..1_001_024)),
-        159
+        160
     );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
-        242
+        243
     );
     assert_ans_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
-        242
+        243
     );
 }

@@ -266,12 +266,8 @@ macro_rules! impl_compact {
                 let leading_zeros =
                     ULessThan::<{ $bits + 1 }>::decode(reader, &mut ctx.leading_zeros)?;
                 let uleading = usize::from(leading_zeros);
-                if uleading >= $bits - 1 {
-                    if uleading == $bits {
-                        return Ok(0);
-                    } else {
-                        return Ok(1);
-                    }
+                if uleading >= $bits {
+                    return Ok(0);
                 }
                 let mut out = 1 << ($bits - 1 - uleading);
                 for i in 0..($bits - 1) - uleading {

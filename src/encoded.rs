@@ -18,6 +18,14 @@ impl<T, S> From<T> for Encoded<T, S> {
     }
 }
 
+impl<T, S> Encoded<T, S> {
+    /// Get the value back out
+    #[inline]
+    pub fn value(self) -> T {
+        self.value
+    }
+}
+
 impl<T, S> std::ops::Deref for Encoded<T, S> {
     type Target = T;
     #[inline]

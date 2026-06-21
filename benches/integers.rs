@@ -1,10 +1,10 @@
 use bincode::config::standard;
 use compactly::v2::{Ans, Range};
-use compactly::{Encoded, Incompressible, LowCardinality, Small, Sorted, Values};
+use compactly::{Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
 use rand::{Rng, SeedableRng};
 use scaling::bench_gen_env;
 
-const N: usize = 4096;
+const N: usize = 8192;
 
 // ---------- log-uniform data generation ----------
 
@@ -41,8 +41,8 @@ fn gen_log_uniform_vec<T: LogUniform, R: Rng>(rng: &mut R, n: usize) -> Vec<T> {
 // ---------- benchmarking infrastructure ----------
 
 type AlgoFn<T> = Box<dyn Fn(&Vec<T>) -> Vec<u8>>;
-type DecodeFn = Box<dyn Fn(&[u8])>;
-type Algo<T> = (&'static str, AlgoFn<T>, DecodeFn);
+type DecodeFn<T> = Box<dyn Fn(&[u8]) -> Vec<T>>;
+type Algo<T> = (&'static str, AlgoFn<T>, DecodeFn<T>);
 
 fn format_time(ns: f64) -> String {
     if ns >= 1_000_000.0 {
@@ -64,7 +64,11 @@ fn format_sz(sz: f64) -> String {
     }
 }
 
-fn run_benchmarks<T: Clone>(heading: &str, algos: &[Algo<T>], data: &Vec<T>) {
+fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
+    heading: &str,
+    algos: &[Algo<T>],
+    data: &Vec<T>,
+) {
     const W: usize = 9;
     println!("{heading}");
     print!("{:>14}  ", "");
@@ -72,6 +76,12 @@ fn run_benchmarks<T: Clone>(heading: &str, algos: &[Algo<T>], data: &Vec<T>) {
         print!(" {:>W$}", name);
     }
     println!();
+
+    for (name, enc, dec) in algos {
+        let encoded = enc(data);
+        let decoded = dec(&encoded);
+        assert_eq!(&decoded, data, "buggy {name} for {heading}");
+    }
 
     print!("{:>14}:", "encode");
     for (_, enc, _) in algos {
@@ -103,12 +113,12 @@ macro_rules! add_strategy {
         $algos.push((
             concat!("rng/", $suffix),
             Box::new(|d: &Vec<$T>| Range::encode(&<$WrapType>::from(d.clone()))) as AlgoFn<$T>,
-            Box::new(|b: &[u8]| { Range::decode::<$WrapType>(b); }) as DecodeFn,
+            Box::new(|b: &[u8]| Range::decode::<$WrapType>(b).unwrap().value()) as DecodeFn<$T>,
         ));
         $algos.push((
             concat!("ans/", $suffix),
             Box::new(|d: &Vec<$T>| Ans::encode(&<$WrapType>::from(d.clone()))),
-            Box::new(|b: &[u8]| { Ans::decode::<$WrapType>(b); }),
+            Box::new(|b: &[u8]| Ans::decode::<$WrapType>(b).unwrap().value()),
         ));
     };
 }
@@ -116,11 +126,11 @@ macro_rules! add_strategy {
 // Adds all compactly strategies as rng+ans pairs, ordered by strategy.
 macro_rules! add_compactly_algos {
     ($algos:ident, $T:ty) => {
-        add_strategy!($algos, $T, "norm", Vec<$T>);
-        add_strategy!($algos, $T, "sml",  Encoded<Vec<$T>, Values<Small>>);
-        add_strategy!($algos, $T, "srt",  Encoded<Vec<$T>, Values<Sorted>>);
-        add_strategy!($algos, $T, "low",  Encoded<Vec<$T>, LowCardinality>);
-        add_strategy!($algos, $T, "inc",  Encoded<Vec<$T>, Values<Incompressible>>);
+        add_strategy!($algos, $T, "norm", Encoded<Vec<$T>, Values<Normal>>);
+        add_strategy!($algos, $T, "sml", Encoded<Vec<$T>, Values<Small>>);
+        add_strategy!($algos, $T, "srt", Encoded<Vec<$T>, Values<Sorted>>);
+        add_strategy!($algos, $T, "low", Encoded<Vec<$T>, LowCardinality>);
+        add_strategy!($algos, $T, "inc", Encoded<Vec<$T>, Values<Incompressible>>);
     };
 }
 
@@ -147,32 +157,35 @@ macro_rules! benchmark_int_type {
                 "bincode",
                 Box::new(|d: &Vec<$T>| bincode::encode_to_vec(d, standard()).unwrap()),
                 Box::new(|b: &[u8]| {
-                    bincode::decode_from_slice::<Vec<$T>, _>(b, standard()).unwrap();
+                    bincode::decode_from_slice::<Vec<$T>, _>(b, standard())
+                        .unwrap()
+                        .0
                 }),
             ));
             algos.push((
                 "zstd+bc",
                 Box::new(|d: &Vec<$T>| {
-                    zstd::bulk::compress(&bincode::encode_to_vec(d, standard()).unwrap(), 3).unwrap()
+                    zstd::bulk::compress(&bincode::encode_to_vec(d, standard()).unwrap(), 3)
+                        .unwrap()
                 }),
                 Box::new(|b: &[u8]| {
                     let v = zstd::bulk::decompress(b, 100_000_000).unwrap();
-                    bincode::decode_from_slice::<Vec<$T>, _>(&v, standard()).unwrap();
+                    bincode::decode_from_slice::<Vec<$T>, _>(&v, standard())
+                        .unwrap()
+                        .0
                 }),
             ));
             algos.push((
                 "bitcode",
                 Box::new(|d: &Vec<$T>| bitcode::encode(d)),
-                Box::new(|b: &[u8]| {
-                    bitcode::decode::<Vec<$T>>(b).unwrap();
-                }),
+                Box::new(|b: &[u8]| bitcode::decode::<Vec<$T>>(b).unwrap()),
             ));
             algos.push((
                 "zstd+bit",
                 Box::new(|d: &Vec<$T>| zstd::bulk::compress(&bitcode::encode(d), 3).unwrap()),
                 Box::new(|b: &[u8]| {
                     let v = zstd::bulk::decompress(b, 100_000_000).unwrap();
-                    bitcode::decode::<Vec<$T>>(&v).unwrap();
+                    bitcode::decode::<Vec<$T>>(&v).unwrap()
                 }),
             ));
 

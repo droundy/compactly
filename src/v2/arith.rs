@@ -277,7 +277,8 @@ impl<'a> Decoder<'a> {
                     break;
                 }
             }
-            bytes.split_at(incompressible_len)
+            let (incompressible, compressed) = bytes.split_at(incompressible_len);
+            (compressed, incompressible)
         } else {
             (bytes, [].as_slice())
         };
@@ -317,6 +318,21 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             self.value = (self.value << 8) + self.pop_next_byte() as u64;
         }
         Ok(out)
+    }
+
+    #[inline]
+    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+        if self.incompressible.len() < bytes.len() {
+            return Err(std::io::Error::other(format!(
+                "insufficient incompressible bytes: {} < {}",
+                self.incompressible.len(),
+                bytes.len()
+            )));
+        }
+        let (b, rest) = self.incompressible.split_at(bytes.len());
+        bytes.copy_from_slice(b);
+        self.incompressible = rest;
+        Ok(())
     }
 }
 
