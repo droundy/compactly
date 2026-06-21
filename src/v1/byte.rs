@@ -1,6 +1,7 @@
+use std::io::{Read, Write};
+
 use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Small};
-use std::io::{Read, Write};
 
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
@@ -108,7 +109,8 @@ macro_rules! small_num {
                         let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
                         bit.encode(writer, ctx)?;
                         filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
+                        accumulated_value =
+                            2 * accumulated_value + bit as usize;
                     }
                     Ok(())
                 }
@@ -122,7 +124,8 @@ macro_rules! small_num {
                         let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
                         tot += bit.millibits(ctx)?;
                         filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
+                        accumulated_value =
+                            2 * accumulated_value + bit as usize;
                     }
                     Some(tot)
                 }
@@ -137,7 +140,8 @@ macro_rules! small_num {
                         let ctx = &mut ctx.0[filled_up + accumulated_value];
                         let bit = bool::decode(reader, ctx)?;
                         filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
+                        accumulated_value =
+                            2 * accumulated_value + bit as usize;
                     }
                     Ok((accumulated_value as u8).try_into().unwrap())
                 }
@@ -151,7 +155,10 @@ macro_rules! small_num {
                     let encoded = super::super::encode(&v);
                     let decoded = super::super::decode::<$t>(&encoded).unwrap();
                     assert_eq!(v, decoded);
-                    assert_eq!(v.millibits(&mut Default::default()), Some($nbits * 1000));
+                    assert_eq!(
+                        v.millibits(&mut Default::default()),
+                        Some($nbits * 1000)
+                    );
                 }
             }
         }
@@ -173,9 +180,7 @@ impl<const N: u8> From<UBits<N>> for u8 {
 impl<const N: u8> TryFrom<u8> for UBits<N> {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if N == 8 {
-            Ok(Self(value))
-        } else if value >> N == 0 {
+        if N == 8 || (value >> N == 0) {
             Ok(Self(value))
         } else {
             Err(())
@@ -348,36 +353,46 @@ impl EncodingStrategy<u8> for Small {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
-        let nonzero: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.nonzero)?.into();
+        let nonzero: u8 =
+            <UBits<3> as Encode>::decode(reader, &mut ctx.nonzero)?.into();
         match nonzero {
             0 => Ok(0),
             1 => Ok(1),
             2 => {
-                let rest: u8 = <UBits<1> as Encode>::decode(reader, &mut ctx.b1)?.into();
+                let rest: u8 =
+                    <UBits<1> as Encode>::decode(reader, &mut ctx.b1)?.into();
                 Ok(rest + 2)
             }
             3 => {
-                let rest: u8 = <UBits<2> as Encode>::decode(reader, &mut ctx.b2)?.into();
+                let rest: u8 =
+                    <UBits<2> as Encode>::decode(reader, &mut ctx.b2)?.into();
                 Ok(rest + 4)
             }
             4 => {
-                let rest: u8 = <UBits<3> as Encode>::decode(reader, &mut ctx.b3)?.into();
+                let rest: u8 =
+                    <UBits<3> as Encode>::decode(reader, &mut ctx.b3)?.into();
                 Ok(rest + 8)
             }
             5 => {
-                let rest: u8 = <UBits<4> as Encode>::decode(reader, &mut ctx.b4)?.into();
+                let rest: u8 =
+                    <UBits<4> as Encode>::decode(reader, &mut ctx.b4)?.into();
                 Ok(rest + 16)
             }
             6 => {
-                let rest: u8 = <UBits<5> as Encode>::decode(reader, &mut ctx.b5)?.into();
+                let rest: u8 =
+                    <UBits<5> as Encode>::decode(reader, &mut ctx.b5)?.into();
                 Ok(rest + 32)
             }
             7 => {
                 if <bool as Encode>::decode(reader, &mut ctx.need_seven_bits)? {
-                    let rest: u8 = <UBits<7> as Encode>::decode(reader, &mut ctx.b7)?.into();
+                    let rest: u8 =
+                        <UBits<7> as Encode>::decode(reader, &mut ctx.b7)?
+                            .into();
                     Ok(rest + 128)
                 } else {
-                    let rest: u8 = <UBits<6> as Encode>::decode(reader, &mut ctx.b6)?.into();
+                    let rest: u8 =
+                        <UBits<6> as Encode>::decode(reader, &mut ctx.b6)?
+                            .into();
                     Ok(rest + 64)
                 }
             }
