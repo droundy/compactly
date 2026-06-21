@@ -69,6 +69,8 @@ macro_rules! impl_low_cardinality {
 
 impl_low_cardinality!(String, string);
 impl_low_cardinality!(Vec<u8>, bytes);
+impl_low_cardinality!(u16, mod_u16);
+impl_low_cardinality!(u32, mod_u32);
 impl_low_cardinality!(u64, mod_u64);
 
 impl<T> EncodingStrategy<Vec<T>> for LowCardinality
