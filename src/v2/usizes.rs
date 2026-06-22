@@ -43,8 +43,8 @@ pub struct SmallContext {
     b3: <UBits<3> as Encode>::Context,
     b4: <UBits<4> as Encode>::Context,
     b5: <UBits<5> as Encode>::Context,
-    bits_beyond_seven: <UBits<6> as Encode>::Context,
-    bits: [<bool as Encode>::Context; 64],
+    // Values >= 64 are delegated to Small<u64> (AFewBits + incompressible bytes).
+    large: <Small as EncodingStrategy<u64>>::Context,
 }
 impl Default for SmallContext {
     fn default() -> Self {
@@ -55,8 +55,7 @@ impl Default for SmallContext {
             b3: Default::default(),
             b4: Default::default(),
             b5: Default::default(),
-            bits_beyond_seven: Default::default(),
-            bits: [Default::default(); 64],
+            large: Default::default(),
         }
     }
 }
@@ -107,14 +106,7 @@ impl EncodingStrategy<usize> for Small {
             _ => {
                 nonzero = 7.try_into().unwrap();
                 nonzero.encode(writer, &mut ctx.small_nonzero);
-                let value = *value as u64;
-                let zeros = value.leading_zeros() as u8;
-                let bits_beyond_seven = (64 - 7 - zeros) as u8;
-                let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
-                bits_beyond_seven.encode(writer, &mut ctx.bits_beyond_seven);
-                for off in 0..6 + u8::from(bits_beyond_seven) {
-                    ((value >> off) & 1 == 1).encode(writer, &mut ctx.bits[off as usize]);
-                }
+                Small::encode(&(*value as u64 - 64), writer, &mut ctx.large);
             }
         }
     }
@@ -151,16 +143,8 @@ impl EncodingStrategy<usize> for Small {
                 Ok(rest as usize + 32)
             }
             7 => {
-                // 7 means we have a large number, so we just have to store it as usual.
-                let bits: u8 =
-                    <UBits<6> as Encode>::decode(reader, &mut ctx.bits_beyond_seven)?.into();
-                let bits = 6 + bits;
-                let mut out = 1_usize << bits;
-                for off in 0..bits {
-                    let b = <bool as Encode>::decode(reader, &mut ctx.bits[off as usize])?;
-                    out |= (b as usize) << off;
-                }
-                Ok(out)
+                let v: u64 = Small::decode(reader, &mut ctx.large)?;
+                Ok(v as usize + 64)
             }
             _ => unreachable!(),
         }
@@ -292,7 +276,7 @@ fn small() {
     check_both(23, 7, 11);
     check_both(37, 8, 12);
     check_both(63, 8, 12);
-    check_both(117, 15, 13);
+    check_both(117, 14, 13);
     check_both(u32::MAX as usize, 40, 38);
     for x in 0..2 {
         check_size(x, 3);
@@ -312,15 +296,15 @@ fn small() {
     for x in 32..64 {
         check_size(x, 8);
     }
-    for x in 64..128 {
-        check_size(x, 15);
-    }
-    for x in 128..256 {
-        check_size(x, 16);
-    }
-    for x in 256..512 {
-        check_size(x, 17);
-    }
+    for x in 64..66 { check_size(x, 9); }
+    for x in 66..68 { check_size(x, 10); }
+    for x in 68..72 { check_size(x, 11); }
+    for x in 72..80 { check_size(x, 12); }
+    for x in 80..96 { check_size(x, 13); }
+    for x in 96..128 { check_size(x, 14); }
+    for x in 128..192 { check_size(x, 15); }
+    for x in 192..320 { check_size(x, 16); }
+    for x in 320..512 { check_size(x, 17); }
 }
 
 #[test]

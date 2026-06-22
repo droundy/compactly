@@ -33,6 +33,7 @@ macro_rules! impl_log_uniform {
 impl_log_uniform!(u16);
 impl_log_uniform!(u32);
 impl_log_uniform!(u64);
+impl_log_uniform!(usize);
 
 fn gen_log_uniform_vec<T: LogUniform, R: Rng>(rng: &mut R, n: usize) -> Vec<T> {
     (0..n).map(|_| T::gen_log_uniform(rng)).collect()
@@ -194,9 +195,40 @@ macro_rules! benchmark_int_type {
     }};
 }
 
+fn benchmark_usize(heading: &str, data: &Vec<usize>) {
+    let mut algos: Vec<Algo<usize>> = Vec::new();
+    add_strategy!(algos, usize, "norm", Encoded<Vec<usize>, Values<Normal>>);
+    add_strategy!(algos, usize, "sml", Encoded<Vec<usize>, Values<Small>>);
+    add_strategy!(algos, usize, "srt", Encoded<Vec<usize>, Values<Sorted>>);
+    algos.push((
+        "bincode",
+        Box::new(|d: &Vec<usize>| bincode::encode_to_vec(d, standard()).unwrap()),
+        Box::new(|b: &[u8]| {
+            bincode::decode_from_slice::<Vec<usize>, _>(b, standard())
+                .unwrap()
+                .0
+        }),
+    ));
+    algos.push((
+        "bitcode",
+        Box::new(|d: &Vec<usize>| bitcode::encode(d)),
+        Box::new(|b: &[u8]| bitcode::decode::<Vec<usize>>(b).unwrap()),
+    ));
+    run_benchmarks(heading, &algos, data);
+}
+
 fn main() {
     let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
     benchmark_int_type!(u16, rng);
     benchmark_int_type!(u32, rng);
     benchmark_int_type!(u64, rng);
+
+    let random_usize: Vec<usize> = gen_log_uniform_vec(&mut rng, N);
+    let sorted_usize: Vec<usize> = {
+        let mut s = random_usize.clone();
+        s.sort();
+        s
+    };
+    benchmark_usize(&format!("usize random ({N} values)"), &random_usize);
+    benchmark_usize(&format!("usize sorted ({N} values)"), &sorted_usize);
 }

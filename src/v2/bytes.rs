@@ -545,7 +545,7 @@ fn size() {
             format!("small b{s:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7120);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7110);
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
@@ -580,8 +580,8 @@ fn size() {
     compare_small_bits(b"hello world hello world", 127, 98);
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
-        415,
-        421,
+        412,
+        418,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
@@ -589,15 +589,15 @@ fn size() {
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
         1537,
-        839,
+        834,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
-        1607,
-        1011,
+        1608,
+        1004,
     );
 
     compare_vecs(&[], 3000, 3000);
