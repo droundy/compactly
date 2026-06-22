@@ -39,7 +39,7 @@ fn size() {
     }
     assert_bits!(dbg!((0_usize..1).collect::<Vec<_>>()), 6);
     assert_bits!(dbg!((0_usize..2).collect::<Vec<_>>()), 10);
-    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), 61);
+    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), 60);
 }
 
 pub struct Context<T, S: EncodingStrategy<T>> {

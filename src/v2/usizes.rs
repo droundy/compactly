@@ -214,15 +214,15 @@ impl EncodingStrategy<usize> for Sorted {
 fn size() {
     use super::{raw_bits, Millibits};
     use crate::Encoded;
-    raw_bits!(Encoded::<_, Small>::new(0_u64), 7);
+    raw_bits!(Encoded::<_, Small>::new(0_u64), 6);
     raw_bits!(0_usize, 3);
-    raw_bits!(Encoded::<_, Small>::new(1_u64), 7);
+    raw_bits!(Encoded::<_, Small>::new(1_u64), 6);
     raw_bits!(1_usize, 3);
     raw_bits!(Encoded::<_, Small>::new(2_u64), 7);
     raw_bits!(2_usize, 3);
     raw_bits!(3_usize, 3);
-    raw_bits!(4_usize, 8);
-    raw_bits!(5_usize, 8);
+    raw_bits!(4_usize, 7);
+    raw_bits!(5_usize, 7);
     raw_bits!(6_usize, 8);
     raw_bits!(7_usize, 8);
     raw_bits!(8_usize, 9);
@@ -287,8 +287,8 @@ fn small() {
     check_both(0, 3, 3);
     check_both(1, 3, 3);
     check_both(2, 4, 3);
-    check_both(4, 5, 8);
-    check_both(5, 5, 8);
+    check_both(4, 5, 7);
+    check_both(5, 5, 7);
     check_both(23, 7, 11);
     check_both(37, 8, 12);
     check_both(63, 8, 12);

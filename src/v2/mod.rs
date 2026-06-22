@@ -5,6 +5,7 @@
 //! that don't use those strategies.
 pub use compactly_derive::EncodeV2 as Encode;
 
+mod afewbits;
 mod ans;
 mod arc;
 mod arith;

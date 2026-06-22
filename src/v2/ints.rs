@@ -1,4 +1,5 @@
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan};
+use super::afewbits::{AFewBits, AFewBitsContext};
+use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
 macro_rules! impl_uint {
@@ -205,7 +206,11 @@ macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
-            leading_zeros: <ULessThan<{ $bits + 1 }> as Encode>::Context,
+            // AFewBits<$bits-1>: code = lz.saturating_sub(1), so lz=0 and lz=1 both map to
+            // code 0 (distinguished by lz_is_one), while lz=$bits maps to code $bits-1
+            // (all-TRUE, cheapest in fresh context) with no extra bool needed.
+            leading_zeros: AFewBitsContext<{ $bits - 1 }>,
+            lz_is_one: <bool as Encode>::Context,
             // partial[lz][i]: context for bit i of the partial top byte, given lz leading zeros.
             // Only partial_bits = (sig_bits % 8) bits are used per lz, where sig_bits = $bits-1-lz.
             partial: [[<bool as Encode>::Context; 8]; $bits],
@@ -214,6 +219,7 @@ macro_rules! impl_compact {
             fn default() -> Self {
                 Self {
                     leading_zeros: Default::default(),
+                    lz_is_one: Default::default(),
                     partial: [[Default::default(); 8]; $bits],
                 }
             }
@@ -224,11 +230,15 @@ macro_rules! impl_compact {
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let lz = value.leading_zeros() as usize;
-                ULessThan::<{ $bits + 1 }>::new(lz).encode(writer, &mut ctx.leading_zeros);
-                if lz >= $bits - 1 {
-                    return; // value is either 0 or 1
+                // lz=0,1 → code 0 (+bool); lz=k≥2 → code k-1; lz=$bits → code $bits-1 (all-TRUE)
+                let afewbits_val = lz.saturating_sub(1) as u8;
+                AFewBits::<{ $bits - 1 }>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
+                if afewbits_val == 0 {
+                    (lz == 1).encode(writer, &mut ctx.lz_is_one);
                 }
-                // sig_bits bits below the implicit leading 1 need encoding.
+                if lz >= $bits - 1 {
+                    return;
+                }
                 let sig_bits = $bits - 1 - lz;
                 let full_bytes = sig_bits / 8;
                 let partial_bits = sig_bits % 8;
@@ -236,8 +246,6 @@ macro_rules! impl_compact {
                 if full_bytes > 0 {
                     writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
                 }
-                // Encode partial bits (bits 0..partial_bits of value_bytes[full_bytes]).
-                // The leading 1 is at bit partial_bits of value_bytes[full_bytes]; not encoded.
                 for i in 0..partial_bits {
                     let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
                     bit.encode(writer, &mut ctx.partial[lz][i]);
@@ -248,14 +256,20 @@ macro_rules! impl_compact {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                let lz = usize::from(ULessThan::<{ $bits + 1 }>::decode(
-                    reader,
-                    &mut ctx.leading_zeros,
-                )?);
-                if lz >= $bits {
-                    return Ok(0);
-                } else if lz == $bits - 1 {
-                    return Ok(1);
+                let afewbits_val =
+                    u8::from(AFewBits::<{ $bits - 1 }>::decode(reader, &mut ctx.leading_zeros)?)
+                        as usize;
+                let lz = if afewbits_val == 0 {
+                    if bool::decode(reader, &mut ctx.lz_is_one)? {
+                        1
+                    } else {
+                        0
+                    }
+                } else {
+                    afewbits_val + 1
+                };
+                if lz >= $bits - 1 {
+                    return if lz == $bits { Ok(0) } else { Ok(1) };
                 }
                 let sig_bits = $bits - 1 - lz;
                 let full_bytes = sig_bits / 8;
@@ -285,8 +299,8 @@ impl_compact!(u16, U16Compact, 16);
 fn compact_u16() {
     use super::assert_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u16), 2);
-    assert_bits!(Encoded::<_, Small>::new(1_u16), 5);
+    assert_bits!(Encoded::<_, Small>::new(0_u16), 1);
+    assert_bits!(Encoded::<_, Small>::new(1_u16), 4);
     assert_bits!(Encoded::<_, Small>::new(2_u16), 5);
     assert_bits!(Encoded::<_, Small>::new(3_u16), 5);
     assert_bits!(Encoded::<_, Small>::new(4_u16), 6);
@@ -294,15 +308,15 @@ fn compact_u16() {
     assert_bits!(Encoded::<_, Small>::new(6_u16), 6);
     assert_bits!(Encoded::<_, Small>::new(7_u16), 6);
     assert_bits!(Encoded::<_, Small>::new(8_u16), 7);
-    assert_bits!(Encoded::<_, Small>::new(u16::MAX), 19);
-    assert_bits!([Encoded::<_, Small>::new(0_u16); 128], 30);
-    assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], 1098);
-    assert_bits!([Encoded::<_, Small>::new(1_u16); 2], 8);
-    assert_bits!([Encoded::<_, Small>::new(1_u16); 19], 22);
+    assert_bits!(Encoded::<_, Small>::new(u16::MAX), 20);
+    assert_bits!([Encoded::<_, Small>::new(0_u16); 128], 25);
+    assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], 1105);
+    assert_bits!([Encoded::<_, Small>::new(1_u16); 2], 6);
+    assert_bits!([Encoded::<_, Small>::new(1_u16); 19], 17);
     assert_bits!(
         [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Encoded::<_, Small>::new),
-        28
+        24
     );
 }
 
@@ -310,8 +324,8 @@ fn compact_u16() {
 fn compact_u32() {
     use super::assert_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u32), 3);
-    assert_bits!(Encoded::<_, Small>::new(1_u32), 6);
+    assert_bits!(Encoded::<_, Small>::new(0_u32), 2);
+    assert_bits!(Encoded::<_, Small>::new(1_u32), 5);
     assert_bits!(Encoded::<_, Small>::new(2_u32), 6);
     assert_bits!(Encoded::<_, Small>::new(3_u32), 6);
     assert_bits!(Encoded::<_, Small>::new(4_u32), 7);
@@ -319,15 +333,15 @@ fn compact_u32() {
     assert_bits!(Encoded::<_, Small>::new(6_u32), 7);
     assert_bits!(Encoded::<_, Small>::new(7_u32), 7);
     assert_bits!(Encoded::<_, Small>::new(8_u32), 8);
-    assert_bits!(Encoded::<_, Small>::new(u32::MAX), 37);
-    assert_bits!([Encoded::<_, Small>::new(0_u32); 128], 40);
-    assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], 3153);
-    assert_bits!([Encoded::<_, Small>::new(1_u32); 2], 10);
-    assert_bits!([Encoded::<_, Small>::new(1_u32); 19], 26);
+    assert_bits!(Encoded::<_, Small>::new(u32::MAX), 38);
+    assert_bits!([Encoded::<_, Small>::new(0_u32); 128], 30);
+    assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], 3160);
+    assert_bits!([Encoded::<_, Small>::new(1_u32); 2], 8);
+    assert_bits!([Encoded::<_, Small>::new(1_u32); 19], 22);
     assert_bits!(
         [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
             .map(Encoded::<_, Small>::new),
-        33
+        28
     );
 
     for i in 0_u32..4096 {
@@ -477,11 +491,11 @@ fn signed() {
     use crate::{Encoded, Small};
     use std::collections::BTreeSet;
 
-    assert_bits!(Encoded::<_, Small>::new(0_i32), 7);
-    assert_bits!(Encoded::<_, Small>::new(1_i32), 7);
+    assert_bits!(Encoded::<_, Small>::new(0_i32), 6);
+    assert_bits!(Encoded::<_, Small>::new(1_i32), 6);
     assert_bits!(Encoded::<_, Small>::new(-1_i32), 3);
-    assert_bits!(Encoded::<_, Small>::new(i32::MAX), 37);
-    assert_bits!(Encoded::<_, Small>::new(i32::MIN), 37);
+    assert_bits!(Encoded::<_, Small>::new(i32::MAX), 38);
+    assert_bits!(Encoded::<_, Small>::new(i32::MIN), 38);
     for v in [i32::MIN, i32::MAX, 0, 1, 7, 137, i32::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 32);
@@ -491,21 +505,21 @@ fn signed() {
         assert_bits!(v, 12);
     }
 
-    assert_bits!(Encoded::<_, Small>::new(0_i16), 6);
-    assert_bits!(Encoded::<_, Small>::new(1_i16), 6);
-    assert_bits!(Encoded::<_, Small>::new(-1_i16), 3);
-    assert_bits!(Encoded::<_, Small>::new(i16::MAX), 19);
-    assert_bits!(Encoded::<_, Small>::new(i16::MIN), 19);
+    assert_bits!(Encoded::<_, Small>::new(0_i16), 5);
+    assert_bits!(Encoded::<_, Small>::new(1_i16), 5);
+    assert_bits!(Encoded::<_, Small>::new(-1_i16), 2);
+    assert_bits!(Encoded::<_, Small>::new(i16::MAX), 20);
+    assert_bits!(Encoded::<_, Small>::new(i16::MIN), 20);
     for v in [i16::MIN, i16::MAX, 0, 1, 7, 137, i16::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 16);
     }
 
-    assert_bits!(Encoded::<_, Small>::new(0_i64), 8);
-    assert_bits!(Encoded::<_, Small>::new(1_i64), 8);
+    assert_bits!(Encoded::<_, Small>::new(0_i64), 7);
+    assert_bits!(Encoded::<_, Small>::new(1_i64), 7);
     assert_bits!(Encoded::<_, Small>::new(-1_i64), 3);
-    assert_bits!(Encoded::<_, Small>::new(i64::MAX), 70);
-    assert_bits!(Encoded::<_, Small>::new(i64::MIN), 70);
+    assert_bits!(Encoded::<_, Small>::new(i64::MAX), 71);
+    assert_bits!(Encoded::<_, Small>::new(i64::MIN), 71);
     for v in [i64::MIN, 0, 1, 7, 137, i64::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 64);
@@ -516,8 +530,8 @@ fn signed() {
     }
 
     use super::Millibits;
-    raw_bits!(BTreeSet::from([-1i16, 0, 1, 2]), 32, Millibits::new(25982));
-    raw_bits!(BTreeSet::from([-1i64, 0, 1, 2]), 40, Millibits::new(31976));
-    raw_bits!(BTreeSet::from([i16::MIN, i16::MAX]), 42);
-    raw_bits!(BTreeSet::from([i64::MIN, i64::MAX]), 142);
+    raw_bits!(BTreeSet::from([-1i16, 0, 1, 2]), 27, Millibits::new(21985));
+    raw_bits!(BTreeSet::from([-1i64, 0, 1, 2]), 35, Millibits::new(27979));
+    raw_bits!(BTreeSet::from([i16::MIN, i16::MAX]), 44);
+    raw_bits!(BTreeSet::from([i64::MIN, i64::MAX]), 144);
 }
