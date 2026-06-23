@@ -43,7 +43,7 @@ pub struct SmallContext {
     b3: <UBits<3> as Encode>::Context,
     b4: <UBits<4> as Encode>::Context,
     b5: <UBits<5> as Encode>::Context,
-    // Values >= 64 are delegated to Small<u64> (AFewBits + incompressible bytes).
+    // Values >= 64 are delegated to Small<u64> (UBits + incompressible bytes).
     large: <Small as EncodingStrategy<u64>>::Context,
 }
 impl Default for SmallContext {

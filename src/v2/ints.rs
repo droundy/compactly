@@ -1,4 +1,4 @@
-use super::afewbits::{AFewBits, AFewBitsContext};
+use super::byte::UBits;
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
@@ -238,10 +238,10 @@ macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
-            // AFewBits<$bits-1>: code = lz.saturating_sub(1), so lz=0 and lz=1 both map to
+            // UBits<log2($bits)>: code = lz.saturating_sub(1), so lz=0 and lz=1 both map to
             // code 0 (distinguished by lz_is_one), while lz=$bits maps to code $bits-1
             // (all-TRUE, cheapest in fresh context) with no extra bool needed.
-            leading_zeros: AFewBitsContext<{ $bits - 1 }>,
+            leading_zeros: <UBits<{ ($bits as u32).ilog2() as u8 }> as Encode>::Context,
             lz_is_one: <bool as Encode>::Context,
             // partial[lz][i]: context for bit i of the partial top byte, given lz leading zeros.
             // Only partial_bits = (sig_bits % 8) bits are used per lz, where sig_bits = $bits-1-lz.
@@ -264,7 +264,7 @@ macro_rules! impl_compact {
                 let lz = value.leading_zeros() as usize;
                 // lz=0,1 → code 0 (+bool); lz=k≥2 → code k-1; lz=$bits → code $bits-1 (all-TRUE)
                 let afewbits_val = lz.saturating_sub(1) as u8;
-                AFewBits::<{ $bits - 1 }>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
+                UBits::<{ ($bits as u32).ilog2() as u8 }>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
                 if afewbits_val == 0 {
                     (lz == 1).encode(writer, &mut ctx.lz_is_one);
                 }
@@ -289,7 +289,7 @@ macro_rules! impl_compact {
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 let afewbits_val =
-                    u8::from(AFewBits::<{ $bits - 1 }>::decode(reader, &mut ctx.leading_zeros)?)
+                    u8::from(UBits::<{ ($bits as u32).ilog2() as u8 }>::decode(reader, &mut ctx.leading_zeros)?)
                         as usize;
                 let lz = if afewbits_val == 0 {
                     if bool::decode(reader, &mut ctx.lz_is_one)? {
