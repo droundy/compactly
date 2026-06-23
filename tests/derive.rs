@@ -223,11 +223,11 @@ fn low_cardinality() {
     }
 
     assert_bits!(Data { value: 51 }, 65, 65);
-    assert_bits!(Data { value: u64::MAX }, 65, 65);
+    assert_bits!(Data { value: u64::MAX }, 65, 66);
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
         8379,
-        8379,
+        9221,
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(
@@ -236,7 +236,7 @@ fn low_cardinality() {
             .map(|value| Data { value })
             .collect::<Vec<_>>(),
         1903,
-        1903,
+        1902,
     );
 }
 

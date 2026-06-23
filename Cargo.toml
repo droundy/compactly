@@ -52,4 +52,8 @@ harness = false
 name = "integers"
 harness = false
 
+[[bench]]
+name = "signed"
+harness = false
+
 

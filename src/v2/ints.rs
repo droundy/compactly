@@ -388,19 +388,38 @@ macro_rules! impl_signed {
     ($signed:ident, $unsigned:ident, $mod:ident) => {
         mod $mod {
             use super::*;
+
+            #[derive(Clone, Default)]
+            pub struct NormalContext {
+                is_negative: <bool as Encode>::Context,
+                magnitude: <$unsigned as Encode>::Context,
+            }
+
             impl Encode for $signed {
-                type Context = <$unsigned as Encode>::Context;
+                type Context = NormalContext;
                 #[inline]
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                    $unsigned::from_le_bytes(self.to_le_bytes()).encode(writer, ctx)
+                    let is_neg = *self < 0;
+                    is_neg.encode(writer, &mut ctx.is_negative);
+                    let mag: $unsigned = if is_neg {
+                        self.abs_diff(-1)
+                    } else {
+                        self.abs_diff(0)
+                    };
+                    mag.encode(writer, &mut ctx.magnitude);
                 }
                 #[inline]
                 fn decode<D: EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let v = $unsigned::decode(reader, ctx)?;
-                    Ok($signed::from_le_bytes(v.to_le_bytes()))
+                    let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+                    let mag: $unsigned = $unsigned::decode(reader, &mut ctx.magnitude)?;
+                    if is_neg {
+                        Ok(-1 - (mag as $signed))
+                    } else {
+                        Ok(mag as $signed)
+                    }
                 }
             }
 
@@ -528,17 +547,13 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(-1_i32), 3);
     assert_bits!(Encoded::<_, Small>::new(i32::MAX), 38);
     assert_bits!(Encoded::<_, Small>::new(i32::MIN), 38);
-    for v in [0i32, 1, 7, 137] {
-        println!("testing {v}");
-        assert_bits!(v, 32);
-    }
-    for v in [i32::MIN, i32::MAX, i32::MAX - 1] {
+    for v in [0i32, 1, 7, 137, -1i32] {
         println!("testing {v}");
         assert_bits!(v, 33);
     }
-    for v in [-1i32] {
+    for v in [i32::MIN, i32::MAX, i32::MAX - 1] {
         println!("testing {v}");
-        assert_bits!(v, 27);
+        assert_bits!(v, 34);
     }
 
     assert_bits!(Encoded::<_, Small>::new(0_i16), 5);
@@ -548,7 +563,7 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(i16::MIN), 20);
     for v in [i16::MIN, i16::MAX, 0, 1, 7, 137, i16::MAX - 1] {
         println!("testing {v}");
-        assert_bits!(v, 16);
+        assert_bits!(v, 17);
     }
 
     assert_bits!(Encoded::<_, Small>::new(0_i64), 7);
@@ -558,15 +573,15 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(i64::MIN), 71);
     for v in [0i64, 1, 7, 137] {
         println!("testing {v}");
-        assert_bits!(v, 64);
+        assert_bits!(v, 65);
     }
     for v in [i64::MIN, i64::MAX - 1] {
         println!("testing {v}");
-        assert_bits!(v, 65);
+        assert_bits!(v, 66);
     }
     for v in [-1i64] {
         println!("testing {v}");
-        assert_bits!(v, 59);
+        assert_bits!(v, 72);
     }
 
     use super::Millibits;
