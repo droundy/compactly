@@ -385,14 +385,28 @@ fn compact_u32() {
 }
 
 macro_rules! impl_signed {
-    ($signed:ident, $unsigned:ident, $mod:ident) => {
+    ($signed:ident, $unsigned:ident, $bits:literal, $mod:ident) => {
         mod $mod {
             use super::*;
 
-            #[derive(Clone, Default)]
+            #[derive(Clone)]
             pub struct NormalContext {
                 is_negative: <bool as Encode>::Context,
-                magnitude: <$unsigned as Encode>::Context,
+                // Magnitude is in [0, 2^($bits-1)-1]: effectively a ($bits-1)-bit unsigned.
+                // The MSB of $unsigned is always 0, so we use $bits-1 leading_zero slots.
+                leading_zero: [<bool as Encode>::Context; $bits - 1],
+                u8_ctx: <u8 as Encode>::Context,
+                partial: [[<bool as Encode>::Context; 8]; $bits - 1],
+            }
+            impl Default for NormalContext {
+                fn default() -> Self {
+                    Self {
+                        is_negative: Default::default(),
+                        leading_zero: [Default::default(); $bits - 1],
+                        u8_ctx: Default::default(),
+                        partial: [[Default::default(); 8]; $bits - 1],
+                    }
+                }
             }
 
             impl Encode for $signed {
@@ -406,7 +420,32 @@ macro_rules! impl_signed {
                     } else {
                         self.abs_diff(0)
                     };
-                    mag.encode(writer, &mut ctx.magnitude);
+                    // Encode magnitude as a ($bits-1)-bit value.
+                    // mag < 2^($bits-1) so mag.leading_zeros() >= 1; adjusted_lz = leading_zeros - 1.
+                    const MBITS: usize = $bits - 1;
+                    let lz = mag.leading_zeros() as usize - 1;
+                    if lz >= MBITS - 8 {
+                        for i in (8..MBITS).rev() {
+                            false.encode(writer, &mut ctx.leading_zero[i]);
+                        }
+                        (mag as u8).encode(writer, &mut ctx.u8_ctx);
+                        return;
+                    }
+                    for i in (MBITS - lz..MBITS).rev() {
+                        false.encode(writer, &mut ctx.leading_zero[i]);
+                    }
+                    true.encode(writer, &mut ctx.leading_zero[MBITS - 1 - lz]);
+                    let sig_bits = MBITS - 1 - lz;
+                    let full_bytes = sig_bits / 8;
+                    let partial_bits = sig_bits % 8;
+                    let value_bytes = mag.to_le_bytes();
+                    if full_bytes > 0 {
+                        writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
+                    }
+                    for i in 0..partial_bits {
+                        let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
+                        bit.encode(writer, &mut ctx.partial[lz][i]);
+                    }
                 }
                 #[inline]
                 fn decode<D: EntropyDecoder>(
@@ -414,7 +453,35 @@ macro_rules! impl_signed {
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
                     let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
-                    let mag: $unsigned = $unsigned::decode(reader, &mut ctx.magnitude)?;
+                    const MBITS: usize = $bits - 1;
+                    let mut lz = 0usize;
+                    let mag: $unsigned = loop {
+                        if lz >= MBITS - 8 {
+                            let v = u8::decode(reader, &mut ctx.u8_ctx)?;
+                            break v as $unsigned;
+                        }
+                        if bool::decode(reader, &mut ctx.leading_zero[MBITS - 1 - lz])? {
+                            let sig_bits = MBITS - 1 - lz;
+                            let full_bytes = sig_bits / 8;
+                            let partial_bits = sig_bits % 8;
+                            let mut value_bytes = [0u8; std::mem::size_of::<$unsigned>()];
+                            if full_bytes > 0 {
+                                reader.decode_incompressible_bytes(
+                                    &mut value_bytes[..full_bytes],
+                                )?;
+                            }
+                            for i in 0..partial_bits {
+                                if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                                    value_bytes[full_bytes] |= 1 << i;
+                                }
+                            }
+                            value_bytes[full_bytes] |= 1 << partial_bits;
+                            break $unsigned::from_le_bytes(
+                                value_bytes.try_into().unwrap(),
+                            );
+                        }
+                        lz += 1;
+                    };
                     if is_neg {
                         Ok(-1 - (mag as $signed))
                     } else {
@@ -532,9 +599,9 @@ macro_rules! impl_signed {
     };
 }
 
-impl_signed!(i16, u16, mod_i16);
-impl_signed!(i32, u32, mod_i32);
-impl_signed!(i64, u64, mod_i64);
+impl_signed!(i16, u16, 16, mod_i16);
+impl_signed!(i32, u32, 32, mod_i32);
+impl_signed!(i64, u64, 64, mod_i64);
 
 #[test]
 fn signed() {
@@ -549,11 +616,15 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(i32::MIN), 38);
     for v in [0i32, 1, 7, 137, -1i32] {
         println!("testing {v}");
-        assert_bits!(v, 33);
+        assert_bits!(v, 32);
     }
-    for v in [i32::MIN, i32::MAX, i32::MAX - 1] {
+    for v in [i32::MIN] {
         println!("testing {v}");
-        assert_bits!(v, 34);
+        assert_bits!(v, 27);
+    }
+    for v in [i32::MAX, i32::MAX - 1] {
+        println!("testing {v}");
+        assert_bits!(v, 33);
     }
 
     assert_bits!(Encoded::<_, Small>::new(0_i16), 5);
@@ -561,9 +632,13 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(-1_i16), 2);
     assert_bits!(Encoded::<_, Small>::new(i16::MAX), 20);
     assert_bits!(Encoded::<_, Small>::new(i16::MIN), 20);
-    for v in [i16::MIN, i16::MAX, 0, 1, 7, 137, i16::MAX - 1] {
+    for v in [i16::MIN] {
         println!("testing {v}");
-        assert_bits!(v, 17);
+        assert_bits!(v, 11);
+    }
+    for v in [i16::MAX, 0, 1, 7, 137, i16::MAX - 1] {
+        println!("testing {v}");
+        assert_bits!(v, 16);
     }
 
     assert_bits!(Encoded::<_, Small>::new(0_i64), 7);
@@ -571,17 +646,17 @@ fn signed() {
     assert_bits!(Encoded::<_, Small>::new(-1_i64), 3);
     assert_bits!(Encoded::<_, Small>::new(i64::MAX), 71);
     assert_bits!(Encoded::<_, Small>::new(i64::MIN), 71);
-    for v in [0i64, 1, 7, 137] {
+    for v in [0i64, 1, 7, 137, -1i64] {
+        println!("testing {v}");
+        assert_bits!(v, 64);
+    }
+    for v in [i64::MIN] {
+        println!("testing {v}");
+        assert_bits!(v, 59);
+    }
+    for v in [i64::MAX - 1] {
         println!("testing {v}");
         assert_bits!(v, 65);
-    }
-    for v in [i64::MIN, i64::MAX - 1] {
-        println!("testing {v}");
-        assert_bits!(v, 66);
-    }
-    for v in [-1i64] {
-        println!("testing {v}");
-        assert_bits!(v, 72);
     }
 
     use super::Millibits;
