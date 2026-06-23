@@ -261,6 +261,23 @@ impl EncodingStrategy<u8> for Small {
     }
 }
 
+impl EncodingStrategy<i8> for Small {
+    type Context = SmallContext;
+    fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
+        let v = *value as u8;
+        // Zig-zag: 0→0, -1→1, 1→2, -2→3, 2→4, …, 127→254, -128→255
+        let zigzag = (v << 1) ^ (0u8.wrapping_sub(v >> 7));
+        Small::encode(&zigzag, writer, ctx)
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        let z = <Small as EncodingStrategy<u8>>::decode(reader, ctx)?;
+        Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
+    }
+}
+
 impl EncodingStrategy<u8> for Incompressible {
     type Context = ();
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, _ctx: &mut Self::Context) {
@@ -347,6 +364,66 @@ fn small() {
     }
     assert_eq!(
         Encoded::<u8, Small>::new(255u8).millibits(),
+        super::Millibits::bits(11)
+    );
+}
+
+#[test]
+fn small_i8() {
+    use super::{assert_bits, Small};
+    use crate::Encoded;
+
+    // Round-trip every i8 value.
+    for v in i8::MIN..=i8::MAX {
+        let enc = super::encode(&Encoded::<i8, Small>::new(v));
+        let dec = super::decode::<Encoded<i8, Small>>(&enc).unwrap().value();
+        assert_eq!(v, dec, "round-trip failed for {v}");
+    }
+
+    fn check_size(v: i8, expected: usize) {
+        assert_bits!(
+            Encoded::<i8, Small>::new(v),
+            expected,
+            "unexpected size for {v}"
+        );
+    }
+
+    // Zig-zag mapping → same bit ranges as Small u8:
+    // zigzag {0,1} → 3 bits: i8 values {0, -1}
+    check_size(0, 3);
+    check_size(-1, 3);
+    // zigzag {2,3} → 4 bits: {1, -2}
+    check_size(1, 4);
+    check_size(-2, 4);
+    // zigzag {4..7} → 5 bits: {2, 3, -3, -4}
+    for v in [2i8, 3, -3, -4] {
+        check_size(v, 5);
+    }
+    // zigzag {8..15} → 6 bits: {4..7, -5..-8}
+    for v in [4i8, 7, -5, -8] {
+        check_size(v, 6);
+    }
+    // zigzag {16..31} → 7 bits: {8..15, -9..-16}
+    for v in [8i8, 15, -9, -16] {
+        check_size(v, 7);
+    }
+    // zigzag {32..63} → 8 bits: {16..31, -17..-32}
+    for v in [16i8, 31, -17, -32] {
+        check_size(v, 8);
+    }
+    // zigzag {64..127} → 10 bits: {32..63, -33..-64}
+    for v in [32i8, 63, -33, -64] {
+        check_size(v, 10);
+    }
+    // zigzag {128..255} → 11 bits: {64..127, -65..-128}
+    for v in [64i8, 127, -65] {
+        check_size(v, 11);
+    }
+    // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
+    // The Range coder compresses all-ones sequences well, same as assert_bits!(u8::MAX, 3).
+    // Mirror the small_u8 test for u8=255: only verify entropy, not actual coded size.
+    assert_eq!(
+        crate::Encoded::<i8, Small>::new(-128).millibits(),
         super::Millibits::bits(11)
     );
 }
