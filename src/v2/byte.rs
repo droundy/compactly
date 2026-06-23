@@ -14,14 +14,13 @@ impl Encode for u8 {
     type Context = ByteContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        for i in 0..8 {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = (*self >> (7 - i)) & 1 == 1;
-            bit.encode(writer, ctx);
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
+        // state = 2*state + 1 + bit each step; only depends on *self, not coder state.
+        let v = *self as usize;
+        let mut state = 0usize;
+        for i in (0..8u32).rev() {
+            let bit = (v >> i) & 1 == 1;
+            bit.encode(writer, &mut ctx.0[state]);
+            state = (state << 1) + 1 + bit as usize;
         }
     }
     #[inline]
@@ -29,15 +28,13 @@ impl Encode for u8 {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        for i in 0..8 {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = bool::decode(reader, ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
+        // After 8 steps, state == 255 + decoded_byte.
+        let mut state = 0usize;
+        for _ in 0..8 {
+            let bit = bool::decode(reader, &mut ctx.0[state])?;
+            state = (state << 1) + 1 + bit as usize;
         }
-        Ok(accumulated_value as u8)
+        Ok((state - 255) as u8)
     }
 }
 
@@ -64,15 +61,12 @@ macro_rules! small_num {
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    let value = u8::from(*self);
-                    let mut filled_up = 0;
-                    let mut accumulated_value = 0;
-                    for i in 0..$nbits {
-                        let ctx = &mut ctx.0[filled_up + accumulated_value];
-                        let bit = (value >> ($nbits - 1 - i)) & 1 == 1;
-                        bit.encode(writer, ctx);
-                        filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
+                    let value = u8::from(*self) as usize;
+                    let mut state = 0usize;
+                    for i in (0..$nbits as usize).rev() {
+                        let bit = (value >> i) & 1 == 1;
+                        bit.encode(writer, &mut ctx.0[state]);
+                        state = (state << 1) + 1 + bit as usize;
                     }
                 }
                 #[inline]
@@ -80,15 +74,12 @@ macro_rules! small_num {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let mut filled_up = 0;
-                    let mut accumulated_value = 0;
-                    for i in 0..$nbits {
-                        let ctx = &mut ctx.0[filled_up + accumulated_value];
-                        let bit = bool::decode(reader, ctx)?;
-                        filled_up += 1 << i;
-                        accumulated_value = 2 * accumulated_value + bit as usize;
+                    let mut state = 0usize;
+                    for _ in 0..$nbits {
+                        let bit = bool::decode(reader, &mut ctx.0[state])?;
+                        state = (state << 1) + 1 + bit as usize;
                     }
-                    Ok((accumulated_value as u8).try_into().unwrap())
+                    Ok(((state - ($doublemax - 1)) as u8).try_into().unwrap())
                 }
             }
 

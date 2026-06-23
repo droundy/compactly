@@ -56,4 +56,7 @@ harness = false
 name = "signed"
 harness = false
 
+[[bench]]
+name = "bytes"
+harness = false
 
