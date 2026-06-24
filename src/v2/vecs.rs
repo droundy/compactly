@@ -1,5 +1,6 @@
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
 use crate::{Incompressible, Normal, Small, Sorted};
+use std::collections::VecDeque;
 
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
@@ -24,6 +25,42 @@ impl<T: Encode> Encode for Box<[T]> {
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        crate::Values::<Normal>::decode(reader, ctx)
+    }
+}
+
+impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<S> {
+    type Context = Context<T, S>;
+    fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&value.len(), writer, &mut ctx.len);
+        for v in value {
+            S::encode(v, writer, &mut ctx.values);
+        }
+    }
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<VecDeque<T>, std::io::Error> {
+        let n = Small::decode(reader, &mut ctx.len)?;
+        let mut out = VecDeque::with_capacity(n);
+        for _ in 0..n {
+            out.push_back(S::decode(reader, &mut ctx.values)?);
+        }
+        Ok(out)
+    }
+}
+
+impl<T: Encode> Encode for VecDeque<T> {
+    type Context = Context<T, Normal>;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        crate::Values::<Normal>::encode(self, writer, ctx)
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
