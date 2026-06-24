@@ -286,6 +286,31 @@ fn pretty(tokens: proc_macro2::TokenStream) -> String {
 }
 
 #[test]
+fn field_named_discriminant_produces_duplicate_fields() {
+    // A user field named `discriminant` collides with the hardcoded `discriminant`
+    // field that DerivedContext always generates for the variant index context.
+    // The resulting code has duplicate struct field names and fails to compile.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct HasDiscriminant {
+            discriminant: u32,
+            value: bool,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+    // The struct definition should contain two consecutive `discriminant:` field
+    // declarations: the hardcoded one for the variant discriminant context immediately
+    // followed by the one from the user's field.  This is a duplicate field and causes
+    // a compile error when the generated code is used.
+    assert!(
+        output.contains(
+            "discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,\n        discriminant: <u32 as Encode>::Context,"
+        ),
+        "expected duplicate 'discriminant' struct fields in generated DerivedContext:\n{output}"
+    );
+}
+
+#[test]
 fn impl_two_strategies() {
     let di: syn::DeriveInput = syn::parse_quote! {
         #[compactly(Small)]

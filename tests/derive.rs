@@ -256,3 +256,56 @@ fn unnamed_variants() {
         Two,
     }
 }
+
+#[test]
+fn multiple_type_params() {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Pair<A, B> {
+        first: A,
+        second: B,
+    }
+
+    for v in [
+        Pair {
+            first: 3_u8,
+            second: true,
+        },
+        Pair {
+            first: 0_u8,
+            second: false,
+        },
+        Pair {
+            first: 255_u8,
+            second: true,
+        },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
+
+#[test]
+fn mixed_enum_variants() {
+    // Enum mixing unit, tuple, and named-struct variants.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    enum Mixed {
+        Unit,
+        Tuple(u8, bool),
+        Named { x: u8, y: u8 },
+    }
+
+    for v in [
+        Mixed::Unit,
+        Mixed::Tuple(0, false),
+        Mixed::Tuple(42, true),
+        Mixed::Named { x: 0, y: 0 },
+        Mixed::Named { x: 1, y: 2 },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
