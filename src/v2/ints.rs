@@ -158,6 +158,7 @@ macro_rules! impl_uint {
         }
     };
 }
+impl_uint!(u128, u128_mod, 128);
 impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
@@ -323,6 +324,7 @@ macro_rules! impl_compact {
     };
 }
 
+impl_compact!(u128, U128Compact, 128);
 impl_compact!(u64, U64Compact, 64);
 impl_compact!(u32, U32Compact, 32);
 impl_compact!(u16, U16Compact, 16);
@@ -599,6 +601,7 @@ macro_rules! impl_signed {
     };
 }
 
+impl_signed!(i128, u128, 128, mod_i128);
 impl_signed!(i16, u16, 16, mod_i16);
 impl_signed!(i32, u32, 32, mod_i32);
 impl_signed!(i64, u64, 64, mod_i64);

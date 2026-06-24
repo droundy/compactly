@@ -1,6 +1,6 @@
 use crate::Sorted;
 
-use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
+use super::{byte::UBits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan};
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
@@ -330,5 +330,134 @@ fn correctness() {
         let encoded = super::Range::encode(&v);
         let decoded = super::Range::decode(&encoded);
         assert_eq!(decoded, Some(v));
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct IsizeContext {
+    is_negative: <bool as Encode>::Context,
+    magnitude: <usize as Encode>::Context,
+}
+
+impl Encode for isize {
+    type Context = IsizeContext;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        let is_neg = *self < 0;
+        is_neg.encode(writer, &mut ctx.is_negative);
+        let mag: usize = if is_neg {
+            self.abs_diff(-1)
+        } else {
+            self.abs_diff(0)
+        };
+        mag.encode(writer, &mut ctx.magnitude);
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+        let mag = usize::decode(reader, &mut ctx.magnitude)?;
+        if is_neg {
+            Ok(-1 - mag as isize)
+        } else {
+            Ok(mag as isize)
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct IsizeSmallContext {
+    is_negative: <bool as Encode>::Context,
+    positive: <Small as EncodingStrategy<usize>>::Context,
+    negative: <Small as EncodingStrategy<usize>>::Context,
+}
+
+impl EncodingStrategy<isize> for Small {
+    type Context = IsizeSmallContext;
+    #[inline]
+    fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
+        (*value < 0).encode(writer, &mut ctx.is_negative);
+        if *value < 0 {
+            Small::encode(&value.abs_diff(-1), writer, &mut ctx.negative)
+        } else {
+            Small::encode(&value.abs_diff(0), writer, &mut ctx.positive)
+        }
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        if bool::decode(reader, &mut ctx.is_negative)? {
+            let p: usize = Small::decode(reader, &mut ctx.negative)?;
+            Ok(-1 - p as isize)
+        } else {
+            let p: usize = Small::decode(reader, &mut ctx.positive)?;
+            Ok(p as isize)
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct IsizeSortedContext {
+    previous: Option<isize>,
+    not_sorted: <bool as Encode>::Context,
+    value: <Small as EncodingStrategy<isize>>::Context,
+    difference: <Small as EncodingStrategy<usize>>::Context,
+}
+
+impl EncodingStrategy<isize> for Sorted {
+    type Context = IsizeSortedContext;
+    fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
+        if let Some(previous) = ctx.previous.take() {
+            let not_sorted = *value < previous;
+            not_sorted.encode(writer, &mut ctx.not_sorted);
+            if not_sorted {
+                Small::encode(value, writer, &mut ctx.value);
+            } else {
+                Small::encode(&value.abs_diff(previous), writer, &mut ctx.difference);
+            }
+        } else {
+            Small::encode(value, writer, &mut ctx.value);
+        }
+        ctx.previous = Some(*value);
+    }
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+            if not_sorted {
+                Small::decode(reader, &mut ctx.value)?
+            } else {
+                let diff: usize = Small::decode(reader, &mut ctx.difference)?;
+                previous.wrapping_add(diff as isize)
+            }
+        } else {
+            Small::decode(reader, &mut ctx.value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+}
+
+#[test]
+fn isize_correctness() {
+    use crate::Encoded;
+    for v in (0..u16::MAX as isize)
+        .chain((0..u16::MAX as isize).map(|i| -(i + 1)))
+        .chain((0..u16::MAX as isize).map(|i| isize::MAX - i))
+        .chain((0..u16::MAX as isize).map(|i| isize::MIN + i))
+    {
+        let encoded = super::encode(&v);
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(v));
+
+        let encoded = super::encode(&Encoded::<_, Small>::new(v));
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(Encoded::<_, Small>::new(v)));
     }
 }
