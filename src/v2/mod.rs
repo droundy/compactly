@@ -19,6 +19,7 @@ mod floats;
 pub mod generate_bit_context;
 mod ints;
 mod low_cardinality;
+mod nonzero;
 mod maps;
 mod markers;
 mod millibits;
