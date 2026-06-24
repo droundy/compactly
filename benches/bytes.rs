@@ -1,5 +1,5 @@
 use compactly::v2::{Ans, Range};
-use compactly::{Encoded, Incompressible, Normal, Small, Values};
+use compactly::{Encoded, Incompressible, Normal, Small, Sorted, Values};
 use rand::{Rng, SeedableRng};
 use scaling::bench_gen_env;
 
@@ -86,6 +86,7 @@ fn build_algos() -> Vec<Algo> {
     let mut algos: Vec<Algo> = Vec::new();
     add_strategy!(algos, "norm", Encoded<Vec<u8>, Values<Normal>>);
     add_strategy!(algos, "sml", Encoded<Vec<u8>, Values<Small>>);
+    add_strategy!(algos, "srt", Encoded<Vec<u8>, Values<Sorted>>);
     add_strategy!(algos, "inc", Encoded<Vec<u8>, Values<Incompressible>>);
     // Vec<u8>-level incompressible: stores the whole slice raw (no per-byte entropy coding)
     add_strategy!(algos, "raw", Encoded<Vec<u8>, Incompressible>);
@@ -105,6 +106,20 @@ fn main() {
     let sparse: Vec<u8> = (0..N).map(|_| rng.gen_range(0u8..16)).collect();
     let repeated: Vec<u8> = (0..N).map(|i| (i % 4) as u8).collect();
 
+    // Slowly drifting: random walk with steps in [-4, +4], wrapping at 256.
+    // Sorted strategy should excel here.
+    let drift: Vec<u8> = {
+        let mut v = Vec::with_capacity(N);
+        let mut x = 64u8;
+        for _ in 0..N {
+            v.push(x);
+            x = x.wrapping_add(rng.gen_range(-4i8..=4) as u8);
+        }
+        v
+    };
+    // Slow ramp: incrementing by 1 each step (wrapping).
+    let ramp: Vec<u8> = (0..N).map(|i| i as u8).collect();
+
     let algos = build_algos();
     run_benchmarks(&format!("Vec<u8> random ({N} values)"), &algos, &random);
     run_benchmarks(&format!("Vec<u8> ascii ({N} values)"), &algos, &ascii);
@@ -118,4 +133,10 @@ fn main() {
         &algos,
         &repeated,
     );
+    run_benchmarks(
+        &format!("Vec<u8> drift ±4 ({N} values)"),
+        &algos,
+        &drift,
+    );
+    run_benchmarks(&format!("Vec<u8> ramp +1 ({N} values)"), &algos, &ramp);
 }

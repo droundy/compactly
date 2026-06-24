@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy};
-use crate::{Incompressible, Small};
+use crate::{Incompressible, Small, Sorted};
 
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
@@ -301,6 +301,102 @@ impl EncodingStrategy<u8> for Incompressible {
     }
 }
 
+/// How many leading bits of `value` are determined when the delta doesn't fit in `i8`.
+///
+/// - `previous ≤ 127`: value ≥ previous+128, so the top N bits are all 1s where
+///   N = (previous+128).leading_ones().
+/// - `previous ≥ 129`: value ≤ previous-129, so the top N bits are all 0s where
+///   N = (previous-129).leading_zeros().
+/// - `previous == 128` never reaches the "doesn't fit" path (all 256 deltas fit in i8).
+fn skip_bits(previous: u8) -> usize {
+    if previous <= 127 {
+        (previous + 128).leading_ones() as usize
+    } else {
+        // wrapping_sub handles the unreachable previous==128 case without panicking.
+        previous.wrapping_sub(129).leading_zeros() as usize
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct SortedU8Context {
+    previous: Option<u8>,
+    fits_in_i8: <bool as Encode>::Context,
+    small_diff: <Small as EncodingStrategy<i8>>::Context,
+    // Shared ByteContext for the full-value path (first element or large-delta fallback).
+    // When entering mid-tree, we start at the state corresponding to the already-known
+    // leading bits, so different entry points use disjoint context slots.
+    full_value: <u8 as Encode>::Context,
+}
+
+impl EncodingStrategy<u8> for Sorted {
+    type Context = SortedU8Context;
+    fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
+        if let Some(previous) = ctx.previous.take() {
+            let delta = (*value as i16) - (previous as i16);
+            let fits = i8::try_from(delta).is_ok();
+            fits.encode(writer, &mut ctx.fits_in_i8);
+            if fits {
+                Small::encode(&(delta as i8), writer, &mut ctx.small_diff);
+            } else {
+                let skip = skip_bits(previous);
+                let v = *value as usize;
+                // Enter the ByteContext trie below the already-known leading bits.
+                let mut state = ((1usize << skip) - 1) + (v >> (8 - skip));
+                for i in (0..8 - skip).rev() {
+                    let bit = (v >> i) & 1 == 1;
+                    bit.encode(writer, &mut ctx.full_value.0[state]);
+                    state = (state << 1) + 1 + bit as usize;
+                }
+            }
+        } else {
+            value.encode(writer, &mut ctx.full_value);
+        }
+        ctx.previous = Some(*value);
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            if bool::decode(reader, &mut ctx.fits_in_i8)? {
+                let delta: i8 = Small::decode(reader, &mut ctx.small_diff)?;
+                (previous as i16 + delta as i16) as u8
+            } else {
+                let skip = skip_bits(previous);
+                // Reconstruct the entry state from the known leading bits.
+                let known_top = if previous <= 127 {
+                    (1usize << skip) - 1 // all 1s
+                } else {
+                    0 // all 0s
+                };
+                let mut state = ((1usize << skip) - 1) + known_top;
+                for _ in 0..8 - skip {
+                    let bit = bool::decode(reader, &mut ctx.full_value.0[state])?;
+                    state = (state << 1) + 1 + bit as usize;
+                }
+                (state - 255) as u8
+            }
+        } else {
+            u8::decode(reader, &mut ctx.full_value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+}
+
+impl EncodingStrategy<i8> for Sorted {
+    type Context = SortedU8Context;
+    fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
+        Sorted::encode(&(*value as u8), writer, ctx)
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        <Sorted as EncodingStrategy<u8>>::decode(reader, ctx).map(|v| v as i8)
+    }
+}
+
 #[test]
 fn size() {
     use super::assert_bits;
@@ -433,5 +529,51 @@ fn small_i8() {
     assert_eq!(
         crate::Encoded::<i8, Small>::new(-128).millibits(),
         super::Millibits::bits(11)
+    );
+}
+
+#[test]
+fn sorted_u8_roundtrip() {
+    use crate::Encoded;
+    // Every possible (previous, current) pair must round-trip correctly.
+    for prev in 0u8..=255 {
+        for cur in 0u8..=255 {
+            let data = [Encoded::<u8, Sorted>::new(prev), Encoded::<u8, Sorted>::new(cur)];
+            let enc = super::encode(&data);
+            let dec: [Encoded<u8, Sorted>; 2] = super::decode(&enc).unwrap();
+            assert_eq!(
+                [dec[0].value(), dec[1].value()],
+                [prev, cur],
+                "round-trip failed for [{prev}, {cur}]"
+            );
+        }
+    }
+    // Also verify single values.
+    for v in 0u8..=255 {
+        let enc = super::encode_with(Sorted, &v);
+        let dec: u8 = super::decode_with(Sorted, &enc).unwrap();
+        assert_eq!(dec, v);
+    }
+    // i8 round-trip via the same context.
+    for v in i8::MIN..=i8::MAX {
+        let enc = super::encode_with(Sorted, &v);
+        let dec: i8 = super::decode_with(Sorted, &enc).unwrap();
+        assert_eq!(dec, v);
+    }
+}
+
+#[test]
+fn sorted_u8_ascii() {
+    use super::assert_bits;
+    use crate::Encoded;
+    assert_bits!(
+        [
+            Encoded::<u8, Sorted>::new(b'h'),
+            Encoded::<u8, Sorted>::new(b'e'),
+            Encoded::<u8, Sorted>::new(b'l'),
+            Encoded::<u8, Sorted>::new(b'l'),
+            Encoded::<u8, Sorted>::new(b'o'),
+        ],
+        31
     );
 }
