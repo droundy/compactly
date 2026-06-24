@@ -1,4 +1,5 @@
-use super::Encode;
+use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+use crate::LowCardinality;
 use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {
@@ -37,7 +38,7 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
     type Context = CacheContext<T>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let looked_up = ctx.cached.get(self).copied();
         looked_up.is_some().encode(writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
@@ -48,7 +49,7 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
         }
     }
     #[inline]
-    fn decode<D: super::EntropyDecoder>(
+    fn decode<D: EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
@@ -64,5 +65,20 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
             ctx.cache.push(value.clone());
             Ok(value)
         }
+    }
+}
+
+impl Encode for Arc<str> {
+    type Context = <LowCardinality as EncodingStrategy<Arc<str>>>::Context;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        LowCardinality::encode(self, writer, ctx)
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        LowCardinality::decode(reader, ctx)
     }
 }

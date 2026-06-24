@@ -1,4 +1,4 @@
-use super::{bits::Bits, Encode, EncodingStrategy, ULessThan};
+use super::{bits::Bits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, ULessThan};
 use crate::{Compressible, Small, Sorted};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
@@ -81,6 +81,28 @@ impl Encode for String {
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
         Ok(out)
+    }
+}
+
+pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Context) {
+    Small::encode(&s.chars().count(), writer, &mut ctx.len);
+    for c in s.chars() {
+        c.encode(writer, &mut ctx.chars);
+    }
+}
+
+impl Encode for Box<str> {
+    type Context = Context;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        encode_str(self.as_ref(), writer, ctx);
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        String::decode(reader, ctx).map(String::into_boxed_str)
     }
 }
 
