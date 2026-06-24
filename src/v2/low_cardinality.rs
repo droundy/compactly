@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy, LowCardinality};
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{collections::HashMap, hash::Hash, rc::Rc, sync::Arc};
 
 #[derive(Clone)]
 pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
@@ -113,6 +113,49 @@ impl EncodingStrategy<Arc<str>> for LowCardinality {
         } else {
             let s = String::decode(reader, &mut ctx.string_ctx)?;
             let value: Arc<str> = Arc::from(s.as_str());
+            ctx.cache.push(value.clone());
+            Ok(value)
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct RcStrCacheContext {
+    cached: HashMap<Rc<str>, usize>,
+    cache: Vec<Rc<str>>,
+    is_cached: <bool as Encode>::Context,
+    string_ctx: <String as Encode>::Context,
+    index: <usize as Encode>::Context,
+}
+
+impl EncodingStrategy<Rc<str>> for LowCardinality {
+    type Context = RcStrCacheContext;
+    #[inline]
+    fn encode<E: super::EntropyCoder>(value: &Rc<str>, writer: &mut E, ctx: &mut Self::Context) {
+        let looked_up = ctx.cached.get(value.as_ref()).copied();
+        looked_up.is_some().encode(writer, &mut ctx.is_cached);
+        if let Some(idx) = looked_up {
+            idx.encode(writer, &mut ctx.index)
+        } else {
+            ctx.cached.insert(value.clone(), ctx.cached.len());
+            value.to_string().encode(writer, &mut ctx.string_ctx)
+        }
+    }
+    #[inline]
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Rc<str>, std::io::Error> {
+        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+        if is_cached {
+            let idx = usize::decode(reader, &mut ctx.index)?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = String::decode(reader, &mut ctx.string_ctx)?;
+            let value: Rc<str> = Rc::from(s.as_str());
             ctx.cache.push(value.clone());
             Ok(value)
         }
