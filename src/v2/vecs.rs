@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy};
+use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
 use crate::{Incompressible, Normal, Small, Sorted};
 
 impl<T: Encode> Encode for Vec<T> {
@@ -28,6 +28,21 @@ impl<T: Encode> Encode for Box<[T]> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         crate::Values::<Normal>::decode(reader, ctx)
+    }
+}
+
+impl<T: Encode> Encode for Box<T> {
+    type Context = T::Context;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        (**self).encode(writer, ctx)
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        T::decode(reader, ctx).map(Box::new)
     }
 }
 #[test]
