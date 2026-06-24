@@ -14,9 +14,37 @@ fn lz77_hash(bytes: &[u8]) -> usize {
     (v.wrapping_mul(0x9E3779B9) >> 16) as usize
 }
 
+/// Bitset filter over 4-grams present in old strings (LZ77_HASH_SIZE bits = 8 KiB).
+/// Bits are set when strings are added to `old` and never cleared, so the filter may
+/// have false positives from evicted strings but never false negatives from live ones.
+/// Cloning costs 8 KiB, which is far cheaper than scanning 25 KiB of old strings
+/// per chunk at O(MAX_CHAIN) depth.
+#[derive(Clone)]
+struct OldFilter(Box<[u64; LZ77_HASH_SIZE / 64]>);
+
+impl Default for OldFilter {
+    fn default() -> Self {
+        OldFilter(Box::new([0u64; LZ77_HASH_SIZE / 64]))
+    }
+}
+
+impl OldFilter {
+    #[inline]
+    fn set(&mut self, h: usize) {
+        self.0[h >> 6] |= 1u64 << (h & 63);
+    }
+    #[inline]
+    fn test(&self, h: usize) -> bool {
+        self.0[h >> 6] & (1u64 << (h & 63)) != 0
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: VecDeque<Vec<u8>>,
+    /// Bloom-style 4-gram filter over bytes in `old`. Bits are added on push_old and never
+    /// removed — evictions cause false positives but never false negatives.
+    old_filter: OldFilter,
     count: <Small as EncodingStrategy<usize>>::Context,
     literal: <Values<Normal> as EncodingStrategy<Vec<u8>>>::Context,
     back: <Small as EncodingStrategy<u8>>::Context,
@@ -39,6 +67,11 @@ struct Chunk {
 
 impl Lz77 {
     fn push_old(&mut self, value: Vec<u8>) {
+        for p in 0..value.len() {
+            if p + 4 <= value.len() {
+                self.old_filter.set(lz77_hash(&value[p..]));
+            }
+        }
         self.old.push_front(value);
         while self.old.len() > 254 {
             self.old.pop_back();
@@ -128,29 +161,35 @@ impl Lz77 {
             }
 
             // Linear scan in old strings; must beat best_sofar to be chosen.
+            // The old_filter bloom filter lets us skip the entire scan when the
+            // current 4-gram prefix is not present in any old string.
             let sofar_best_len = best_sofar.map_or(0, |(_, l)| l);
             let sofar_back_len = sofar.len().min(BACK_WINDOW);
             let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
             let mut min_old = sofar_best_len;
             let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
-            for (i, old_s) in self.old.iter().enumerate() {
-                if old_budget == 0 {
-                    break;
-                }
-                let use_s = if old_s.len() > old_budget {
-                    &old_s[..old_budget]
-                } else {
-                    old_s.as_slice()
-                };
-                old_budget = old_budget.saturating_sub(use_s.len());
-                // When min_old is 0 (no prior match), use min_match=0 to allow
-                // matching short sequences (2-4 bytes) verbatim in old strings.
-                let search_min = if min_old == 0 { 0 } else { min_old + 1 };
-                if let Some((offset, length)) =
-                    find_first_longest_prefix(use_s, prefix, search_min)
-                {
-                    best_old = Some(((i + 1) as u8, offset, length));
-                    min_old = length;
+            let skip_old = prefix.len() >= MIN_MATCH
+                && !self.old_filter.test(lz77_hash(prefix));
+            if !skip_old {
+                for (i, old_s) in self.old.iter().enumerate() {
+                    if old_budget == 0 {
+                        break;
+                    }
+                    let use_s = if old_s.len() > old_budget {
+                        &old_s[..old_budget]
+                    } else {
+                        old_s.as_slice()
+                    };
+                    old_budget = old_budget.saturating_sub(use_s.len());
+                    // When min_old is 0 (no prior match), use min_match=0 to allow
+                    // matching short sequences (2-4 bytes) verbatim in old strings.
+                    let search_min = if min_old == 0 { 0 } else { min_old + 1 };
+                    if let Some((offset, length)) =
+                        find_first_longest_prefix(use_s, prefix, search_min)
+                    {
+                        best_old = Some(((i + 1) as u8, offset, length));
+                        min_old = length;
+                    }
                 }
             }
 
