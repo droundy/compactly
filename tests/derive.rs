@@ -258,6 +258,89 @@ fn unnamed_variants() {
 }
 
 #[test]
+fn doc_comments_on_fields() {
+    /// A struct with doc comments on the struct and its fields.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Documented {
+        /// The value field.
+        value: u8,
+        /// A boolean flag.
+        flag: bool,
+    }
+
+    for v in [
+        Documented { value: 0, flag: false },
+        Documented { value: 42, flag: true },
+        Documented { value: 255, flag: false },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
+
+#[test]
+fn const_generic_array_field() {
+    // Const generic param used directly in a field type — requires the param
+    // to be forwarded to DerivedContext (previously a compile error).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Buffer<const N: usize> {
+        data: [u8; N],
+    }
+
+    for v in [
+        Buffer::<4> { data: [0, 1, 2, 3] },
+        Buffer::<4> { data: [255, 0, 128, 7] },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
+
+#[test]
+fn field_named_discriminant() {
+    // A user field named `discriminant` used to collide with the hardcoded
+    // `discriminant` field generated in DerivedContext. It should be renamed
+    // automatically (to `discriminant_0`) to avoid the conflict.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct HasDiscriminant {
+        discriminant: u8,
+        value: bool,
+    }
+
+    for v in [
+        HasDiscriminant { discriminant: 0, value: false },
+        HasDiscriminant { discriminant: 42, value: true },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
+
+#[test]
+fn const_generic_independent() {
+    // A struct with a const generic parameter that does NOT appear in any field type.
+    // DerivedContext is generated without the const param, which is fine here
+    // because none of the context field types reference it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Tagged<const TAG: usize> {
+        value: u32,
+    }
+
+    for v in [Tagged::<42> { value: 0 }, Tagged::<42> { value: 100 }] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        let bytes = compactly::v1::encode(&v);
+        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+    }
+}
+
+#[test]
 fn multiple_type_params() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     struct Pair<A, B> {

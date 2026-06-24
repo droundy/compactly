@@ -32,6 +32,7 @@ impl EncodingStrategy {
 
 pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
     let mut bound_names = BTreeSet::new();
+    bound_names.insert(Ident::new("discriminant", Span::call_site()));
     s.binding_name(|field, i| {
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
@@ -72,7 +73,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         synstructure::AddBounds::Generics,
     );
 
-    let context_types = s
+    let context_type_params = s
         .ast()
         .generics
         .params
@@ -85,15 +86,40 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             }
         })
         .collect::<Vec<_>>();
-    let context_generics = if context_types.is_empty() {
-        quote! {}
-    } else {
-        quote! { <#(#context_types: Encode),*> }
+    let context_const_params = s
+        .ast()
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| {
+            if let GenericParam::Const(c) = param {
+                Some((c.ident.clone(), c.ty.clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let context_generics = {
+        let type_bounds = context_type_params.iter().map(|t| quote! { #t: Encode });
+        let const_defs = context_const_params
+            .iter()
+            .map(|(name, ty)| quote! { const #name: #ty });
+        let items = type_bounds.chain(const_defs).collect::<Vec<_>>();
+        if items.is_empty() {
+            quote! {}
+        } else {
+            quote! { <#(#items),*> }
+        }
     };
-    let context_generics_without_bound = if context_types.is_empty() {
-        quote! {}
-    } else {
-        quote! { <#(#context_types),*> }
+    let context_generics_without_bound = {
+        let type_names = context_type_params.iter().map(|t| quote! { #t });
+        let const_names = context_const_params.iter().map(|(name, _)| quote! { #name });
+        let items = type_names.chain(const_names).collect::<Vec<_>>();
+        if items.is_empty() {
+            quote! {}
+        } else {
+            quote! { <#(#items),*> }
+        }
     };
     let mut binding_strategies: HashMap<Ident, Option<EncodingStrategy>> = HashMap::new();
     let mut strategies = Vec::new();
@@ -286,10 +312,32 @@ fn pretty(tokens: proc_macro2::TokenStream) -> String {
 }
 
 #[test]
-fn field_named_discriminant_produces_duplicate_fields() {
-    // A user field named `discriminant` collides with the hardcoded `discriminant`
-    // field that DerivedContext always generates for the variant index context.
-    // The resulting code has duplicate struct field names and fails to compile.
+fn const_generic_in_field_type_forwarded_to_context() {
+    // Const generic params that appear in field types must be forwarded to
+    // DerivedContext so that references like `<[u8; N] as Encode>::Context`
+    // are valid inside the struct body.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Buffer<const N: usize> {
+            data: [u8; N],
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+    assert!(
+        output.contains("pub struct DerivedContext<const N: usize> {"),
+        "expected DerivedContext to carry `const N: usize`:\n{output}"
+    );
+    assert!(
+        output.contains("<[u8; N] as Encode>::Context"),
+        "expected field to reference N:\n{output}"
+    );
+}
+
+#[test]
+fn field_named_discriminant_is_renamed() {
+    // A user field named `discriminant` used to collide with the hardcoded
+    // `discriminant` field in DerivedContext. After pre-seeding bound_names with
+    // "discriminant", the user field is automatically renamed to `discriminant_0`.
     let di: syn::DeriveInput = syn::parse_quote! {
         pub struct HasDiscriminant {
             discriminant: u32,
@@ -298,15 +346,19 @@ fn field_named_discriminant_produces_duplicate_fields() {
     };
     let s = synstructure::Structure::new(&di);
     let output = pretty(derive_compactly(s));
-    // The struct definition should contain two consecutive `discriminant:` field
-    // declarations: the hardcoded one for the variant discriminant context immediately
-    // followed by the one from the user's field.  This is a duplicate field and causes
-    // a compile error when the generated code is used.
     assert!(
-        output.contains(
+        output.contains("discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,"),
+        "expected hardcoded discriminant field:\n{output}"
+    );
+    assert!(
+        output.contains("discriminant_0: <u32 as Encode>::Context,"),
+        "expected user field renamed to discriminant_0:\n{output}"
+    );
+    assert!(
+        !output.contains(
             "discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,\n        discriminant: <u32 as Encode>::Context,"
         ),
-        "expected duplicate 'discriminant' struct fields in generated DerivedContext:\n{output}"
+        "must not have duplicate discriminant fields:\n{output}"
     );
 }
 

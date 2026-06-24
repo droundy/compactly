@@ -32,6 +32,7 @@ impl EncodingStrategy {
 
 pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
     let mut bound_names = BTreeSet::new();
+    bound_names.insert(Ident::new("discriminant", Span::call_site()));
     s.binding_name(|field, i| {
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
@@ -72,7 +73,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         synstructure::AddBounds::Generics,
     );
 
-    let context_types = s
+    let context_type_params = s
         .ast()
         .generics
         .params
@@ -85,15 +86,40 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             }
         })
         .collect::<Vec<_>>();
-    let context_generics = if context_types.is_empty() {
-        quote! {}
-    } else {
-        quote! { <#(#context_types: Encode),*> }
+    let context_const_params = s
+        .ast()
+        .generics
+        .params
+        .iter()
+        .filter_map(|param| {
+            if let GenericParam::Const(c) = param {
+                Some((c.ident.clone(), c.ty.clone()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let context_generics = {
+        let type_bounds = context_type_params.iter().map(|t| quote! { #t: Encode });
+        let const_defs = context_const_params
+            .iter()
+            .map(|(name, ty)| quote! { const #name: #ty });
+        let items = type_bounds.chain(const_defs).collect::<Vec<_>>();
+        if items.is_empty() {
+            quote! {}
+        } else {
+            quote! { <#(#items),*> }
+        }
     };
-    let context_generics_without_bound = if context_types.is_empty() {
-        quote! {}
-    } else {
-        quote! { <#(#context_types),*> }
+    let context_generics_without_bound = {
+        let type_names = context_type_params.iter().map(|t| quote! { #t });
+        let const_names = context_const_params.iter().map(|(name, _)| quote! { #name });
+        let items = type_names.chain(const_names).collect::<Vec<_>>();
+        if items.is_empty() {
+            quote! {}
+        } else {
+            quote! { <#(#items),*> }
+        }
     };
     let mut binding_strategies: HashMap<Ident, Option<EncodingStrategy>> = HashMap::new();
     let mut strategies = Vec::new();
