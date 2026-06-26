@@ -1,5 +1,7 @@
 use super::Encode;
 
+/// Adaptive context for [`Bits<N>`] encoding; holds one bit context per node in
+/// the log2(N)-level binary tree.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
@@ -7,6 +9,10 @@ impl<const N: usize> Default for BitsContext<N> {
         Self([Default::default(); N])
     }
 }
+/// An N-ary value encoded as log2(N) bits using an adaptive binary tree.
+///
+/// `N` must be a power of two. `Bits<32>` encodes 5-bit values (0..31),
+/// `Bits<128>` encodes 7-bit values (0..127), etc.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bits<const N: usize> {
     value: u8,
@@ -19,6 +25,7 @@ impl<const N: usize> From<Bits<N>> for u8 {
 impl<const N: usize> Bits<N> {
     const MAX: u8 = (N - 1) as u8;
     const N_BITS: u32 = N.ilog2();
+    /// Extract the low log2(N) bits from `source`, shifting it right.
     #[inline]
     pub fn take_from(source: &mut u32) -> Self {
         let value = (*source as u8) & Self::MAX;

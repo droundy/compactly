@@ -22,6 +22,7 @@ mod low_cardinality;
 mod nonzero;
 mod maps;
 mod markers;
+mod net;
 mod millibits;
 mod option;
 mod other_crate_types;
