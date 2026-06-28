@@ -118,17 +118,23 @@ pub trait EntropyDecoder {
         &mut self,
         contexts: [&mut bit_context::BitContext; N],
     ) -> [bool; N] {
-        contexts.map(|context| {
-            let bit = self.decode_bit_nonadaptive(context.probability());
+        let probabilities = contexts.each_ref().map(|context| context.probability());
+        let bits = self.decode_bits_nonadaptive(probabilities);
+        for (context, &bit) in contexts.into_iter().zip(bits.iter()) {
             *context = context.adapt(bit);
-            bit
-        })
+        }
+        bits
     }
 
-    /// Decode a given bit, adapting its probability context. The `N == 1` case.
+    /// Decode a given bit, adapting its probability context.
+    ///
+    /// This routes directly through the single-bit primitive rather than
+    /// `decode_bits::<1>`: the batch machinery is pure overhead at `N == 1`, and
+    /// this is by far the hottest decode path.
     #[inline(always)]
     fn decode_bit(&mut self, context: &mut bit_context::BitContext) -> bool {
-        let [bit] = self.decode_bits([context]);
+        let bit = self.decode_bit_nonadaptive(context.probability());
+        *context = context.adapt(bit);
         bit
     }
 

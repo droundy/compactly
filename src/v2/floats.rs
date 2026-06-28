@@ -34,11 +34,16 @@ macro_rules! impl_float {
                         &mut ctx.int_context,
                     )
                 } else {
-                    let mut bits = $intty::from_le_bytes(self.to_le_bytes());
-                    for i in 0..$bits {
-                        (bits & 1 == 1).encode(writer, &mut ctx.context[i]);
-                        bits = bits >> 1;
-                    }
+                    // The $bits raw bits are independent (one context per position),
+                    // so encode them as a single batch.
+                    let bits = $intty::from_le_bytes(self.to_le_bytes());
+                    let pairs = std::array::from_fn::<_, $bits, _>(|i| {
+                        let bit = (bits >> i) & 1 == 1;
+                        let probability = ctx.context[i].probability();
+                        ctx.context[i] = ctx.context[i].adapt(bit);
+                        (bit, probability)
+                    });
+                    writer.encode_bits(pairs);
                 }
             }
             #[inline]
@@ -51,9 +56,12 @@ macro_rules! impl_float {
                         <Small as EncodingStrategy<$intty>>::decode(reader, &mut ctx.int_context)?;
                     Ok(intvalue as $t)
                 } else {
+                    // The $bits raw bits are independent (one context per position),
+                    // so decode them as a single register-resident batch.
+                    let decoded = reader.decode_bits(ctx.context.each_mut());
                     let mut bits: $intty = 0;
                     for i in 0..$bits {
-                        if bool::decode(reader, &mut ctx.context[i])? {
+                        if decoded[i] {
                             bits = bits | (1 << i);
                         }
                     }
