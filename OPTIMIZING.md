@@ -57,7 +57,37 @@ without a 2-wide API that keeps both states in registers.
 
 ## TODO (in rough priority order)
 
-1. **Hybrid float encoding** — the likely best-of-both: adaptive-code the
+1. **Convert more independent-fixed-width callers to `decode_bits::<N>`** so the
+   `Ans` register-resident batch (`decode_bits_nonadaptive`) runs across many
+   bits per call. Good candidate: `Ipv6Addr` zero-flags (14 independent bits,
+   already comment-marked "batched" in `src/v2/net.rs`). NOTE: the tree codes
+   (`u8`, `UBits`, `Bits<N>`) select each bit's context from previously-decoded
+   bits, so their bits are NOT independent and cannot batch.
+
+2. **Const-generic incompressible read** for compile-time-known sizes
+   (IP octets, single bytes): `decode_incompressible::<const N>() -> [u8; N]`
+   avoids the runtime length and inlines the small copy instead of `memmove`.
+   (We rejected a slice-returning variant because it pushes a size check onto
+   callers.)
+
+3. **`decode_until_true` entropy-decoder method** — a method for the
+   leading-zero search: decode bits with successive contexts until one comes up
+   `true`, returning the index, e.g.
+   `fn decode_until_true(&mut self, contexts: &mut [BitContext]) -> usize`.
+   This is the *dominant per-value loop* in integer decode and it is
+   data-dependent (you don't know the count up front), so the fixed-`N`
+   `decode_bits` batch can't cover it; a dedicated method lets the `Ans` decoder
+   keep coder state register-resident across the loop. Likely the biggest
+   integer-decode lever still available in the coder itself.
+
+4. **Explore float entropy** — Try out different categories of floating point
+   numbers and identify where the entropy is within the float.  e.g. for
+   integers, decimal numbers like 0.1 power of two fractions like 0.0125,
+   irrational numbers, etc.  We'd like to know if some of the bytes/bits are
+   usually random and whether there is a way to compress the compressible and
+   make the incompressible fast.
+
+5. **Hybrid float encoding** — the likely best-of-both: adaptive-code the
    structured high bits (sign + exponent) and store the ~random low mantissa as
    incompressible bytes. Byte-aligned proposal for `f64`: adaptive top 16 bits
    (sign+exp+top-4-mantissa), incompressible low 48 bits (6 bytes); analogous
@@ -68,25 +98,12 @@ without a 2-wide API that keeps both states in registers.
    - Alternatively, if the project is willing to accept the structured-data
      compression cost, pure incompressible floats are a trivial ~53× decode win.
 
-2. **Convert more independent-fixed-width callers to `decode_bits::<N>`** so the
-   `Ans` register-resident batch (`decode_bits_nonadaptive`) runs across many
-   bits per call. Good candidate: `Ipv6Addr` zero-flags (14 independent bits,
-   already comment-marked "batched" in `src/v2/net.rs`). NOTE: the tree codes
-   (`u8`, `UBits`, `Bits<N>`) select each bit's context from previously-decoded
-   bits, so their bits are NOT independent and cannot batch.
-
-3. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
+6. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
    per-bit path (float per-bit baseline was never cleanly measured).
 
-4. **Cut per-value allocation/zeroing** in decode — the largest cycle sink per
+7. **Cut per-value allocation/zeroing** in decode — the largest cycle sink per
    profiling (output `Vec` alloc, the `[0u8; 8]` value buffer zeroed per
    integer). This is in `vecs.rs`/`ints.rs`/`mod.rs`, not the coder itself.
-
-5. **Const-generic incompressible read** for compile-time-known sizes
-   (IP octets, single bytes): `decode_incompressible::<const N>() -> [u8; N]`
-   avoids the runtime length and inlines the small copy instead of `memmove`.
-   (We rejected a slice-returning variant because it pushes a size check onto
-   callers.)
 
 ## Landed so far
 - `make EntropyDecoder bit-decode infallible` — `decode_bit*` return `bool`, not
