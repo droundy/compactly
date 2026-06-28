@@ -16,6 +16,13 @@ cargo bench --bench bench          # run main benchmark suite
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
+## Performance work
+
+[OPTIMIZING.md](OPTIMIZING.md) tracks the ongoing effort to make decoding faster
+without harming the compression rate: how to benchmark reliably on this (noisy)
+machine, empirical results, dead ends to avoid, and a prioritized TODO list.
+Update it as that work progresses.
+
 ## Architecture
 
 This is a Rust serialization library that encodes data using **adaptive entropy coding** — significantly more compact than formats like bincode. There are three crates in the workspace:
