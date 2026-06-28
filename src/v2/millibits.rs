@@ -5,8 +5,13 @@
 pub struct Millibits(u32);
 
 impl super::EntropyCoder for Millibits {
-    fn encode_bit(&mut self, probability: super::ans::Probability, bit: bool) {
-        *self += probability.millibits(bit);
+    fn encode_bits<const N: usize>(
+        &mut self,
+        bits_with_probabilities: [(bool, super::ans::Probability); N],
+    ) {
+        for (bit, probability) in bits_with_probabilities {
+            *self += probability.millibits(bit);
+        }
     }
 }
 

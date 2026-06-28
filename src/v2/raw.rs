@@ -33,19 +33,21 @@ pub struct Raw {
 
 impl EntropyCoder for Raw {
     #[inline]
-    fn encode_bit(&mut self, _probability: Probability, bit: bool) {
-        #[cfg(test)]
-        {
-            self.entropy += _probability.millibits(bit);
+    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
+        for (bit, _probability) in bits_with_probabilities {
+            #[cfg(test)]
+            {
+                self.entropy += _probability.millibits(bit);
+            }
+            let bit = u8::from(bit);
+            let which_bit = self.num_bits & 7;
+            if which_bit == 0 {
+                self.bits.push(bit);
+            } else {
+                *self.bits.last_mut().unwrap() |= bit << which_bit;
+            }
+            self.num_bits += 1;
         }
-        let bit = u8::from(bit);
-        let which_bit = self.num_bits & 7;
-        if which_bit == 0 {
-            self.bits.push(bit);
-        } else {
-            *self.bits.last_mut().unwrap() |= bit << which_bit;
-        }
-        self.num_bits += 1;
     }
 }
 impl Raw {
@@ -91,11 +93,16 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
 impl<'a> EntropyDecoder for Decoder<'a> {
     /// Decode a bit using distribution Bernoulli(probability).
     #[inline(always)]
-    fn decode_bit_nonadaptive(&mut self, _probability: self::Probability) -> bool {
-        let which_byte = self.num_bits as usize / 8;
-        let which_bit = self.num_bits & 7;
-        let mask = 1u8 << which_bit;
-        self.num_bits += 1;
-        self.bytes[which_byte] & mask == mask
+    fn decode_bits_nonadaptive<const N: usize>(
+        &mut self,
+        probabilities: [self::Probability; N],
+    ) -> [bool; N] {
+        probabilities.map(|_probability| {
+            let which_byte = self.num_bits as usize / 8;
+            let which_bit = self.num_bits & 7;
+            let mask = 1u8 << which_bit;
+            self.num_bits += 1;
+            self.bytes[which_byte] & mask == mask
+        })
     }
 }

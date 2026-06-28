@@ -29,8 +29,8 @@ pub struct Ans {
 
 impl EntropyCoder for Ans {
     #[inline]
-    fn encode_bit(&mut self, probability: Probability, bit: bool) {
-        self.bits.push((bit, probability));
+    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
+        self.bits.extend(bits_with_probabilities);
     }
 
     #[inline]
@@ -180,14 +180,40 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Decode a bit using distribution Bernoulli(probability).
+    /// Decode `N` bits using distributions Bernoulli(probabilities[i]).
+    ///
+    /// State and the input cursor are pulled into locals for the whole batch, so
+    /// for `N > 1` they stay in registers across the run instead of being stored
+    /// back to the `Decoder` struct after every bit.
     #[inline(always)]
-    fn decode_bit_nonadaptive(&mut self, probability: Probability) -> bool {
-        let (b, state) = self
-            .state
-            .decode(probability, || self.bytes.split_off_first().copied());
-        self.state = state;
-        b
+    fn decode_bits_nonadaptive<const N: usize>(
+        &mut self,
+        probabilities: [Probability; N],
+    ) -> [bool; N] {
+        let mut state = self.state.state;
+        let mut bytes = self.bytes;
+        let bits = probabilities.map(|probability| {
+            let ones = State::from(probability);
+            let zeros = 256 - ones;
+            let z = state & 255;
+            let b = z >= ones;
+            let s = state >> 8;
+            // Branchless: compute both paths and select via CMOV.
+            let state_b = (s * zeros).wrapping_add(z.wrapping_sub(ones));
+            let state_nb = s * ones + z;
+            let mut new_s = if b { state_b } else { state_nb };
+            if new_s < (1 << (State::BITS - 8)) {
+                if let Some((&byte, rest)) = bytes.split_first() {
+                    bytes = rest;
+                    new_s = (new_s << 8) | byte as State;
+                }
+            }
+            state = new_s;
+            b
+        });
+        self.state.state = state;
+        self.bytes = bytes;
+        bits
     }
 
     #[inline(always)]
@@ -237,6 +263,11 @@ impl StateOnly {
         )
     }
 
+    /// The decode counterpart to [`StateOnly::encode`]. The `Ans` decoder inlines
+    /// this logic into its batched `decode_bits_nonadaptive`; this stand-alone
+    /// version exists so `check_state_only` can unit-test the encode/decode
+    /// round-trip directly.
+    #[cfg(test)]
     #[inline(always)]
     fn decode(
         mut self,

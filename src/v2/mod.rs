@@ -45,8 +45,20 @@ const FIFTY_PERCENT: ans::Probability = ans::Probability::new(127, 127);
 
 /// A place where we can put bits where we have estimated the probabilities.
 pub trait EntropyCoder: Default {
-    /// Encode a given bit with its probability
-    fn encode_bit(&mut self, probability: ans::Probability, bit: bool);
+    /// Encode `N` bits, each paired with its probability.
+    ///
+    /// This is the primitive encode operation, mirroring
+    /// [`EntropyDecoder::decode_bits_nonadaptive`]. Because `N` is a constant,
+    /// implementations may keep state in registers across the batch and
+    /// specialize for fixed widths, and `Encode` impls can encode and decode in
+    /// the same batched shape.
+    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, ans::Probability); N]);
+
+    /// Encode a given bit with its probability. The `N == 1` case.
+    #[inline(always)]
+    fn encode_bit(&mut self, probability: ans::Probability, bit: bool) {
+        self.encode_bits([(bit, probability)]);
+    }
 
     /// Encode the `value` into a `Vec<u8>` of bytes.`
     fn encode<T: Encode>(value: &T) -> Self {
@@ -72,19 +84,51 @@ pub trait EntropyCoder: Default {
 
 /// A way .
 pub trait EntropyDecoder {
-    /// Decode a given bit with the given probability.
+    /// Decode `N` bits with the `N` given probabilities (no adaptation).
+    ///
+    /// This is the primitive decode operation. The bits are independent of one
+    /// another, so an implementation is free to keep its coder state in registers
+    /// across the whole batch rather than round-tripping it through memory once
+    /// per bit. Because `N` is a constant, the loop unrolls and fixed-width
+    /// specializations are possible inside the implementation.
     ///
     /// Decoding a bit is infallible: there is always a bit to produce from the
     /// coder state (running past the encoded data simply yields arbitrary bits,
-    /// which higher-level `Encode::decode` impls validate). Returning `bool`
-    /// rather than `Result` keeps error edges out of the hot per-bit path.
-    fn decode_bit_nonadaptive(&mut self, probability: ans::Probability) -> bool;
+    /// which higher-level `Encode::decode` impls validate). Returning `[bool; N]`
+    /// rather than a `Result` keeps error edges out of the hot path.
+    fn decode_bits_nonadaptive<const N: usize>(
+        &mut self,
+        probabilities: [ans::Probability; N],
+    ) -> [bool; N];
 
-    /// Decode a given bit, adapting its probability context.
+    /// Decode a single bit with the given probability. The `N == 1` case.
+    #[inline(always)]
+    fn decode_bit_nonadaptive(&mut self, probability: ans::Probability) -> bool {
+        let [bit] = self.decode_bits_nonadaptive([probability]);
+        bit
+    }
+
+    /// Decode `N` bits, each with its own independent probability context.
+    ///
+    /// The contexts are independent, so all `N` probabilities are read up front,
+    /// the bits decoded as one batch, then the contexts adapted — letting the
+    /// batched primitive keep coder state register-resident across the run.
+    #[inline(always)]
+    fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: [&mut bit_context::BitContext; N],
+    ) -> [bool; N] {
+        contexts.map(|context| {
+            let bit = self.decode_bit_nonadaptive(context.probability());
+            *context = context.adapt(bit);
+            bit
+        })
+    }
+
+    /// Decode a given bit, adapting its probability context. The `N == 1` case.
     #[inline(always)]
     fn decode_bit(&mut self, context: &mut bit_context::BitContext) -> bool {
-        let bit = self.decode_bit_nonadaptive(context.probability());
-        *context = context.adapt(bit);
+        let [bit] = self.decode_bits([context]);
         bit
     }
 

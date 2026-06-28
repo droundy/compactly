@@ -193,9 +193,11 @@ pub struct Range {
 
 impl EntropyCoder for Range {
     #[inline]
-    fn encode_bit(&mut self, probability_of_false: Probability, value: bool) {
-        self.bytes
-            .extend_from_slice(&self.state.encode(probability_of_false, value));
+    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
+        for (value, probability_of_false) in bits_with_probabilities {
+            self.bytes
+                .extend_from_slice(&self.state.encode(probability_of_false, value));
+        }
     }
 
     #[inline]
@@ -309,12 +311,17 @@ impl<'a> Decoder<'a> {
 
 impl<'a> EntropyDecoder for Decoder<'a> {
     #[inline]
-    fn decode_bit_nonadaptive(&mut self, probability: super::ans::Probability) -> bool {
-        let (out, sz) = self.state.decode(probability, self.value);
-        for _ in 0..sz {
-            self.value = (self.value << 8) + self.pop_next_byte() as u64;
-        }
-        out
+    fn decode_bits_nonadaptive<const N: usize>(
+        &mut self,
+        probabilities: [super::ans::Probability; N],
+    ) -> [bool; N] {
+        probabilities.map(|probability| {
+            let (out, sz) = self.state.decode(probability, self.value);
+            for _ in 0..sz {
+                self.value = (self.value << 8) + self.pop_next_byte() as u64;
+            }
+            out
+        })
     }
 
     #[inline]
