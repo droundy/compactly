@@ -11,13 +11,30 @@ fn main() {
             f64::from_bits(bits)
         })
         .collect();
-    let compressed = compactly::v2::Ans::encode(&data);
-    eprintln!("compressed {} floats to {} bytes ({:.3} bytes/float)",
+    // Coder selectable via argv: "ans" (default) or "range" (the public-API
+    // default coder). Both exercise the batched `decode_bits` raw-bits path.
+    let coder = std::env::args().nth(1).unwrap_or_else(|| "ans".to_string());
+    use compactly::v2::{Ans, Range};
+    let compressed = match coder.as_str() {
+        "ans" => Ans::encode(&data),
+        "range" => Range::encode(&data),
+        other => panic!("unknown coder {other:?}; use ans|range"),
+    };
+    eprintln!("coder={coder} compressed {} floats to {} bytes ({:.3} bytes/float)",
         data.len(), compressed.len(), compressed.len() as f64 / data.len() as f64);
+    // Branch on the coder *once*, outside the hot loop, so the measurement only
+    // reflects the decoder under test.
     let mut total = 0.0f64;
-    for _ in 0..1000 {
-        let decoded = std::hint::black_box(compactly::v2::Ans::decode::<Vec<f64>>(&compressed)).unwrap();
-        total += decoded[0];
+    if coder == "ans" {
+        for _ in 0..1000 {
+            let decoded = std::hint::black_box(Ans::decode::<Vec<f64>>(&compressed)).unwrap();
+            total += decoded[0];
+        }
+    } else {
+        for _ in 0..1000 {
+            let decoded = std::hint::black_box(Range::decode::<Vec<f64>>(&compressed)).unwrap();
+            total += decoded[0];
+        }
     }
     println!("total is {total}?");
 }

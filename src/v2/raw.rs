@@ -90,19 +90,48 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
     }
 }
 
-impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Decode a bit using distribution Bernoulli(probability).
+impl<'a> Decoder<'a> {
+    /// Read the next raw bit (LSB-first within each byte), ignoring any entropy
+    /// model — `Raw` packs bits verbatim.
     #[inline(always)]
-    fn decode_bits_nonadaptive<const N: usize>(
+    fn next_bit(&mut self) -> bool {
+        let which_byte = self.num_bits as usize / 8;
+        let which_bit = self.num_bits & 7;
+        let mask = 1u8 << which_bit;
+        self.num_bits += 1;
+        self.bytes[which_byte] & mask == mask
+    }
+}
+
+impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Read `N` raw bits, ignoring the probabilities. The contexts are still
+    /// adapted so they track the encoder's models in lock-step (the bit values
+    /// don't depend on them, but keeping parity matches the other coders).
+    #[inline(always)]
+    fn decode_bits<const N: usize>(
         &mut self,
-        probabilities: [self::Probability; N],
+        contexts: &mut [super::bit_context::BitContext; N],
     ) -> [bool; N] {
-        probabilities.map(|_probability| {
-            let which_byte = self.num_bits as usize / 8;
-            let which_bit = self.num_bits & 7;
-            let mask = 1u8 << which_bit;
-            self.num_bits += 1;
-            self.bytes[which_byte] & mask == mask
-        })
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let bit = self.next_bit();
+            *context = context.adapt(bit);
+            *b = bit;
+        }
+        bits
+    }
+
+    /// Incompressible bytes are just raw bits too (8 per byte, LSB-first), which
+    /// mirrors the default `encode_incompressible_bytes`.
+    #[inline(always)]
+    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+        for v in bytes {
+            let mut b = 0u8;
+            for i in 0..8 {
+                b |= (self.next_bit() as u8) << i;
+            }
+            *v = b;
+        }
+        Ok(())
     }
 }

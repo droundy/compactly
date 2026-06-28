@@ -58,7 +58,7 @@ macro_rules! impl_float {
                 } else {
                     // The $bits raw bits are independent (one context per position),
                     // so decode them as a single register-resident batch.
-                    let decoded = reader.decode_bits(ctx.context.each_mut());
+                    let decoded = reader.decode_bits(&mut ctx.context);
                     let mut bits: $intty = 0;
                     for i in 0..$bits {
                         if decoded[i] {

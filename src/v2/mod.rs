@@ -47,8 +47,7 @@ const FIFTY_PERCENT: ans::Probability = ans::Probability::new(127, 127);
 pub trait EntropyCoder: Default {
     /// Encode `N` bits, each paired with its probability.
     ///
-    /// This is the primitive encode operation, mirroring
-    /// [`EntropyDecoder::decode_bits_nonadaptive`]. Because `N` is a constant,
+    /// This is the primitive encode operation. Because `N` is a constant,
     /// implementations may keep state in registers across the batch and
     /// specialize for fixed widths, and `Encode` impls can encode and decode in
     /// the same batched shape.
@@ -84,72 +83,36 @@ pub trait EntropyCoder: Default {
 
 /// A way .
 pub trait EntropyDecoder {
-    /// Decode `N` bits with the `N` given probabilities (no adaptation).
+    /// Decode `N` bits, each with its own independent probability context.
     ///
-    /// This is the primitive decode operation. The bits are independent of one
-    /// another, so an implementation is free to keep its coder state in registers
-    /// across the whole batch rather than round-tripping it through memory once
-    /// per bit. Because `N` is a constant, the loop unrolls and fixed-width
-    /// specializations are possible inside the implementation.
+    /// This is the core required primitive — `decode_bit` is just the `N == 1`
+    /// case. Taking the contexts as one `&mut [BitContext; N]` (rather than
+    /// `[&mut BitContext; N]`) lets the coder index the array in place instead of
+    /// receiving a materialized array of `N` pointers, which was measurable
+    /// overhead. The contexts are independent, so the coder is free to keep its
+    /// state register-resident across the whole batch.
     ///
     /// Decoding a bit is infallible: there is always a bit to produce from the
     /// coder state (running past the encoded data simply yields arbitrary bits,
     /// which higher-level `Encode::decode` impls validate). Returning `[bool; N]`
     /// rather than a `Result` keeps error edges out of the hot path.
-    fn decode_bits_nonadaptive<const N: usize>(
-        &mut self,
-        probabilities: [ans::Probability; N],
-    ) -> [bool; N];
+    fn decode_bits<const N: usize>(&mut self, contexts: &mut [bit_context::BitContext; N]) -> [bool; N];
 
-    /// Decode a single bit with the given probability. The `N == 1` case.
-    #[inline(always)]
-    fn decode_bit_nonadaptive(&mut self, probability: ans::Probability) -> bool {
-        let [bit] = self.decode_bits_nonadaptive([probability]);
-        bit
-    }
-
-    /// Decode `N` bits, each with its own independent probability context.
-    ///
-    /// The contexts are independent, so all `N` probabilities are read up front,
-    /// the bits decoded as one batch, then the contexts adapted — letting the
-    /// batched primitive keep coder state register-resident across the run.
-    #[inline(always)]
-    fn decode_bits<const N: usize>(
-        &mut self,
-        contexts: [&mut bit_context::BitContext; N],
-    ) -> [bool; N] {
-        let probabilities = contexts.each_ref().map(|context| context.probability());
-        let bits = self.decode_bits_nonadaptive(probabilities);
-        for (context, &bit) in contexts.into_iter().zip(bits.iter()) {
-            *context = context.adapt(bit);
-        }
-        bits
-    }
-
-    /// Decode a given bit, adapting its probability context.
-    ///
-    /// This routes directly through the single-bit primitive rather than
-    /// `decode_bits::<1>`: the batch machinery is pure overhead at `N == 1`, and
-    /// this is by far the hottest decode path.
+    /// Decode a given bit, adapting its probability context. The `N == 1` case of
+    /// [`Self::decode_bits`]; `array::from_mut` reinterprets the `&mut BitContext`
+    /// as a `&mut [BitContext; 1]` for free (no copy).
     #[inline(always)]
     fn decode_bit(&mut self, context: &mut bit_context::BitContext) -> bool {
-        let bit = self.decode_bit_nonadaptive(context.probability());
-        *context = context.adapt(bit);
+        let [bit] = self.decode_bits(std::array::from_mut(context));
         bit
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
-    #[inline(always)]
-    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
-        for v in bytes {
-            let mut b = 0;
-            for i in 0..8 {
-                b = b | ((self.decode_bit_nonadaptive(FIFTY_PERCENT) as u8) << i);
-            }
-            *v = b;
-        }
-        Ok(())
-    }
+    ///
+    /// Required (no default) because there is no single-bit no-adapt primitive to
+    /// build one on; every coder either copies bytes wholesale (`Ans`/`Range`) or
+    /// reads raw bits (`Raw`).
+    fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error>;
 }
 
 /// Trait for types that can be compactly encoded.

@@ -299,29 +299,54 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    fn pop_next_byte(&mut self) -> u8 {
-        if let Some((&b, r)) = self.bytes.split_first() {
-            self.bytes = r;
+}
+
+/// One range-decode bit step, operating on locals so the caller can keep `state`,
+/// the decode window `value`, and the input cursor `bytes` register-resident
+/// across a whole batch instead of round-tripping them through the `Decoder`.
+#[inline(always)]
+fn decode_step(
+    state: &mut ArithState,
+    value: &mut u64,
+    bytes: &mut &[u8],
+    probability: Probability,
+) -> bool {
+    let (out, sz) = state.decode(probability, *value);
+    for _ in 0..sz {
+        let byte = if let Some((&b, r)) = bytes.split_first() {
+            *bytes = r;
             b
         } else {
             0
-        }
+        };
+        *value = (*value << 8) + byte as u64;
     }
+    out
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`
+    /// override). We keep `state`/`value`/`bytes` in locals and do lookup → decode
+    /// → adapt in one pass, touching each independent context once, rather than
+    /// re-reading the decoder fields every bit.
     #[inline]
-    fn decode_bits_nonadaptive<const N: usize>(
+    fn decode_bits<const N: usize>(
         &mut self,
-        probabilities: [super::ans::Probability; N],
+        contexts: &mut [super::bit_context::BitContext; N],
     ) -> [bool; N] {
-        probabilities.map(|probability| {
-            let (out, sz) = self.state.decode(probability, self.value);
-            for _ in 0..sz {
-                self.value = (self.value << 8) + self.pop_next_byte() as u64;
-            }
-            out
-        })
+        let mut state = self.state;
+        let mut value = self.value;
+        let mut bytes = self.bytes;
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let bit = decode_step(&mut state, &mut value, &mut bytes, context.probability());
+            *context = context.adapt(bit);
+            *b = bit;
+        }
+        self.state = state;
+        self.value = value;
+        self.bytes = bytes;
+        bits
     }
 
     #[inline]
@@ -488,7 +513,15 @@ mod tests {
             let mut decoder = Decoder::new(&bytes);
             for &(p, bit) in &probs {
                 println!("Decoding {p:?} {bit:?}");
-                assert_eq!(decoder.decode_bit_nonadaptive(p), bit);
+                // `decode_step` is the coder's bit primitive at an arbitrary
+                // probability (the trait only exposes context-driven decoding).
+                let decoded = decode_step(
+                    &mut decoder.state,
+                    &mut decoder.value,
+                    &mut decoder.bytes,
+                    p,
+                );
+                assert_eq!(decoded, bit);
             }
         }
     }
