@@ -309,15 +309,12 @@ impl<'a> Decoder<'a> {
 
 impl<'a> EntropyDecoder for Decoder<'a> {
     #[inline]
-    fn decode_bit_nonadaptive(
-        &mut self,
-        probability: super::ans::Probability,
-    ) -> Result<bool, std::io::Error> {
+    fn decode_bit_nonadaptive(&mut self, probability: super::ans::Probability) -> bool {
         let (out, sz) = self.state.decode(probability, self.value);
         for _ in 0..sz {
             self.value = (self.value << 8) + self.pop_next_byte() as u64;
         }
-        Ok(out)
+        out
     }
 
     #[inline]
@@ -484,7 +481,7 @@ mod tests {
             let mut decoder = Decoder::new(&bytes);
             for &(p, bit) in &probs {
                 println!("Decoding {p:?} {bit:?}");
-                assert_eq!(decoder.decode_bit_nonadaptive(p).unwrap(), bit);
+                assert_eq!(decoder.decode_bit_nonadaptive(p), bit);
             }
         }
     }

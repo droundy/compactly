@@ -182,12 +182,12 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
 impl<'a> EntropyDecoder for Decoder<'a> {
     /// Decode a bit using distribution Bernoulli(probability).
     #[inline(always)]
-    fn decode_bit_nonadaptive(&mut self, probability: Probability) -> Result<bool, std::io::Error> {
+    fn decode_bit_nonadaptive(&mut self, probability: Probability) -> bool {
         let (b, state) = self
             .state
             .decode(probability, || self.bytes.split_off_first().copied());
         self.state = state;
-        Ok(b)
+        b
     }
 
     #[inline(always)]
@@ -304,7 +304,7 @@ fn check_ans_coder() {
             let mut decoder = Decoder::from(bytes.as_slice());
             for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
                 // println!("checking {b} {probability}");
-                assert_eq!(decoder.decode_bit_nonadaptive(probability).unwrap(), b);
+                assert_eq!(decoder.decode_bit_nonadaptive(probability), b);
             }
             assert_eq!(decoder.state.state, 0);
         }
@@ -350,7 +350,7 @@ mod test {
 
             for &(p, bit) in &probs {
                 println!("Decoding before {p:?} {bit:?}");
-                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+                assert_eq!(decoder.decode_bit(&mut p.clone()), bit);
             }
         }
     }
@@ -408,7 +408,7 @@ mod test {
 
             for &(p, bit) in &probs {
                 println!("Decoding before {p:?} {bit:?}");
-                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+                assert_eq!(decoder.decode_bit(&mut p.clone()), bit);
             }
             for b in &inc {
                 println!("decoding {b:?}");
@@ -418,7 +418,7 @@ mod test {
             }
             for &(p, bit) in &after_probs {
                 println!("Decoding after {p:?} {bit:?}");
-                assert_eq!(decoder.decode_bit(&mut p.clone()).unwrap(), bit);
+                assert_eq!(decoder.decode_bit(&mut p.clone()), bit);
             }
         }
     }

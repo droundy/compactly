@@ -72,21 +72,20 @@ pub trait EntropyCoder: Default {
 
 /// A way .
 pub trait EntropyDecoder {
-    /// Decode a given bit with the given probability
-    fn decode_bit_nonadaptive(
-        &mut self,
-        probability: ans::Probability,
-    ) -> Result<bool, std::io::Error>;
+    /// Decode a given bit with the given probability.
+    ///
+    /// Decoding a bit is infallible: there is always a bit to produce from the
+    /// coder state (running past the encoded data simply yields arbitrary bits,
+    /// which higher-level `Encode::decode` impls validate). Returning `bool`
+    /// rather than `Result` keeps error edges out of the hot per-bit path.
+    fn decode_bit_nonadaptive(&mut self, probability: ans::Probability) -> bool;
 
-    /// Encode a given bit with its probability
+    /// Decode a given bit, adapting its probability context.
     #[inline(always)]
-    fn decode_bit(
-        &mut self,
-        context: &mut bit_context::BitContext,
-    ) -> Result<bool, std::io::Error> {
-        let bit = self.decode_bit_nonadaptive(context.probability())?;
+    fn decode_bit(&mut self, context: &mut bit_context::BitContext) -> bool {
+        let bit = self.decode_bit_nonadaptive(context.probability());
         *context = context.adapt(bit);
-        Ok(bit)
+        bit
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
@@ -95,7 +94,7 @@ pub trait EntropyDecoder {
         for v in bytes {
             let mut b = 0;
             for i in 0..8 {
-                b = b | ((self.decode_bit_nonadaptive(FIFTY_PERCENT)? as u8) << i);
+                b = b | ((self.decode_bit_nonadaptive(FIFTY_PERCENT) as u8) << i);
             }
             *v = b;
         }

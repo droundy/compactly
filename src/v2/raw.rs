@@ -91,14 +91,11 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
 impl<'a> EntropyDecoder for Decoder<'a> {
     /// Decode a bit using distribution Bernoulli(probability).
     #[inline(always)]
-    fn decode_bit_nonadaptive(
-        &mut self,
-        _probability: self::Probability,
-    ) -> Result<bool, std::io::Error> {
+    fn decode_bit_nonadaptive(&mut self, _probability: self::Probability) -> bool {
         let which_byte = self.num_bits as usize / 8;
         let which_bit = self.num_bits & 7;
         let mask = 1u8 << which_bit;
         self.num_bits += 1;
-        Ok(self.bytes[which_byte] & mask == mask)
+        self.bytes[which_byte] & mask == mask
     }
 }

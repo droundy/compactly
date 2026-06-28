@@ -16,7 +16,7 @@ impl Encode for bool {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let b = reader.decode_bit(ctx)?;
+        let b = reader.decode_bit(ctx);
         // println!("Decoding {b:?}");
         Ok(b)
     }
