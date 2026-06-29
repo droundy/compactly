@@ -217,22 +217,7 @@ things stand out that the float/IPv6 micro-work above never touched:
 10. **Consider Elias Delta encoding** for Small integers — This might be a nice
     alternative for `usize` and maybe even for `u32` and friends.
 
-11. **`LowCardinality<String>` clones on every cache hit — steer users to
-    `Arc<str>`** (docs/benchmark item, not a coder fix). The `String`/`Vec<u8>`
-    variants do `ctx.cache.get(idx).cloned()`, a fresh allocation per *repeated*
-    value (e.g. meteorite `recclass`, where most rows are cache hits). We can't
-    avoid this when the caller actually wants an owned `String` — but the
-    `Arc<str>`/`Rc<str>` variants already make a cache hit a cheap refcount bump and
-    use less memory after deserialization (shared buffers). So this is a
-    *user-side* choice, not something to fix internally. Plan:
-    - First, switch the `LowCardinality` fields in the `comparison` tests to
-      `Arc<str>` and measure the decode-time / allocation improvement on the
-      meteorite/card records.
-    - If it's clearly better (expected), turn it into a documentation improvement:
-      note that `LowCardinality<String>` is an antipattern and recommend
-      `LowCardinality<Arc<str>>` (cheap hits, less memory on deserialization).
-
-12. **`Compressible` (Lz77) decode** — decode is the wanted target here (encode is
+11. **`Compressible` (Lz77) decode** — decode is the wanted target here (encode is
     deprioritized, see findings). Per `Lz77::decode`:
     - **Literal bytes dominate.** Each chunk's literal is decoded as
       `Values<Normal>` — i.e. every literal byte is a `u8` *tree* decode (8 dependent
@@ -248,7 +233,7 @@ things stand out that the float/IPv6 micro-work above never touched:
       returned value and the `old` entry.
     - length/back/offset are `Small` decodes — `decode_until_true`-shaped (#5).
 
-13. **`Sorted` strings decode** (`string.rs` `SortedContext::decode`) — three costs:
+12. **`Sorted` strings decode** (`string.rs` `SortedContext::decode`) — three costs:
     the `char` decode loop (helped by #2); `ctx.previous.clone_from(&out)` copies the
     whole string into `previous` every call (needed for the next delta, but it's a
     full copy per string); and `out.extend(ctx.previous.chars().take(shared_prefix))`
@@ -257,7 +242,7 @@ things stand out that the float/IPv6 micro-work above never touched:
     *bytes* could be copied directly (find the byte offset of the `shared_prefix`-th
     char, then `extend_from_slice`). Measure whether the byte-copy is worth it.
 
-14. **`Sorted<u8>`/`<i8>`: always encode the wrapping delta** — clean
+13. **`Sorted<u8>`/`<i8>`: always encode the wrapping delta** — clean
     simplification + decode-speed win (niche: sorted byte sequences). Today
     `Sorted<u8>` (`byte.rs:331`) encodes a `fits_in_i8` bool and, when the real
     delta lands outside `-128..=127`, falls back to a fiddly trie-entry full-value
@@ -311,6 +296,29 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`LowCardinality<Arc<str>>` over `LowCardinality<String>` (was TODO #11)** — not
+  a coder change; a user-facing steer. `LowCardinality` reconstructs each
+  *repeated* value from its dictionary, which for `String` is a fresh allocation
+  per cache hit (most rows in low-cardinality data); `Arc<str>` makes a hit a
+  refcount bump and shares one backing buffer. A/B on the meteorite `recclass`
+  column (38k values, perf cycles, min of 2 pinned runs, identical 20625-byte
+  output):
+
+  | coder | `String` | `Arc<str>` | delta      |
+  |-------|----------|-----------|-------------|
+  | Range | 254.7B   | 211.9B    | **−16.8%**  |
+  | Ans   | 198.8B   | 152.4B    | **−23.3%**  |
+
+  Clear, consistent win (wall-clock A/B was too noisy to trust on `Range` — one run
+  even showed −4% — so this was settled with `perf` cycle counts). Done: (1) added
+  v1 `Arc<str>` `Encode` + `LowCardinality` impl (v2 already had both); (2)
+  converted every `LowCardinality` `String` field in `comparison` to `Arc<str>`
+  (needs serde's `rc` feature); (3) the `EncodeV2` derive now emits a
+  `#[deprecated]`-style compiler warning (via the `proc-macro-warning` crate)
+  pointing at any `LowCardinality` `String`-bearing field and suggesting `Arc<str>`;
+  (4) documented the antipattern on the `LowCardinality` strategy in `src/lib.rs`.
+  NB: the warning fires from the **v2** derive only (a type usually derives both v1
+  and v2; warning from both would double it).
 - `make EntropyDecoder bit-decode infallible` — `decode_bit*` return `bool`, not
   `Result`; ~0.7% fewer cycles, simpler hot path.
 - `add batched const-generic bit encode/decode to the entropy traits` —

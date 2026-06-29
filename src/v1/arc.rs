@@ -1,4 +1,5 @@
-use super::Encode;
+use super::{Encode, EncodingStrategy};
+use crate::LowCardinality;
 use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {
@@ -68,5 +69,24 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
             ctx.cache.push(value.clone());
             Ok(value)
         }
+    }
+}
+
+impl Encode for Arc<str> {
+    type Context = <LowCardinality as EncodingStrategy<Arc<str>>>::Context;
+    #[inline]
+    fn encode<W: std::io::Write>(
+        &self,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        LowCardinality::encode(self, writer, ctx)
+    }
+    #[inline]
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        LowCardinality::decode(reader, ctx)
     }
 }

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 const CSV: &str = include_str!("meteorites.csv"); // from NASA
 
@@ -49,7 +50,7 @@ pub struct Meteorite {
     #[compactly(Decimal)]
     mass: f32,
     #[compactly(LowCardinality)]
-    recclass: String,
+    recclass: Arc<str>,
     #[compactly(Decimal)]
     reclat: f32,
     #[compactly(Decimal)]
@@ -74,7 +75,7 @@ pub struct MeteoriteData {
     #[compactly(Decimal)]
     mass: f32,
     #[compactly(LowCardinality)]
-    recclass: String,
+    recclass: Arc<str>,
     #[compactly(Decimal)]
     reclat: f32,
     #[compactly(Decimal)]

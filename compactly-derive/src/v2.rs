@@ -1,9 +1,35 @@
 use std::collections::{BTreeSet, HashMap};
 
 use proc_macro2::{Ident, Span};
+use proc_macro_warning::Warning;
 use quote::{quote, ToTokens};
-use syn::{Attribute, GenericParam, TraitBound};
+use syn::{spanned::Spanned, Attribute, GenericParam, TraitBound};
 use synstructure::{BindingInfo, VariantInfo};
+
+/// Does `ty` name `LowCardinality` (ignoring any leading path qualifier)?
+fn is_low_cardinality(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(p)
+        if p.path.segments.last().is_some_and(|s| s.ident == "LowCardinality"))
+}
+
+/// Does `ty` mention `String` anywhere (e.g. `String`, `Option<String>`,
+/// `Vec<String>`, `Option<Vec<String>>`)? Used to flag the
+/// `LowCardinality<String>` antipattern, which clones the String on every
+/// repeated value; users should prefer `LowCardinality<Arc<str>>` instead.
+fn type_mentions_string(ty: &syn::Type) -> bool {
+    match ty {
+        syn::Type::Path(p) => p.path.segments.iter().any(|seg| {
+            seg.ident == "String"
+                || match &seg.arguments {
+                    syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|a| {
+                        matches!(a, syn::GenericArgument::Type(t) if type_mentions_string(t))
+                    }),
+                    _ => false,
+                }
+        }),
+        _ => false,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct EncodingStrategy(syn::Type);
@@ -132,6 +158,34 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         strategies.push(strategy.clone());
         binding_strategies.insert(binding.binding.clone(), strategy);
     }
+
+    // Emit a deprecation-style compiler warning for the `LowCardinality<String>`
+    // antipattern: on a repeated value, the String variant clones (reallocates)
+    // the cached String, whereas `LowCardinality<Arc<str>>` turns a cache hit into
+    // a cheap refcount bump and uses less memory after deserialization.
+    let antipattern_warnings = s
+        .variants()
+        .iter()
+        .flat_map(|variant| variant.bindings().iter())
+        .filter_map(|binding| {
+            let strategy = binding_strategies.get(&binding.binding)?.as_ref()?;
+            let ty = &binding.ast().ty;
+            if is_low_cardinality(&strategy.0) && type_mentions_string(ty) {
+                Some(ty.span())
+            } else {
+                None
+            }
+        })
+        .enumerate()
+        .map(|(i, span)| {
+            Warning::new_deprecated("LowCardinalityString")
+                .old("encode a String field with `#[compactly(LowCardinality)]`, which clones (reallocates) the String on every repeated value")
+                .new("use `Arc<str>` (i.e. `#[compactly(LowCardinality)] field: Arc<str>`), so a cache hit is a cheap refcount bump and deserialization shares buffers")
+                .index(i)
+                .span(span)
+                .build_or_panic()
+        })
+        .collect::<Vec<_>>();
     let context = s
         .variants()
         .iter()
@@ -261,6 +315,8 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         use compactly::v2::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
         use compactly::{Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal, Sorted, Values};
 
+        #(#antipattern_warnings)*
+
         pub struct DerivedContext #context_generics {
             discriminant: <#discriminant_type as Encode>::Context,
             #(#context,)*
@@ -359,6 +415,37 @@ fn field_named_discriminant_is_renamed() {
             "discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,\n        discriminant: <u32 as Encode>::Context,"
         ),
         "must not have duplicate discriminant fields:\n{output}"
+    );
+}
+
+#[test]
+fn low_cardinality_string_warns() {
+    // A `LowCardinality<String>` field should expand to a deprecation warning
+    // steering the user toward `Arc<str>`; non-String LowCardinality fields and
+    // `Arc<str>` fields should not.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Record {
+            #[compactly(LowCardinality)]
+            recclass: String,
+            #[compactly(LowCardinality)]
+            tags: Option<Vec<String>>,
+            #[compactly(LowCardinality)]
+            shared: std::sync::Arc<str>,
+            #[compactly(LowCardinality)]
+            count: u32,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+    // Two String-bearing fields → two warnings.
+    assert_eq!(
+        output.matches("#[deprecated").count(),
+        2,
+        "expected exactly two deprecation warnings (String + Option<Vec<String>>):\n{output}"
+    );
+    assert!(
+        output.contains("fn LowCardinalityString_0()") && output.contains("fn LowCardinalityString_1()"),
+        "expected indexed warning fns:\n{output}"
     );
 }
 

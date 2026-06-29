@@ -1,5 +1,5 @@
 use super::{Encode, EncodingStrategy, LowCardinality};
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 #[derive(Clone)]
 pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
@@ -70,6 +70,58 @@ macro_rules! impl_low_cardinality {
 impl_low_cardinality!(String, string);
 impl_low_cardinality!(Vec<u8>, bytes);
 impl_low_cardinality!(u64, mod_u64);
+
+// `Arc<str>` needs its own context: the encode-side HashMap uses `Arc<str>` as
+// keys (deduplication by content) and the decode-side cache holds `Arc<str>`
+// values so that a cache hit is a cheap refcount bump rather than a fresh
+// allocation. This is the recommended alternative to `LowCardinality<String>`,
+// which clones (reallocates) the String on every repeated value.
+#[derive(Default, Clone)]
+pub struct ArcStrCacheContext {
+    cached: HashMap<Arc<str>, usize>,
+    cache: Vec<Arc<str>>,
+    is_cached: <bool as Encode>::Context,
+    string_ctx: <String as Encode>::Context,
+    index: <usize as Encode>::Context,
+}
+
+impl EncodingStrategy<Arc<str>> for LowCardinality {
+    type Context = ArcStrCacheContext;
+    #[inline]
+    fn encode<W: std::io::Write>(
+        value: &Arc<str>,
+        writer: &mut super::Writer<W>,
+        ctx: &mut Self::Context,
+    ) -> Result<(), std::io::Error> {
+        let looked_up = ctx.cached.get(value.as_ref()).copied();
+        looked_up.is_some().encode(writer, &mut ctx.is_cached)?;
+        if let Some(idx) = looked_up {
+            idx.encode(writer, &mut ctx.index)
+        } else {
+            ctx.cached.insert(value.clone(), ctx.cached.len());
+            value.to_string().encode(writer, &mut ctx.string_ctx)
+        }
+    }
+    #[inline]
+    fn decode<R: std::io::Read>(
+        reader: &mut super::Reader<R>,
+        ctx: &mut Self::Context,
+    ) -> Result<Arc<str>, std::io::Error> {
+        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+        if is_cached {
+            let idx = usize::decode(reader, &mut ctx.index)?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = String::decode(reader, &mut ctx.string_ctx)?;
+            let value: Arc<str> = Arc::from(s.as_str());
+            ctx.cache.push(value.clone());
+            Ok(value)
+        }
+    }
+}
 
 impl<const N: usize, T: Encode + Clone + Hash + Eq> EncodingStrategy<[T; N]> for LowCardinality {
     type Context = CacheContext<[T; N]>;
