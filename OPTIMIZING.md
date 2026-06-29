@@ -111,6 +111,36 @@ needs independent-bit decoding there too.
 - For **structured** floats adaptive bits win on size (compress the predictable
   sign+exponent) — so pure incompressible would *harm* compression there.
 
+### What the `comparison` benchmark reveals
+`cargo bench -p comparison` mixes representative structured data (meteorite/MTG
+records and the suicide/meteorite numeric tables) with artificial stress cases.
+Caveat on reading it: **"books" is NOT a target workload** — it's an artificial
+benchmark built to push the Lz77 code to its scaling limit, and large text files
+are *not* what `compactly` is for. Weight the structured records (meteorites,
+cards, suicide tables) and short strings (names, keys) when prioritizing. Two
+things stand out that the float/IPv6 micro-work above never touched:
+
+- **The decode hot path on string-bearing records is `char`/`String`, not
+  `u64`/`f64`.** Every ASCII character decodes as `bool` (`is_ascii`) +
+  `Bits::<128>::decode` = **8 dependent adaptive bit-decodes per char**, and the
+  tree bits are dependent (each context is `ctx.0[filled_up + accumulated_value]`,
+  chosen from the bits already decoded), so `decode_bits` batching cannot touch
+  them. String fields (meteorite names/recclass, card names/text) decode through
+  this per-character tree walk, yet all decode optimization so far has been on
+  floats and IPv6.
+- **`Ans` decode is uniformly ~1.3–1.8× faster than `Range` at the same size**
+  (suicide 187 vs 328 µs; meteorites 18.4 vs 23.2 ms; single cards 66 vs 77 µs),
+  with encoded sizes within ~1 byte. Reinforces the `Ans` focus and a possible
+  default flip once decode work consolidates there.
+- **Encode is far slower than decode on structured data, but that's a known,
+  deprioritized cost.** "mtg tenth edition" encodes in 894 ms / decodes in 15 ms;
+  "meteorites by small name" (`Mapping<Compressible, Normal>` keys) encodes in
+  707 ms vs **38 ms** with plain `Normal` keys — almost all of it `Compressible`'s
+  Lz77 match search. The Lz77 encoder has already been through several optimization
+  rounds and `Compressible` is not expected to be widely used, so encode speed is
+  **not** a current target. The string focus below is on **decode** of the string
+  strategies (`Normal`/`Compressible`/`Sorted`) and on `LowCardinality`.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
@@ -122,13 +152,34 @@ needs independent-bit decoding there too.
    previously-decoded bits, so their bits are NOT independent and cannot batch
    anyway.
 
-2. **Const-generic incompressible read** for compile-time-known sizes
+2. **Register-resident tree-node decode for `Bits<N>` / `char`** — HIGH PRIORITY;
+   likely the biggest real-workload decode lever, because the string fields in the
+   target records decode through `char::decode`'s 7-bit `Bits::<128>` walk, THE
+   per-character hot loop. The bits are *dependent* (each node's context is selected
+   by the bits already decoded), so the independent-bit `decode_bits` batch can't
+   help — but a coder method that decodes a whole tree node while keeping
+   `state`/`bytes` (and `value` for `Range`) in locals across all `log2(N)` steps
+   would do for dependent tree bits what the fused `decode_bits` override did for
+   independent bits. Shape something like `decode_tree(&mut [BitContext], n_bits) ->
+   u8` where the coder picks the next context from the running accumulator in-loop.
+   Same win applies to the `u8`/`UBits`/`Bits<N>` integer tree codes. Closely
+   related to the `decode_until_true` item (#5): both are data-dependent per-bit
+   loops that want coder state held in registers across the loop.
+
+3. **ASCII fast-path for `String` decode** — text is almost all ASCII, yet each
+   char still pays the `is_ascii` bit, a `char::from_u32` validity check, and an
+   `out.push(char)` UTF-8 re-encode. Consider a per-string "all ASCII" flag (format
+   change, 1 bit/string) so an all-ASCII string decodes as a run of 7-bit
+   `Bits<128>` straight into the byte buffer, skipping the per-char branch and
+   `from_u32`. Measure the size cost vs the decode win; pairs naturally with #2.
+
+4. **Const-generic incompressible read** for compile-time-known sizes
    (IP octets, single bytes): `decode_incompressible::<const N>() -> [u8; N]`
    avoids the runtime length and inlines the small copy instead of `memmove`.
    (We rejected a slice-returning variant because it pushes a size check onto
    callers.)
 
-3. **`decode_until_true` entropy-decoder method** — a method for the
+5. **`decode_until_true` entropy-decoder method** — a method for the
    leading-zero search: decode bits with successive contexts until one comes up
    `true`, returning the index, e.g.
    `fn decode_until_true(&mut self, contexts: &mut [BitContext]) -> usize`.
@@ -138,14 +189,14 @@ needs independent-bit decoding there too.
    keep coder state register-resident across the loop. Likely the biggest
    integer-decode lever still available in the coder itself.
 
-4. **Explore float entropy** — Try out different categories of floating point
+6. **Explore float entropy** — Try out different categories of floating point
    numbers and identify where the entropy is within the float.  e.g. for
    integers, decimal numbers like 0.1 power of two fractions like 0.0125,
    irrational numbers, etc.  We'd like to know if some of the bytes/bits are
    usually random and whether there is a way to compress the compressible and
    make the incompressible fast.
 
-5. **Hybrid float encoding** — the likely best-of-both: adaptive-code the
+7. **Hybrid float encoding** — the likely best-of-both: adaptive-code the
    structured high bits (sign + exponent) and store the ~random low mantissa as
    incompressible bytes. Byte-aligned proposal for `f64`: adaptive top 16 bits
    (sign+exp+top-4-mantissa), incompressible low 48 bits (6 bytes); analogous
@@ -156,12 +207,108 @@ needs independent-bit decoding there too.
    - Alternatively, if the project is willing to accept the structured-data
      compression cost, pure incompressible floats are a trivial ~53× decode win.
 
-6. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
+8. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
    per-bit path (float per-bit baseline was never cleanly measured).
 
-7. **Cut per-value allocation/zeroing** in decode — the largest cycle sink per
+9. **Cut per-value allocation/zeroing** in decode — the largest cycle sink per
    profiling (output `Vec` alloc, the `[0u8; 8]` value buffer zeroed per
    integer). This is in `vecs.rs`/`ints.rs`/`mod.rs`, not the coder itself.
+
+10. **Consider Elias Delta encoding** for Small integers — This might be a nice
+    alternative for `usize` and maybe even for `u32` and friends.
+
+11. **`LowCardinality<String>` clones on every cache hit — steer users to
+    `Arc<str>`** (docs/benchmark item, not a coder fix). The `String`/`Vec<u8>`
+    variants do `ctx.cache.get(idx).cloned()`, a fresh allocation per *repeated*
+    value (e.g. meteorite `recclass`, where most rows are cache hits). We can't
+    avoid this when the caller actually wants an owned `String` — but the
+    `Arc<str>`/`Rc<str>` variants already make a cache hit a cheap refcount bump and
+    use less memory after deserialization (shared buffers). So this is a
+    *user-side* choice, not something to fix internally. Plan:
+    - First, switch the `LowCardinality` fields in the `comparison` tests to
+      `Arc<str>` and measure the decode-time / allocation improvement on the
+      meteorite/card records.
+    - If it's clearly better (expected), turn it into a documentation improvement:
+      note that `LowCardinality<String>` is an antipattern and recommend
+      `LowCardinality<Arc<str>>` (cheap hits, less memory on deserialization).
+
+12. **`Compressible` (Lz77) decode** — decode is the wanted target here (encode is
+    deprioritized, see findings). Per `Lz77::decode`:
+    - **Literal bytes dominate.** Each chunk's literal is decoded as
+      `Values<Normal>` — i.e. every literal byte is a `u8` *tree* decode (8 dependent
+      bits), the same per-byte tree walk as #2. For low-redundancy strings, decode
+      time is mostly literals, so #2 (register-resident tree decode) is the main
+      lever for `Compressible` decode too.
+    - **`push_old(out.clone())` runs on decode** (`bytes.rs:316`): it clones the
+      whole decoded output into the `old` deque *and* loops setting `old_filter`
+      bits — but the filter is only read by encode-side matching, so on decode that
+      whole `old_filter` maintenance loop (`push_old`, `bytes.rs:70-74`) is pure
+      waste. Easy win: skip filter updates when decoding. The `out.clone()` itself is
+      a per-string alloc+copy; consider sharing (`Rc`) the buffer between the
+      returned value and the `old` entry.
+    - length/back/offset are `Small` decodes — `decode_until_true`-shaped (#5).
+
+13. **`Sorted` strings decode** (`string.rs` `SortedContext::decode`) — three costs:
+    the `char` decode loop (helped by #2); `ctx.previous.clone_from(&out)` copies the
+    whole string into `previous` every call (needed for the next delta, but it's a
+    full copy per string); and `out.extend(ctx.previous.chars().take(shared_prefix))`
+    re-encodes the shared prefix char-by-char even though `previous` is already valid
+    UTF-8 — since `shared_prefix` is a char count on a char boundary, the prefix
+    *bytes* could be copied directly (find the byte offset of the `shared_prefix`-th
+    char, then `extend_from_slice`). Measure whether the byte-copy is worth it.
+
+14. **`Sorted<u8>`/`<i8>`: always encode the wrapping delta** — clean
+    simplification + decode-speed win (niche: sorted byte sequences). Today
+    `Sorted<u8>` (`byte.rs:331`) encodes a `fits_in_i8` bool and, when the real
+    delta lands outside `-128..=127`, falls back to a fiddly trie-entry full-value
+    path (`skip_bits` + manual `ByteContext` state reconstruction on both sides).
+    But `value.wrapping_sub(previous) as i8` *always* round-trips —
+    `previous.wrapping_add(delta as u8)` inverts it — and wrapping always takes the
+    short way around the byte circle, so `|delta| <= 128` for *every* pair. So the
+    "doesn't fit" case cannot occur: drop the `fits_in_i8` bool and the whole trie
+    fallback, and unconditionally `Small::<i8>`-encode the wrapping delta. Decode
+    becomes a single branchless `Small<i8>` + `wrapping_add`; size is neutral-to-
+    better (no `fits` bit; rare big jumps now cost a small-magnitude i8 instead of
+    the ~8-bit trie path). `i8` already delegates to `u8`, so it comes along for
+    free. NB: the wider-int `Sorted` (`ints.rs`, u16+) uses a different
+    `not_sorted`-bool/full-value scheme with no trie, so this specific cleanup is
+    `u8`-only.
+
+## New strategy ideas (compression rate, often also decode speed)
+
+These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
+live a little outside this doc's primary "make decode faster" scope. They are here
+because several also *help* decode: a strategy that turns a full value into a
+1-bit-plus-tiny-index hit replaces a whole tree-walk (#2) with a couple of bit
+decodes, so a good hit rate is both smaller and faster.
+
+- **`Correlated<const N>`** — a bounded-recency / move-to-front model for fields
+  that have local repetition but *not* low overall cardinality. Keep the `N` most
+  recently seen values in a small ring buffer; on encode, emit one `is_recent` bit
+  and, on a hit, the index into the window (a `Bits<N>` tree, cheapest for the
+  most-recent slot if we move-to-front); on a miss, encode the value normally and
+  push it into the window. Contrast with `LowCardinality`, which keeps an
+  *unbounded* dictionary of every distinct value forever — great for a handful of
+  repeated strings, but its index grows and its `HashMap`/cache balloons when
+  cardinality is high. `Correlated` instead bets on temporal locality (the next
+  value often equals a recent one), like an LZ77 back-reference window but over
+  whole values rather than byte runs. Good fit for time-series-ish columns, paths
+  with shared recent prefixes, repeated foreign keys, etc.
+  - **`const N` vs runtime N — recommend `const N`.** The derive attribute already
+    takes generic strategies (`Mapping<K,V>`, `Bits<N>`), and contexts here are
+    fixed-size arrays built via `Default` (e.g. `BitsContext<N>`), so
+    `#[compactly(Correlated<8>)]` drops straight into the existing machinery with
+    the window as `[T; N]` on the stack and a `Bits<N>` index that the #2 tree-decode
+    work speeds up. Runtime N would need a heap window and a way to thread a
+    parameter through `Context::default()`, which the strategy framework does not
+    currently support. "N from the type" doesn't have a natural meaning here. So:
+    `Correlated<const N: usize>`, perhaps with a `Correlated = Correlated<8>` alias
+    for the common case. Pick a default N by measuring hit-rate vs index-cost on the
+    `comparison` records.
+  - Open question worth a quick experiment first: on which `comparison` columns does
+    a small recency window actually beat `LowCardinality` / `Normal` on size? If the
+    repeated values are also globally few, `LowCardinality` already wins; `Correlated`
+    only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
 - `make EntropyDecoder bit-decode infallible` — `decode_bit*` return `bool`, not
