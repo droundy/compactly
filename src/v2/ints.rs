@@ -163,6 +163,7 @@ impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn size_u64() {
     use super::assert_bits;
@@ -192,6 +193,7 @@ fn size_u64() {
     );
 }
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn size_u32() {
     use super::assert_bits;
@@ -216,6 +218,7 @@ fn size_u32() {
 }
 
 #[test]
+#[allow(clippy::single_element_loop)]
 fn size_u16() {
     use super::assert_bits;
     for sz in 0..21845_u16 {
@@ -265,7 +268,8 @@ macro_rules! impl_compact {
                 let lz = value.leading_zeros() as usize;
                 // lz=0,1 → code 0 (+bool); lz=k≥2 → code k-1; lz=$bits → code $bits-1 (all-TRUE)
                 let afewbits_val = lz.saturating_sub(1) as u8;
-                UBits::<{ ($bits as u32).ilog2() as u8 }>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
+                UBits::<{ ($bits as u32).ilog2() as u8 }>::new(afewbits_val)
+                    .encode(writer, &mut ctx.leading_zeros);
                 if afewbits_val == 0 {
                     (lz == 1).encode(writer, &mut ctx.lz_is_one);
                 }
@@ -289,9 +293,10 @@ macro_rules! impl_compact {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                let afewbits_val =
-                    u8::from(UBits::<{ ($bits as u32).ilog2() as u8 }>::decode(reader, &mut ctx.leading_zeros)?)
-                        as usize;
+                let afewbits_val = u8::from(UBits::<{ ($bits as u32).ilog2() as u8 }>::decode(
+                    reader,
+                    &mut ctx.leading_zeros,
+                )?) as usize;
                 let lz = if afewbits_val == 0 {
                     if bool::decode(reader, &mut ctx.lz_is_one)? {
                         1
@@ -468,9 +473,8 @@ macro_rules! impl_signed {
                             let partial_bits = sig_bits % 8;
                             let mut value_bytes = [0u8; std::mem::size_of::<$unsigned>()];
                             if full_bytes > 0 {
-                                reader.decode_incompressible_bytes(
-                                    &mut value_bytes[..full_bytes],
-                                )?;
+                                reader
+                                    .decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
                             }
                             for i in 0..partial_bits {
                                 if bool::decode(reader, &mut ctx.partial[lz][i])? {
@@ -478,9 +482,7 @@ macro_rules! impl_signed {
                                 }
                             }
                             value_bytes[full_bytes] |= 1 << partial_bits;
-                            break $unsigned::from_le_bytes(
-                                value_bytes.try_into().unwrap(),
-                            );
+                            break $unsigned::from_le_bytes(value_bytes.try_into().unwrap());
                         }
                         lz += 1;
                     };
@@ -607,6 +609,7 @@ impl_signed!(i32, u32, 32, mod_i32);
 impl_signed!(i64, u64, 64, mod_i64);
 
 #[test]
+#[allow(clippy::single_element_loop)]
 fn signed() {
     use super::{assert_bits, raw_bits};
     use crate::{Encoded, Small};

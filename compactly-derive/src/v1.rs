@@ -113,7 +113,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     };
     let context_generics_without_bound = {
         let type_names = context_type_params.iter().map(|t| quote! { #t });
-        let const_names = context_const_params.iter().map(|(name, _)| quote! { #name });
+        let const_names = context_const_params
+            .iter()
+            .map(|(name, _)| quote! { #name });
         let items = type_names.chain(const_names).collect::<Vec<_>>();
         if items.is_empty() {
             quote! {}
@@ -192,8 +194,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let decode_variants = s
         .variants()
         .iter()
-        .enumerate()
-        .map(|(_, variant)| {
+        .map(|variant| {
             let decoding = variant
                 .bindings()
                 .iter()

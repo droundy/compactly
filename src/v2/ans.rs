@@ -332,7 +332,7 @@ fn check_ans_coder() {
         println!("testing with size {size}");
         for _ in 0..size.min(1000) + 1000 {
             let mut data = Vec::new();
-            data.resize_with(size, || rand::random::<bool>());
+            data.resize_with(size, rand::random::<bool>);
             let mut distros = Vec::new();
             distros.resize_with(size, rand::random::<Probability>);
             let mut writer = Ans::default();

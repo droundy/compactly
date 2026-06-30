@@ -247,6 +247,7 @@ impl<W: Write> Writer<W> {
         }
     }
     #[inline]
+    #[expect(clippy::unused_io_amount)]
     pub fn encode(
         &mut self,
         probability_of_false: Probability,
@@ -259,6 +260,7 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
     #[inline]
+    #[expect(clippy::unused_io_amount)]
     pub fn finish(mut self) -> std::io::Result<W> {
         self.write.write(&[self.state.last_byte()])?;
         Ok(self.write)

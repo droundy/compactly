@@ -62,7 +62,7 @@ fn run_benchmarks(heading: &str, algos: &[Algo], data: &Vec<u8>) {
 
     print!("{:>14}:", "encode");
     for (_, enc, _) in algos {
-        let t = bench_gen_env(|| data.clone(), |d| enc(&d)).ns_per_iter;
+        let t = bench_gen_env(|| data.clone(), |d| enc(d)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();
@@ -70,7 +70,7 @@ fn run_benchmarks(heading: &str, algos: &[Algo], data: &Vec<u8>) {
     print!("{:>14}:", "decode");
     for (_, enc, dec) in algos {
         let encoded = enc(data);
-        let t = bench_gen_env(|| encoded.clone(), |b| dec(&b)).ns_per_iter;
+        let t = bench_gen_env(|| encoded.clone(), |b| dec(b)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();
@@ -82,6 +82,7 @@ fn run_benchmarks(heading: &str, algos: &[Algo], data: &Vec<u8>) {
     println!("\n");
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn build_algos() -> Vec<Algo> {
     let mut algos: Vec<Algo> = Vec::new();
     add_strategy!(algos, "norm", Encoded<Vec<u8>, Values<Normal>>);
@@ -128,15 +129,7 @@ fn main() {
         &algos,
         &sparse,
     );
-    run_benchmarks(
-        &format!("Vec<u8> repeated ({N} values)"),
-        &algos,
-        &repeated,
-    );
-    run_benchmarks(
-        &format!("Vec<u8> drift ±4 ({N} values)"),
-        &algos,
-        &drift,
-    );
+    run_benchmarks(&format!("Vec<u8> repeated ({N} values)"), &algos, &repeated);
+    run_benchmarks(&format!("Vec<u8> drift ±4 ({N} values)"), &algos, &drift);
     run_benchmarks(&format!("Vec<u8> ramp +1 ({N} values)"), &algos, &ramp);
 }

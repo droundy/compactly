@@ -139,6 +139,7 @@ impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn size_u64() {
     use super::assert_bits;
@@ -163,6 +164,7 @@ fn size_u64() {
     );
 }
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn size_u32() {
     use super::assert_bits;
@@ -188,6 +190,7 @@ fn size_u32() {
     }
 }
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn size_u16() {
     use super::assert_bits;
@@ -493,6 +496,7 @@ impl_signed!(i16, u16, mod_i16);
 impl_signed!(i32, u32, mod_i32);
 impl_signed!(i64, u64, mod_i64);
 
+#[expect(clippy::single_element_loop)]
 #[test]
 fn signed() {
     use super::{assert_bits, assert_size};

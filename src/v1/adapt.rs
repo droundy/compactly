@@ -151,8 +151,8 @@ fn write_read_correctly() {
     for _ in 0..10_000 {
         let rand_bits = rand::random::<u128>();
         let mut bits = [false; 128];
-        for i in 0..128 {
-            bits[i] = ((rand_bits >> i) & 1) == 1;
+        for (i, bit) in bits.iter_mut().enumerate() {
+            *bit = ((rand_bits >> i) & 1) == 1;
         }
         for length in 0..128 {
             // println!("\nTesting with {length} bits.");
@@ -170,9 +170,9 @@ fn write_read_correctly() {
             let mut bytes = encoded.as_slice();
             let mut reader = Reader::new(&mut bytes).unwrap();
             let mut context = BitContext::default();
-            for i in 0..length {
+            for &b in &bits[..length] {
                 // println!("Decoding bit {i} with {context:x?}");
-                assert_eq!(reader.decode(&mut context).unwrap(), bits[i]);
+                assert_eq!(reader.decode(&mut context).unwrap(), b);
             }
         }
     }

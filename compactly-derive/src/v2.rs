@@ -21,9 +21,9 @@ fn type_mentions_string(ty: &syn::Type) -> bool {
         syn::Type::Path(p) => p.path.segments.iter().any(|seg| {
             seg.ident == "String"
                 || match &seg.arguments {
-                    syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|a| {
-                        matches!(a, syn::GenericArgument::Type(t) if type_mentions_string(t))
-                    }),
+                    syn::PathArguments::AngleBracketed(args) => args.args.iter().any(
+                        |a| matches!(a, syn::GenericArgument::Type(t) if type_mentions_string(t)),
+                    ),
                     _ => false,
                 }
         }),
@@ -139,7 +139,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     };
     let context_generics_without_bound = {
         let type_names = context_type_params.iter().map(|t| quote! { #t });
-        let const_names = context_const_params.iter().map(|(name, _)| quote! { #name });
+        let const_names = context_const_params
+            .iter()
+            .map(|(name, _)| quote! { #name });
         let items = type_names.chain(const_names).collect::<Vec<_>>();
         if items.is_empty() {
             quote! {}
@@ -246,8 +248,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let decode_variants = s
         .variants()
         .iter()
-        .enumerate()
-        .map(|(_, variant)| {
+        .map(|variant| {
             let decoding = variant
                 .bindings()
                 .iter()
@@ -444,7 +445,8 @@ fn low_cardinality_string_warns() {
         "expected exactly two deprecation warnings (String + Option<Vec<String>>):\n{output}"
     );
     assert!(
-        output.contains("fn LowCardinalityString_0()") && output.contains("fn LowCardinalityString_1()"),
+        output.contains("fn LowCardinalityString_0()")
+            && output.contains("fn LowCardinalityString_1()"),
         "expected indexed warning fns:\n{output}"
     );
 }

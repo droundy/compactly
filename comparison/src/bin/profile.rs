@@ -104,7 +104,7 @@ fn just_decode<T: Encodable>(e: impl Encoding, values: &[T]) {
     for _ in 0..100_000 {
         all += encoded
             .iter()
-            .filter_map(|bytes| e.decode::<T>(&bytes))
+            .filter_map(|bytes| e.decode::<T>(bytes))
             .count();
     }
     println!("number_decoded {all} by {}", e.name());

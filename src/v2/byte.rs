@@ -121,9 +121,7 @@ impl<const N: u8> UBits<N> {
 impl<const N: u8> TryFrom<u8> for UBits<N> {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if N == 8 {
-            Ok(Self(value))
-        } else if value >> N == 0 {
+        if N == 8 || value >> N == 0 {
             Ok(Self(value))
         } else {
             Err(())
@@ -313,7 +311,11 @@ impl EncodingStrategy<u8> for Sorted {
         if let Some(previous) = ctx.previous.take() {
             // Wrapping delta always round-trips and always takes the short way
             // around the byte circle, so it fits in an i8 for every pair.
-            Small::encode(&(value.wrapping_sub(previous) as i8), writer, &mut ctx.delta);
+            Small::encode(
+                &(value.wrapping_sub(previous) as i8),
+                writer,
+                &mut ctx.delta,
+            );
         } else {
             // The first element has no `previous`; storing it raw is cheaper (no
             // adaptive context to allocate) and there is no neighbor to predict it.
@@ -492,7 +494,10 @@ fn sorted_u8_roundtrip() {
     // Every possible (previous, current) pair must round-trip correctly.
     for prev in 0u8..=255 {
         for cur in 0u8..=255 {
-            let data = [Encoded::<u8, Sorted>::new(prev), Encoded::<u8, Sorted>::new(cur)];
+            let data = [
+                Encoded::<u8, Sorted>::new(prev),
+                Encoded::<u8, Sorted>::new(cur),
+            ];
             let enc = super::encode(&data);
             let dec: [Encoded<u8, Sorted>; 2] = super::decode(&enc).unwrap();
             assert_eq!(

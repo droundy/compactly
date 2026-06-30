@@ -1,4 +1,12 @@
 #![cfg(feature = "v1")]
+#![allow(
+    clippy::collapsible_str_replace,
+    clippy::expect_fun_call,
+    clippy::assertions_on_constants,
+    clippy::needless_borrow,
+    clippy::legacy_numeric_constants,
+    clippy::manual_is_multiple_of
+)]
 use std::{collections::BTreeSet, fmt::Debug};
 
 use compactly::{LowCardinality, Small, Values};

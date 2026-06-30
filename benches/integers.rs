@@ -86,7 +86,7 @@ fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
 
     print!("{:>14}:", "encode");
     for (_, enc, _) in algos {
-        let t = bench_gen_env(|| data.clone(), |d| enc(&d)).ns_per_iter;
+        let t = bench_gen_env(|| data.clone(), |d| enc(d)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();
@@ -94,7 +94,7 @@ fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
     print!("{:>14}:", "decode");
     for (_, enc, dec) in algos {
         let encoded = enc(data);
-        let t = bench_gen_env(|| encoded.clone(), |b| dec(&b)).ns_per_iter;
+        let t = bench_gen_env(|| encoded.clone(), |b| dec(b)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();

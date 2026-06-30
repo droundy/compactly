@@ -1,5 +1,5 @@
 use bincode::Options;
-use compactly::v2::{Ans, Raw};
+use compactly::v2::Ans;
 use scaling::bench;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
@@ -30,17 +30,17 @@ trait Encoding: std::fmt::Debug + Clone + Copy + Default {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct CompactlyV1;
-impl Encoding for CompactlyV1 {
-    const NAME: &str = "compactly-v1";
-    fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        compactly::v1::encode(value)
-    }
-    fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
-        compactly::v1::decode(bytes).unwrap()
-    }
-}
+// #[derive(Debug, Clone, Copy, Default)]
+// struct CompactlyV1;
+// impl Encoding for CompactlyV1 {
+//     const NAME: &str = "compactly-v1";
+//     fn encode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+//         compactly::v1::encode(value)
+//     }
+//     fn decode<T: compactly::v1::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+//         compactly::v1::decode(bytes).unwrap()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct CompactlyRange;
@@ -66,17 +66,17 @@ impl Encoding for CompactlyAns {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct CompactlyRaw;
-impl Encoding for CompactlyRaw {
-    const NAME: &str = "compactly-raw";
-    fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        Raw::encode(value)
-    }
-    fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
-        Raw::decode(bytes).unwrap()
-    }
-}
+// #[derive(Debug, Clone, Copy, Default)]
+// struct CompactlyRaw;
+// impl Encoding for CompactlyRaw {
+//     const NAME: &str = "compactly-raw";
+//     fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
+//         Raw::encode(value)
+//     }
+//     fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, bytes: &[u8]) -> T {
+//         Raw::decode(bytes).unwrap()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct BincodeVar;
@@ -133,14 +133,14 @@ fn bench_one<T: Encodable>(e: impl Encoding, values: &[T]) {
     // To test that we decode correctly we can uncomment this.
     let decoded = encoded
         .iter()
-        .map(|bytes| e.decode::<T>(&bytes))
+        .map(|bytes| e.decode::<T>(bytes))
         .collect::<Vec<_>>();
     assert_eq!(values, decoded);
 
     let decoding_ms = bench(|| {
         encoded
             .iter()
-            .map(|bytes| e.decode::<T>(&bytes))
+            .map(|bytes| e.decode::<T>(bytes))
             .collect::<Vec<_>>()
     })
     .ns_per_iter
@@ -252,7 +252,7 @@ fn main() {
     bench_all("single cards", &comparison::tenth_edition().data.cards);
     let individual_suicide = comparison::suicides_per_million()
         .iter()
-        .map(|(factors, value)| (factors.clone(), *value))
+        .map(|(factors, value)| (*factors, *value))
         .collect::<Vec<_>>();
     bench_all("individual suicide", &individual_suicide);
     bench_all("suicide", &[comparison::suicides_per_million()]);

@@ -116,7 +116,7 @@ impl Lz77 {
         &mut self,
         value: &mut &[u8],
         sofar: &mut Vec<u8>,
-        hash_head: &mut Vec<u32>,
+        hash_head: &mut [u32],
         hash_next: &mut Vec<u32>,
     ) -> Option<Chunk> {
         const BACK_WINDOW: usize = 64 * 1024;
@@ -135,9 +135,7 @@ impl Lz77 {
                 let min_valid = sofar.len().saturating_sub(BACK_WINDOW);
                 let mut candidate = hash_head[h] as usize;
                 let mut chain = 0;
-                while candidate != u32::MAX as usize
-                    && candidate >= min_valid
-                    && chain < MAX_CHAIN
+                while candidate != u32::MAX as usize && candidate >= min_valid && chain < MAX_CHAIN
                 {
                     let cand = &sofar[candidate..];
                     if cand.len() >= MIN_MATCH
@@ -146,15 +144,12 @@ impl Lz77 {
                         && cand[2] == prefix[2]
                         && cand[3] == prefix[3]
                     {
-                        let length = 4
-                            + prefix[4..]
-                                .iter()
-                                .zip(&cand[4..])
-                                .take_while(|(a, b)| a == b)
-                                .count();
-                        if length >= MIN_MATCH
-                            && best_sofar.is_none_or(|(_, bl)| length > bl)
-                        {
+                        let length = 4 + prefix[4..]
+                            .iter()
+                            .zip(&cand[4..])
+                            .take_while(|(a, b)| a == b)
+                            .count();
+                        if length >= MIN_MATCH && best_sofar.is_none_or(|(_, bl)| length > bl) {
                             best_sofar = Some((candidate, length));
                             if length == prefix.len() {
                                 break;
@@ -174,8 +169,7 @@ impl Lz77 {
             let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
             let mut min_old = sofar_best_len;
             let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
-            let skip_old = prefix.len() >= MIN_MATCH
-                && !self.old_filter.test(lz77_hash(prefix));
+            let skip_old = prefix.len() >= MIN_MATCH && !self.old_filter.test(lz77_hash(prefix));
             if !skip_old {
                 for (i, old_s) in self.old.iter().enumerate() {
                     if old_budget == 0 {
@@ -699,4 +693,3 @@ fn size() {
         413131,
     );
 }
-

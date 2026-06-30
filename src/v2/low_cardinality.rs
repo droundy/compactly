@@ -210,7 +210,7 @@ fn low_cardinality() {
     let low = v
         .iter()
         .cloned()
-        .map(|v| Encoded::<_, LowCardinality>::new(v))
+        .map(Encoded::<_, LowCardinality>::new)
         .collect::<Vec<_>>();
 
     assert_bits!(v.clone(), 284430);
@@ -220,7 +220,7 @@ fn low_cardinality() {
         strings
             .iter()
             .cloned()
-            .map(|v| Encoded::<_, LowCardinality>::new(v))
+            .map(Encoded::<_, LowCardinality>::new)
             .collect::<Vec<_>>(),
         612
     );

@@ -1,4 +1,5 @@
 #![cfg(all(feature = "v1", feature = "v2"))]
+#![allow(clippy::enum_variant_names)]
 #[cfg(test)]
 macro_rules! assert_bits {
     ($v:expr, $size:expr, $ans:expr,) => {

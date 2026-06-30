@@ -173,9 +173,7 @@ impl<const N: u8> From<UBits<N>> for u8 {
 impl<const N: u8> TryFrom<u8> for UBits<N> {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if N == 8 {
-            Ok(Self(value))
-        } else if value >> N == 0 {
+        if N == 8 || value >> N == 0 {
             Ok(Self(value))
         } else {
             Err(())

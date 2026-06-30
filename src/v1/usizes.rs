@@ -1,10 +1,7 @@
 use crate::Sorted;
 
 use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
-use std::{
-    io::{Read, Write},
-    usize,
-};
+use std::io::{Read, Write};
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
@@ -134,7 +131,7 @@ impl EncodingStrategy<usize> for Small {
                 nonzero.encode(writer, &mut ctx.small_nonzero)?;
                 let value = *value as u64;
                 let zeros = value.leading_zeros() as u8;
-                let bits_beyond_seven = 64 - 7 - zeros ;
+                let bits_beyond_seven = 64 - 7 - zeros;
                 let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
                 bits_beyond_seven.encode(writer, &mut ctx.bits_beyond_seven)?;
                 for off in 0..6 + u8::from(bits_beyond_seven) {
@@ -190,7 +187,7 @@ impl EncodingStrategy<usize> for Small {
                 let mut tot = nonzero.millibits(&mut ctx.small_nonzero)?;
                 let value = *value as u64;
                 let zeros = value.leading_zeros() as u8;
-                let bits_beyond_seven = 64 - 7 - zeros ;
+                let bits_beyond_seven = 64 - 7 - zeros;
                 let bits_beyond_seven: UBits<6> = bits_beyond_seven.try_into().unwrap();
                 tot += bits_beyond_seven.millibits(&mut ctx.bits_beyond_seven)?;
                 for off in 0..6 + u8::from(bits_beyond_seven) {

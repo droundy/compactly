@@ -12,7 +12,11 @@ cargo test --test derive           # run integration tests in tests/derive.rs
 cargo test --test v1-encoding      # run v1 stability tests
 cargo bench                        # run all benchmarks
 cargo bench --bench bench          # run main benchmark suite
+cargo clippy --all-targets --workspace  # lint; expected to pass cleanly
 ```
+
+`cargo clippy --all-targets --workspace` is expected to pass with no warnings. In
+test code, prefer `#[allow(...)]` for noisy lints over restructuring the test.
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 

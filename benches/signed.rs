@@ -93,7 +93,7 @@ fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
 
     print!("{:>14}:", "encode");
     for (_, enc, _) in algos {
-        let t = bench_gen_env(|| data.clone(), |d| enc(&d)).ns_per_iter;
+        let t = bench_gen_env(|| data.clone(), |d| enc(d)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();
@@ -101,7 +101,7 @@ fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
     print!("{:>14}:", "decode");
     for (_, enc, dec) in algos {
         let encoded = enc(data);
-        let t = bench_gen_env(|| encoded.clone(), |b| dec(&b)).ns_per_iter;
+        let t = bench_gen_env(|| encoded.clone(), |b| dec(b)).ns_per_iter;
         print!(" {:>W$}", format_time(t));
     }
     println!();
@@ -146,7 +146,12 @@ macro_rules! benchmark_signed_type {
         ] {
             let mut algos: Vec<Algo<$T>> = Vec::new();
 
-            add_strategy!(algos, $T, "norm", Encoded<Vec<$T>, Values<compactly::Normal>>);
+            add_strategy!(
+                algos,
+                $T,
+                "norm",
+                Encoded<Vec<$T>, Values<compactly::Normal>>
+            );
             add_strategy!(algos, $T, "sml", Encoded<Vec<$T>, Values<Small>>);
             add_strategy!(algos, $T, "srt", Encoded<Vec<$T>, Values<Sorted>>);
 

@@ -86,7 +86,7 @@ impl Encoding for ZstdSerde {
 }
 
 fn mem_allocated<T>(f: impl Fn() -> T) -> (T, usize) {
-    let reg = Region::new(&GLOBAL);
+    let reg = Region::new(GLOBAL);
     let v = f();
     let stats = reg.change();
     let total = stats.bytes_allocated as isize + stats.bytes_reallocated;
@@ -287,21 +287,21 @@ fn print_sizes(name: &str, sizes: &[f64]) {
     for s in sizes.iter().cloned() {
         print!(" {:6}  {:<6}", "", format_sz(s));
     }
-    println!("");
+    println!();
 }
 fn print_times(name: &str, times: &[f64]) {
     print!("{:>11}:    ", name);
-    for t in times.iter().cloned() {
+    for t in times.iter() {
         print!(" {:^13}", format!("{:.0}ns", t));
     }
-    println!("");
+    println!();
 }
 fn print_scalings(name: &str, times: &[scaling::Scaling]) {
     print!("{:>11}:    ", name);
-    for t in times.iter().cloned() {
+    for t in times.iter() {
         print!(" {t:^13}");
     }
-    println!("");
+    println!();
 }
 
 fn format_sz(sz: f64) -> String {
