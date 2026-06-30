@@ -75,12 +75,11 @@ macro_rules! impl_nonzero_int {
             ) -> Result<Self, std::io::Error> {
                 let u = <$uint>::decode(reader, ctx)?;
                 let v: $int = if u & 1 == 1 {
-                    ((u + 1) / 2) as $int
+                    u.div_ceil(2) as $int
                 } else {
                     -((u / 2) as $int) - 1
                 };
-                <$nz>::new(v)
-                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
         }
 
@@ -103,12 +102,11 @@ macro_rules! impl_nonzero_int {
             ) -> Result<$nz, std::io::Error> {
                 let u: $uint = Small::decode(reader, ctx)?;
                 let v: $int = if u & 1 == 1 {
-                    ((u + 1) / 2) as $int
+                    u.div_ceil(2) as $int
                 } else {
                     -((u / 2) as $int) - 1
                 };
-                <$nz>::new(v)
-                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
         }
     };
@@ -161,4 +159,3 @@ fn nonzero_int_roundtrip() {
         assert_eq!(decode::<NonZeroI64>(&encode(&nz)), Some(nz));
     }
 }
-
