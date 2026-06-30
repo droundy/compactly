@@ -72,6 +72,12 @@ impl Lz77 {
                 self.old_filter.set(lz77_hash(&value[p..]));
             }
         }
+        self.push_old_decode(value);
+    }
+    /// Decode-side variant of `push_old`: maintains the `old` deque (needed for
+    /// back-references) but skips the `old_filter` upkeep, which is only read by
+    /// the encode-side match scan (`eager`/`eager_chunk`) and never on decode.
+    fn push_old_decode(&mut self, value: Vec<u8>) {
         self.old.push_front(value);
         while self.old.len() > 254 {
             self.old.pop_back();
@@ -313,7 +319,7 @@ impl Lz77 {
                 out.extend_from_slice(&self.old[0][offset..offset + length as usize]);
             }
         }
-        self.push_old(out.clone());
+        self.push_old_decode(out.clone());
         Ok(out)
     }
 }

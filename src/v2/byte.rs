@@ -301,55 +301,23 @@ impl EncodingStrategy<u8> for Incompressible {
     }
 }
 
-/// How many leading bits of `value` are determined when the delta doesn't fit in `i8`.
-///
-/// - `previous ≤ 127`: value ≥ previous+128, so the top N bits are all 1s where
-///   N = (previous+128).leading_ones().
-/// - `previous ≥ 129`: value ≤ previous-129, so the top N bits are all 0s where
-///   N = (previous-129).leading_zeros().
-/// - `previous == 128` never reaches the "doesn't fit" path (all 256 deltas fit in i8).
-fn skip_bits(previous: u8) -> usize {
-    if previous <= 127 {
-        (previous + 128).leading_ones() as usize
-    } else {
-        // wrapping_sub handles the unreachable previous==128 case without panicking.
-        previous.wrapping_sub(129).leading_zeros() as usize
-    }
-}
-
 #[derive(Default, Clone)]
 pub struct SortedU8Context {
     previous: Option<u8>,
-    fits_in_i8: <bool as Encode>::Context,
-    small_diff: <Small as EncodingStrategy<i8>>::Context,
-    // Shared ByteContext for the full-value path (first element or large-delta fallback).
-    // When entering mid-tree, we start at the state corresponding to the already-known
-    // leading bits, so different entry points use disjoint context slots.
-    full_value: <u8 as Encode>::Context,
+    delta: <Small as EncodingStrategy<i8>>::Context,
 }
 
 impl EncodingStrategy<u8> for Sorted {
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
-            let delta = (*value as i16) - (previous as i16);
-            let fits = i8::try_from(delta).is_ok();
-            fits.encode(writer, &mut ctx.fits_in_i8);
-            if fits {
-                Small::encode(&(delta as i8), writer, &mut ctx.small_diff);
-            } else {
-                let skip = skip_bits(previous);
-                let v = *value as usize;
-                // Enter the ByteContext trie below the already-known leading bits.
-                let mut state = ((1usize << skip) - 1) + (v >> (8 - skip));
-                for i in (0..8 - skip).rev() {
-                    let bit = (v >> i) & 1 == 1;
-                    bit.encode(writer, &mut ctx.full_value.0[state]);
-                    state = (state << 1) + 1 + bit as usize;
-                }
-            }
+            // Wrapping delta always round-trips and always takes the short way
+            // around the byte circle, so it fits in an i8 for every pair.
+            Small::encode(&(value.wrapping_sub(previous) as i8), writer, &mut ctx.delta);
         } else {
-            value.encode(writer, &mut ctx.full_value);
+            // The first element has no `previous`; storing it raw is cheaper (no
+            // adaptive context to allocate) and there is no neighbor to predict it.
+            writer.encode_incompressible_bytes(&[*value]);
         }
         ctx.previous = Some(*value);
     }
@@ -358,26 +326,12 @@ impl EncodingStrategy<u8> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
         let out = if let Some(previous) = ctx.previous.take() {
-            if bool::decode(reader, &mut ctx.fits_in_i8)? {
-                let delta: i8 = Small::decode(reader, &mut ctx.small_diff)?;
-                (previous as i16 + delta as i16) as u8
-            } else {
-                let skip = skip_bits(previous);
-                // Reconstruct the entry state from the known leading bits.
-                let known_top = if previous <= 127 {
-                    (1usize << skip) - 1 // all 1s
-                } else {
-                    0 // all 0s
-                };
-                let mut state = ((1usize << skip) - 1) + known_top;
-                for _ in 0..8 - skip {
-                    let bit = bool::decode(reader, &mut ctx.full_value.0[state])?;
-                    state = (state << 1) + 1 + bit as usize;
-                }
-                (state - 255) as u8
-            }
+            let delta: i8 = Small::decode(reader, &mut ctx.delta)?;
+            previous.wrapping_add(delta as u8)
         } else {
-            u8::decode(reader, &mut ctx.full_value)?
+            let mut byte = [0u8];
+            reader.decode_incompressible_bytes(&mut byte)?;
+            byte[0]
         };
         ctx.previous = Some(out);
         Ok(out)
@@ -574,6 +528,6 @@ fn sorted_u8_ascii() {
             Encoded::<u8, Sorted>::new(b'l'),
             Encoded::<u8, Sorted>::new(b'o'),
         ],
-        31
+        29
     );
 }

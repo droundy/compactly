@@ -227,9 +227,10 @@ things stand out that the float/IPv6 micro-work above never touched:
     - **`push_old(out.clone())` runs on decode** (`bytes.rs:316`): it clones the
       whole decoded output into the `old` deque *and* loops setting `old_filter`
       bits — but the filter is only read by encode-side matching, so on decode that
-      whole `old_filter` maintenance loop (`push_old`, `bytes.rs:70-74`) is pure
-      waste. Easy win: skip filter updates when decoding. The `out.clone()` itself is
-      a per-string alloc+copy; consider sharing (`Rc`) the buffer between the
+      whole `old_filter` maintenance loop was pure waste. ~~Skip filter updates when
+      decoding.~~ **DONE (see Landed):** decode now calls `push_old_decode`, which
+      maintains the `old` deque without the filter loop. The `out.clone()` itself is
+      still a per-string alloc+copy; consider sharing (`Rc`) the buffer between the
       returned value and the `old` entry.
     - length/back/offset are `Small` decodes — `decode_until_true`-shaped (#5).
 
@@ -241,23 +242,6 @@ things stand out that the float/IPv6 micro-work above never touched:
     UTF-8 — since `shared_prefix` is a char count on a char boundary, the prefix
     *bytes* could be copied directly (find the byte offset of the `shared_prefix`-th
     char, then `extend_from_slice`). Measure whether the byte-copy is worth it.
-
-13. **`Sorted<u8>`/`<i8>`: always encode the wrapping delta** — clean
-    simplification + decode-speed win (niche: sorted byte sequences). Today
-    `Sorted<u8>` (`byte.rs:331`) encodes a `fits_in_i8` bool and, when the real
-    delta lands outside `-128..=127`, falls back to a fiddly trie-entry full-value
-    path (`skip_bits` + manual `ByteContext` state reconstruction on both sides).
-    But `value.wrapping_sub(previous) as i8` *always* round-trips —
-    `previous.wrapping_add(delta as u8)` inverts it — and wrapping always takes the
-    short way around the byte circle, so `|delta| <= 128` for *every* pair. So the
-    "doesn't fit" case cannot occur: drop the `fits_in_i8` bool and the whole trie
-    fallback, and unconditionally `Small::<i8>`-encode the wrapping delta. Decode
-    becomes a single branchless `Small<i8>` + `wrapping_add`; size is neutral-to-
-    better (no `fits` bit; rare big jumps now cost a small-magnitude i8 instead of
-    the ~8-bit trie path). `i8` already delegates to `u8`, so it comes along for
-    free. NB: the wider-int `Sorted` (`ints.rs`, u16+) uses a different
-    `not_sorted`-bool/full-value scheme with no trie, so this specific cleanup is
-    `u8`-only.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
@@ -296,6 +280,29 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`Compressible` (Lz77) decode: skip `old_filter` upkeep (was TODO #11)** — the
+  8 KiB 4-gram bitset maintained by `push_old` is read *only* by the encode-side
+  match scan (`eager`/`eager_chunk`); decode never calls `eager`, so the per-byte
+  `old_filter.set` loop was pure waste on decode. Split into `push_old` (encode:
+  filter loop + deque) and `push_old_decode` (deque only); `Lz77::decode`
+  (`bytes.rs:316`) now calls the latter. Encode is unchanged, decode produces
+  identical bytes (all size/round-trip tests unchanged). The remaining
+  `out.clone()` per-string copy (Rc-sharing idea) is left as a separate item.
+- **`Sorted<u8>`/`<i8>`: always encode the wrapping delta (was TODO #13)** —
+  dropped the `fits_in_i8` bool and the whole mid-tree `ByteContext` fallback
+  (`skip_bits` + manual state reconstruction). `value.wrapping_sub(previous) as i8`
+  always round-trips (`previous.wrapping_add(delta as u8)` inverts it) and wrapping
+  always takes the short way around the byte circle, so `|delta| <= 128` for every
+  pair — the "doesn't fit" case was dead code. Encode/decode are now a single
+  branchless `Small<i8>` + `wrapping_add`. As a follow-up the `full_value`
+  `ByteContext` (256-entry adaptive table, only ever used for the first element)
+  was dropped too: the first byte now stores raw via `Incompressible`, which has no
+  context — smaller `SortedU8Context` (just `previous` + `delta`) and no per-context
+  allocation. Net size on `sorted_u8_ascii`: 31 → 29 bits (−1 `fits` bit per
+  non-first element; +1 bit because the lone first byte no longer benefits from the
+  adaptive tree across repeated encodes). Guarded by the exhaustive
+  `sorted_u8_roundtrip` (all 256×256 pairs + every i8), still green. `i8` delegates
+  to `u8` so it came along free.
 - **`LowCardinality<Arc<str>>` over `LowCardinality<String>` (was TODO #11)** — not
   a coder change; a user-facing steer. `LowCardinality` reconstructs each
   *repeated* value from its dictionary, which for `String` is a fresh allocation
