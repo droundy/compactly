@@ -174,7 +174,7 @@ where
     ) -> Result<(), std::io::Error> {
         value.len().encode(writer, &mut ctx.0)?;
         for v in value {
-            LowCardinality::encode(&v, writer, &mut ctx.1)?;
+            LowCardinality::encode(v, writer, &mut ctx.1)?;
         }
         Ok(())
     }

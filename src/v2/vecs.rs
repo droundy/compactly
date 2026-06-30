@@ -225,7 +225,7 @@ impl EncodingStrategy<Vec<u8>> for Incompressible {
     type Context = <Small as EncodingStrategy<usize>>::Context;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, ctx);
-        writer.encode_incompressible_bytes(&value)
+        writer.encode_incompressible_bytes(value)
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,

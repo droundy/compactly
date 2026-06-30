@@ -28,7 +28,7 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
         Self {
             cached: self.cached.clone(),
             cache: self.cache.clone(),
-            is_cached: self.is_cached.clone(),
+            is_cached: self.is_cached,
             context: self.context.clone(),
             index: self.index.clone(),
         }
@@ -109,7 +109,7 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for RcCacheContext<T> {
         Self {
             cached: self.cached.clone(),
             cache: self.cache.clone(),
-            is_cached: self.is_cached.clone(),
+            is_cached: self.is_cached,
             context: self.context.clone(),
             index: self.index.clone(),
         }

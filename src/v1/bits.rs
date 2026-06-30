@@ -24,7 +24,7 @@ impl<const N: usize> Bits<N> {
     #[inline]
     pub fn take_from(source: &mut u32) -> Self {
         let value = (*source as u8) & Self::MAX;
-        *source = *source >> Self::N_BITS;
+        *source >>= Self::N_BITS;
         Self { value }
     }
 }

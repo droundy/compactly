@@ -42,8 +42,8 @@ impl ArithState {
                 //     println!("hi_byte {hi_byte:02x}");
                 // }
                 if lo_byte == hi_byte {
-                    self.lo = self.lo << 8;
-                    self.hi = self.hi << 8;
+                    self.lo <<= 8;
+                    self.hi <<= 8;
                     // #[cfg(test)]
                     // {
                     //     println!("next_byte resetting to {self:x?}");
@@ -213,7 +213,7 @@ impl Range {
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = super::arith::Decoder::new(&bytes);
+        let mut reader = super::arith::Decoder::new(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
     /// Convert the encoded value in to a `Vec` of bytes.

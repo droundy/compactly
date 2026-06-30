@@ -153,7 +153,7 @@ impl Lz77 {
                                 .take_while(|(a, b)| a == b)
                                 .count();
                         if length >= MIN_MATCH
-                            && best_sofar.map_or(true, |(_, bl)| length > bl)
+                            && best_sofar.is_none_or(|(_, bl)| length > bl)
                         {
                             best_sofar = Some((candidate, length));
                             if length == prefix.len() {
@@ -204,7 +204,7 @@ impl Lz77 {
                 (None, None) => None,
                 (None, Some((back, offset, length))) => Some((back, offset, length)),
                 (Some((sofar_pos, sofar_len)), old_opt) => {
-                    if old_opt.map_or(false, |(_, _, ol)| ol > sofar_len) {
+                    if old_opt.is_some_and(|(_, _, ol)| ol > sofar_len) {
                         let (back, offset, length) = old_opt.unwrap();
                         Some((back, offset, length))
                     } else {

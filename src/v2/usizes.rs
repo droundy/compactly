@@ -36,6 +36,7 @@ impl Encode for usize {
 }
 
 #[derive(Clone)]
+#[derive(Default)]
 pub struct SmallContext {
     small_nonzero: <UBits<3> as Encode>::Context,
     b1: <UBits<1> as Encode>::Context,
@@ -45,19 +46,6 @@ pub struct SmallContext {
     b5: <UBits<5> as Encode>::Context,
     // Values >= 64 are delegated to Small<u64> (UBits + incompressible bytes).
     large: <Small as EncodingStrategy<u64>>::Context,
-}
-impl Default for SmallContext {
-    fn default() -> Self {
-        SmallContext {
-            small_nonzero: Default::default(),
-            b1: Default::default(),
-            b2: Default::default(),
-            b3: Default::default(),
-            b4: Default::default(),
-            b5: Default::default(),
-            large: Default::default(),
-        }
-    }
 }
 
 impl EncodingStrategy<usize> for Small {

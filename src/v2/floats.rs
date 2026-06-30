@@ -62,7 +62,7 @@ macro_rules! impl_float {
                     let mut bits: $intty = 0;
                     for i in 0..$bits {
                         if decoded[i] {
-                            bits = bits | (1 << i);
+                            bits |= (1 << i);
                         }
                     }
                     Ok($t::from_le_bytes(bits.to_le_bytes()))

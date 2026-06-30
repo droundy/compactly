@@ -174,7 +174,7 @@ where
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         value.len().encode(writer, &mut ctx.0);
         for v in value {
-            LowCardinality::encode(&v, writer, &mut ctx.1);
+            LowCardinality::encode(v, writer, &mut ctx.1);
         }
     }
     fn decode<D: super::EntropyDecoder>(
