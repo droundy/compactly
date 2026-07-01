@@ -60,3 +60,24 @@ harness = false
 name = "bytes"
 harness = false
 
+# These binaries use the v2 API, so they cannot build without it.
+[[bin]]
+name = "just-compress"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress-floats"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress-net"
+required-features = ["v2"]
+
+[[bin]]
+name = "micro-batch"
+required-features = ["v2"]
+
