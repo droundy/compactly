@@ -184,7 +184,7 @@ fn size_u64() {
         println!("Trying with {sz}");
         assert_bits!(sz, 59);
     }
-    assert_bits!([0_u64; 128], 430);
+    assert_bits!([0_u64; 128], 431);
     assert_bits!([1_u64; 2], 101);
     assert_bits!([1_u64; 19], 274);
     assert_bits!(
@@ -201,7 +201,7 @@ fn size_u32() {
         println!("Trying with {sz}");
         assert_bits!(sz, 27);
     }
-    assert_bits!([0_u32; 128], 215);
+    assert_bits!([0_u32; 128], 216);
     assert_bits!([u32::MAX; 128], 3122);
     assert_bits!([1_u32; 2], 51);
     assert_bits!([1_u32; 19], 137);
@@ -338,7 +338,7 @@ impl_compact!(u16, U16Compact, 16);
 fn compact_u16() {
     use super::assert_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u16), 1);
+    assert_bits!(Encoded::<_, Small>::new(0_u16), 4);
     assert_bits!(Encoded::<_, Small>::new(1_u16), 4);
     assert_bits!(Encoded::<_, Small>::new(2_u16), 5);
     assert_bits!(Encoded::<_, Small>::new(3_u16), 5);
@@ -348,7 +348,7 @@ fn compact_u16() {
     assert_bits!(Encoded::<_, Small>::new(7_u16), 6);
     assert_bits!(Encoded::<_, Small>::new(8_u16), 7);
     assert_bits!(Encoded::<_, Small>::new(u16::MAX), 20);
-    assert_bits!([Encoded::<_, Small>::new(0_u16); 128], 25);
+    assert_bits!([Encoded::<_, Small>::new(0_u16); 128], 27);
     assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], 1105);
     assert_bits!([Encoded::<_, Small>::new(1_u16); 2], 6);
     assert_bits!([Encoded::<_, Small>::new(1_u16); 19], 17);
@@ -363,7 +363,7 @@ fn compact_u16() {
 fn compact_u32() {
     use super::assert_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u32), 2);
+    assert_bits!(Encoded::<_, Small>::new(0_u32), 5);
     assert_bits!(Encoded::<_, Small>::new(1_u32), 5);
     assert_bits!(Encoded::<_, Small>::new(2_u32), 6);
     assert_bits!(Encoded::<_, Small>::new(3_u32), 6);
@@ -373,7 +373,7 @@ fn compact_u32() {
     assert_bits!(Encoded::<_, Small>::new(7_u32), 7);
     assert_bits!(Encoded::<_, Small>::new(8_u32), 8);
     assert_bits!(Encoded::<_, Small>::new(u32::MAX), 38);
-    assert_bits!([Encoded::<_, Small>::new(0_u32); 128], 30);
+    assert_bits!([Encoded::<_, Small>::new(0_u32); 128], 33);
     assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], 3160);
     assert_bits!([Encoded::<_, Small>::new(1_u32); 2], 8);
     assert_bits!([Encoded::<_, Small>::new(1_u32); 19], 22);
@@ -617,7 +617,7 @@ fn signed() {
 
     assert_bits!(Encoded::<_, Small>::new(0_i32), 6);
     assert_bits!(Encoded::<_, Small>::new(1_i32), 6);
-    assert_bits!(Encoded::<_, Small>::new(-1_i32), 3);
+    assert_bits!(Encoded::<_, Small>::new(-1_i32), 6);
     assert_bits!(Encoded::<_, Small>::new(i32::MAX), 38);
     assert_bits!(Encoded::<_, Small>::new(i32::MIN), 38);
     for v in [0i32, 1, 7, 137, -1i32] {
@@ -635,7 +635,7 @@ fn signed() {
 
     assert_bits!(Encoded::<_, Small>::new(0_i16), 5);
     assert_bits!(Encoded::<_, Small>::new(1_i16), 5);
-    assert_bits!(Encoded::<_, Small>::new(-1_i16), 2);
+    assert_bits!(Encoded::<_, Small>::new(-1_i16), 5);
     assert_bits!(Encoded::<_, Small>::new(i16::MAX), 20);
     assert_bits!(Encoded::<_, Small>::new(i16::MIN), 20);
     for v in [i16::MIN] {
@@ -649,12 +649,16 @@ fn signed() {
 
     assert_bits!(Encoded::<_, Small>::new(0_i64), 7);
     assert_bits!(Encoded::<_, Small>::new(1_i64), 7);
-    assert_bits!(Encoded::<_, Small>::new(-1_i64), 3);
+    assert_bits!(Encoded::<_, Small>::new(-1_i64), 7);
     assert_bits!(Encoded::<_, Small>::new(i64::MAX), 71);
     assert_bits!(Encoded::<_, Small>::new(i64::MIN), 71);
-    for v in [0i64, 1, 7, 137, -1i64] {
+    for v in [0i64, 1, 7, 137] {
         println!("testing {v}");
         assert_bits!(v, 64);
+    }
+    for v in [-1i64] {
+        println!("testing {v}");
+        assert_bits!(v, 65);
     }
     for v in [i64::MIN] {
         println!("testing {v}");

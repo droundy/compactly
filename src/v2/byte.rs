@@ -334,7 +334,7 @@ impl EncodingStrategy<i8> for Sorted {
 #[test]
 fn size() {
     use super::assert_bits;
-    assert_bits!(u8::MAX, 3);
+    assert_bits!(u8::MAX, 8);
     assert_bits!(0_u8, 8);
     for b in 3_u8..255 {
         println!("Byte {b}");
@@ -352,7 +352,7 @@ fn size() {
     assert_bits!(*b"\x01\x01", 13);
     assert_bits!(*b"\x01\x01\x01\x01", 19);
     assert_bits!(*b"\x01\x01\x01\x01\x01", 21);
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 22);
+    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 23);
     assert_bits!(*b"\x01\x02\x03\x04", 25);
     assert_bits!(*b"\x01\x02\x03\x04\x05", 30);
     assert_bits!(*b"\x01\x02\x03\x04\x05\x06", 36);

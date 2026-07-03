@@ -29,6 +29,7 @@ mod other_crate_types;
 mod raw;
 mod sets;
 mod string;
+mod symbol;
 mod tuples;
 mod ulessthan;
 mod usizes;
@@ -73,12 +74,11 @@ pub trait EntropyCoder: Default {
     /// its length `N` is exactly `1 << n_bits`, so the bit count is derived
     /// from the array type and the walk fully unrolls after monomorphization.
     ///
-    /// The default implementation codes the tree bit-by-bit, exactly like the
-    /// historical per-bit walk, so rerouting the tree codes through this
-    /// method is bit-identical to coding each bit with [`Self::encode_bit`].
-    /// The method exists so a coder *may* code the whole symbol in one step
-    /// (see OPTIMIZING.md "multi-symbol (whole-tree) coding" for the measured
-    /// trade-offs of doing so).
+    /// The default implementation codes the tree bit-by-bit, identical to the
+    /// historical per-bit walk (`Raw` keeps it, preserving its bit-packed
+    /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
+    /// `Millibits`) override it via [`symbol::SymbolRange`]: same contexts,
+    /// same adaptation, but a single coding step instead of `log2(N)`.
     #[inline]
     fn encode_tree<const N: usize>(
         &mut self,
