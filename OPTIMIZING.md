@@ -25,6 +25,10 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   - `just-compress` — encode `Vec<u64>` (heavy, ~1.3T cycles/run; slow to A/B).
   - `just-decompress-net` — decode `Vec<Ipv6Addr>` (ANS coder) from `ipv6.txt`
     2000× (~138B cycles/run); needs `ipv6.txt` in the cwd.
+  - `just-decompress-strings [ans|range] [iters]` — decode a
+    `BTreeSet<String>` of 38k meteorite names (default 2000×, ~83B cycles on
+    `Ans`); THE per-character `char`/`Bits<128>` tree-walk workload. Reads
+    `comparison/src/meteorites.csv`, so run from the workspace root.
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
@@ -97,6 +101,68 @@ bits before touching real types. Caveat for real types: the tree codes
 bits), so they can't feed `decode_bits` as-is — capturing the integer/string win
 needs independent-bit decoding there too.
 
+### Tree-symbol decode: multisymbol coding AND register-residency — both DEAD ENDS (measured)
+
+Two related plans for the `u8`/`Bits<N>`/`UBits<N>` dependent tree walk (the
+per-character string hot path) were fully implemented and A/B'd. Both lose or
+wash; neither should be retried at ≤8-bit tree depth without new evidence.
+Benchmarked with `just-decompress-strings` (decode a `BTreeSet<String>` of 38k
+meteorite names 2000×), `just-decompress-net`, and `just-decompress`; min of 4
+pinned runs (`taskset -c 2 perf stat -e cpu_core/cycles/`), >94% idle, on AC.
+
+| decode workload        | per-bit baseline | multisymbol (1 coder step/symbol) | plan #2 (fused per-bit `decode_tree`) |
+|------------------------|------------------|-----------------------------------|---------------------------------------|
+| meteorite names, `Ans`  | 83.07B          | 90.44B (**+8.9%**)                | 83.23B (+0.2%, wash)                  |
+| meteorite names, `Range`| 96.71B          | 102.17B (**+5.6%**)               | 97.81B (+1.1%)                        |
+| IPv6, `Ans`             | 137.33B         | 153.22B (**+11.6%**)              | 140.97B (+2.7%)                       |
+| random u64, `Ans`       | 105.26B         | 105.37B (wash; barely uses trees) | —                                     |
+
+**Multisymbol (whole-tree) coding** (`plans/multisymbol-tree-coding.md`; full
+implementation in the follow-up PR to the one landing this note): walk the tree
+once to build a single 16-bit cumulative interval (`SymbolRange`) and pay ONE
+coder step (one renormalization) per symbol instead of `log2(N)`. It works —
+lossless by construction via a per-level reserve, rANS and range-coder symbol
+steps share the existing renorm invariants, size is ~neutral (+0.01–0.03%;
+meteorite names 42588 → 42602 bytes) — but decode is consistently SLOWER.
+Counters show why: instructions +2.6%, branch misses −6%, yet IPC drops ~7%.
+Decode is latency-bound, and the CDF construction (a `width×prob>>8` multiply
+per level) sits ON the serial bit-decision dependency chain, while the
+renormalizations it removes were cheap, well-predicted branches OFF the critical
+path. Replacing the reserve clamp with a branch-free squeeze
+(`split = ((width − 2·reserve)·prob >> 8) + reserve`) clawed back ~2.5%; the
+rest is inherent. (Also note: the rANS *encode* buffer grows from 2 to 6
+bytes/op, and `Range` needs a Subbotin-style carry-less clamp renormalization to
+guarantee `width ≥ 2^32` before a symbol step — validated correct, adds rare
+≤1-bit clamp waste.)
+
+**Plan #2, register-resident per-bit tree decode**
+(`plans/decode-tree-register-resident.md`, was TODO #2): same walk, same
+format (bit-identical), but coder state held in locals across the `log2(N)`
+dependent steps via fused `decode_tree` overrides. Measured a wash on the very
+workload it targeted (strings `Ans` +0.2%) and slightly negative elsewhere
+(+1–3%). The per-bit `decode_bit` path through the fused `decode_bits::<1>`
+override was already effectively optimal — the `Decoder` fields stay hot in L1
+and store-forwarding hides the round-trip, exactly as the `decode_bits::<14>`
+IPv6 dead end found. The unrolled-per-call-site walks may also cost icache.
+
+**Kept from this work:** the `encode_tree`/`decode_tree` trait methods (per-bit
+defaults, bit-identical) — one shared, documented walk instead of three
+hand-rolled copies in `byte.rs`/`bits.rs`, and the seam a future coder-level
+experiment needs; the `just-decompress-strings` string-decode benchmark; and
+this note. Deeper fusion (>8-bit trees, e.g. fusing `is_ascii`+`Bits<128>` into
+one 8-bit symbol) would amortize the symbol-step cost over more bits and
+remains unmeasured — bump `SymbolRange::BITS` in the follow-up PR if trying.
+
+**Bonus finding — the `Range` coder codes near-certain bits BELOW entropy in
+narrow intervals.** When the interval width drops under 256 (a straddled
+top-byte boundary), `split()`'s `(width >> 8) * prob` is 0, so `split == lo`:
+a `true` bit then costs ~0 bits regardless of its modeled probability (and a
+`false` bit collapses the interval into an 8-byte flush). E.g. 64 fresh-context
+copies of `u8::MAX` (true entropy 64 bytes) encode to 23 bytes. Multisymbol,
+which codes honestly at `width ≥ 2^32`, "regressed" several all-ones size
+assertions purely by losing this accident. Worth knowing when reading
+`assert_bits!` numbers for repeated extreme values.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
@@ -152,19 +218,14 @@ things stand out that the float/IPv6 micro-work above never touched:
    previously-decoded bits, so their bits are NOT independent and cannot batch
    anyway.
 
-2. **Register-resident tree-node decode for `Bits<N>` / `char`** — HIGH PRIORITY;
-   likely the biggest real-workload decode lever, because the string fields in the
-   target records decode through `char::decode`'s 7-bit `Bits::<128>` walk, THE
-   per-character hot loop. The bits are *dependent* (each node's context is selected
-   by the bits already decoded), so the independent-bit `decode_bits` batch can't
-   help — but a coder method that decodes a whole tree node while keeping
-   `state`/`bytes` (and `value` for `Range`) in locals across all `log2(N)` steps
-   would do for dependent tree bits what the fused `decode_bits` override did for
-   independent bits. Shape something like `decode_tree(&mut [BitContext], n_bits) ->
-   u8` where the coder picks the next context from the running accumulator in-loop.
-   Same win applies to the `u8`/`UBits`/`Bits<N>` integer tree codes. Closely
-   related to the `decode_until_true` item (#5): both are data-dependent per-bit
-   loops that want coder state held in registers across the loop.
+2. ~~**Register-resident tree-node decode for `Bits<N>` / `char`**~~ — TRIED,
+   measured a **wash** (strings `Ans` +0.2%, `Range` +1.1%, IPv6 +2.7%), and the
+   more aggressive whole-tree *multisymbol* variant is **+6–12% slower** — see
+   the "Tree-symbol decode … both DEAD ENDS" note above. The `decode_tree` API
+   (per-bit default) landed; the coder-level overrides did not. The remaining
+   hope for tree-decode speed is NOT coder plumbing but decoding fewer
+   bits/symbols (e.g. #3's ASCII fast-path, or the recent-values cache idea
+   below).
 
 3. **ASCII fast-path for `String` decode** — text is almost all ASCII, yet each
    char still pays the `is_ascii` bit, a `char::from_u32` validity check, and an
