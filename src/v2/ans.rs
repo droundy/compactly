@@ -77,6 +77,47 @@ impl Ans {
         let mut reader = Decoder::from(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
+    /// Benchmark helper: replay only the entropy-decode steps against
+    /// `encoded`, using this op buffer (from encoding the same value) as an
+    /// oracle for the probabilities and symbol intervals that the adaptive
+    /// contexts would supply. This isolates the rANS state/byte work from the
+    /// model (context adaptation) and value construction; see
+    /// `src/bin/ans-decode-phases.rs`. Panics if a decoded bit disagrees with
+    /// the recorded one. Returns a checksum so callers can `black_box` it.
+    #[doc(hidden)]
+    pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
+        let mut decoder = Decoder::from(encoded);
+        let mut checksum = 0u32;
+        for op in &self.ops {
+            match *op {
+                Op::Bit(b, probability) => {
+                    let bit =
+                        decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
+                    assert_eq!(bit, b);
+                    checksum = checksum.wrapping_add(bit as u32);
+                }
+                Op::Symbol {
+                    start,
+                    width_minus_1,
+                } => {
+                    let mut state = decoder.state.state;
+                    let slot = state & (SymbolRange::M - 1);
+                    state = (width_minus_1 as State + 1) * (state >> SymbolRange::BITS)
+                        + (slot - start as State);
+                    while state < 1 << (State::BITS - 8) {
+                        let Some((&byte, rest)) = decoder.bytes.split_first() else {
+                            break;
+                        };
+                        decoder.bytes = rest;
+                        state = (state << 8) | byte as State;
+                    }
+                    decoder.state.state = state;
+                    checksum = checksum.wrapping_add(slot);
+                }
+            }
+        }
+        checksum
+    }
     /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
