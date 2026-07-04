@@ -140,7 +140,7 @@ fn probability(variants: &[Bucket]) {
     println!(
         r"
         /// Returns the probability of the value being zero.
-        #[inline] pub fn probability(self) -> Probability {{
+        #[inline] pub const fn probability(self) -> Probability {{
         match self {{"
     );
 
@@ -160,7 +160,7 @@ fn probability(variants: &[Bucket]) {
 fn lookup_probability(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
-        r"#[inline] pub fn probability(self) -> Probability {{
+        r"#[inline] pub const fn probability(self) -> Probability {{
         const LOOKUP: [Probability; {sz}] = ["
     );
 
@@ -204,7 +204,7 @@ fn probability_millibits() {
 fn print_adapt(variants: &[Bucket]) {
     println!(
         r"
-    #[inline] pub fn adapt(self, bit: bool) -> Self {{
+    #[inline] pub const fn adapt(self, bit: bool) -> Self {{
         match (bit, self) {{"
     );
 
@@ -231,7 +231,7 @@ fn lookup_adapt(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
         r"
-    #[inline] pub fn adapt(self, bit: bool) -> Self {{
+    #[inline] pub const fn adapt(self, bit: bool) -> Self {{
         const OUTCOMES: [BitContext; 2*{sz}] = ["
     );
 

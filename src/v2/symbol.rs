@@ -15,6 +15,63 @@
 use super::ans::Probability;
 use super::bit_context::BitContext;
 
+/// One [`BitContext`]'s hot-path data gathered into a single table entry: its
+/// bit probability plus both `adapt` successors. The tree walks below pay one
+/// load per node from [`FUSED`] instead of separate `probability()` and
+/// `adapt()` table lookups, and the successor for either bit outcome is
+/// already in hand when the bit resolves.
+#[derive(Clone, Copy)]
+struct FusedContext {
+    /// `[adapt(false), adapt(true)]`.
+    next: [BitContext; 2],
+    /// The probability that the bit is false.
+    prob: Probability,
+}
+
+const fn fused_entry(state: BitContext) -> FusedContext {
+    FusedContext {
+        next: [state.adapt(false), state.adapt(true)],
+        prob: state.probability(),
+    }
+}
+
+/// Number of `BitContext` variants; must match the `Count of variants` line at
+/// the end of the generated `bit_context.rs`. Too small a value fails at
+/// compile time (const-eval bounds check in the BFS below); too large is
+/// merely wasteful.
+const N_STATES: usize = 675;
+
+/// [`fused_entry`] for every state reachable from `BitContext::default()`,
+/// indexed by discriminant. Built by compile-time BFS over `adapt`; every
+/// context starts at the default state, so reachable states are exactly the
+/// ones a walk can ever load. (Unreachable slots hold the default state's
+/// entry and are never read.)
+static FUSED: [FusedContext; N_STATES] = {
+    let start = BitContext::True0False0;
+    let mut table = [fused_entry(start); N_STATES];
+    let mut queued = [false; N_STATES];
+    let mut queue = [start; N_STATES];
+    queued[start as usize] = true;
+    let (mut head, mut tail) = (0, 1);
+    while head < tail {
+        let state = queue[head];
+        head += 1;
+        let entry = fused_entry(state);
+        table[state as usize] = entry;
+        let mut j = 0;
+        while j < 2 {
+            let next = entry.next[j];
+            if !queued[next as usize] {
+                queued[next as usize] = true;
+                queue[tail] = next;
+                tail += 1;
+            }
+            j += 1;
+        }
+    }
+    table
+};
+
 /// A sub-interval `[start, start + width)` of the fixed total `M = 1 << BITS`,
 /// playing the role for a whole tree symbol that [`Probability`] plays for a
 /// single bit.
@@ -80,7 +137,8 @@ impl SymbolRange {
     fn split(self, p: Probability, levels_below: u32) -> u32 {
         let reserve = 1u32 << (levels_below - 1);
         debug_assert!(self.width >= 2 * reserve);
-        ((((self.width - 2 * reserve) as u64 * p.prob.get() as u64) >> 8) as u32) + reserve
+        // The product fits in u32: width <= M = 2^16 and prob <= 255.
+        (((self.width - 2 * reserve) * p.prob.get() as u32) >> 8) + reserve
     }
 
     #[inline]
@@ -118,15 +176,15 @@ impl SymbolRange {
         let mut range = Self::full();
         let mut node = 0usize;
         for i in (0..n_bits).rev() {
-            let context = &mut contexts[node];
-            let split = range.split(context.probability(), i + 1);
+            let cur = FUSED[contexts[node] as usize];
+            let split = range.split(cur.prob, i + 1);
             let bit = (value >> i) & 1 == 1;
             range = if bit {
                 range.upper(split)
             } else {
                 range.lower(split)
             };
-            *context = context.adapt(bit);
+            contexts[node] = cur.next[bit as usize];
             node = (node << 1) + 1 + bit as usize;
         }
         range
@@ -145,16 +203,23 @@ impl SymbolRange {
         debug_assert!(slot < Self::M);
         let mut range = Self::full();
         let mut node = 0usize;
+        let mut cur = FUSED[contexts[0] as usize];
         for i in (0..n_bits).rev() {
-            let context = &mut contexts[node];
-            let split = range.split(context.probability(), i + 1);
-            let bit = !range.lower(split).contains(slot);
-            range = if bit {
-                range.upper(split)
-            } else {
-                range.lower(split)
-            };
-            *context = context.adapt(bit);
+            let split = range.split(cur.prob, i + 1);
+            let lower = range.lower(split);
+            let bit = !lower.contains(slot);
+            let adapted = cur.next[bit as usize];
+            if i > 0 {
+                // Speculatively fetch both children's fused entries: these
+                // loads depend only on `node`, not on `bit`, so they issue a
+                // full level ahead of the serial split/compare chain, leaving
+                // just a select on the critical path.
+                let left = FUSED[contexts[2 * node + 1] as usize];
+                let right = FUSED[contexts[2 * node + 2] as usize];
+                cur = if bit { right } else { left };
+            }
+            contexts[node] = adapted;
+            range = if bit { range.upper(split) } else { lower };
             node = (node << 1) + 1 + bit as usize;
         }
         (range, node - (N - 1))
@@ -197,6 +262,20 @@ mod tests {
             ctx = ctx.adapt(bit);
         }
         ctx
+    }
+
+    /// Every state a context can hold must have a `FUSED` entry that agrees
+    /// with the `probability()`/`adapt()` tables (random sampling covers all
+    /// variants statistically), and the BFS seed must be the default state.
+    #[test]
+    fn fused_matches_tables() {
+        assert_eq!(BitContext::default(), BitContext::True0False0);
+        for _ in 0..20_000 {
+            let state: BitContext = rand::random();
+            let entry = FUSED[state as usize];
+            assert_eq!(entry.prob, state.probability());
+            assert_eq!(entry.next, [state.adapt(false), state.adapt(true)]);
+        }
     }
 
     #[test]

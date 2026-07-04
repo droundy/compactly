@@ -688,7 +688,7 @@ use BitContext::*;
 
 impl BitContext {
     #[inline]
-    pub fn probability(self) -> Probability {
+    pub const fn probability(self) -> Probability {
         const LOOKUP: [Probability; 675] = [
             Probability::new(128, 128),
             Probability::new(171, 85),
@@ -1370,7 +1370,7 @@ impl BitContext {
     }
 
     #[inline]
-    pub fn adapt(self, bit: bool) -> Self {
+    pub const fn adapt(self, bit: bool) -> Self {
         const OUTCOMES: [BitContext; 2 * 675] = [
             True0False1,   // from True0False0 with false
             True1False1,   // from True1False0 with false

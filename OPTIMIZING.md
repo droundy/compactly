@@ -103,6 +103,11 @@ needs independent-bit decoding there too.
 
 ### Tree-symbol decode: multisymbol coding AND register-residency — both DEAD ENDS (measured)
 
+> **UPDATE 2026-07-03: the multisymbol verdict is overturned** — with the
+> fused-context speculative walk (next section) multisymbol decode now *beats*
+> the per-bit baseline on the string workload. The numbers below remain valid
+> as history for the *unoptimized* walk.
+
 Two related plans for the `u8`/`Bits<N>`/`UBits<N>` dependent tree walk (the
 per-character string hot path) were fully implemented and A/B'd. Both lose or
 wash; neither should be retried at ≤8-bit tree depth without new evidence.
@@ -162,6 +167,50 @@ copies of `u8::MAX` (true entropy 64 bytes) encode to 23 bytes. Multisymbol,
 which codes honestly at `width ≥ 2^32`, "regressed" several all-ones size
 assertions purely by losing this accident. Worth knowing when reading
 `assert_bits!` numbers for repeated extreme values.
+
+### Fused-context speculative tree walk — multisymbol now BEATS per-bit (2026-07-03)
+
+Profiling the multisymbol decode of an *unsorted* `Vec<String>` of the 38k
+meteorite names (`src/bin/ans-decode-phases.rs`, built via `HashSet` so there
+is no shared-prefix coding; ~450 KB encoded) showed the model side (86% of
+decode) dominated by the `SymbolRange::from_slot` walk (~43% of the run) and
+the `BitContext` `LOOKUP`/`OUTCOMES` table loads (~32%). Every level of the
+walk was a serial chain: load `contexts[node]` → load `LOOKUP[state]` →
+`width×prob>>8` multiply → compare → bit → next node. Three changes, all
+bit-identical (every `assert_bits!` unchanged):
+
+1. **Fused table** (`FUSED` in `src/v2/symbol.rs`): one entry per `BitContext`
+   holding `{probability, adapt(false), adapt(true)}`, built by compile-time
+   BFS from the default state (`probability`/`adapt` in the generated
+   `bit_context.rs` are now `const fn`; the generator emits that too). One
+   load per node replaces the separate probability and adapt lookups, and the
+   adapt successor is already in hand when the bit resolves.
+2. **Speculate both ways in `from_slot`**: fetch *both* children's fused
+   entries (loads depend only on `node`, issuing a level ahead) and compute
+   *both* children's splits before the bit resolves. The critical path is then
+   the multiply chain plus one cmov per level; the compare hangs off the side.
+3. `split()` multiply narrowed u64 → u32 (product fits: `2^16 × 255 < 2^32`).
+
+Results (pinned core 2, min of runs):
+
+| benchmark | before | after | Δ |
+|---|---|---|---|
+| `ans-decode-phases` (Vec\<String\>, full decode ms/iter) | 24.34 | 14.91 | **−39%** |
+| `just-decompress-strings ans` 500× (Gcycles) | 22.68 | 20.52 | **−9.5%** |
+| `just-decompress-strings range` 500× (Gcycles) | 25.95 | 22.55 | **−13%** |
+
+Scaled to the 2000-iter table above: `Ans` 82.1B vs the 83.07B *per-bit*
+baseline (~1% faster), `Range` 90.2B vs 96.71B (**−6.7%**) — multisymbol now
+wins outright on strings. (Today's pre-change branch numbers, 90.7B/103.8B,
+reproduce that table's multisymbol column, so the comparison is sound.) Caveat:
+the per-bit path never got the fused-table treatment; but its chain is
+dominated by the rANS `decode_step` state dependency per bit, which a fused
+table cannot remove, while multisymbol pays one coder step per symbol *and*
+now has the shorter walk chain. After the change the remaining hot lines are
+the walk arithmetic itself (`split` multiply ~10%, `contains` compare ~8%,
+speculative loads/selects ~24%); the `BitContext` table lines fell from ~32%
+to ~1%. Further wins likely need format changes (e.g. deeper fusion via a
+`SymbolRange::BITS` bump) — bit-compatibility is not a constraint per David.
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
