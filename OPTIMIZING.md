@@ -212,6 +212,39 @@ speculative loads/selects ~24%); the `BitContext` table lines fell from ~32%
 to ~1%. Further wins likely need format changes (e.g. deeper fusion via a
 `SymbolRange::BITS` bump) — bit-compatibility is not a constraint per David.
 
+### Full comparison-suite A/B: multisymbol's big win is ENCODE (2026-07-03)
+
+`cargo bench -p comparison` on `main` vs the `multisymbol-tree-coding` branch
+(multisymbol + fused walk), wall-clock, pinned core. David predicted this:
+encode pays *none* of multisymbol's latency penalty — the value is known, so
+there is no serial bit-decision chain to lengthen — while reaping all its
+benefits: one deferred `Op` per symbol instead of one per bit for `Ans` (8×
+less buffer traffic for byte trees), one interval step instead of `log2(N)`
+for `Range`, plus the fused table in `for_value`. Encoded sizes are unchanged
+(±few bytes, the known +0.01–0.03% shift).
+
+| dataset | Range encode | Ans encode | Range decode | Ans decode |
+|---|---|---|---|---|
+| suicide data / rates / suicide (×2) | **−39…−52%** | **−36…−42%** | −8…−24% | −13…−28% |
+| meteorite names | **−37%** | **−33%** | −7.5% | −0.7% (wash) |
+| meteorites / by name | −15…−16% | −15…−17% | −7…−9% | −3…−7% |
+| single cards / single meteorites | −10…−14% | −9…−13% | −6…−8% | −0.4…−6% |
+| books / mtg / meteorites by small name | −1…−3% | −3% | −2…−7% | −4…+1% |
+
+Reading guide: the bottom row is the `Compressible`/Lz77-dominated group —
+mtg encodes in ~823 ms of which tree coding is a sliver, so multisymbol can't
+move it. The wall-clock noise floor (zstd/bincode reference rows, identical
+code in both builds) was up to ±44% on the µs-scale datasets and ≤ ~12% on the
+large ones, so individual decode deltas under ~10% are directional only — but
+the sign is consistent across both coders and all datasets, agrees with the
+pinned cycle-count A/Bs above, and the encode deltas are far above any noise.
+
+Consequence: the "encode speed is not a current target" stance below predates
+this — multisymbol makes tree-heavy encode 15–50% faster as a side effect of
+the decode work, and a `SymbolRange::BITS` bump (deeper fusion) should extend
+both the encode win and the Ans-decode wash on strings. Raw outputs:
+`bench-main.txt` / `bench-branch.txt` in the session scratchpad.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
@@ -255,6 +288,9 @@ things stand out that the float/IPv6 micro-work above never touched:
   rounds and `Compressible` is not expected to be widely used, so encode speed is
   **not** a current target. The string focus below is on **decode** of the string
   strategies (`Normal`/`Compressible`/`Sorted`) and on `LowCardinality`.
+  (UPDATE 2026-07-03: multisymbol coding cut the *non-Lz77* part of encode by
+  15–50% anyway — see "Full comparison-suite A/B" above. The Lz77 match-search
+  share, e.g. mtg's ~823 ms, is untouched and remains deprioritized.)
 
 ## TODO (in rough priority order)
 
