@@ -98,6 +98,31 @@ pub trait EntropyCoder: Default {
         }
     }
 
+    /// Encode one *escaped-tree* symbol: a `root` bit for "is a value
+    /// present", then — only when present — the `log2(N)`-bit tree for the
+    /// value. This is the `bool`-guarded-tree pattern (`char`'s `is_ascii` +
+    /// 7-bit ASCII tree) fused so single-step coders pay one step for the
+    /// common present case instead of two; `None` is the escape and costs
+    /// just the root bit.
+    ///
+    /// The default implementation is the unfused bit-by-bit coding (kept by
+    /// `Raw`); `Range`/`Ans`/`Millibits` override it with a single
+    /// [`symbol::SymbolRange`] step. Adaptation is identical either way.
+    #[inline]
+    fn encode_escaped_tree<const N: usize>(
+        &mut self,
+        root: &mut bit_context::BitContext,
+        contexts: &mut [bit_context::BitContext; N],
+        value: Option<usize>,
+    ) {
+        let present = value.is_some();
+        self.encode_bit(root.probability(), present);
+        *root = root.adapt(present);
+        if let Some(value) = value {
+            self.encode_tree(contexts, value);
+        }
+    }
+
     /// Encode a given slice of incompressible bytes.
     ///
     /// Note that ideall implementations will do something more efficient than
@@ -158,6 +183,22 @@ pub trait EntropyDecoder {
             node = (node << 1) + 1 + bit as usize;
         }
         node - (N - 1)
+    }
+
+    /// Decode one escaped-tree symbol; the inverse of
+    /// [`EntropyCoder::encode_escaped_tree`]. Returns `None` for the escape,
+    /// or the decoded value in `0..N`.
+    #[inline]
+    fn decode_escaped_tree<const N: usize>(
+        &mut self,
+        root: &mut bit_context::BitContext,
+        contexts: &mut [bit_context::BitContext; N],
+    ) -> Option<usize> {
+        if self.decode_bit(root) {
+            Some(self.decode_tree(contexts))
+        } else {
+            None
+        }
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
@@ -284,6 +325,31 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     }
 }
 
+/// Compare an actual encoded size against the expected one recorded in a
+/// test. Normally panics on mismatch like `assert_eq!`, but when the
+/// `COLLECT_SIZE_DIFFS` environment variable is set it prints a `SIZEDIFF`
+/// line and keeps going — so after an intentional encoding change, one
+/// `COLLECT_SIZE_DIFFS=1 cargo test` run lists every expected number that
+/// needs updating (and shows the compression impact) instead of stopping at
+/// the first.
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn check_encoded_size<T: PartialEq + std::fmt::Debug>(actual: T, expected: T, what: &str) {
+    if actual == expected {
+        return;
+    }
+    if std::env::var_os("COLLECT_SIZE_DIFFS").is_some() {
+        let loc = std::panic::Location::caller();
+        println!(
+            "SIZEDIFF {}:{}: {expected:?} -> {actual:?} ({what})",
+            loc.file(),
+            loc.line()
+        );
+    } else {
+        panic!("unexpected encoded size ({what}): expected {expected:?}, got {actual:?}");
+    }
+}
+
 #[cfg(test)]
 macro_rules! assert_size {
     ($v:expr, $size:expr) => {
@@ -291,7 +357,7 @@ macro_rules! assert_size {
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
-        assert_eq!(bytes.len(), $size, "unexpected size");
+        super::check_encoded_size(bytes.len(), $size, "bytes");
     };
 }
 #[cfg(test)]
@@ -318,7 +384,7 @@ macro_rules! assert_bits {
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
+        super::check_encoded_size((bytes.len() + 4) / 8, $size, "bits");
     };
     ($v:expr, $size:expr, $msg:expr) => {
         let ans = $v;
@@ -343,12 +409,7 @@ macro_rules! assert_bits {
             "decoded tuple value is incorrect: {}",
             $msg
         );
-        assert_eq!(
-            (bytes.len() + 4) / 8,
-            $size,
-            "unexpected number of bits: {}",
-            $msg
-        );
+        super::check_encoded_size((bytes.len() + 4) / 8, $size, &format!("bits: {}", $msg));
     };
 }
 #[cfg(test)]
@@ -362,13 +423,13 @@ macro_rules! raw_bits {
         let decoded = super::Raw::decode(&encoded);
         let (bits, entropy) = super::Raw::sizes(&v);
         assert_eq!(decoded, Some(v));
-        assert_eq!(bits, $size, "unexpected number of raw bits");
-        assert_eq!(entropy, super::Millibits::bits($size), "unexpected entropy");
+        super::check_encoded_size(bits, $size, "raw bits");
+        super::check_encoded_size(entropy, super::Millibits::bits($size), "entropy");
     };
     ($v:expr, $size:expr, $millibits:expr) => {
         let (bits, entropy) = super::Raw::sizes(&$v);
-        assert_eq!(bits, $size, "unexpected number of raw bits");
-        assert_eq!(entropy, $millibits, "unexpected entropy");
+        super::check_encoded_size(bits, $size, "raw bits");
+        super::check_encoded_size(entropy, $millibits, "entropy");
     };
 }
 #[cfg(test)]
@@ -394,7 +455,7 @@ macro_rules! assert_ans_bits {
         let bytes = super::Ans::encode(&v);
         let decoded = super::Ans::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
+        super::check_encoded_size((bytes.len() + 4) / 8, $size, "ans bits");
     };
     ($v:expr, $size:expr, $msg:expr) => {
         let ans = $v;

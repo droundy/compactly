@@ -63,6 +63,20 @@ impl EntropyCoder for Ans {
     }
 
     #[inline]
+    fn encode_escaped_tree<const N: usize>(
+        &mut self,
+        root: &mut BitContext,
+        contexts: &mut [BitContext; N],
+        value: Option<usize>,
+    ) {
+        let range = SymbolRange::for_value_escaped(root, contexts, value);
+        self.ops.push(Op::Symbol {
+            start: range.start() as u16,
+            width_minus_1: (range.width() - 1) as u16,
+        });
+    }
+
+    #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
         self.incompressible_bytes.extend_from_slice(bytes);
     }
@@ -304,6 +318,31 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         let mut bytes = self.bytes;
         let slot = state & (SymbolRange::M - 1);
         let (range, value) = SymbolRange::from_slot(contexts, slot);
+        state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
+        while state < (1 << (State::BITS - 8)) {
+            let Some((&byte, rest)) = bytes.split_first() else {
+                break;
+            };
+            bytes = rest;
+            state = (state << 8) | byte as State;
+        }
+        self.state.state = state;
+        self.bytes = bytes;
+        value
+    }
+
+    /// Escaped-tree symbol decode: identical to [`Self::decode_tree`] but the
+    /// walk starts at the fused root bit and may stop there (the escape).
+    #[inline(always)]
+    fn decode_escaped_tree<const N: usize>(
+        &mut self,
+        root: &mut BitContext,
+        contexts: &mut [BitContext; N],
+    ) -> Option<usize> {
+        let mut state = self.state.state;
+        let mut bytes = self.bytes;
+        let slot = state & (SymbolRange::M - 1);
+        let (range, value) = SymbolRange::from_slot_escaped(root, contexts, slot);
         state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
         while state < (1 << (State::BITS - 8)) {
             let Some((&byte, rest)) = bytes.split_first() else {

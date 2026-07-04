@@ -11,6 +11,11 @@
 //! The walk itself is coder-independent, so it lives here (written once):
 //! [`SymbolRange::for_value`] builds the interval for a known value (encode) and
 //! [`SymbolRange::from_slot`] recovers the value from a peeked slot (decode).
+//!
+//! [`SymbolRange::for_value_escaped`] / [`SymbolRange::from_slot_escaped`]
+//! extend the same walk to *escaped* trees — a guard bit fused with the tree
+//! it guards (`char`'s `is_ascii` + 7-bit ASCII tree), so the guarded symbol
+//! still costs a single coder step.
 
 use super::ans::Probability;
 use super::bit_context::BitContext;
@@ -170,10 +175,22 @@ impl SymbolRange {
         contexts: &mut [BitContext; N],
         value: usize,
     ) -> Self {
+        Self::for_value_from(Self::full(), contexts, value)
+    }
+
+    /// [`Self::for_value`] starting from a sub-interval `range` instead of the
+    /// full `[0, M)` — the subtree half of an escaped-tree symbol. `range`
+    /// must be wide enough for the reserve clamp: `width >= 2^log2(N)`.
+    #[inline]
+    fn for_value_from<const N: usize>(
+        mut range: Self,
+        contexts: &mut [BitContext; N],
+        value: usize,
+    ) -> Self {
         let n_bits = N.ilog2();
         debug_assert_eq!(1 << n_bits, N);
         debug_assert!(value < N);
-        let mut range = Self::full();
+        debug_assert!(range.width >= 1 << n_bits);
         let mut node = 0usize;
         for i in (0..n_bits).rev() {
             let cur = FUSED[contexts[node] as usize];
@@ -198,10 +215,21 @@ impl SymbolRange {
         contexts: &mut [BitContext; N],
         slot: u32,
     ) -> (Self, usize) {
+        Self::from_slot_from(Self::full(), contexts, slot)
+    }
+
+    /// [`Self::from_slot`] starting from a sub-interval `range` (which must
+    /// contain `slot`) — the subtree half of an escaped-tree symbol.
+    #[inline]
+    fn from_slot_from<const N: usize>(
+        mut range: Self,
+        contexts: &mut [BitContext; N],
+        slot: u32,
+    ) -> (Self, usize) {
         let n_bits = N.ilog2();
         debug_assert_eq!(1 << n_bits, N);
-        debug_assert!(slot < Self::M);
-        let mut range = Self::full();
+        debug_assert!(range.contains(slot));
+        debug_assert!(range.width >= 1 << n_bits);
         let mut node = 0usize;
         let mut cur = FUSED[contexts[0] as usize];
         for i in (0..n_bits).rev() {
@@ -223,6 +251,60 @@ impl SymbolRange {
             node = (node << 1) + 1 + bit as usize;
         }
         (range, node - (N - 1))
+    }
+
+    /// Build the interval for one *escaped-tree* symbol: a `root` bit (true
+    /// means a value is present) followed, only when present, by the
+    /// `log2(N)`-bit tree for the value — e.g. `char`'s `is_ascii` bit fused
+    /// with its 7-bit ASCII tree, so an ASCII character costs one coder step
+    /// instead of two. `None` is the escape: the symbol is just the root
+    /// bit's false branch, a single leaf of depth 1.
+    ///
+    /// The root split uses `levels_below = log2(N) + 1`, so the present
+    /// branch keeps a reserve of `2^log2(N)` slots — exactly what its subtree
+    /// walk needs — and the total depth (1 + log2(N)) matches a `2N`-leaf
+    /// plain tree, which `M = 2^16` already accommodates for `N <= 128`.
+    /// Adaptation is identical to the unfused `bool` + tree encoding.
+    #[inline]
+    pub(crate) fn for_value_escaped<const N: usize>(
+        root: &mut BitContext,
+        contexts: &mut [BitContext; N],
+        value: Option<usize>,
+    ) -> Self {
+        let n_bits = N.ilog2();
+        let range = Self::full();
+        let cur = FUSED[*root as usize];
+        let split = range.split(cur.prob, n_bits + 1);
+        *root = cur.next[value.is_some() as usize];
+        if let Some(value) = value {
+            Self::for_value_from(range.upper(split), contexts, value)
+        } else {
+            range.lower(split)
+        }
+    }
+
+    /// Decode counterpart of [`Self::for_value_escaped`]: recover the escape
+    /// (`None`) or the value from a peeked `slot`, adapting identically.
+    #[inline]
+    pub(crate) fn from_slot_escaped<const N: usize>(
+        root: &mut BitContext,
+        contexts: &mut [BitContext; N],
+        slot: u32,
+    ) -> (Self, Option<usize>) {
+        let n_bits = N.ilog2();
+        debug_assert!(slot < Self::M);
+        let range = Self::full();
+        let cur = FUSED[*root as usize];
+        let split = range.split(cur.prob, n_bits + 1);
+        let lower = range.lower(split);
+        let present = !lower.contains(slot);
+        *root = cur.next[present as usize];
+        if present {
+            let (range, value) = Self::from_slot_from(range.upper(split), contexts, slot);
+            (range, Some(value))
+        } else {
+            (lower, None)
+        }
     }
 }
 
@@ -252,6 +334,53 @@ mod tests {
             }
         }
         assert_eq!(total, SymbolRange::M, "intervals must cover all of M");
+    }
+
+    /// Escaped-tree analogue of [`check_determinism`]: the escape leaf plus
+    /// every value's interval must tile `[0, M)` (escape first — it is the
+    /// root's false branch), and decode must recover value and contexts.
+    fn check_determinism_escaped<const N: usize>(root: BitContext, contexts: [BitContext; N]) {
+        let mut total = 0u32;
+        for value in std::iter::once(None).chain((0..N).map(Some)) {
+            let mut enc_root = root;
+            let mut enc_ctx = contexts;
+            let range = SymbolRange::for_value_escaped(&mut enc_root, &mut enc_ctx, value);
+            assert!(range.width >= 1, "leaf lost its slot for value {value:?}");
+            assert_eq!(
+                range.start, total,
+                "escape then values must tile [0, M) in order"
+            );
+            total += range.width;
+            for slot in [range.start, range.start + range.width - 1] {
+                let mut dec_root = root;
+                let mut dec_ctx = contexts;
+                let (dec_range, decoded) =
+                    SymbolRange::from_slot_escaped(&mut dec_root, &mut dec_ctx, slot);
+                assert_eq!(dec_range, range);
+                assert_eq!(decoded, value);
+                assert_eq!(dec_root, enc_root, "root must adapt identically");
+                assert_eq!(dec_ctx, enc_ctx, "contexts must adapt identically");
+            }
+        }
+        assert_eq!(total, SymbolRange::M, "intervals must cover all of M");
+    }
+
+    #[test]
+    fn escaped_deterministic_and_lossless() {
+        check_determinism_escaped::<2>(BitContext::default(), [BitContext::default(); 2]);
+        check_determinism_escaped::<128>(BitContext::default(), [BitContext::default(); 128]);
+
+        for root in [extreme(true), extreme(false)] {
+            check_determinism_escaped::<128>(root, [extreme(true); 128]);
+            check_determinism_escaped::<128>(root, [extreme(false); 128]);
+        }
+        for _ in 0..50 {
+            let mut random = [BitContext::default(); 64];
+            for ctx in random.iter_mut() {
+                *ctx = rand::random();
+            }
+            check_determinism_escaped::<64>(rand::random(), random);
+        }
     }
 
     /// A context pushed to its most extreme probability, to force the reserve

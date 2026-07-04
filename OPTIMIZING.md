@@ -35,6 +35,18 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
 - Instruction count is NOT a good proxy here: decode is **latency-bound**
   (measured IPC ≈ 1.39), so fewer instructions can still be slower and vice
   versa. Trust cycles.
+- **Thermal throttling makes sequential A/B runs lie** (observed 2026-07-04:
+  the fan spins up during a long benchmark and later runs land on a slower
+  clock). A back-to-back "all of A, then all of B" wall-clock comparison once
+  showed a uniform fake −15% — including on datasets the change couldn't
+  touch — while the zstd/bincode reference rows (identical code both sides)
+  moved 12–33% *in the same direction*. Always **alternate A and B runs**
+  and check the reference rows before believing any wall-clock delta; cycle
+  counts are less sensitive but still benefit from alternation.
+- Expect ~±1% of **binary-layout noise** on workloads dominated by
+  library/runtime code: e.g. `just-decompress-strings` spends >50% in
+  `BTreeMap::insert`+`memcmp`, and those identical functions were measured
+  4–6% apart between two builds differing only in compactly code.
 
 ## Empirical results so far
 
@@ -157,6 +169,8 @@ experiment needs; the `just-decompress-strings` string-decode benchmark; and
 this note. Deeper fusion (>8-bit trees, e.g. fusing `is_ascii`+`Bits<128>` into
 one 8-bit symbol) would amortize the symbol-step cost over more bits and
 remains unmeasured — bump `SymbolRange::BITS` in the follow-up PR if trying.
+(UPDATE 2026-07-04: tried and it WINS — no `BITS` bump needed; see
+"Escaped-tree fusion" below.)
 
 **Bonus finding — the `Range` coder codes near-certain bits BELOW entropy in
 narrow intervals.** When the interval width drops under 256 (a straddled
@@ -245,6 +259,56 @@ the decode work, and a `SymbolRange::BITS` bump (deeper fusion) should extend
 both the encode win and the Ans-decode wash on strings. Raw outputs:
 `bench-main.txt` / `bench-branch.txt` in the session scratchpad.
 
+### Escaped-tree fusion: `is_ascii` + ASCII tree in one coder step (2026-07-04)
+
+Branch `deeper-fusion` (PR base: `multisymbol-tree-coding`). Every ASCII
+character used to cost two coder steps: a `bool` (`is_ascii`) bit and the
+7-bit `Bits<128>` tree symbol. They are now fused into one *escaped-tree*
+symbol (`SymbolRange::{for_value,from_slot}_escaped` in `src/v2/symbol.rs`,
+`encode_escaped_tree`/`decode_escaped_tree` in the coder traits): the root
+bit is the guard, its false branch is a depth-1 escape leaf (non-ASCII, which
+then encodes its chunks as before), and its true branch continues into the
+7-level ASCII subtree — one interval, one renormalization, for the whole
+8-bit-deep symbol.
+
+**No `SymbolRange::BITS` bump was needed**, contrary to the older note above:
+the fused depth is 8 levels, the same as the existing `u8` byte trees, so
+`M = 2^16` still gives every leaf a slot and `Ans::Op::Symbol` stays two
+`u16`s. Size cost is the escape leaf's reserve squeeze, ~2–3 millibits per
+ASCII char (the 1720-char `COMPRESSIBLE_TEXT` grew 8980 → 8986 bits, +0.07%);
+`Raw` keeps the unfused per-bit format, and Lz77/`Compressible` is untouched
+(its literals are plain byte trees, no guard bit — nothing to fuse).
+
+Results (pinned core 2, alternating A/B, min of runs) vs the multisymbol
+branch:
+
+| benchmark | multisymbol | fused | Δ |
+|---|---|---|---|
+| `ans-decode-phases` full decode (unsorted `Vec<String>`, ms/iter) | 16.46 | 15.78 | **−4.4%** |
+| `ans-decode-phases` entropy-only phase (ms/iter) | 3.31 | 2.19 | **−34%** |
+| `ans-encode-phases` total (build + into_vec, ms/iter) | 4.75 | 4.43 | **−6.7%** |
+| `ans-encode-phases` into_vec alone (ms/iter) | 1.13 | 0.87 | **−23%** |
+| `just-decompress-strings range` 500× (Gcycles) | 23.40 | 22.76 | **−2.8%** |
+| `just-decompress-strings ans` 500× (Gcycles) | 21.07 | 21.35 | +1.3% (†) |
+| `just-decompress-net` (untouched path, control) | 131.33 | 131.25 | wash |
+
+(†) Not a coding regression: that workload is >50% `BTreeMap::insert` +
+`memcmp` (set construction), the walk's profile share is identical (11.8%)
+on both sides, and the identical-code construction functions themselves
+measured 4–6% apart — binary-layout noise. The coding-dominated variant of
+the same data (unsorted `Vec<String>`, first row) wins −4.4%.
+
+The comparison suite (wall-clock, thermally noisy — see the benchmarking
+note above) agrees where it can resolve anything: on the one adjacent
+same-conditions pair, `meteorite names` encode Range −5.0% / Ans −8.0%,
+`meteorites` Ans −4%, everything else within its ±8% reference noise.
+
+The mechanism, as expected from the multisymbol work: the big Ans win is in
+the *entropy/step* phase (one op and one renorm per char instead of two;
+−34% replay, −23% into_vec), and `Range` — whose per-bit steps are pricier —
+wins outright on decode too. The escaped walk adds its root level to the
+decode chain, which eats part of the saved step on `Ans`.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
@@ -318,6 +382,9 @@ things stand out that the float/IPv6 micro-work above never touched:
    change, 1 bit/string) so an all-ASCII string decodes as a run of 7-bit
    `Bits<128>` straight into the byte buffer, skipping the per-char branch and
    `from_u32`. Measure the size cost vs the decode win; pairs naturally with #2.
+   (UPDATE 2026-07-04: the escaped-tree fusion above removed the `is_ascii`
+   *coder step*; the remaining upside here is the value-construction side —
+   bytes straight into the buffer instead of `char` round-trips.)
 
 4. **Const-generic incompressible read** for compile-time-known sizes
    (IP octets, single bytes): `decode_incompressible::<const N>() -> [u8; N]`

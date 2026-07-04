@@ -16,10 +16,15 @@ impl Encode for char {
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let mut x = u32::from(*self);
         let is_ascii = x < 128;
-        is_ascii.encode(writer, &mut ctx.is_ascii);
-        if is_ascii {
-            Bits::<128>::take_from(&mut x).encode(writer, &mut ctx.ascii)
-        } else {
+        // The `is_ascii` bit and the 7-bit ASCII tree are fused into one
+        // escaped-tree symbol: one coder step per ASCII character, with the
+        // non-ASCII case as the escape.
+        writer.encode_escaped_tree(
+            &mut ctx.is_ascii,
+            &mut ctx.ascii.0,
+            is_ascii.then_some(x as usize),
+        );
+        if !is_ascii {
             let n_chunks = if x < 32 * 64 {
                 0
             } else if x < 32 * 64 * 64 {
@@ -40,9 +45,8 @@ impl Encode for char {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        if bool::decode(reader, &mut ctx.is_ascii)? {
-            let v: u8 = Bits::<128>::decode(reader, &mut ctx.ascii)?.into();
-            Ok(char::from(v))
+        if let Some(v) = reader.decode_escaped_tree(&mut ctx.is_ascii, &mut ctx.ascii.0) {
+            Ok(char::from(v as u8))
         } else {
             let n_chunks = ULessThan::<3>::decode(reader, &mut ctx.n_chunks)?;
             let mut out: u32 = u8::from(Bits::<32>::decode(reader, &mut ctx.chunk1)?) as u32;
@@ -233,17 +237,15 @@ fn size() {
             super::decode(&encoded_small).unwrap();
         assert_eq!(small, decoded_small);
 
-        println!("normal millibits {value:?}");
-        assert_eq!(
+        super::check_encoded_size(
             normal.millibits(),
             super::Millibits::new(expected_normal),
-            "normal millibits {value:?}"
+            &format!("normal millibits {value:?}"),
         );
-        println!("small millibits {value:?}");
-        assert_eq!(
+        super::check_encoded_size(
             small.millibits(),
             super::Millibits::new(expected_small),
-            "small millibits {value:?}"
+            &format!("small millibits {value:?}"),
         );
         assert_bits!(
             value.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
@@ -259,11 +261,11 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8980, 7113);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8986, 7113);
 
-    assert_eq!(true.millibits(), super::Millibits::bits(1));
-    assert_eq!('a'.millibits(), super::Millibits::bits(8));
-    assert_eq!('😊'.millibits(), super::Millibits::bits(20));
+    super::check_encoded_size(true.millibits(), super::Millibits::bits(1), "true");
+    super::check_encoded_size('a'.millibits(), super::Millibits::bits(8), "'a'");
+    super::check_encoded_size('😊'.millibits(), super::Millibits::bits(20), "'😊'");
     compare_small_bits("", 3, 3);
     compare_small_bits("a", 11, 17);
     compare_small_bits("aa", 17, 23);
@@ -276,7 +278,7 @@ fn size() {
     compare_small_bits("hello world hello world", 127, 98);
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
-        412,
+        413,
         419,
     );
     compare_small_bits(
@@ -284,7 +286,7 @@ fn size() {
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
-        1538,
+        1539,
         835,
     );
     compare_small_bits(
@@ -292,36 +294,32 @@ fn size() {
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
-        1608,
+        1609,
         1005,
     );
 
     compare_vecs(&[], 3000, 3000, 3, 3);
-    assert_eq!('h'.millibits(), super::Millibits::bits(8), "just h");
-    assert_eq!(
+    super::check_encoded_size('h'.millibits(), super::Millibits::bits(8), "just h");
+    super::check_encoded_size(
         "h".to_string().millibits(),
         super::Millibits::bits(11),
-        "just h string"
+        "just h string",
     );
 
     let s = "aaaaaaaaaaaaaaaa".to_string();
-    assert_eq!(s.millibits(), super::Millibits::new(39501), "just a string");
+    super::check_encoded_size(s.millibits(), super::Millibits::new(39549), "just a string");
     assert_bits!(s.clone(), 40);
 
     let s = "hello world this is a string".to_string();
-    assert_eq!(
-        s.millibits(),
-        super::Millibits::new(165125),
-        "just a string"
-    );
+    super::check_encoded_size(s.millibits(), super::Millibits::new(165201), "just a string");
     assert_bits!(s.clone(), 165);
 
     compare_vecs(&["h"], 14000, 20000, 14, 20);
-    compare_vecs(&["hello world"], 76817, 82841, 77, 83);
-    compare_vecs(&["hello world", "hello world"], 128147, 101770, 128, 102);
+    compare_vecs(&["hello world"], 76841, 82841, 77, 83);
+    compare_vecs(&["hello world", "hello world"], 128206, 101770, 128, 102);
     compare_vecs(
         &["hello world", "hello world", "hello world"],
-        172402,
+        172498,
         112584,
         173,
         113,
@@ -333,12 +331,12 @@ fn size() {
             "hello world",
             "hello world hello world",
         ],
-        262347,
+        262517,
         145803,
-        262,
+        263,
         146,
     );
-    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209985, 198370, 210, 198);
+    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209992, 198370, 210, 198);
     compare_vecs(
         &[
             "hello world! 😊",
@@ -346,7 +344,7 @@ fn size() {
             "goodbye world! 😊",
             "farewell sweet world! 😊",
         ],
-        424446,
+        424506,
         350885,
         425,
         351,
@@ -364,7 +362,7 @@ fn size() {
             "lazy",
             "dog",
         ],
-        495866,
+        496105,
         413459,
         496,
         414,
@@ -404,8 +402,8 @@ fn sorted() {
         crate::Encoded::new(strings.clone());
     use super::assert_bits;
 
-    assert_bits!(strings.clone(), 5957);
-    assert_bits!(encoded_strings.clone(), 4960);
+    assert_bits!(strings.clone(), 5960);
+    assert_bits!(encoded_strings.clone(), 4963);
 }
 
 #[test]
