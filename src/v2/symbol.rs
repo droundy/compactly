@@ -28,35 +28,31 @@ struct FusedContext {
     prob: Probability,
 }
 
-const fn fused_entry(state: BitContext) -> FusedContext {
-    FusedContext {
-        next: [state.adapt(false), state.adapt(true)],
-        prob: state.probability(),
+impl FusedContext {
+    const fn new(state: BitContext) -> Self {
+        Self {
+            next: [state.adapt(false), state.adapt(true)],
+            prob: state.probability(),
+        }
     }
 }
 
-/// Number of `BitContext` variants; must match the `Count of variants` line at
-/// the end of the generated `bit_context.rs`. Too small a value fails at
-/// compile time (const-eval bounds check in the BFS below); too large is
-/// merely wasteful.
-const N_STATES: usize = 675;
-
-/// [`fused_entry`] for every state reachable from `BitContext::default()`,
-/// indexed by discriminant. Built by compile-time BFS over `adapt`; every
-/// context starts at the default state, so reachable states are exactly the
-/// ones a walk can ever load. (Unreachable slots hold the default state's
-/// entry and are never read.)
-static FUSED: [FusedContext; N_STATES] = {
+/// [`FusedContext::new`] for every state reachable from
+/// `BitContext::default()`, indexed by discriminant. Built by compile-time BFS
+/// over `adapt`; every context starts at the default state, so reachable
+/// states are exactly the ones a walk can ever load. (Unreachable slots hold
+/// the default state's entry and are never read.)
+static FUSED: [FusedContext; BitContext::COUNT] = {
     let start = BitContext::True0False0;
-    let mut table = [fused_entry(start); N_STATES];
-    let mut queued = [false; N_STATES];
-    let mut queue = [start; N_STATES];
+    let mut table = [FusedContext::new(start); BitContext::COUNT];
+    let mut queued = [false; BitContext::COUNT];
+    let mut queue = [start; BitContext::COUNT];
     queued[start as usize] = true;
     let (mut head, mut tail) = (0, 1);
     while head < tail {
         let state = queue[head];
         head += 1;
-        let entry = fused_entry(state);
+        let entry = FusedContext::new(state);
         table[state as usize] = entry;
         let mut j = 0;
         while j < 2 {
@@ -137,7 +133,9 @@ impl SymbolRange {
     fn split(self, p: Probability, levels_below: u32) -> u32 {
         let reserve = 1u32 << (levels_below - 1);
         debug_assert!(self.width >= 2 * reserve);
-        // The product fits in u32: width <= M = 2^16 and prob <= 255.
+        // The product below must fit in u32: width <= M = 2^BITS and prob < 2^8.
+        // If a deeper-fusion experiment bumps BITS past 24, revisit this method.
+        const { assert!(Self::BITS + 8 <= u32::BITS) };
         (((self.width - 2 * reserve) * p.prob.get() as u32) >> 8) + reserve
     }
 

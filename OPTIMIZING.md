@@ -389,6 +389,16 @@ things stand out that the float/IPv6 micro-work above never touched:
     *bytes* could be copied directly (find the byte offset of the `shared_prefix`-th
     char, then `extend_from_slice`). Measure whether the byte-copy is worth it.
 
+13. **Eliminate `Op::Bit` by coding a bit as a one-level symbol** (PR #5 review
+    idea) — a plain bit is conceptually `Bits<1>`: a `SymbolRange` that splits
+    `M` at the bit's probability (width `≈ p·M` or `≈ (1−p)·M`). If the symbol
+    path can code that with no measurable cost vs the bit path, the `Op` enum
+    in `ans.rs` collapses to just `Op::Symbol` and the coder hot loops lose a
+    branch. Cleanup, not a clear win: the symbol step does more arithmetic per
+    op than the bit step (and `Range`'s symbol path requires the
+    `clamp_for_symbol` width guarantee the bit path doesn't), so it only lands
+    if an A/B shows it's at worst a wash.
+
 ## New strategy ideas (compression rate, often also decode speed)
 
 These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
