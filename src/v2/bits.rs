@@ -53,31 +53,15 @@ impl<const N: usize> Encode for Bits<N> {
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         debug_assert_eq!(N, 1 << Self::N_BITS);
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        for i in 0..Self::N_BITS {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = (self.value >> (Self::N_BITS - 1 - i)) & 1 == 1;
-            bit.encode(writer, ctx);
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-        }
+        writer.encode_tree(&mut ctx.0, self.value as usize)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let mut filled_up = 0;
-        let mut accumulated_value = 0;
-        for i in 0..Self::N_BITS {
-            let ctx = &mut ctx.0[filled_up + accumulated_value];
-            let bit = bool::decode(reader, ctx)?;
-            filled_up += 1 << i;
-            accumulated_value = 2 * accumulated_value + bit as usize;
-        }
         Ok(Self {
-            value: accumulated_value as u8,
+            value: reader.decode_tree(&mut ctx.0) as u8,
         })
     }
 }

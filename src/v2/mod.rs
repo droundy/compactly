@@ -69,6 +69,38 @@ pub trait EntropyCoder: Default {
         writer
     }
 
+    /// Encode one whole `log2(N)`-bit tree symbol.
+    ///
+    /// `contexts` is the heap-shaped context array walked as
+    /// `node = (node << 1) + 1 + bit` (the `u8`/`Bits<N>`/`UBits<N>` codes);
+    /// its length `N` is exactly `1 << n_bits`, so the bit count is derived
+    /// from the array type and the walk fully unrolls after monomorphization.
+    ///
+    /// The default implementation codes the tree bit-by-bit, exactly like the
+    /// historical per-bit walk, so rerouting the tree codes through this
+    /// method is bit-identical to coding each bit with [`Self::encode_bit`].
+    /// The method exists so a coder *may* code the whole symbol in one step
+    /// (see OPTIMIZING.md "multi-symbol (whole-tree) coding" for the measured
+    /// trade-offs of doing so).
+    #[inline]
+    fn encode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [bit_context::BitContext; N],
+        value: usize,
+    ) {
+        let n_bits = N.ilog2();
+        debug_assert_eq!(1 << n_bits, N);
+        debug_assert!(value < N);
+        let mut node = 0usize;
+        for i in (0..n_bits).rev() {
+            let bit = (value >> i) & 1 == 1;
+            let context = &mut contexts[node];
+            self.encode_bit(context.probability(), bit);
+            *context = context.adapt(bit);
+            node = (node << 1) + 1 + bit as usize;
+        }
+    }
+
     /// Encode a given slice of incompressible bytes.
     ///
     /// Note that ideall implementations will do something more efficient than
@@ -111,6 +143,27 @@ pub trait EntropyDecoder {
     fn decode_bit(&mut self, context: &mut bit_context::BitContext) -> bool {
         let [bit] = self.decode_bits(std::array::from_mut(context));
         bit
+    }
+
+    /// Decode one whole tree symbol; the inverse of
+    /// [`EntropyCoder::encode_tree`]. Returns the decoded value in `0..N`.
+    ///
+    /// Infallible like [`Self::decode_bits`]: running past the encoded data
+    /// yields arbitrary (but in-range) values, which higher-level
+    /// `Encode::decode` impls validate.
+    #[inline]
+    fn decode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [bit_context::BitContext; N],
+    ) -> usize {
+        let n_bits = N.ilog2();
+        debug_assert_eq!(1 << n_bits, N);
+        let mut node = 0usize;
+        for _ in 0..n_bits {
+            let bit = self.decode_bit(&mut contexts[node]);
+            node = (node << 1) + 1 + bit as usize;
+        }
+        node - (N - 1)
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.

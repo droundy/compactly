@@ -17,27 +17,14 @@ impl Encode for u8 {
     type Context = ByteContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        // state = 2*state + 1 + bit each step; only depends on *self, not coder state.
-        let v = *self as usize;
-        let mut state = 0usize;
-        for i in (0..8u32).rev() {
-            let bit = (v >> i) & 1 == 1;
-            bit.encode(writer, &mut ctx.0[state]);
-            state = (state << 1) + 1 + bit as usize;
-        }
+        writer.encode_tree(&mut ctx.0, *self as usize)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        // After 8 steps, state == 255 + decoded_byte.
-        let mut state = 0usize;
-        for _ in 0..8 {
-            let bit = bool::decode(reader, &mut ctx.0[state])?;
-            state = (state << 1) + 1 + bit as usize;
-        }
-        Ok((state - 255) as u8)
+        Ok(reader.decode_tree(&mut ctx.0) as u8)
     }
 }
 
@@ -64,25 +51,16 @@ macro_rules! small_num {
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    let value = u8::from(*self) as usize;
-                    let mut state = 0usize;
-                    for i in (0..$nbits as usize).rev() {
-                        let bit = (value >> i) & 1 == 1;
-                        bit.encode(writer, &mut ctx.0[state]);
-                        state = (state << 1) + 1 + bit as usize;
-                    }
+                    writer.encode_tree(&mut ctx.0, u8::from(*self) as usize)
                 }
                 #[inline]
                 fn decode<D: super::super::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let mut state = 0usize;
-                    for _ in 0..$nbits {
-                        let bit = bool::decode(reader, &mut ctx.0[state])?;
-                        state = (state << 1) + 1 + bit as usize;
-                    }
-                    Ok(((state - ($doublemax - 1)) as u8).try_into().unwrap())
+                    Ok(((reader.decode_tree(&mut ctx.0)) as u8)
+                        .try_into()
+                        .unwrap())
                 }
             }
 

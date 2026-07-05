@@ -79,6 +79,10 @@ name = "just-decompress-net"
 required-features = ["v2"]
 
 [[bin]]
+name = "just-decompress-strings"
+required-features = ["v2"]
+
+[[bin]]
 name = "micro-batch"
 required-features = ["v2"]
 
