@@ -68,11 +68,11 @@ impl<const N: usize> Encode for Bits<N> {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::encoded_bits;
 
     assert_eq!(Bits::<4>::MAX, 3);
     assert_eq!(Bits::<8>::MAX, 7);
-    assert_bits!(Bits::<4>::try_from(2u8).unwrap(), expect!["2"]);
-    assert_bits!(Bits::<8>::try_from(7u8).unwrap(), expect!["1"]);
-    assert_bits!(Bits::<8>::try_from(6u8).unwrap(), expect!["3"]);
+    expect!["2"].assert_eq(&encoded_bits!(Bits::<4>::try_from(2u8).unwrap()));
+    expect!["1"].assert_eq(&encoded_bits!(Bits::<8>::try_from(7u8).unwrap()));
+    expect!["3"].assert_eq(&encoded_bits!(Bits::<8>::try_from(6u8).unwrap()));
 }

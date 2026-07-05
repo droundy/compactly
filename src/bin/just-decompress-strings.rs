@@ -15,7 +15,9 @@ fn first_fields(csv: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for line in csv.lines().skip(1) {
         let name = if let Some(quoted) = line.strip_prefix('"') {
-            let Some(end) = quoted.find('"') else { continue };
+            let Some(end) = quoted.find('"') else {
+                continue;
+            };
             quoted[..end].to_string()
         } else {
             match line.split_once(',') {

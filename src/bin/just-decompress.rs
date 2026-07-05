@@ -3,7 +3,9 @@ fn main() {
     let mut x = 0x123456789abcdef0u64;
     let data: Vec<u64> = (0..100000)
         .map(|_| {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             x
         })
         .collect();

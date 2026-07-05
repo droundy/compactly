@@ -66,7 +66,9 @@ fn gen_groups() -> Vec<[bool; N]> {
 }
 
 fn main() {
-    let mode = std::env::args().nth(1).unwrap_or_else(|| "batch".to_string());
+    let mode = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "batch".to_string());
     let groups = gen_groups();
 
     let seq: Vec<Seq> = groups.iter().map(|&g| Seq(g)).collect();

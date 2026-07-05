@@ -304,8 +304,8 @@ macro_rules! assert_size {
 pub(crate) use assert_size;
 
 /// Encodes the value once and as 64 copies, checking that both round-trip,
-/// and evaluates to the number of bits (rounded) needed to encode the 64
-/// copies.
+/// and evaluates to a `String` holding the number of bits (rounded) needed to
+/// encode the 64 copies, ready to pass to `expect![...].assert_eq(...)`.
 #[cfg(test)]
 macro_rules! encoded_bits {
     ($v:expr) => {{
@@ -327,24 +327,15 @@ macro_rules! encoded_bits {
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        (bytes.len() + 4) / 8
+        ((bytes.len() + 4) / 8).to_string()
     }};
 }
 #[cfg(test)]
 pub(crate) use encoded_bits;
 
-#[cfg(test)]
-macro_rules! assert_bits {
-    ($v:expr, $expected:expr) => {
-        $expected.assert_eq(&crate::v2::encoded_bits!($v).to_string());
-    };
-}
-#[cfg(test)]
-pub(crate) use assert_bits;
-
-/// Like [`assert_bits!`], but takes an iterator of values (optionally mapped
-/// through a function) that are all expected to encode to the same number of
-/// bits.
+/// Takes an iterator of values (optionally mapped through a function) that are
+/// all expected to have the same [`encoded_bits!`] count, and checks that
+/// count against the expected value.
 #[cfg(test)]
 macro_rules! assert_bits_all {
     ($values:expr, $expected:expr) => {
@@ -361,7 +352,7 @@ macro_rules! assert_bits_all {
             let other = crate::v2::encoded_bits!(f(v));
             assert_eq!(other, bits, "encoded size differs for {v:?}");
         }
-        $expected.assert_eq(&bits.to_string());
+        $expected.assert_eq(&bits);
     };
 }
 #[cfg(test)]

@@ -168,50 +168,47 @@ impl_uint!(u16, u16_mod, 16);
 
 #[test]
 fn size_u64() {
-    use super::{assert_bits, assert_bits_all};
+    use super::{assert_bits_all, encoded_bits};
     assert_bits_all!(0..256_u64, expect!["64"]);
     assert_bits_all!(256..768_u64, expect!["65"]);
     assert_bits_all!(768..1024_u64, expect!["64"]);
-    assert_bits!(1_000_000_u64, expect!["65"]);
-    assert_bits!(u64::MAX, expect!["59"]);
-    assert_bits!([0_u64; 128], expect!["430"]);
-    assert_bits!([1_u64; 2], expect!["101"]);
-    assert_bits!([1_u64; 19], expect!["274"]);
-    assert_bits!(
-        [0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        expect!["306"]
-    );
+    expect!["65"].assert_eq(&encoded_bits!(1_000_000_u64));
+    expect!["59"].assert_eq(&encoded_bits!(u64::MAX));
+    expect!["430"].assert_eq(&encoded_bits!([0_u64; 128]));
+    expect!["101"].assert_eq(&encoded_bits!([1_u64; 2]));
+    expect!["274"].assert_eq(&encoded_bits!([1_u64; 19]));
+    expect!["306"].assert_eq(&encoded_bits!([
+        0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]));
 }
 
 #[test]
 fn size_u32() {
-    use super::{assert_bits, assert_bits_all};
-    assert_bits!(u32::MAX, expect!["27"]);
-    assert_bits!([0_u32; 128], expect!["215"]);
-    assert_bits!([u32::MAX; 128], expect!["3122"]);
-    assert_bits!([1_u32; 2], expect!["51"]);
-    assert_bits!([1_u32; 19], expect!["137"]);
-    assert_bits!(
-        [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        expect!["155"]
-    );
+    use super::{assert_bits_all, encoded_bits};
+    expect!["27"].assert_eq(&encoded_bits!(u32::MAX));
+    expect!["215"].assert_eq(&encoded_bits!([0_u32; 128]));
+    expect!["3122"].assert_eq(&encoded_bits!([u32::MAX; 128]));
+    expect!["51"].assert_eq(&encoded_bits!([1_u32; 2]));
+    expect!["137"].assert_eq(&encoded_bits!([1_u32; 19]));
+    expect!["155"].assert_eq(&encoded_bits!([
+        0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]));
     assert_bits_all!(0..32768_u32, expect!["32"]);
     assert_bits_all!(999_990_u32..1_000_000, expect!["33"]);
 }
 
 #[test]
 fn size_u16() {
-    use super::{assert_bits, assert_bits_all};
+    use super::{assert_bits_all, encoded_bits};
     assert_bits_all!(0..21845_u16, expect!["16"]);
-    assert_bits!(u16::MAX, expect!["11"]);
-    assert_bits!([0_u16; 128], expect!["108"]);
-    assert_bits!([u16::MAX; 128], expect!["1074"]);
-    assert_bits!([1_u16; 2], expect!["25"]);
-    assert_bits!([1_u16; 19], expect!["69"]);
-    assert_bits!(
-        [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        expect!["80"]
-    );
+    expect!["11"].assert_eq(&encoded_bits!(u16::MAX));
+    expect!["108"].assert_eq(&encoded_bits!([0_u16; 128]));
+    expect!["1074"].assert_eq(&encoded_bits!([u16::MAX; 128]));
+    expect!["25"].assert_eq(&encoded_bits!([1_u16; 2]));
+    expect!["69"].assert_eq(&encoded_bits!([1_u16; 19]));
+    expect!["80"].assert_eq(&encoded_bits!([
+        0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]));
 }
 
 macro_rules! impl_compact {
@@ -312,52 +309,50 @@ impl_compact!(u16, U16Compact, 16);
 
 #[test]
 fn compact_u16() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u16), expect!["1"]);
-    assert_bits!(Encoded::<_, Small>::new(1_u16), expect!["4"]);
-    assert_bits!(Encoded::<_, Small>::new(2_u16), expect!["5"]);
-    assert_bits!(Encoded::<_, Small>::new(3_u16), expect!["5"]);
-    assert_bits!(Encoded::<_, Small>::new(4_u16), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(5_u16), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(6_u16), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(7_u16), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(8_u16), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(u16::MAX), expect!["20"]);
-    assert_bits!([Encoded::<_, Small>::new(0_u16); 128], expect!["25"]);
-    assert_bits!([Encoded::<_, Small>::new(u16::MAX); 128], expect!["1105"]);
-    assert_bits!([Encoded::<_, Small>::new(1_u16); 2], expect!["6"]);
-    assert_bits!([Encoded::<_, Small>::new(1_u16); 19], expect!["17"]);
-    assert_bits!(
-        [0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-            .map(Encoded::<_, Small>::new),
-        expect!["24"]
-    );
+    expect!["1"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_u16)));
+    expect!["4"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_u16)));
+    expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(2_u16)));
+    expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(3_u16)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(4_u16)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(5_u16)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(6_u16)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(7_u16)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(8_u16)));
+    expect!["20"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(u16::MAX)));
+    expect!["25"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(0_u16); 128]));
+    expect!["1105"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(u16::MAX); 128]));
+    expect!["6"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(1_u16); 2]));
+    expect!["17"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(1_u16); 19]));
+    expect!["24"].assert_eq(&encoded_bits!([
+        0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+    .map(Encoded::<_, Small>::new)));
 }
 
 #[test]
 fn compact_u32() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::{Encoded, Small};
-    assert_bits!(Encoded::<_, Small>::new(0_u32), expect!["2"]);
-    assert_bits!(Encoded::<_, Small>::new(1_u32), expect!["5"]);
-    assert_bits!(Encoded::<_, Small>::new(2_u32), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(3_u32), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(4_u32), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(5_u32), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(6_u32), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(7_u32), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(8_u32), expect!["8"]);
-    assert_bits!(Encoded::<_, Small>::new(u32::MAX), expect!["38"]);
-    assert_bits!([Encoded::<_, Small>::new(0_u32); 128], expect!["30"]);
-    assert_bits!([Encoded::<_, Small>::new(u32::MAX); 128], expect!["3160"]);
-    assert_bits!([Encoded::<_, Small>::new(1_u32); 2], expect!["8"]);
-    assert_bits!([Encoded::<_, Small>::new(1_u32); 19], expect!["22"]);
-    assert_bits!(
-        [0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
-            .map(Encoded::<_, Small>::new),
-        expect!["28"]
-    );
+    expect!["2"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_u32)));
+    expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_u32)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(2_u32)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(3_u32)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(4_u32)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(5_u32)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(6_u32)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(7_u32)));
+    expect!["8"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(8_u32)));
+    expect!["38"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(u32::MAX)));
+    expect!["30"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(0_u32); 128]));
+    expect!["3160"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(u32::MAX); 128]));
+    expect!["8"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(1_u32); 2]));
+    expect!["22"].assert_eq(&encoded_bits!([Encoded::<_, Small>::new(1_u32); 19]));
+    expect!["28"].assert_eq(&encoded_bits!([
+        0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+    .map(Encoded::<_, Small>::new)));
 
     for i in 0_u32..4096 {
         assert_eq!(
@@ -586,35 +581,35 @@ impl_signed!(i64, u64, 64, mod_i64);
 
 #[test]
 fn signed() {
-    use super::{assert_bits, assert_bits_all, raw_bits};
+    use super::{assert_bits_all, encoded_bits, raw_bits};
     use crate::{Encoded, Small};
     use std::collections::BTreeSet;
 
-    assert_bits!(Encoded::<_, Small>::new(0_i32), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(1_i32), expect!["6"]);
-    assert_bits!(Encoded::<_, Small>::new(-1_i32), expect!["3"]);
-    assert_bits!(Encoded::<_, Small>::new(i32::MAX), expect!["38"]);
-    assert_bits!(Encoded::<_, Small>::new(i32::MIN), expect!["38"]);
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_i32)));
+    expect!["6"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_i32)));
+    expect!["3"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(-1_i32)));
+    expect!["38"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i32::MAX)));
+    expect!["38"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i32::MIN)));
     assert_bits_all!([0i32, 1, 7, 137, -1i32], expect!["32"]);
-    assert_bits!(i32::MIN, expect!["27"]);
+    expect!["27"].assert_eq(&encoded_bits!(i32::MIN));
     assert_bits_all!([i32::MAX, i32::MAX - 1], expect!["33"]);
 
-    assert_bits!(Encoded::<_, Small>::new(0_i16), expect!["5"]);
-    assert_bits!(Encoded::<_, Small>::new(1_i16), expect!["5"]);
-    assert_bits!(Encoded::<_, Small>::new(-1_i16), expect!["2"]);
-    assert_bits!(Encoded::<_, Small>::new(i16::MAX), expect!["20"]);
-    assert_bits!(Encoded::<_, Small>::new(i16::MIN), expect!["20"]);
-    assert_bits!(i16::MIN, expect!["11"]);
+    expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_i16)));
+    expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_i16)));
+    expect!["2"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(-1_i16)));
+    expect!["20"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i16::MAX)));
+    expect!["20"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i16::MIN)));
+    expect!["11"].assert_eq(&encoded_bits!(i16::MIN));
     assert_bits_all!([i16::MAX, 0, 1, 7, 137, i16::MAX - 1], expect!["16"]);
 
-    assert_bits!(Encoded::<_, Small>::new(0_i64), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(1_i64), expect!["7"]);
-    assert_bits!(Encoded::<_, Small>::new(-1_i64), expect!["3"]);
-    assert_bits!(Encoded::<_, Small>::new(i64::MAX), expect!["71"]);
-    assert_bits!(Encoded::<_, Small>::new(i64::MIN), expect!["71"]);
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_i64)));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_i64)));
+    expect!["3"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(-1_i64)));
+    expect!["71"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i64::MAX)));
+    expect!["71"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i64::MIN)));
     assert_bits_all!([0i64, 1, 7, 137, -1i64], expect!["64"]);
-    assert_bits!(i64::MIN, expect!["59"]);
-    assert_bits!(i64::MAX - 1, expect!["65"]);
+    expect!["59"].assert_eq(&encoded_bits!(i64::MIN));
+    expect!["65"].assert_eq(&encoded_bits!(i64::MAX - 1));
 
     raw_bits!(
         BTreeSet::from([-1i16, 0, 1, 2]),

@@ -298,7 +298,6 @@ impl<'a> Decoder<'a> {
             incompressible,
         }
     }
-
 }
 
 /// One range-decode bit step, operating on locals so the caller can keep `state`,

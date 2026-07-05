@@ -525,15 +525,15 @@ impl EncodingStrategy<Vec<u8>> for Compressible {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::Encoded;
 
-    assert_bits!(b"".to_vec(), expect!["3"]);
-    assert_bits!(b"a".to_vec(), expect!["11"]);
-    assert_bits!(b"A".to_vec(), expect!["11"]);
-    assert_bits!(b"hello world".to_vec(), expect!["74"]);
-    assert_bits!(b"Hello world".to_vec(), expect!["76"]);
-    assert_bits!(b"hhhhhhhhhhh".to_vec(), expect!["35"]);
+    expect!["3"].assert_eq(&encoded_bits!(b"".to_vec()));
+    expect!["11"].assert_eq(&encoded_bits!(b"a".to_vec()));
+    expect!["11"].assert_eq(&encoded_bits!(b"A".to_vec()));
+    expect!["74"].assert_eq(&encoded_bits!(b"hello world".to_vec()));
+    expect!["76"].assert_eq(&encoded_bits!(b"Hello world".to_vec()));
+    expect!["35"].assert_eq(&encoded_bits!(b"hhhhhhhhhhh".to_vec()));
 
     fn compare_small_bits(value: &[u8]) -> String {
         let s = String::from_utf8_lossy(value);
@@ -630,7 +630,7 @@ fn size() {
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
     assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
-    assert_bits!(s.clone(), expect!["40"]);
+    expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = b"hello world this is a string".to_vec();
     assert_eq!(
@@ -638,7 +638,7 @@ fn size() {
         super::Millibits::new(165025),
         "just a string"
     );
-    assert_bits!(s.clone(), expect!["165"]);
+    expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(14000) (14 bits), small: Millibits(20000) (20 bits)"]
         .assert_eq(&compare_vecs(&[b"h"]));

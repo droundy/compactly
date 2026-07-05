@@ -43,7 +43,7 @@ impl Encode for Ipv4Addr {
 #[derive(Default, Clone)]
 pub struct Ipv6Context {
     zero: [<bool as Encode>::Context; 14],
-    nz:   [<u8 as Encode>::Context; 9],
+    nz: [<u8 as Encode>::Context; 9],
 }
 
 impl Encode for Ipv6Addr {
@@ -58,14 +58,33 @@ impl Encode for Ipv6Addr {
         }
         // Phase 2: adaptive bytes
         o[0].encode(writer, &mut ctx.nz[0]);
-        for i in 0..6 { if !z[i]    { o[1+i].encode(writer,  &mut ctx.nz[1+i]); } }
-        for i in 0..2 { if !z[10+i] { o[11+i].encode(writer, &mut ctx.nz[7+i]); } }
+        for i in 0..6 {
+            if !z[i] {
+                o[1 + i].encode(writer, &mut ctx.nz[1 + i]);
+            }
+        }
+        for i in 0..2 {
+            if !z[10 + i] {
+                o[11 + i].encode(writer, &mut ctx.nz[7 + i]);
+            }
+        }
         // Phase 3: incompressible bytes in one batch
         let mut buf = [0u8; 7];
         let mut n = 0;
-        for i in 0..4 { if !z[6+i]  { buf[n] = o[7+i];  n += 1; } }
-        for i in 0..2 { if !z[12+i] { buf[n] = o[13+i]; n += 1; } }
-        buf[n] = o[15]; n += 1;
+        for i in 0..4 {
+            if !z[6 + i] {
+                buf[n] = o[7 + i];
+                n += 1;
+            }
+        }
+        for i in 0..2 {
+            if !z[12 + i] {
+                buf[n] = o[13 + i];
+                n += 1;
+            }
+        }
+        buf[n] = o[15];
+        n += 1;
         writer.encode_incompressible_bytes(&buf[..n]);
     }
     #[inline]
@@ -81,17 +100,35 @@ impl Encode for Ipv6Addr {
         // Phase 2: adaptive bytes
         let mut o = [0u8; 16];
         o[0] = u8::decode(reader, &mut ctx.nz[0])?;
-        for i in 0..6 { if !z[i]    { o[1+i]  = u8::decode(reader, &mut ctx.nz[1+i])?; } }
-        for i in 0..2 { if !z[10+i] { o[11+i] = u8::decode(reader, &mut ctx.nz[7+i])?; } }
+        for i in 0..6 {
+            if !z[i] {
+                o[1 + i] = u8::decode(reader, &mut ctx.nz[1 + i])?;
+            }
+        }
+        for i in 0..2 {
+            if !z[10 + i] {
+                o[11 + i] = u8::decode(reader, &mut ctx.nz[7 + i])?;
+            }
+        }
         // Phase 3: batch incompressible read
         let n = z[6..10].iter().filter(|&&z| !z).count()
-              + z[12..14].iter().filter(|&&z| !z).count()
-              + 1;
+            + z[12..14].iter().filter(|&&z| !z).count()
+            + 1;
         let mut buf = [0u8; 7];
         reader.decode_incompressible_bytes(&mut buf[..n])?;
         let mut idx = 0;
-        for i in 0..4 { if !z[6+i]  { o[7+i]  = buf[idx]; idx += 1; } }
-        for i in 0..2 { if !z[12+i] { o[13+i] = buf[idx]; idx += 1; } }
+        for i in 0..4 {
+            if !z[6 + i] {
+                o[7 + i] = buf[idx];
+                idx += 1;
+            }
+        }
+        for i in 0..2 {
+            if !z[12 + i] {
+                o[13 + i] = buf[idx];
+                idx += 1;
+            }
+        }
         o[15] = buf[idx];
         Ok(Ipv6Addr::from(o))
     }
