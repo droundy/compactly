@@ -4,6 +4,9 @@ use std::collections::VecDeque;
 
 // mod buffer;
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: VecDeque<Vec<u8>>,
@@ -444,27 +447,23 @@ fn size() {
     use super::assert_bits;
     use crate::Encoded;
 
-    assert_bits!(b"".to_vec(), 3);
-    assert_bits!(b"a".to_vec(), 11);
-    assert_bits!(b"A".to_vec(), 11);
-    assert_bits!(b"hello world".to_vec(), 74);
-    assert_bits!(b"Hello world".to_vec(), 76);
-    assert_bits!(b"hhhhhhhhhhh".to_vec(), 35);
+    assert_bits!(b"".to_vec(), expect!["3"]);
+    assert_bits!(b"a".to_vec(), expect!["11"]);
+    assert_bits!(b"A".to_vec(), expect!["11"]);
+    assert_bits!(b"hello world".to_vec(), expect!["74"]);
+    assert_bits!(b"Hello world".to_vec(), expect!["76"]);
+    assert_bits!(b"hhhhhhhhhhh".to_vec(), expect!["35"]);
 
-    fn compare_small_bits(value: &[u8], expected_normal: usize, expected_small: usize) {
+    fn compare_small_bits(value: &[u8]) -> String {
         let s = String::from_utf8_lossy(value);
-        assert_bits!(value.to_vec(), expected_normal, format!("normal b{s:?}"));
-        assert_bits!(
-            Encoded::<_, Compressible>::new(value.to_vec()),
-            expected_small,
-            format!("small b{s:?}")
-        );
+        println!("comparing b{s:?}");
+        format!(
+            "normal: {} bits, small: {} bits",
+            super::encoded_bits!(value.to_vec()),
+            super::encoded_bits!(Encoded::<_, Compressible>::new(value.to_vec()))
+        )
     }
-    fn compare_vecs(value: &[&[u8]], expected_normal: usize, expected_small: usize) {
-        let s = value
-            .iter()
-            .map(|b| String::from_utf8_lossy(b))
-            .collect::<Vec<_>>();
+    fn compare_vecs(value: &[&[u8]]) -> String {
         let normal = value.iter().map(|s| s.to_vec()).collect::<Vec<_>>();
         let encoded_normal = super::encode(&normal);
         let decoded_normal: Vec<Vec<u8>> = super::decode(&encoded_normal).unwrap();
@@ -477,33 +476,19 @@ fn size() {
             super::decode(&encoded_small).unwrap();
         assert_eq!(small, decoded_small);
 
-        println!("normal millibits b{s:?}");
-        assert_eq!(
+        format!(
+            "normal: {:?} millibits ({} bits), small: {:?} millibits ({} bits)",
             normal.millibits(&mut Default::default()),
-            Some(expected_normal),
-            "normal millibits b{s:?}"
-        );
-        println!("small millibits b{s:?}");
-        assert_eq!(
+            super::encoded_bits!(value.iter().map(|s| s.to_vec()).collect::<Vec<Vec<u8>>>()),
             small.millibits(&mut Default::default()),
-            Some(expected_small),
-            "small millibits b{s:?}"
-        );
-        assert_bits!(
-            value.iter().map(|s| s.to_vec()).collect::<Vec<Vec<u8>>>(),
-            (expected_normal + 500) / 1000,
-            format!("normal b{s:?}")
-        );
-        assert_bits!(
-            value
+            super::encoded_bits!(value
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_vec()))
-                .collect::<Vec<_>>(),
-            (expected_small + 500) / 1000,
-            format!("small b{s:?}")
-        );
+                .collect::<Vec<_>>())
+        )
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7116);
+    expect!["normal: 8979 bits, small: 7116 bits"]
+        .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     assert_eq!(true.millibits(&mut Default::default()), Some(1000));
     assert_eq!('a'.millibits(&mut Default::default()), Some(8000));
@@ -527,38 +512,35 @@ fn size() {
         .millibits(&mut Default::default()),
         Some(13000)
     );
-    compare_small_bits(b"", 3, 3);
-    compare_small_bits(b"a", 11, 17);
-    compare_small_bits(b"aa", 17, 23);
-    compare_small_bits(b"aaa", 20, 26);
-    compare_small_bits(b"aaaa", 24, 30);
-    compare_small_bits(b"aaaaaaaa", 31, 39);
-    compare_small_bits(b"hello", 36, 42);
-    compare_small_bits(b"hello world hello wood", 122, 116);
-    compare_small_bits(b"hello world hello world", 127, 98);
-    compare_small_bits(
+    expect!["normal: 3 bits, small: 3 bits"].assert_eq(&compare_small_bits(b""));
+    expect!["normal: 11 bits, small: 17 bits"].assert_eq(&compare_small_bits(b"a"));
+    expect!["normal: 17 bits, small: 23 bits"].assert_eq(&compare_small_bits(b"aa"));
+    expect!["normal: 20 bits, small: 26 bits"].assert_eq(&compare_small_bits(b"aaa"));
+    expect!["normal: 24 bits, small: 30 bits"].assert_eq(&compare_small_bits(b"aaaa"));
+    expect!["normal: 31 bits, small: 39 bits"].assert_eq(&compare_small_bits(b"aaaaaaaa"));
+    expect!["normal: 36 bits, small: 42 bits"].assert_eq(&compare_small_bits(b"hello"));
+    expect!["normal: 122 bits, small: 116 bits"]
+        .assert_eq(&compare_small_bits(b"hello world hello wood"));
+    expect!["normal: 127 bits, small: 98 bits"]
+        .assert_eq(&compare_small_bits(b"hello world hello world"));
+    expect!["normal: 415 bits, small: 421 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
-        415,
-        421,
-    );
-    compare_small_bits(
+    ));
+    expect!["normal: 1537 bits, small: 839 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
-        1537,
-        839,
-    );
-    compare_small_bits(
+    ));
+    expect!["normal: 1607 bits, small: 1011 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
-        1607,
-        1011,
-    );
+    ));
 
-    compare_vecs(&[], 3000, 3000);
+    expect!["normal: Some(3000) millibits (3 bits), small: Some(3000) millibits (3 bits)"]
+        .assert_eq(&compare_vecs(&[]));
     assert_eq!(
         b"h".to_vec().millibits(&mut Default::default()),
         Some(11000),
@@ -571,7 +553,7 @@ fn size() {
         Some(39424),
         "just a string"
     );
-    assert_bits!(s.clone(), 40);
+    assert_bits!(s.clone(), expect!["40"]);
 
     let s = b"hello world this is a string".to_vec();
     assert_eq!(
@@ -579,28 +561,29 @@ fn size() {
         Some(165025),
         "just a string"
     );
-    assert_bits!(s.clone(), 165);
+    assert_bits!(s.clone(), expect!["165"]);
 
-    compare_vecs(&[b"h"], 14000, 20000);
-    compare_vecs(&[b"hello world"], 76790, 82790);
-    compare_vecs(&[b"hello world", b"hello world"], 128070, 101716);
-    compare_vecs(
-        &[b"hello world", b"hello world", b"hello world"],
-        172264,
-        112527,
-    );
-    compare_vecs(
-        &[
+    expect!["normal: Some(14000) millibits (14 bits), small: Some(20000) millibits (20 bits)"]
+        .assert_eq(&compare_vecs(&[b"h"]));
+    expect!["normal: Some(76790) millibits (77 bits), small: Some(82790) millibits (83 bits)"]
+        .assert_eq(&compare_vecs(&[b"hello world"]));
+    expect!["normal: Some(128070) millibits (128 bits), small: Some(101716) millibits (102 bits)"]
+        .assert_eq(&compare_vecs(&[b"hello world", b"hello world"]));
+    expect!["normal: Some(172264) millibits (172 bits), small: Some(112527) millibits (113 bits)"]
+        .assert_eq(&compare_vecs(&[
+            b"hello world",
+            b"hello world",
+            b"hello world",
+        ]));
+    expect!["normal: Some(262073) millibits (262 bits), small: Some(145730) millibits (146 bits)"]
+        .assert_eq(&compare_vecs(&[
             b"hello world",
             b"hello world",
             b"hello world",
             b"hello world hello world",
-        ],
-        262073,
-        145730,
-    );
-    compare_vecs(
-        &[
+        ]));
+    expect!["normal: Some(495559) millibits (496 bits), small: Some(413131) millibits (413 bits)"]
+        .assert_eq(&compare_vecs(&[
             b"The quick brown fox jumps over the lazy dog.",
             b"The",
             b"quick",
@@ -611,8 +594,5 @@ fn size() {
             b"the",
             b"lazy",
             b"dog",
-        ],
-        495559,
-        413131,
-    );
+        ]));
 }

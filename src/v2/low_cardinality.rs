@@ -1,6 +1,9 @@
 use super::{Encode, EncodingStrategy, LowCardinality};
 use std::{collections::HashMap, hash::Hash, rc::Rc, sync::Arc};
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Clone)]
 pub struct CacheContext<T: Encode + Clone + Hash + PartialEq + Eq> {
     cached: HashMap<T, usize>,
@@ -213,15 +216,15 @@ fn low_cardinality() {
         .map(Encoded::<_, LowCardinality>::new)
         .collect::<Vec<_>>();
 
-    assert_bits!(v.clone(), 284430);
-    assert_bits!(low.clone(), 1673);
-    assert_bits!(strings.clone().to_vec(), 610);
+    assert_bits!(v.clone(), expect!["284430"]);
+    assert_bits!(low.clone(), expect!["1673"]);
+    assert_bits!(strings.clone().to_vec(), expect!["610"]);
     assert_bits!(
         strings
             .iter()
             .cloned()
             .map(Encoded::<_, LowCardinality>::new)
             .collect::<Vec<_>>(),
-        612
+        expect!["612"]
     );
 }

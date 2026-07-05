@@ -6,6 +6,9 @@ use std::{
     hash::Hash,
 };
 
+#[cfg(test)]
+use expect_test::expect;
+
 pub struct SetContext<T, S: EncodingStrategy<T>> {
     len: <usize as Encode>::Context,
     values: S::Context,
@@ -46,11 +49,11 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
 #[test]
 fn hashset() {
     use super::{assert_bits, assert_size};
-    assert_size!(HashSet::<usize>::new(), 1);
-    assert_size!(HashSet::from([0_usize]), 1);
-    assert_size!(HashSet::from([1_usize]), 1);
-    assert_size!(HashSet::from([5_usize]), 2);
-    assert_bits!(HashSet::from([true, false]), 6);
+    assert_size!(HashSet::<usize>::new(), expect!["1"]);
+    assert_size!(HashSet::from([0_usize]), expect!["1"]);
+    assert_size!(HashSet::from([1_usize]), expect!["1"]);
+    assert_size!(HashSet::from([5_usize]), expect!["2"]);
+    assert_bits!(HashSet::from([true, false]), expect!["6"]);
     // assert_size!(HashSet::from([0_usize, 1, 2]), 3);
     // assert_size!(HashSet::from([0_usize, 1]), 1);
     // Sizes of larger hash sets are unpredictable because the values come out
@@ -167,52 +170,85 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
 #[test]
 fn btreeset() {
     use super::{assert_ans_bits, assert_bits};
-    assert_bits!(BTreeSet::<usize>::new(), 3);
-    assert_bits!(BTreeSet::from([0_usize]), 6);
-    assert_bits!(BTreeSet::from([1_usize]), 6);
-    assert_bits!(BTreeSet::from([5_usize]), 8);
-    assert_bits!(BTreeSet::from([0_usize, 1]), 10);
-    assert_bits!(BTreeSet::from([0_usize, 1, 2]), 12);
-    assert_bits!(BTreeSet::from_iter(0_usize..70), 40);
-    assert_bits!(BTreeSet::from_iter(0_usize..1024), 87);
-    assert_bits!(BTreeSet::from([false]), 4);
-    assert_bits!(BTreeSet::from([true]), 4);
-    assert_bits!(BTreeSet::from([false, true]), 6);
-    assert_bits!(BTreeSet::from_iter(1_000_000_u64..1_001_024), 160);
-    assert_bits!(BTreeSet::from_iter(2_000_000_u64..2_002_048), 243);
-    assert_ans_bits!(BTreeSet::from_iter(2_000_000_u64..2_002_048), 243);
+    assert_bits!(BTreeSet::<usize>::new(), expect!["3"]);
+    assert_bits!(BTreeSet::from([0_usize]), expect!["6"]);
+    assert_bits!(BTreeSet::from([1_usize]), expect!["6"]);
+    assert_bits!(BTreeSet::from([5_usize]), expect!["8"]);
+    assert_bits!(BTreeSet::from([0_usize, 1]), expect!["10"]);
+    assert_bits!(BTreeSet::from([0_usize, 1, 2]), expect!["12"]);
+    assert_bits!(BTreeSet::from_iter(0_usize..70), expect!["40"]);
+    assert_bits!(BTreeSet::from_iter(0_usize..1024), expect!["87"]);
+    assert_bits!(BTreeSet::from([false]), expect!["4"]);
+    assert_bits!(BTreeSet::from([true]), expect!["4"]);
+    assert_bits!(BTreeSet::from([false, true]), expect!["6"]);
+    assert_bits!(
+        BTreeSet::from_iter(1_000_000_u64..1_001_024),
+        expect!["160"]
+    );
+    assert_bits!(
+        BTreeSet::from_iter(2_000_000_u64..2_002_048),
+        expect!["243"]
+    );
+    assert_ans_bits!(
+        BTreeSet::from_iter(2_000_000_u64..2_002_048),
+        expect!["243"]
+    );
 }
 
 #[test]
 fn compact_btreeset() {
     use super::{assert_ans_bits, assert_bits};
     use crate::Encoded;
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::<u64>::new()), 3);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64])), 9);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([1_u64])), 9);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([5_u64])), 11);
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::<u64>::new()),
+        expect!["3"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([0_u64])),
+        expect!["9"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([1_u64])),
+        expect!["9"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([5_u64])),
+        expect!["11"]
+    );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from([u32::MAX as u64])),
-        41
+        expect!["41"]
     );
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([u64::MAX])), 74);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1])), 15);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1, 2])), 19);
-    assert_bits!(Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..70)), 55);
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([u64::MAX])),
+        expect!["74"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1])),
+        expect!["15"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from([0_u64, 1, 2])),
+        expect!["19"]
+    );
+    assert_bits!(
+        Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..70)),
+        expect!["55"]
+    );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(0_u64..1024)),
-        124
+        expect!["124"]
     );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(1_000_000_u64..1_001_024)),
-        143
+        expect!["143"]
     );
     assert_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
-        214
+        expect!["214"]
     );
     assert_ans_bits!(
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048)),
-        214
+        expect!["214"]
     );
 }

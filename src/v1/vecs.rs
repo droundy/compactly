@@ -2,6 +2,9 @@ use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use expect_test::expect;
+
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
     #[inline]
@@ -25,14 +28,12 @@ impl<T: Encode> Encode for Vec<T> {
 }
 #[test]
 fn size() {
-    use super::assert_bits;
-    assert_bits!(Vec::<usize>::new(), 3);
-    for value in 0_usize..4 {
-        assert_bits!(vec![dbg!(value)], 6);
-    }
-    assert_bits!(dbg!((0_usize..1).collect::<Vec<_>>()), 6);
-    assert_bits!(dbg!((0_usize..2).collect::<Vec<_>>()), 10);
-    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), 61);
+    use super::{assert_bits, assert_bits_all};
+    assert_bits!(Vec::<usize>::new(), expect!["3"]);
+    assert_bits_all!(0_usize..4, |value| vec![value], expect!["6"]);
+    assert_bits!(dbg!((0_usize..1).collect::<Vec<_>>()), expect!["6"]);
+    assert_bits!(dbg!((0_usize..2).collect::<Vec<_>>()), expect!["10"]);
+    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), expect!["61"]);
 }
 
 pub struct Context<T, S: EncodingStrategy<T>> {

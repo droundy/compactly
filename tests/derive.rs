@@ -1,11 +1,10 @@
 #![cfg(all(feature = "v1", feature = "v2"))]
 #![allow(clippy::enum_variant_names)]
+use expect_test::expect;
+
 #[cfg(test)]
 macro_rules! assert_bits {
-    ($v:expr, $size:expr, $ans:expr,) => {
-        assert_bits!($v, $size, $ans)
-    };
-    ($v:expr, $size:expr, $ans:expr) => {
+    ($v:expr, $expected:expr) => {
         let v = (
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
@@ -23,12 +22,11 @@ macro_rules! assert_bits {
         let some_v = Some(v);
         assert_eq!(decoded, some_v, "decoded value is incorrect");
         assert_eq!(ans_decoded, some_v, "ANS decoded value is incorrect");
-        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
-        assert_eq!(
-            (ans_bytes.len() + 4) / 8,
-            $ans,
-            "unexpected number of bits for ANS"
-        );
+        $expected.assert_eq(&format!(
+            "v1: {} bits, v2: {} bits",
+            (bytes.len() + 4) / 8,
+            (ans_bytes.len() + 4) / 8
+        ));
     };
 }
 
@@ -37,9 +35,9 @@ fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple(usize);
 
-    assert_bits!(Tuple(0), 3, 3);
-    assert_bits!(Tuple(1), 3, 3);
-    assert_bits!(Tuple(2), 3, 3);
+    assert_bits!(Tuple(0), expect!["v1: 3 bits, v2: 3 bits"]);
+    assert_bits!(Tuple(1), expect!["v1: 3 bits, v2: 3 bits"]);
+    assert_bits!(Tuple(2), expect!["v1: 3 bits, v2: 3 bits"]);
 }
 
 #[test]
@@ -47,10 +45,10 @@ fn pair_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple(usize, bool);
 
-    assert_bits!(Tuple(0, false), 4, 4);
-    assert_bits!(Tuple(1, true), 4, 4);
-    assert_bits!(Tuple(2, false), 4, 4);
-    assert_bits!(Tuple(2048, false), 18, 18);
+    assert_bits!(Tuple(0, false), expect!["v1: 4 bits, v2: 4 bits"]);
+    assert_bits!(Tuple(1, true), expect!["v1: 4 bits, v2: 4 bits"]);
+    assert_bits!(Tuple(2, false), expect!["v1: 4 bits, v2: 4 bits"]);
+    assert_bits!(Tuple(2048, false), expect!["v1: 18 bits, v2: 18 bits"]);
 }
 
 #[test]
@@ -58,9 +56,9 @@ fn zero_size() {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple;
 
-    assert_bits!(Tuple, 0, 0);
-    assert_bits!([Tuple; 4], 0, 0);
-    assert_bits!([Tuple; 1024], 0, 0);
+    assert_bits!(Tuple, expect!["v1: 0 bits, v2: 0 bits"]);
+    assert_bits!([Tuple; 4], expect!["v1: 0 bits, v2: 0 bits"]);
+    assert_bits!([Tuple; 1024], expect!["v1: 0 bits, v2: 0 bits"]);
 }
 
 #[test]
@@ -109,8 +107,7 @@ fn record() {
             happy: false,
             age: 51
         },
-        16,
-        16,
+        expect!["v1: 16 bits, v2: 16 bits"]
     );
     assert_bits!(
         Tuple {
@@ -118,8 +115,7 @@ fn record() {
             happy: true,
             age: 51
         },
-        29,
-        29,
+        expect!["v1: 29 bits, v2: 29 bits"]
     );
 }
 
@@ -133,8 +129,8 @@ fn simple_enum() {
         D,
     }
 
-    assert_bits!(A::A, 2, 2);
-    assert_bits!(A::D, 1, 1);
+    assert_bits!(A::A, expect!["v1: 2 bits, v2: 2 bits"]);
+    assert_bits!(A::D, expect!["v1: 1 bits, v2: 1 bits"]);
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub enum Bool {
@@ -142,8 +138,8 @@ fn simple_enum() {
         False,
     }
 
-    assert_bits!(Bool::True, 1, 1);
-    assert_bits!(Bool::False, 1, 1);
+    assert_bits!(Bool::True, expect!["v1: 1 bits, v2: 1 bits"]);
+    assert_bits!(Bool::False, expect!["v1: 1 bits, v2: 1 bits"]);
 }
 
 #[test]
@@ -162,9 +158,9 @@ fn bigger_enum() {
         J,
     }
 
-    assert_bits!(A::A, 3, 3);
-    assert_bits!(A::D, 3, 3);
-    assert_bits!(A::J, 1, 1);
+    assert_bits!(A::A, expect!["v1: 3 bits, v2: 3 bits"]);
+    assert_bits!(A::D, expect!["v1: 3 bits, v2: 3 bits"]);
+    assert_bits!(A::J, expect!["v1: 1 bits, v2: 1 bits"]);
 }
 
 #[test]
@@ -175,8 +171,8 @@ fn weird_enum() {
         B { age: bool },
     }
 
-    assert_bits!(A::A { age: 51 }, 13, 13);
-    assert_bits!(A::B { age: false }, 2, 2);
+    assert_bits!(A::A { age: 51 }, expect!["v1: 13 bits, v2: 13 bits"]);
+    assert_bits!(A::B { age: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 }
 
 #[test]
@@ -192,8 +188,8 @@ fn fancy_enum() {
         },
     }
 
-    assert_bits!(A::A { age: 51 }, 12, 12);
-    assert_bits!(A::B { big: false }, 2, 2);
+    assert_bits!(A::A { age: 51 }, expect!["v1: 12 bits, v2: 12 bits"]);
+    assert_bits!(A::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub enum B {
@@ -201,8 +197,8 @@ fn fancy_enum() {
         B { big: bool },
     }
 
-    assert_bits!(B::A { age: 51 }, 65, 65);
-    assert_bits!(B::B { big: false }, 2, 2);
+    assert_bits!(B::A { age: 51 }, expect!["v1: 65 bits, v2: 65 bits"]);
+    assert_bits!(B::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 }
 
 #[test]
@@ -212,7 +208,7 @@ fn simplest_generics() {
         value: T,
     }
 
-    assert_bits!(A { value: 51_usize }, 12, 12);
+    assert_bits!(A { value: 51_usize }, expect!["v1: 12 bits, v2: 12 bits"]);
 }
 
 #[test]
@@ -223,12 +219,14 @@ fn low_cardinality() {
         value: u64,
     }
 
-    assert_bits!(Data { value: 51 }, 65, 65);
-    assert_bits!(Data { value: u64::MAX }, 65, 66);
+    assert_bits!(Data { value: 51 }, expect!["v1: 65 bits, v2: 65 bits"]);
+    assert_bits!(
+        Data { value: u64::MAX },
+        expect!["v1: 65 bits, v2: 66 bits"]
+    );
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
-        8379,
-        9221,
+        expect!["v1: 8379 bits, v2: 9221 bits"]
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(
@@ -236,8 +234,7 @@ fn low_cardinality() {
             .map(|v| v % 3)
             .map(|value| Data { value })
             .collect::<Vec<_>>(),
-        1903,
-        1902,
+        expect!["v1: 1903 bits, v2: 1902 bits"]
     );
 }
 
@@ -270,14 +267,31 @@ fn doc_comments_on_fields() {
     }
 
     for v in [
-        Documented { value: 0, flag: false },
-        Documented { value: 42, flag: true },
-        Documented { value: 255, flag: false },
+        Documented {
+            value: 0,
+            flag: false,
+        },
+        Documented {
+            value: 42,
+            flag: true,
+        },
+        Documented {
+            value: 255,
+            flag: false,
+        },
     ] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
 
@@ -292,12 +306,22 @@ fn const_generic_array_field() {
 
     for v in [
         Buffer::<4> { data: [0, 1, 2, 3] },
-        Buffer::<4> { data: [255, 0, 128, 7] },
+        Buffer::<4> {
+            data: [255, 0, 128, 7],
+        },
     ] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
 
@@ -313,13 +337,27 @@ fn field_named_discriminant() {
     }
 
     for v in [
-        HasDiscriminant { discriminant: 0, value: false },
-        HasDiscriminant { discriminant: 42, value: true },
+        HasDiscriminant {
+            discriminant: 0,
+            value: false,
+        },
+        HasDiscriminant {
+            discriminant: 42,
+            value: true,
+        },
     ] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
 
@@ -335,9 +373,17 @@ fn const_generic_independent() {
 
     for v in [Tagged::<42> { value: 0 }, Tagged::<42> { value: 100 }] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
 
@@ -364,9 +410,17 @@ fn multiple_type_params() {
         },
     ] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
 
@@ -388,8 +442,16 @@ fn mixed_enum_variants() {
         Mixed::Named { x: 1, y: 2 },
     ] {
         let bytes = compactly::v2::encode(&v);
-        assert_eq!(compactly::v2::decode(&bytes), Some(v), "v2 roundtrip failed");
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
         let bytes = compactly::v1::encode(&v);
-        assert_eq!(compactly::v1::decode(&bytes), Some(v), "v1 roundtrip failed");
+        assert_eq!(
+            compactly::v1::decode(&bytes),
+            Some(v),
+            "v1 roundtrip failed"
+        );
     }
 }
