@@ -1,5 +1,8 @@
 use super::Encode;
 
+#[cfg(test)]
+use expect_test::expect;
+
 impl Encode for () {
     type Context = ();
     #[inline]
@@ -250,24 +253,30 @@ impl<
 fn sizes() {
     use super::assert_bits;
 
-    assert_bits!((false, false), 2);
-    assert_bits!((false, true), 2);
-    assert_bits!((true, true), 1);
-    assert_bits!((true, false), 2);
+    assert_bits!((false, false), expect!["2"]);
+    assert_bits!((false, true), expect!["2"]);
+    assert_bits!((true, true), expect!["1"]);
+    assert_bits!((true, false), expect!["2"]);
 
-    assert_bits!((true, true, true), 1);
+    assert_bits!((true, true, true), expect!["1"]);
 
-    assert_bits!((true, true, true, true), 1);
+    assert_bits!((true, true, true, true), expect!["1"]);
 
-    assert_bits!((false, false, false), 3);
+    assert_bits!((false, false, false), expect!["3"]);
 
-    assert_bits!((false, false, false, false), 4);
+    assert_bits!((false, false, false, false), expect!["4"]);
 
-    assert_bits!((false, false, false, false, false), 5);
+    assert_bits!((false, false, false, false, false), expect!["5"]);
 
-    assert_bits!((false, false, false, false, false, false), 6);
+    assert_bits!((false, false, false, false, false, false), expect!["6"]);
 
-    assert_bits!((false, false, false, false, false, false, false), 7);
+    assert_bits!(
+        (false, false, false, false, false, false, false),
+        expect!["7"]
+    );
 
-    assert_bits!((false, false, false, false, false, false, false, false), 8);
+    assert_bits!(
+        (false, false, false, false, false, false, false, false),
+        expect!["8"]
+    );
 }

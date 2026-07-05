@@ -2,6 +2,9 @@ use super::{Encode, EncodingStrategy};
 use crate::{Decimal, LowCardinality, Small};
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use expect_test::expect;
+
 macro_rules! impl_float {
     ($t:ident, $intty:ident, $sint:ident, $context:ident, $decimal:ident, $bits:literal) => {
         #[derive(Clone)]
@@ -169,32 +172,37 @@ impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
 
 #[test]
 fn decimal_float() {
-    use super::assert_bits;
     use crate::Encoded;
 
-    fn test_value(v: f64, dec: usize, bin: usize) {
+    fn sizes(v: f64) -> String {
         println!("Testing {v}.");
-        assert_bits!(v, bin);
-        assert_bits!(Encoded::<f64, Decimal>::from(v), dec);
+        format!(
+            "decimal: {} bits, binary: {} bits",
+            super::encoded_bits!(Encoded::<f64, Decimal>::from(v)),
+            super::encoded_bits!(v)
+        )
     }
-    fn test32(v: f32, dec: usize, bin: usize) {
+    fn sizes32(v: f32) -> String {
         println!("Testing {v}.");
-        assert_bits!(v, bin);
-        assert_bits!(Encoded::<f32, Decimal>::from(v), dec);
+        format!(
+            "decimal: {} bits, binary: {} bits",
+            super::encoded_bits!(Encoded::<f32, Decimal>::from(v)),
+            super::encoded_bits!(v)
+        )
     }
 
-    test_value(1.1, 18, 65);
-    test_value(0.1, 16, 65);
-    test_value(0.9, 18, 65);
-    test_value(128.332, 31, 65);
-    test_value(1.0_f64.exp(), 68, 65);
-    test_value(0.0, 9, 3);
-    test_value(8.0, 11, 10);
-    test_value(8e200, 24, 65);
-    test_value(8e300, 25, 65);
+    expect!["decimal: 18 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
+    expect!["decimal: 16 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
+    expect!["decimal: 18 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
+    expect!["decimal: 31 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
+    expect!["decimal: 68 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
+    expect!["decimal: 9 bits, binary: 3 bits"].assert_eq(&sizes(0.0));
+    expect!["decimal: 11 bits, binary: 10 bits"].assert_eq(&sizes(8.0));
+    expect!["decimal: 24 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
+    expect!["decimal: 25 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
-    test32(1.0_f32.exp(), 39, 33);
-    test32(0.1, 15, 33);
-    test32(0.0, 8, 3);
-    test32(8.0, 10, 9);
+    expect!["decimal: 39 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
+    expect!["decimal: 15 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
+    expect!["decimal: 8 bits, binary: 3 bits"].assert_eq(&sizes32(0.0));
+    expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes32(8.0));
 }

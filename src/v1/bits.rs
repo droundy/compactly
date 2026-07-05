@@ -2,6 +2,9 @@ use std::io::{Read, Write};
 
 use super::Encode;
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
@@ -98,7 +101,7 @@ fn size() {
 
     assert_eq!(Bits::<4>::MAX, 3);
     assert_eq!(Bits::<8>::MAX, 7);
-    assert_bits!(Bits::<4>::try_from(2u8).unwrap(), 2);
-    assert_bits!(Bits::<8>::try_from(7u8).unwrap(), 1);
-    assert_bits!(Bits::<8>::try_from(6u8).unwrap(), 3);
+    assert_bits!(Bits::<4>::try_from(2u8).unwrap(), expect!["2"]);
+    assert_bits!(Bits::<8>::try_from(7u8).unwrap(), expect!["1"]);
+    assert_bits!(Bits::<8>::try_from(6u8).unwrap(), expect!["3"]);
 }
