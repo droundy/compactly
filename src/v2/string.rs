@@ -212,7 +212,13 @@ fn size() {
             format!("small {value:?}")
         );
     }
-    fn compare_vecs(value: &[&str], expected_normal: usize, expected_small: usize) {
+    fn compare_vecs(
+        value: &[&str],
+        expected_normal: usize,
+        expected_small: usize,
+        expected_normal_bits: usize,
+        expected_small_bits: usize,
+    ) {
         let normal = value.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let encoded_normal = super::encode(&normal);
         let decoded_normal: Vec<String> = super::decode(&encoded_normal).unwrap();
@@ -241,7 +247,7 @@ fn size() {
         );
         assert_bits!(
             value.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
-            (expected_normal + 500) / 1000,
+            expected_normal_bits,
             format!("normal {value:?}")
         );
         assert_bits!(
@@ -249,11 +255,11 @@ fn size() {
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_string()))
                 .collect::<Vec<_>>(),
-            (expected_small + 500) / 1000,
+            expected_small_bits,
             format!("small {value:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7110);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8980, 7113);
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
@@ -271,15 +277,15 @@ fn size() {
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
         412,
-        418,
+        419,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
-        1537,
-        834,
+        1538,
+        835,
     );
     compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
@@ -287,10 +293,10 @@ fn size() {
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
         1608,
-        1004,
+        1005,
     );
 
-    compare_vecs(&[], 3000, 3000);
+    compare_vecs(&[], 3000, 3000, 3, 3);
     assert_eq!('h'.millibits(), super::Millibits::bits(8), "just h");
     assert_eq!(
         "h".to_string().millibits(),
@@ -299,24 +305,26 @@ fn size() {
     );
 
     let s = "aaaaaaaaaaaaaaaa".to_string();
-    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
+    assert_eq!(s.millibits(), super::Millibits::new(39501), "just a string");
     assert_bits!(s.clone(), 40);
 
     let s = "hello world this is a string".to_string();
     assert_eq!(
         s.millibits(),
-        super::Millibits::new(165025),
+        super::Millibits::new(165125),
         "just a string"
     );
     assert_bits!(s.clone(), 165);
 
-    compare_vecs(&["h"], 14000, 20000);
-    compare_vecs(&["hello world"], 76790, 82790);
-    compare_vecs(&["hello world", "hello world"], 128070, 101716);
+    compare_vecs(&["h"], 14000, 20000, 14, 20);
+    compare_vecs(&["hello world"], 76817, 82841, 77, 83);
+    compare_vecs(&["hello world", "hello world"], 128147, 101770, 128, 102);
     compare_vecs(
         &["hello world", "hello world", "hello world"],
-        172264,
-        112527,
+        172402,
+        112584,
+        173,
+        113,
     );
     compare_vecs(
         &[
@@ -325,10 +333,12 @@ fn size() {
             "hello world",
             "hello world hello world",
         ],
-        262073,
-        145730,
+        262347,
+        145803,
+        262,
+        146,
     );
-    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209885, 198308);
+    compare_vecs(&["hello world! 😊", "goodbye world! 😊"], 209985, 198370, 210, 198);
     compare_vecs(
         &[
             "hello world! 😊",
@@ -336,8 +346,10 @@ fn size() {
             "goodbye world! 😊",
             "farewell sweet world! 😊",
         ],
-        424130,
-        350634,
+        424446,
+        350885,
+        425,
+        351,
     );
     compare_vecs(
         &[
@@ -352,8 +364,10 @@ fn size() {
             "lazy",
             "dog",
         ],
-        495559,
-        413131,
+        495866,
+        413459,
+        496,
+        414,
     );
 }
 

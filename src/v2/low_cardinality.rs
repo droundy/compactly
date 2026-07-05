@@ -213,9 +213,9 @@ fn low_cardinality() {
         .map(Encoded::<_, LowCardinality>::new)
         .collect::<Vec<_>>();
 
-    assert_bits!(v.clone(), 284430);
-    assert_bits!(low.clone(), 1673);
-    assert_bits!(strings.clone().to_vec(), 610);
+    assert_bits!(v.clone(), 284777);
+    assert_bits!(low.clone(), 1674);
+    assert_bits!(strings.clone().to_vec(), 611);
     assert_bits!(
         strings
             .iter()

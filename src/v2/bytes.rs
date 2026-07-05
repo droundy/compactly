@@ -343,11 +343,11 @@ fn eager() {
         for chunk in Lz77::default().eager(b"aaa") {
             chunk.encode(&mut millibits_of_literals, &mut ctx);
         }
-        assert_eq!(millibits_of_literals, super::Millibits::new(22976));
+        assert_eq!(millibits_of_literals, super::Millibits::new(22988));
         let mb_of_vec = Lz77::default().eager(b"aaa").millibits();
-        assert_eq!(mb_of_vec, super::Millibits::new(25976));
+        assert_eq!(mb_of_vec, super::Millibits::new(25988));
         let mb_of_string = b"aaa".to_vec().millibits();
-        assert_eq!(mb_of_string, super::Millibits::new(19976));
+        assert_eq!(mb_of_string, super::Millibits::new(19988));
     }
     assert_eq!(
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
@@ -541,7 +541,13 @@ fn size() {
             format!("small b{s:?}")
         );
     }
-    fn compare_vecs(value: &[&[u8]], expected_normal: usize, expected_small: usize) {
+    fn compare_vecs(
+        value: &[&[u8]],
+        expected_normal: usize,
+        expected_small: usize,
+        expected_normal_bits: usize,
+        expected_small_bits: usize,
+    ) {
         let s = value
             .iter()
             .map(|b| String::from_utf8_lossy(b))
@@ -572,7 +578,7 @@ fn size() {
         );
         assert_bits!(
             value.iter().map(|s| s.to_vec()).collect::<Vec<Vec<u8>>>(),
-            (expected_normal + 500) / 1000,
+            expected_normal_bits,
             format!("normal b{s:?}")
         );
         assert_bits!(
@@ -580,11 +586,11 @@ fn size() {
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_vec()))
                 .collect::<Vec<_>>(),
-            (expected_small + 500) / 1000,
+            expected_small_bits,
             format!("small b{s:?}")
         );
     }
-    compare_small_bits(COMPRESSIBLE_TEXT, 8979, 7110);
+    compare_small_bits(COMPRESSIBLE_TEXT, 8985, 7113);
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
@@ -619,27 +625,27 @@ fn size() {
     compare_small_bits(b"hello world hello world", 127, 98);
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
-        412,
-        418,
+        413,
+        419,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
-        1537,
-        834,
+        1539,
+        835,
     );
     compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
            If I duplicate this sentence with tiny changes then I should get ok compression, right?",
-        1608,
-        1004,
+        1609,
+        1005,
     );
 
-    compare_vecs(&[], 3000, 3000);
+    compare_vecs(&[], 3000, 3000, 3, 3);
     assert_eq!(
         b"h".to_vec().millibits(),
         super::Millibits::bits(11),
@@ -647,24 +653,26 @@ fn size() {
     );
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
+    assert_eq!(s.millibits(), super::Millibits::new(39549), "just a string");
     assert_bits!(s.clone(), 40);
 
     let s = b"hello world this is a string".to_vec();
     assert_eq!(
         s.millibits(),
-        super::Millibits::new(165025),
+        super::Millibits::new(165201),
         "just a string"
     );
     assert_bits!(s.clone(), 165);
 
-    compare_vecs(&[b"h"], 14000, 20000);
-    compare_vecs(&[b"hello world"], 76790, 82790);
-    compare_vecs(&[b"hello world", b"hello world"], 128070, 101716);
+    compare_vecs(&[b"h"], 14000, 20000, 14, 20);
+    compare_vecs(&[b"hello world"], 76841, 82841, 77, 83);
+    compare_vecs(&[b"hello world", b"hello world"], 128206, 101770, 128, 102);
     compare_vecs(
         &[b"hello world", b"hello world", b"hello world"],
-        172264,
-        112527,
+        172498,
+        112584,
+        173,
+        113,
     );
     compare_vecs(
         &[
@@ -673,8 +681,10 @@ fn size() {
             b"hello world",
             b"hello world hello world",
         ],
-        262073,
-        145730,
+        262517,
+        145803,
+        263,
+        146,
     );
     compare_vecs(
         &[
@@ -689,7 +699,9 @@ fn size() {
             b"lazy",
             b"dog",
         ],
-        495559,
-        413131,
+        496105,
+        413459,
+        496,
+        414,
     );
 }

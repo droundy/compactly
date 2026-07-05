@@ -1,6 +1,7 @@
 mod probability;
 
 use super::bit_context::BitContext;
+use super::symbol::SymbolRange;
 use super::{EntropyCoder, EntropyDecoder};
 pub use probability::Probability;
 mod bytes;
@@ -24,14 +25,41 @@ const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ans {
-    bits: Vec<(bool, Probability)>,
+    ops: Vec<Op>,
     incompressible_bytes: Vec<u8>,
+}
+
+/// One deferred coding operation. rANS runs the coder backwards over the whole
+/// buffer in [`Ans::into_vec`], so symbols are recorded here next to bits to
+/// preserve their interleaving. The symbol interval is stored packed
+/// (`width` is in `1..=M`, so `width - 1` fits a `u16`) to keep the buffer
+/// entry small.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Op {
+    Bit(bool, Probability),
+    Symbol { start: u16, width_minus_1: u16 },
 }
 
 impl EntropyCoder for Ans {
     #[inline]
     fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        self.bits.extend(bits_with_probabilities);
+        self.ops.extend(
+            bits_with_probabilities
+                .into_iter()
+                .map(|(b, probability)| Op::Bit(b, probability)),
+        );
+    }
+
+    #[inline]
+    fn encode_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N], value: usize) {
+        if N < 2 {
+            return;
+        }
+        let range = SymbolRange::for_value(contexts, value);
+        self.ops.push(Op::Symbol {
+            start: range.start() as u16,
+            width_minus_1: (range.width() - 1) as u16,
+        });
     }
 
     #[inline]
@@ -49,14 +77,69 @@ impl Ans {
         let mut reader = Decoder::from(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
+    /// Benchmark helper: replay only the entropy-decode steps against
+    /// `encoded`, using this op buffer (from encoding the same value) as an
+    /// oracle for the probabilities and symbol intervals that the adaptive
+    /// contexts would supply. This isolates the rANS state/byte work from the
+    /// model (context adaptation) and value construction; see
+    /// `src/bin/ans-decode-phases.rs`. Panics if a decoded bit disagrees with
+    /// the recorded one. Returns a checksum so callers can `black_box` it.
+    #[doc(hidden)]
+    pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
+        let mut decoder = Decoder::from(encoded);
+        let mut checksum = 0u32;
+        for op in &self.ops {
+            match *op {
+                Op::Bit(b, probability) => {
+                    let bit =
+                        decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
+                    assert_eq!(bit, b);
+                    checksum = checksum.wrapping_add(bit as u32);
+                }
+                Op::Symbol {
+                    start,
+                    width_minus_1,
+                } => {
+                    let mut state = decoder.state.state;
+                    let slot = state & (SymbolRange::M - 1);
+                    state = (width_minus_1 as State + 1) * (state >> SymbolRange::BITS)
+                        + (slot - start as State);
+                    while state < 1 << (State::BITS - 8) {
+                        let Some((&byte, rest)) = decoder.bytes.split_first() else {
+                            break;
+                        };
+                        decoder.bytes = rest;
+                        state = (state << 8) | byte as State;
+                    }
+                    decoder.state.state = state;
+                    checksum = checksum.wrapping_add(slot);
+                }
+            }
+        }
+        checksum
+    }
     /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         let mut coder = Encoder::new();
         let mut out = Vec::new();
-        for (b, probability) in self.bits.into_iter().rev() {
-            if let Some(byte) = coder.encode(b, probability) {
-                out.push(byte);
+        for op in self.ops.into_iter().rev() {
+            match op {
+                Op::Bit(b, probability) => {
+                    if let Some(byte) = coder.encode(b, probability) {
+                        out.push(byte);
+                    }
+                }
+                Op::Symbol {
+                    start,
+                    width_minus_1,
+                } => {
+                    let (bytes, state) = coder
+                        .state
+                        .encode_symbol(start as State, width_minus_1 as State + 1);
+                    coder.state = state;
+                    out.extend(bytes);
+                }
             }
         }
         out.extend(coder.finish_encoding());
@@ -204,6 +287,36 @@ fn decode_step(state: &mut State, bytes: &mut &[u8], probability: Probability) -
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Whole-tree symbol decode: peek the low [`SymbolRange::BITS`] bits of the
+    /// state as the slot, walk the tree to recover value and interval, then do
+    /// a single rANS advance + renormalization instead of `log2(N)` of them.
+    ///
+    /// The bit steps (total 256) and symbol steps (total `M = 2^16`) share the
+    /// same normalization interval `[2^24, 2^32)`, so they can interleave
+    /// freely in one state/stream; a symbol step may need to pull up to two
+    /// bytes where a bit step pulls at most one.
+    #[inline(always)]
+    fn decode_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        let mut state = self.state.state;
+        let mut bytes = self.bytes;
+        let slot = state & (SymbolRange::M - 1);
+        let (range, value) = SymbolRange::from_slot(contexts, slot);
+        state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
+        while state < (1 << (State::BITS - 8)) {
+            let Some((&byte, rest)) = bytes.split_first() else {
+                break;
+            };
+            bytes = rest;
+            state = (state << 8) | byte as State;
+        }
+        self.state.state = state;
+        self.bytes = bytes;
+        value
+    }
+
     /// Adaptive batch decode, fused into a single pass.
     ///
     /// We pull `state`/`bytes` into locals and do probability-lookup, decode, and
@@ -273,6 +386,41 @@ impl StateOnly {
         )
     }
 
+    /// Encode a whole tree symbol occupying `[start, start + width)` of the
+    /// total `M = 2^16`. Same rANS scheme as [`StateOnly::encode`] but with a
+    /// 16-bit total instead of 8, so renormalization can emit up to two bytes.
+    /// Shares the bit steps' normalization interval `[2^24, 2^32)`.
+    #[inline(always)]
+    fn encode_symbol(mut self, start: State, width: State) -> (Bytes, Self) {
+        let mut bytes = Bytes::default();
+        // Emit while state >= width << 16 (kept shift-free: width can be 2^16).
+        while self.state >> SymbolRange::BITS >= width {
+            bytes.push(self.state as u8);
+            self.state >>= 8;
+        }
+        self.state = ((self.state / width) << SymbolRange::BITS) | (self.state % width + start);
+        (bytes, self)
+    }
+
+    /// The decode counterpart to [`StateOnly::encode_symbol`], for tests; the
+    /// trait's `decode_tree` inlines this same logic.
+    #[cfg(test)]
+    fn decode_symbol(
+        mut self,
+        start: State,
+        width: State,
+        mut next_byte: impl FnMut() -> Option<u8>,
+    ) -> Self {
+        let slot = self.state & (SymbolRange::M - 1);
+        debug_assert!(slot >= start && slot < start + width);
+        self.state = width * (self.state >> SymbolRange::BITS) + (slot - start);
+        while self.state < 1 << (State::BITS - 8) {
+            let Some(byte) = next_byte() else { break };
+            self.state = (self.state << 8) | State::from(byte);
+        }
+        self
+    }
+
     /// The decode counterpart to [`StateOnly::encode`]. The `Ans` decoder's
     /// `decode_step` inlines this same logic; this stand-alone version exists so
     /// `check_state_only` can unit-test the encode/decode round-trip directly.
@@ -323,6 +471,92 @@ fn check_state_only() {
                 assert!(next_byte.is_none());
             }
         }
+    }
+}
+
+#[test]
+fn check_state_only_symbol() {
+    // Symbol steps must round-trip from every reachable state region, for
+    // every interval shape including extreme widths (the reserve-clamped
+    // trees produce widths from 1 up to M/2 and starts across all of M).
+    let mut cases: Vec<(State, State)> = vec![
+        (0, 1),
+        (65535, 1),
+        (0, 65536),
+        (0, 32768),
+        (32768, 32768),
+        (255, 256),
+    ];
+    for _ in 0..200 {
+        let start = rand::random::<u32>() % SymbolRange::M;
+        let width = 1 + rand::random::<u32>() % (SymbolRange::M - start);
+        cases.push((start, width));
+    }
+    for &(start, width) in &cases {
+        for state in (0 as State..u16::MAX as State)
+            .chain((0..u16::MAX as State).map(|i| State::MAX - i))
+            .step_by(97)
+        {
+            let (bytes, s) = StateOnly { state }.encode_symbol(start, width);
+            // The encoded state's low bits are the slot, inside the interval.
+            assert!(s.state & (SymbolRange::M - 1) >= start);
+            let mut emitted: Vec<u8> = bytes.iter().copied().collect();
+            // decode pulls in the reverse order of emission
+            let again = s.decode_symbol(start, width, || emitted.pop());
+            assert_eq!(
+                again.state, state,
+                "symbol round-trip failed for start={start} width={width} state={state:#x}"
+            );
+            assert!(emitted.is_empty(), "decode must consume all emitted bytes");
+        }
+    }
+}
+
+#[test]
+fn check_ans_mixed_bits_and_symbols() {
+    // Bits (total 256) and tree symbols (total 2^16) share one state and
+    // stream; interleavings of the two must round-trip.
+    for trial in 0..2000 {
+        let n_ops = rand::random::<usize>() % 200;
+        #[derive(Debug, Clone, Copy)]
+        enum Planned {
+            Bit(bool, Probability),
+            Byte(u8),
+        }
+        let mut plan = Vec::new();
+        for _ in 0..n_ops {
+            if rand::random::<bool>() {
+                plan.push(Planned::Bit(rand::random(), rand::random()));
+            } else {
+                plan.push(Planned::Byte(rand::random()));
+            }
+        }
+        // Adapting contexts: encode and decode must walk identical context
+        // state, so use a fixed context array driven by the same data.
+        let mut encode_contexts = [BitContext::default(); 256];
+        let mut writer = Ans::default();
+        for op in &plan {
+            match *op {
+                Planned::Bit(b, probability) => writer.encode_bit(probability, b),
+                Planned::Byte(b) => writer.encode_tree(&mut encode_contexts, b as usize),
+            }
+        }
+        let encoded = writer.into_vec();
+        let mut decoder = Decoder::from(encoded.as_slice());
+        let mut decode_contexts = [BitContext::default(); 256];
+        for (i, op) in plan.iter().enumerate() {
+            match *op {
+                Planned::Bit(b, probability) => {
+                    let bit = decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
+                    assert_eq!(bit, b, "bit {i} of trial {trial}");
+                }
+                Planned::Byte(b) => {
+                    let v = decoder.decode_tree(&mut decode_contexts);
+                    assert_eq!(v, b as usize, "byte {i} of trial {trial}");
+                }
+            }
+        }
+        assert_eq!(encode_contexts, decode_contexts);
     }
 }
 
