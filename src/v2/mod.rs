@@ -408,17 +408,8 @@ macro_rules! ans_encoded_bits {
         let bytes = super::Ans::encode(&v);
         let decoded = super::Ans::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        (bytes.len() + 4) / 8
+        ((bytes.len() + 4) / 8).to_string()
     }};
 }
 #[cfg(test)]
 pub(crate) use ans_encoded_bits;
-
-#[cfg(test)]
-macro_rules! assert_ans_bits {
-    ($v:expr, $expected:expr) => {
-        $expected.assert_eq(&crate::v2::ans_encoded_bits!($v).to_string());
-    };
-}
-#[cfg(test)]
-pub(crate) use assert_ans_bits;

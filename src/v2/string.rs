@@ -384,16 +384,16 @@ fn sorted() {
 
 #[test]
 fn crash_from_bench() {
-    use super::{assert_ans_bits, encoded_bits};
+    use super::{ans_encoded_bits, encoded_bits};
     use crate::{Encoded, Values};
     let names = ["Al", "Aïr"];
     let vec = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
     expect!["54"].assert_eq(&encoded_bits!(vec.clone()));
-    assert_ans_bits!(vec.clone(), expect!["54"]);
+    expect!["54"].assert_eq(&ans_encoded_bits!(vec.clone()));
     let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
     expect!["69"].assert_eq(&encoded_bits!(compressible.clone()));
-    assert_ans_bits!(compressible.clone(), expect!["69"]);
+    expect!["69"].assert_eq(&ans_encoded_bits!(compressible.clone()));
     let sorted = Encoded::<Vec<String>, Values<Sorted>>::new(vec.clone());
     expect!["51"].assert_eq(&encoded_bits!(sorted.clone()));
-    assert_ans_bits!(sorted.clone(), expect!["51"]);
+    expect!["51"].assert_eq(&ans_encoded_bits!(sorted.clone()));
 }

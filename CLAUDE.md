@@ -85,14 +85,3 @@ Four `EntropyCoder` implementations, each useful for different purposes:
 - `EncodeV2` — generates `v2::Encode` impl
 
 The derive generates a `Context` struct with one field per struct/enum field (each field's own `Context` type), enabling per-field adaptive learning.
-
-### Testing patterns
-
-Tests inside module files use internal macros:
-- `assert_bits!(value, n_bits)` — encode 64 copies, check round-trip and bit count
-- `assert_size!(value, n_bytes)` — encode once, check round-trip and byte count
-- `assert_ans_bits!` / `raw_bits!` — same for specific coders
-
-The bit/size assertions are **not correctness tests** — they exist so that any change to the encoding logic produces a visible diff in the expected counts, making it easy to observe the compression impact of a change. If you improve (or accidentally worsen) compression, these tests will fail and the new numbers will show exactly how much the encoding size shifted.
-
-Integration tests in [tests/](tests/) require both features (`#![cfg(all(feature = "v1", feature = "v2"))]`) and compare v1 vs v2 encoding sizes.

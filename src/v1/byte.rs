@@ -389,37 +389,35 @@ impl EncodingStrategy<u8> for Small {
 
 #[test]
 fn size() {
-    use super::{assert_bits, assert_bits_all};
-    assert_bits!(u8::MAX, expect!["3"]);
-    assert_bits!(0_u8, expect!["8"]);
+    use super::{assert_bits_all, encoded_bits};
+    expect!["3"].assert_eq(&encoded_bits!(u8::MAX));
+    expect!["8"].assert_eq(&encoded_bits!(0_u8));
     assert_bits_all!(3_u8..255, expect!["8"]);
-    assert_bits!(*b"hello", expect!["31"]);
-    assert_bits!(*b"hello world", expect!["68"]);
-    assert_bits!(*b"hello world, hello world", expect!["129"]);
-    assert_bits!(*b"hello hello, hello hello", expect!["111"]);
-    assert_bits!(
-        *b"hello hello, hello hello, hello hello, hello hello",
-        expect!["195"]
-    );
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", expect!["37"]);
-    assert_bits!(
-        *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
-        expect!["44"]
-    );
-    assert_bits!(*b"\0", expect!["8"]);
-    assert_bits!(*b"\x01", expect!["8"]);
-    assert_bits!(*b"\x01\x01", expect!["13"]);
-    assert_bits!(*b"\x01\x01\x01\x01", expect!["19"]);
-    assert_bits!(*b"\x01\x01\x01\x01\x01", expect!["21"]);
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", expect!["22"]);
-    assert_bits!(*b"\x01\x02\x03\x04", expect!["25"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05", expect!["30"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", expect!["36"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", expect!["40"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", expect!["47"]);
+    expect!["31"].assert_eq(&encoded_bits!(*b"hello"));
+    expect!["68"].assert_eq(&encoded_bits!(*b"hello world"));
+    expect!["129"].assert_eq(&encoded_bits!(*b"hello world, hello world"));
+    expect!["111"].assert_eq(&encoded_bits!(*b"hello hello, hello hello"));
+    expect!["195"].assert_eq(&encoded_bits!(
+        *b"hello hello, hello hello, hello hello, hello hello"
+    ));
+    expect!["37"].assert_eq(&encoded_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh"));
+    expect!["44"].assert_eq(&encoded_bits!(
+        *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+    ));
+    expect!["8"].assert_eq(&encoded_bits!(*b"\0"));
+    expect!["8"].assert_eq(&encoded_bits!(*b"\x01"));
+    expect!["13"].assert_eq(&encoded_bits!(*b"\x01\x01"));
+    expect!["19"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01"));
+    expect!["21"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01"));
+    expect!["22"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01\x01"));
+    expect!["25"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04"));
+    expect!["30"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05"));
+    expect!["36"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06"));
+    expect!["40"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07"));
+    expect!["47"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08"));
 
-    assert_bits!(i8::MAX, expect!["8"]);
-    assert_bits!(0_i8, expect!["8"]);
+    expect!["8"].assert_eq(&encoded_bits!(i8::MAX));
+    expect!["8"].assert_eq(&encoded_bits!(0_i8));
 }
 
 #[test]
@@ -432,7 +430,7 @@ fn small() {
             let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
             assert_eq!(
                 Encoded::<u8, Small>::new(v).millibits(&mut Default::default()),
-                Some(1000 * bits),
+                Some(1000 * bits.parse::<usize>().unwrap()),
                 "millibits estimate disagrees for {v}"
             );
             (v, bits)
@@ -441,7 +439,7 @@ fn small() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits.to_string()
+        bits
     }
 
     expect!["3"].assert_eq(&size_of(0..2));

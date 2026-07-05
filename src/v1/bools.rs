@@ -55,15 +55,15 @@ impl EncodingStrategy<bool> for Sorted {
 
 #[test]
 fn size() {
-    use super::assert_bits;
-    assert_bits!(true, expect!["1"]);
-    assert_bits!(false, expect!["1"]);
-    assert_bits!([false; 128], expect!["7"]);
-    assert_bits!([true; 2], expect!["1"]);
-    assert_bits!([true; 3], expect!["1"]);
-    assert_bits!([true; 16], expect!["3"]);
-    assert_bits!([true; 64], expect!["5"]);
-    assert_bits!([false, true], expect!["3"]);
+    use super::encoded_bits;
+    expect!["1"].assert_eq(&encoded_bits!(true));
+    expect!["1"].assert_eq(&encoded_bits!(false));
+    expect!["7"].assert_eq(&encoded_bits!([false; 128]));
+    expect!["1"].assert_eq(&encoded_bits!([true; 2]));
+    expect!["1"].assert_eq(&encoded_bits!([true; 3]));
+    expect!["3"].assert_eq(&encoded_bits!([true; 16]));
+    expect!["5"].assert_eq(&encoded_bits!([true; 64]));
+    expect!["3"].assert_eq(&encoded_bits!([false, true]));
 }
 
 #[test]
