@@ -13,7 +13,11 @@ pub struct CharContext {
     /// is-ASCII bit and no escape.
     first: <Bits<256> as Encode>::Context,
     n_chunks: <ULessThan<3> as Encode>::Context,
-    chunks: [<Bits<64> as Encode>::Context; 3],
+    /// The 4 bits above the leading byte's 7. Sized so the raw layout is
+    /// `7 + 4 + 6 + 6` — the same total as the original `5 + 6 + 6 + 6`
+    /// design, i.e. never larger than UTF-8 even without adaptive coding.
+    chunk4: <Bits<16> as Encode>::Context,
+    chunks: [<Bits<64> as Encode>::Context; 2],
 }
 
 impl Encode for char {
@@ -27,19 +31,22 @@ impl Encode for char {
             .unwrap()
             .encode(writer, &mut ctx.first);
         if !is_ascii {
-            // The low 7 bits are already in `first`; encode the rest in 6-bit
-            // continuation chunks (again mirroring UTF-8).
+            // The low 7 bits are already in `first`. The next 4 go in a 4-bit
+            // chunk, the rest in 6-bit continuation chunks: `7 + 4 + 6*n`,
+            // matching the original `5 + 6*(n+1)` bit budget so a codepoint is
+            // never coded in more bits than UTF-8 would use.
             let mut rest = x >> 7;
-            let n_chunks = if rest < 64 {
+            let n_chunks = if rest < 16 {
                 0
-            } else if rest < 64 * 64 {
+            } else if rest < 16 * 64 {
                 1
             } else {
                 2
             };
             let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             n_chunks.encode(writer, &mut ctx.n_chunks);
-            for i in 0_usize..1 + usize::from(n_chunks) {
+            Bits::<16>::take_from(&mut rest).encode(writer, &mut ctx.chunk4);
+            for i in 0_usize..usize::from(n_chunks) {
                 Bits::<64>::take_from(&mut rest).encode(writer, &mut ctx.chunks[i]);
             }
         }
@@ -55,9 +62,10 @@ impl Encode for char {
         } else {
             let n_chunks = ULessThan::<3>::decode(reader, &mut ctx.n_chunks)?;
             let mut out = (first & 0x7f) as u32;
-            for i in 0_usize..1 + usize::from(n_chunks) {
+            out |= (u8::from(Bits::<16>::decode(reader, &mut ctx.chunk4)?) as u32) << 7;
+            for i in 0_usize..usize::from(n_chunks) {
                 let chunk = u8::from(Bits::<64>::decode(reader, &mut ctx.chunks[i])?) as u32;
-                out |= chunk << (7 + 6 * i);
+                out |= chunk << (11 + 6 * i);
             }
             char::from_u32(out).ok_or_else(|| std::io::Error::other("invalid char value"))
         }
@@ -203,8 +211,8 @@ fn size() {
     raw_bits!("".to_string(), expect!["3 bits"]);
     raw_bits!("a".to_string(), expect!["11 bits"]);
     raw_bits!("A".to_string(), expect!["11 bits"]);
-    raw_bits!("É".to_string(), expect!["18 bits"]);
-    raw_bits!("😊".to_string(), expect!["25 bits"]);
+    raw_bits!("É".to_string(), expect!["16 bits"]);
+    raw_bits!("😊".to_string(), expect!["23 bits"]);
     raw_bits!(
         "hello world".to_string(),
         expect!["94 bits, entropy Millibits(73790)"]
@@ -257,14 +265,14 @@ fn size() {
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
     assert_eq!('a'.millibits(), super::Millibits::bits(8));
-    assert_eq!('😊'.millibits(), super::Millibits::bits(22));
+    expect!["20000 mb"].assert_eq(&'😊'.millibits().to_string());
     expect!["normal: 3 bits, small: 3 bits"].assert_eq(&compare_small_bits(""));
     expect!["normal: 11 bits, small: 17 bits"].assert_eq(&compare_small_bits("a"));
     expect!["normal: 17 bits, small: 23 bits"].assert_eq(&compare_small_bits("aa"));
     expect!["normal: 20 bits, small: 26 bits"].assert_eq(&compare_small_bits("aaa"));
     expect!["normal: 24 bits, small: 30 bits"].assert_eq(&compare_small_bits("aaaa"));
     expect!["normal: 31 bits, small: 37 bits"].assert_eq(&compare_small_bits("aaaaaaaa"));
-    expect!["normal: 145 bits, small: 140 bits"]
+    expect!["normal: 133 bits, small: 140 bits"]
         .assert_eq(&compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa"));
     expect!["normal: 36 bits, small: 42 bits"].assert_eq(&compare_small_bits("hello"));
     expect!["normal: 122 bits, small: 116 bits"]
@@ -325,9 +333,9 @@ fn size() {
             "hello world hello world",
         ]),
     );
-    expect!["normal: Millibits(213189) (213 bits), small: Millibits(198370) (198 bits)"]
+    expect!["normal: Millibits(210024) (210 bits), small: Millibits(198370) (198 bits)"]
         .assert_eq(&compare_vecs(&["hello world! 😊", "goodbye world! 😊"]));
-    expect!["normal: Millibits(429240) (429 bits), small: Millibits(350885) (351 bits)"].assert_eq(
+    expect!["normal: Millibits(424602) (425 bits), small: Millibits(350885) (351 bits)"].assert_eq(
         &compare_vecs(&[
             "hello world! 😊",
             "greetings world! 😊",
@@ -394,12 +402,12 @@ fn crash_from_bench() {
     use crate::{Encoded, Values};
     let names = ["Al", "Aïr"];
     let vec = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
-    expect!["56"].assert_eq(&encoded_bits!(vec.clone()));
-    expect!["56"].assert_eq(&ans_encoded_bits!(vec.clone()));
+    expect!["54"].assert_eq(&encoded_bits!(vec.clone()));
+    expect!["54"].assert_eq(&ans_encoded_bits!(vec.clone()));
     let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
     expect!["69"].assert_eq(&encoded_bits!(compressible.clone()));
     expect!["69"].assert_eq(&ans_encoded_bits!(compressible.clone()));
     let sorted = Encoded::<Vec<String>, Values<Sorted>>::new(vec.clone());
-    expect!["53"].assert_eq(&encoded_bits!(sorted.clone()));
-    expect!["53"].assert_eq(&ans_encoded_bits!(sorted.clone()));
+    expect!["51"].assert_eq(&encoded_bits!(sorted.clone()));
+    expect!["51"].assert_eq(&ans_encoded_bits!(sorted.clone()));
 }
