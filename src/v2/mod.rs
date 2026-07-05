@@ -19,11 +19,11 @@ mod floats;
 pub mod generate_bit_context;
 mod ints;
 mod low_cardinality;
-mod nonzero;
 mod maps;
 mod markers;
-mod net;
 mod millibits;
+mod net;
+mod nonzero;
 mod option;
 mod other_crate_types;
 mod raw;
@@ -52,7 +52,10 @@ pub trait EntropyCoder: Default {
     /// implementations may keep state in registers across the batch and
     /// specialize for fixed widths, and `Encode` impls can encode and decode in
     /// the same batched shape.
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, ans::Probability); N]);
+    fn encode_bits<const N: usize>(
+        &mut self,
+        bits_with_probabilities: [(bool, ans::Probability); N],
+    );
 
     /// Encode a given bit with its probability. The `N == 1` case.
     #[inline(always)]
@@ -128,7 +131,10 @@ pub trait EntropyDecoder {
     /// coder state (running past the encoded data simply yields arbitrary bits,
     /// which higher-level `Encode::decode` impls validate). Returning `[bool; N]`
     /// rather than a `Result` keeps error edges out of the hot path.
-    fn decode_bits<const N: usize>(&mut self, contexts: &mut [bit_context::BitContext; N]) -> [bool; N];
+    fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [bit_context::BitContext; N],
+    ) -> [bool; N];
 
     /// Decode a given bit, adapting its probability context. The `N == 1` case of
     /// [`Self::decode_bits`]; `array::from_mut` reinterprets the `&mut BitContext`
@@ -284,52 +290,30 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     }
 }
 
-/// Compare an actual encoded size against the expected one recorded in a
-/// test. Normally panics on mismatch like `assert_eq!`, but when the
-/// `COLLECT_SIZE_DIFFS` environment variable is set it prints a `SIZEDIFF`
-/// line and keeps going — so after an intentional encoding change, one
-/// `COLLECT_SIZE_DIFFS=1 cargo test` run lists every expected number that
-/// needs updating (and shows the compression impact) instead of stopping at
-/// the first.
-#[cfg(test)]
-#[track_caller]
-pub(crate) fn check_encoded_size<T: PartialEq + std::fmt::Debug>(actual: T, expected: T, what: &str) {
-    if actual == expected {
-        return;
-    }
-    if std::env::var_os("COLLECT_SIZE_DIFFS").is_some() {
-        let loc = std::panic::Location::caller();
-        println!(
-            "SIZEDIFF {}:{}: {expected:?} -> {actual:?} ({what})",
-            loc.file(),
-            loc.line()
-        );
-    } else {
-        panic!("unexpected encoded size ({what}): expected {expected:?}, got {actual:?}");
-    }
-}
-
 #[cfg(test)]
 macro_rules! assert_size {
-    ($v:expr, $size:expr) => {
+    ($v:expr, $expected:expr) => {
         let v = $v;
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
-        super::check_encoded_size(bytes.len(), $size, "bytes");
+        $expected.assert_eq(&bytes.len().to_string());
     };
 }
 #[cfg(test)]
 pub(crate) use assert_size;
 
+/// Encodes the value once and as 64 copies, checking that both round-trip,
+/// and evaluates to the number of bits (rounded) needed to encode the 64
+/// copies.
 #[cfg(test)]
-macro_rules! assert_bits {
-    ($v:expr, $size:expr) => {
-        let ans = $v;
-        let bytes = super::encode(&ans);
-        println!("Bytes are {bytes:?} for {ans:?}");
+macro_rules! encoded_bits {
+    ($v:expr) => {{
+        let one = $v;
+        let bytes = super::encode(&one);
+        println!("Bytes are {bytes:?} for {one:?}");
         let decoded = super::decode(&bytes);
-        assert_eq!(decoded, Some(ans), "decoded value is incorrect");
+        assert_eq!(decoded, Some(one), "decoded value is incorrect");
         let v = (
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
@@ -343,64 +327,83 @@ macro_rules! assert_bits {
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        super::check_encoded_size((bytes.len() + 4) / 8, $size, "bits");
-    };
-    ($v:expr, $size:expr, $msg:expr) => {
-        let ans = $v;
-        let bytes = super::encode(&ans);
-        let decoded = super::decode(&bytes);
-        assert_eq!(decoded, Some(ans), "decoded value is incorrect: {}", $msg);
-        let v = (
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-        );
-        let bytes = super::encode(&v);
-        let decoded = super::decode(&bytes);
-        assert_eq!(
-            decoded,
-            Some(v),
-            "decoded tuple value is incorrect: {}",
-            $msg
-        );
-        super::check_encoded_size((bytes.len() + 4) / 8, $size, &format!("bits: {}", $msg));
+        (bytes.len() + 4) / 8
+    }};
+}
+#[cfg(test)]
+pub(crate) use encoded_bits;
+
+#[cfg(test)]
+macro_rules! assert_bits {
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::encoded_bits!($v).to_string());
     };
 }
 #[cfg(test)]
 pub(crate) use assert_bits;
 
+/// Like [`assert_bits!`], but takes an iterator of values (optionally mapped
+/// through a function) that are all expected to encode to the same number of
+/// bits.
 #[cfg(test)]
-macro_rules! raw_bits {
-    ($v:expr, $size:expr) => {
+macro_rules! assert_bits_all {
+    ($values:expr, $expected:expr) => {
+        crate::v2::assert_bits_all!($values, |v| v, $expected);
+    };
+    ($values:expr, $f:expr, $expected:expr) => {
+        let f = $f;
+        let mut iter = ($values).into_iter();
+        let first = iter
+            .next()
+            .expect("assert_bits_all! needs at least one value");
+        let bits = crate::v2::encoded_bits!(f(first));
+        for v in iter {
+            let other = crate::v2::encoded_bits!(f(v));
+            assert_eq!(other, bits, "encoded size differs for {v:?}");
+        }
+        $expected.assert_eq(&bits.to_string());
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_bits_all;
+
+/// Checks that the value round-trips through the `Raw` coder, and evaluates
+/// to a string describing the raw size in bits and the estimated entropy.
+#[cfg(test)]
+macro_rules! raw_size {
+    ($v:expr) => {{
         let v = $v;
         let encoded = super::Raw::encode(&v);
         let decoded = super::Raw::decode(&encoded);
         let (bits, entropy) = super::Raw::sizes(&v);
-        assert_eq!(decoded, Some(v));
-        super::check_encoded_size(bits, $size, "raw bits");
-        super::check_encoded_size(entropy, super::Millibits::bits($size), "entropy");
-    };
-    ($v:expr, $size:expr, $millibits:expr) => {
-        let (bits, entropy) = super::Raw::sizes(&$v);
-        super::check_encoded_size(bits, $size, "raw bits");
-        super::check_encoded_size(entropy, $millibits, "entropy");
+        assert_eq!(decoded, Some(v), "raw decoded value is incorrect");
+        if entropy == super::Millibits::bits(bits) {
+            format!("{bits} bits")
+        } else {
+            format!("{bits} bits, entropy {entropy:?}")
+        }
+    }};
+}
+#[cfg(test)]
+pub(crate) use raw_size;
+
+#[cfg(test)]
+macro_rules! raw_bits {
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::raw_size!($v));
     };
 }
 #[cfg(test)]
 pub(crate) use raw_bits;
 
+/// Like [`encoded_bits!`] but for the `Ans` coder.
 #[cfg(test)]
-macro_rules! assert_ans_bits {
-    ($v:expr, $size:expr) => {
-        let ans = $v;
-        let bytes = super::Ans::encode(&ans);
+macro_rules! ans_encoded_bits {
+    ($v:expr) => {{
+        let one = $v;
+        let bytes = super::Ans::encode(&one);
         let decoded = super::Ans::decode(&bytes);
-        assert_eq!(decoded, Some(ans), "decoded value is incorrect");
+        assert_eq!(decoded, Some(one), "decoded value is incorrect");
         let v = (
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
@@ -414,37 +417,16 @@ macro_rules! assert_ans_bits {
         let bytes = super::Ans::encode(&v);
         let decoded = super::Ans::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        super::check_encoded_size((bytes.len() + 4) / 8, $size, "ans bits");
-    };
-    ($v:expr, $size:expr, $msg:expr) => {
-        let ans = $v;
-        let bytes = super::Ans::encode(&ans);
-        let decoded = super::Ans::decode(&bytes);
-        assert_eq!(decoded, Some(ans), "decoded value is incorrect: {}", $msg);
-        let v = (
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-        );
-        let bytes = super::Ans::encode(&v);
-        let decoded = super::Ans::decode(&bytes);
-        assert_eq!(
-            decoded,
-            Some(v),
-            "decoded tuple value is incorrect: {}",
-            $msg
-        );
-        assert_eq!(
-            (bytes.len() + 4) / 8,
-            $size,
-            "unexpected number of bits: {}",
-            $msg
-        );
+        (bytes.len() + 4) / 8
+    }};
+}
+#[cfg(test)]
+pub(crate) use ans_encoded_bits;
+
+#[cfg(test)]
+macro_rules! assert_ans_bits {
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::ans_encoded_bits!($v).to_string());
     };
 }
 #[cfg(test)]

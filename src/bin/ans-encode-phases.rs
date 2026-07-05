@@ -23,7 +23,9 @@ fn first_fields(csv: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for line in csv.lines().skip(1) {
         let name = if let Some(quoted) = line.strip_prefix('"') {
-            let Some(end) = quoted.find('"') else { continue };
+            let Some(end) = quoted.find('"') else {
+                continue;
+            };
             quoted[..end].to_string()
         } else {
             match line.split_once(',') {
@@ -79,9 +81,18 @@ fn main() {
     println!("encoded size {}", encoded.len());
     let per_iter = |d: std::time::Duration| d.as_secs_f64() * 1e3 / iterations as f64;
     let total = build + into_vec;
-    println!("build Vec<Op>:  {:8.3} ms/iter  ({:5.1}% of encode)",
-        per_iter(build), 100.0 * build.as_secs_f64() / total.as_secs_f64());
-    println!("into_vec:       {:8.3} ms/iter  ({:5.1}% of encode)",
-        per_iter(into_vec), 100.0 * into_vec.as_secs_f64() / total.as_secs_f64());
-    println!("(clone, subtracted from into_vec: {:.3} ms/iter)", per_iter(clone));
+    println!(
+        "build Vec<Op>:  {:8.3} ms/iter  ({:5.1}% of encode)",
+        per_iter(build),
+        100.0 * build.as_secs_f64() / total.as_secs_f64()
+    );
+    println!(
+        "into_vec:       {:8.3} ms/iter  ({:5.1}% of encode)",
+        per_iter(into_vec),
+        100.0 * into_vec.as_secs_f64() / total.as_secs_f64()
+    );
+    println!(
+        "(clone, subtracted from into_vec: {:.3} ms/iter)",
+        per_iter(clone)
+    );
 }

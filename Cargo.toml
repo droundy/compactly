@@ -23,6 +23,7 @@ uuid = { version = "1.18.1", optional = true }
 
 [dev-dependencies]
 
+expect-test = "1.5.1"
 scaling = "0.1.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }

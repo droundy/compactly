@@ -547,7 +547,8 @@ fn check_ans_mixed_bits_and_symbols() {
         for (i, op) in plan.iter().enumerate() {
             match *op {
                 Planned::Bit(b, probability) => {
-                    let bit = decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
+                    let bit =
+                        decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
                     assert_eq!(bit, b, "bit {i} of trial {trial}");
                 }
                 Planned::Byte(b) => {

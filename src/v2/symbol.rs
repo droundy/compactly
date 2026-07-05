@@ -166,10 +166,7 @@ impl SymbolRange {
     /// adapting the contexts exactly as the per-bit walk would, and return the
     /// symbol's interval. `N` must be a power of two and `value < N`.
     #[inline]
-    pub(crate) fn for_value<const N: usize>(
-        contexts: &mut [BitContext; N],
-        value: usize,
-    ) -> Self {
+    pub(crate) fn for_value<const N: usize>(contexts: &mut [BitContext; N], value: usize) -> Self {
         let mut range = Self::full();
         let n_bits = N.ilog2();
         debug_assert_eq!(1 << n_bits, N);

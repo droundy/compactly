@@ -3,6 +3,9 @@ use crate::Sorted;
 use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
@@ -297,43 +300,43 @@ impl EncodingStrategy<usize> for Sorted {
 fn size() {
     use super::assert_bits;
     use crate::Encoded;
-    assert_bits!(Encoded::<_, Small>::new(0_u64), 3);
-    assert_bits!(0_usize, 3);
-    assert_bits!(Encoded::<_, Small>::new(1_u64), 7);
-    assert_bits!(1_usize, 3);
-    assert_bits!(Encoded::<_, Small>::new(2_u64), 7);
-    assert_bits!(2_usize, 3);
-    assert_bits!(3_usize, 1);
-    assert_bits!(4_usize, 8);
-    assert_bits!(5_usize, 8);
-    assert_bits!(6_usize, 8);
-    assert_bits!(7_usize, 8);
-    assert_bits!(8_usize, 9);
-    assert_bits!(Encoded::<_, Small>::new(16_u64), 10);
-    assert_bits!(16_usize, 10);
-    assert_bits!(Encoded::<_, Small>::new(32_u64), 11);
-    assert_bits!(32_usize, 11);
-    assert_bits!(Encoded::<_, Small>::new(64_u64), 12);
-    assert_bits!(64_usize, 12);
-    assert_bits!(Encoded::<_, Small>::new(128_u64), 13);
-    assert_bits!(128_usize, 13);
-    assert_bits!(Encoded::<_, Small>::new(256_u64), 14);
-    assert_bits!(256_usize, 14);
-    assert_bits!(512_usize, 15);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64), 16);
-    assert_bits!(1024_usize, 16);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), 26);
-    assert_bits!(1024_usize * 1024, 26);
-    assert_bits!(1024_usize * 1024 * 1024, 36);
-    assert_bits!(u32::MAX as usize, 38);
+    assert_bits!(Encoded::<_, Small>::new(0_u64), expect!["3"]);
+    assert_bits!(0_usize, expect!["3"]);
+    assert_bits!(Encoded::<_, Small>::new(1_u64), expect!["7"]);
+    assert_bits!(1_usize, expect!["3"]);
+    assert_bits!(Encoded::<_, Small>::new(2_u64), expect!["7"]);
+    assert_bits!(2_usize, expect!["3"]);
+    assert_bits!(3_usize, expect!["1"]);
+    assert_bits!(4_usize, expect!["8"]);
+    assert_bits!(5_usize, expect!["8"]);
+    assert_bits!(6_usize, expect!["8"]);
+    assert_bits!(7_usize, expect!["8"]);
+    assert_bits!(8_usize, expect!["9"]);
+    assert_bits!(Encoded::<_, Small>::new(16_u64), expect!["10"]);
+    assert_bits!(16_usize, expect!["10"]);
+    assert_bits!(Encoded::<_, Small>::new(32_u64), expect!["11"]);
+    assert_bits!(32_usize, expect!["11"]);
+    assert_bits!(Encoded::<_, Small>::new(64_u64), expect!["12"]);
+    assert_bits!(64_usize, expect!["12"]);
+    assert_bits!(Encoded::<_, Small>::new(128_u64), expect!["13"]);
+    assert_bits!(128_usize, expect!["13"]);
+    assert_bits!(Encoded::<_, Small>::new(256_u64), expect!["14"]);
+    assert_bits!(256_usize, expect!["14"]);
+    assert_bits!(512_usize, expect!["15"]);
+    assert_bits!(Encoded::<_, Small>::new(1024_u64), expect!["16"]);
+    assert_bits!(1024_usize, expect!["16"]);
+    assert_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), expect!["26"]);
+    assert_bits!(1024_usize * 1024, expect!["26"]);
+    assert_bits!(1024_usize * 1024 * 1024, expect!["36"]);
+    assert_bits!(u32::MAX as usize, expect!["38"]);
     // Note the code will work for u32, but the following two tests will fail.
-    assert_bits!(1024_usize * 1024 * 1024 * 1024, 46);
-    assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
-    assert_bits!([0_usize; 128], 20);
-    assert_bits!([1_usize; 19], 13);
+    assert_bits!(1024_usize * 1024 * 1024 * 1024, expect!["46"]);
+    assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, expect!["56"]);
+    assert_bits!([0_usize; 128], expect!["20"]);
+    assert_bits!([1_usize; 19], expect!["13"]);
     assert_bits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        19
+        expect!["19"]
     );
 }
 
@@ -356,68 +359,58 @@ fn correctness() {
 
 #[test]
 fn small() {
-    use super::assert_bits;
     use crate::Encoded;
-    fn check_size(v: usize, expected: usize) {
-        println!("Checking {v}");
-        assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
-            Some(1000 * expected),
-            "small wrong size"
-        );
-        assert_bits!(Encoded::<_, Small>::new(v), expected);
+    fn small_size(vals: impl IntoIterator<Item = usize>) -> String {
+        let mut sizes = vals.into_iter().map(|v| {
+            println!("Checking {v}");
+            let bits = super::encoded_bits!(Encoded::<_, Small>::new(v));
+            assert_eq!(
+                Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
+                Some(1000 * bits),
+                "small wrong size"
+            );
+            (v, bits)
+        });
+        let (_, bits) = sizes.next().expect("small_size needs at least one value");
+        for (v, other) in sizes {
+            assert_eq!(other, bits, "encoded size differs for {v}");
+        }
+        bits.to_string()
     }
-    fn check_both(v: usize, expected: usize, normal: usize) {
-        println!("Checking {v}");
-        assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
-            Some(1000 * expected),
-            "small wrong size"
-        );
+    fn normal_size(v: usize) -> usize {
+        let bits = super::encoded_bits!(v);
         assert_eq!(
             v.millibits(&mut Default::default()),
-            Some(1000 * normal),
+            Some(1000 * bits),
             "normal wrong size"
         );
-        assert_bits!(Encoded::<_, Small>::new(v), expected);
-        assert_bits!(v, normal);
+        bits
+    }
+    fn both_sizes(v: usize) -> String {
+        format!(
+            "small: {} bits, normal: {} bits",
+            small_size([v]),
+            normal_size(v)
+        )
     }
 
-    check_both(0, 3, 3);
-    check_both(1, 3, 3);
-    check_both(2, 4, 3);
-    check_both(4, 5, 8);
-    check_both(5, 5, 8);
-    check_both(23, 7, 11);
-    check_both(37, 8, 12);
-    check_both(63, 8, 12);
-    check_both(117, 15, 13);
-    check_both(u32::MAX as usize, 40, 38);
-    for x in 0..2 {
-        check_size(x, 3);
-    }
-    for x in 2..4 {
-        check_size(x, 4);
-    }
-    for x in 4..8 {
-        check_size(x, 5);
-    }
-    for x in 8..16 {
-        check_size(x, 6);
-    }
-    for x in 16..32 {
-        check_size(x, 7);
-    }
-    for x in 32..64 {
-        check_size(x, 8);
-    }
-    for x in 64..128 {
-        check_size(x, 15);
-    }
-    for x in 128..256 {
-        check_size(x, 16);
-    }
-    for x in 256..512 {
-        check_size(x, 17);
-    }
+    expect!["small: 3 bits, normal: 3 bits"].assert_eq(&both_sizes(0));
+    expect!["small: 3 bits, normal: 3 bits"].assert_eq(&both_sizes(1));
+    expect!["small: 4 bits, normal: 3 bits"].assert_eq(&both_sizes(2));
+    expect!["small: 5 bits, normal: 8 bits"].assert_eq(&both_sizes(4));
+    expect!["small: 5 bits, normal: 8 bits"].assert_eq(&both_sizes(5));
+    expect!["small: 7 bits, normal: 11 bits"].assert_eq(&both_sizes(23));
+    expect!["small: 8 bits, normal: 12 bits"].assert_eq(&both_sizes(37));
+    expect!["small: 8 bits, normal: 12 bits"].assert_eq(&both_sizes(63));
+    expect!["small: 15 bits, normal: 13 bits"].assert_eq(&both_sizes(117));
+    expect!["small: 40 bits, normal: 38 bits"].assert_eq(&both_sizes(u32::MAX as usize));
+    expect!["3"].assert_eq(&small_size(0..2));
+    expect!["4"].assert_eq(&small_size(2..4));
+    expect!["5"].assert_eq(&small_size(4..8));
+    expect!["6"].assert_eq(&small_size(8..16));
+    expect!["7"].assert_eq(&small_size(16..32));
+    expect!["8"].assert_eq(&small_size(32..64));
+    expect!["15"].assert_eq(&small_size(64..128));
+    expect!["16"].assert_eq(&small_size(128..256));
+    expect!["17"].assert_eq(&small_size(256..512));
 }

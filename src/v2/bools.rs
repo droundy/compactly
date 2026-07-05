@@ -3,6 +3,9 @@ use crate::Sorted;
 use super::Encode;
 use super::{bit_context::BitContext, EncodingStrategy};
 
+#[cfg(test)]
+use expect_test::expect;
+
 impl Encode for bool {
     type Context = BitContext;
     #[inline]
@@ -38,14 +41,14 @@ impl EncodingStrategy<bool> for Sorted {
 #[test]
 fn size() {
     use super::assert_bits;
-    assert_bits!(true, 1);
-    assert_bits!(false, 1);
-    assert_bits!([false; 128], 7);
-    assert_bits!([true; 2], 1);
-    assert_bits!([true; 3], 1);
-    assert_bits!([true; 16], 3);
-    assert_bits!([true; 64], 5);
-    assert_bits!([false, true], 3);
+    assert_bits!(true, expect!["1"]);
+    assert_bits!(false, expect!["1"]);
+    assert_bits!([false; 128], expect!["7"]);
+    assert_bits!([true; 2], expect!["1"]);
+    assert_bits!([true; 3], expect!["1"]);
+    assert_bits!([true; 16], expect!["3"]);
+    assert_bits!([true; 64], expect!["5"]);
+    assert_bits!([false, true], expect!["3"]);
 }
 
 #[test]
