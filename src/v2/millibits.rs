@@ -42,6 +42,17 @@ impl Millibits {
     pub fn new(millibits: usize) -> Self {
         Self(millibits as u32)
     }
+
+    #[cfg(test)]
+    pub(crate) fn as_bits(self) -> String {
+        ((self.0 + 500) / 1000).to_string()
+    }
+}
+
+impl std::fmt::Display for Millibits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} mb", self.0)
+    }
 }
 
 impl std::ops::AddAssign<Millibits> for Millibits {

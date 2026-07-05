@@ -334,37 +334,35 @@ impl EncodingStrategy<i8> for Sorted {
 
 #[test]
 fn size() {
-    use super::{assert_bits, assert_bits_all};
-    assert_bits!(u8::MAX, expect!["8"]);
-    assert_bits!(0_u8, expect!["8"]);
+    use super::{assert_bits_all, encoded_bits};
+    expect!["8"].assert_eq(&encoded_bits!(u8::MAX));
+    expect!["8"].assert_eq(&encoded_bits!(0_u8));
     assert_bits_all!(3_u8..255, expect!["8"]);
-    assert_bits!(*b"hello", expect!["31"]);
-    assert_bits!(*b"hello world", expect!["68"]);
-    assert_bits!(*b"hello world, hello world", expect!["129"]);
-    assert_bits!(*b"hello hello, hello hello", expect!["111"]);
-    assert_bits!(
-        *b"hello hello, hello hello, hello hello, hello hello",
-        expect!["195"]
-    );
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", expect!["37"]);
-    assert_bits!(
-        *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
-        expect!["44"]
-    );
-    assert_bits!(*b"\0", expect!["8"]);
-    assert_bits!(*b"\x01", expect!["8"]);
-    assert_bits!(*b"\x01\x01", expect!["13"]);
-    assert_bits!(*b"\x01\x01\x01\x01", expect!["19"]);
-    assert_bits!(*b"\x01\x01\x01\x01\x01", expect!["21"]);
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", expect!["23"]);
-    assert_bits!(*b"\x01\x02\x03\x04", expect!["25"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05", expect!["30"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", expect!["36"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", expect!["40"]);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", expect!["47"]);
+    expect!["31"].assert_eq(&encoded_bits!(*b"hello"));
+    expect!["68"].assert_eq(&encoded_bits!(*b"hello world"));
+    expect!["129"].assert_eq(&encoded_bits!(*b"hello world, hello world"));
+    expect!["111"].assert_eq(&encoded_bits!(*b"hello hello, hello hello"));
+    expect!["195"].assert_eq(&encoded_bits!(
+        *b"hello hello, hello hello, hello hello, hello hello"
+    ));
+    expect!["37"].assert_eq(&encoded_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh"));
+    expect!["44"].assert_eq(&encoded_bits!(
+        *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+    ));
+    expect!["8"].assert_eq(&encoded_bits!(*b"\0"));
+    expect!["8"].assert_eq(&encoded_bits!(*b"\x01"));
+    expect!["13"].assert_eq(&encoded_bits!(*b"\x01\x01"));
+    expect!["19"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01"));
+    expect!["21"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01"));
+    expect!["23"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01\x01"));
+    expect!["25"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04"));
+    expect!["30"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05"));
+    expect!["36"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06"));
+    expect!["40"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07"));
+    expect!["47"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08"));
 
-    assert_bits!(i8::MAX, expect!["8"]);
-    assert_bits!(0_i8, expect!["8"]);
+    expect!["8"].assert_eq(&encoded_bits!(i8::MAX));
+    expect!["8"].assert_eq(&encoded_bits!(0_i8));
 }
 
 #[test]
@@ -377,7 +375,7 @@ fn small() {
             let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
             assert_eq!(
                 Encoded::<u8, Small>::new(v).millibits(),
-                super::Millibits::bits(bits),
+                super::Millibits::bits(bits.parse().unwrap()),
                 "millibits estimate disagrees for {v}"
             );
             (v, bits)
@@ -386,7 +384,7 @@ fn small() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits.to_string()
+        bits
     }
 
     expect!["3"].assert_eq(&size_of(0..2));
@@ -424,7 +422,7 @@ fn small_i8() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits.to_string()
+        bits
     }
 
     // Zig-zag mapping → same bit ranges as Small u8:
@@ -447,7 +445,7 @@ fn small_i8() {
     // zigzag {128..255} → 11 bits: {64..127, -65..-128}
     expect!["11"].assert_eq(&size_of([64i8, 127, -65]));
     // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
-    // The Range coder compresses all-ones sequences well, same as assert_bits!(u8::MAX, 3).
+    // The Range coder compresses all-ones sequences well, same as 3.assert_eq(&encoded_bits!(u8::MAX)).
     // Mirror the small_u8 test for u8=255: only verify entropy, not actual coded size.
     assert_eq!(
         crate::Encoded::<i8, Small>::new(-128).millibits(),
@@ -490,16 +488,13 @@ fn sorted_u8_roundtrip() {
 
 #[test]
 fn sorted_u8_ascii() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::Encoded;
-    assert_bits!(
-        [
-            Encoded::<u8, Sorted>::new(b'h'),
-            Encoded::<u8, Sorted>::new(b'e'),
-            Encoded::<u8, Sorted>::new(b'l'),
-            Encoded::<u8, Sorted>::new(b'l'),
-            Encoded::<u8, Sorted>::new(b'o'),
-        ],
-        expect!["29"]
-    );
+    expect!["29"].assert_eq(&encoded_bits!([
+        Encoded::<u8, Sorted>::new(b'h'),
+        Encoded::<u8, Sorted>::new(b'e'),
+        Encoded::<u8, Sorted>::new(b'l'),
+        Encoded::<u8, Sorted>::new(b'l'),
+        Encoded::<u8, Sorted>::new(b'o'),
+    ]));
 }

@@ -298,46 +298,45 @@ impl EncodingStrategy<usize> for Sorted {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::Encoded;
-    assert_bits!(Encoded::<_, Small>::new(0_u64), expect!["3"]);
-    assert_bits!(0_usize, expect!["3"]);
-    assert_bits!(Encoded::<_, Small>::new(1_u64), expect!["7"]);
-    assert_bits!(1_usize, expect!["3"]);
-    assert_bits!(Encoded::<_, Small>::new(2_u64), expect!["7"]);
-    assert_bits!(2_usize, expect!["3"]);
-    assert_bits!(3_usize, expect!["1"]);
-    assert_bits!(4_usize, expect!["8"]);
-    assert_bits!(5_usize, expect!["8"]);
-    assert_bits!(6_usize, expect!["8"]);
-    assert_bits!(7_usize, expect!["8"]);
-    assert_bits!(8_usize, expect!["9"]);
-    assert_bits!(Encoded::<_, Small>::new(16_u64), expect!["10"]);
-    assert_bits!(16_usize, expect!["10"]);
-    assert_bits!(Encoded::<_, Small>::new(32_u64), expect!["11"]);
-    assert_bits!(32_usize, expect!["11"]);
-    assert_bits!(Encoded::<_, Small>::new(64_u64), expect!["12"]);
-    assert_bits!(64_usize, expect!["12"]);
-    assert_bits!(Encoded::<_, Small>::new(128_u64), expect!["13"]);
-    assert_bits!(128_usize, expect!["13"]);
-    assert_bits!(Encoded::<_, Small>::new(256_u64), expect!["14"]);
-    assert_bits!(256_usize, expect!["14"]);
-    assert_bits!(512_usize, expect!["15"]);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64), expect!["16"]);
-    assert_bits!(1024_usize, expect!["16"]);
-    assert_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), expect!["26"]);
-    assert_bits!(1024_usize * 1024, expect!["26"]);
-    assert_bits!(1024_usize * 1024 * 1024, expect!["36"]);
-    assert_bits!(u32::MAX as usize, expect!["38"]);
+    expect!["3"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_u64)));
+    expect!["3"].assert_eq(&encoded_bits!(0_usize));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_u64)));
+    expect!["3"].assert_eq(&encoded_bits!(1_usize));
+    expect!["7"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(2_u64)));
+    expect!["3"].assert_eq(&encoded_bits!(2_usize));
+    expect!["1"].assert_eq(&encoded_bits!(3_usize));
+    expect!["8"].assert_eq(&encoded_bits!(4_usize));
+    expect!["8"].assert_eq(&encoded_bits!(5_usize));
+    expect!["8"].assert_eq(&encoded_bits!(6_usize));
+    expect!["8"].assert_eq(&encoded_bits!(7_usize));
+    expect!["9"].assert_eq(&encoded_bits!(8_usize));
+    expect!["10"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(16_u64)));
+    expect!["10"].assert_eq(&encoded_bits!(16_usize));
+    expect!["11"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(32_u64)));
+    expect!["11"].assert_eq(&encoded_bits!(32_usize));
+    expect!["12"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(64_u64)));
+    expect!["12"].assert_eq(&encoded_bits!(64_usize));
+    expect!["13"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(128_u64)));
+    expect!["13"].assert_eq(&encoded_bits!(128_usize));
+    expect!["14"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(256_u64)));
+    expect!["14"].assert_eq(&encoded_bits!(256_usize));
+    expect!["15"].assert_eq(&encoded_bits!(512_usize));
+    expect!["16"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1024_u64)));
+    expect!["16"].assert_eq(&encoded_bits!(1024_usize));
+    expect!["26"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1024_u64 * 1024)));
+    expect!["26"].assert_eq(&encoded_bits!(1024_usize * 1024));
+    expect!["36"].assert_eq(&encoded_bits!(1024_usize * 1024 * 1024));
+    expect!["38"].assert_eq(&encoded_bits!(u32::MAX as usize));
     // Note the code will work for u32, but the following two tests will fail.
-    assert_bits!(1024_usize * 1024 * 1024 * 1024, expect!["46"]);
-    assert_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, expect!["56"]);
-    assert_bits!([0_usize; 128], expect!["20"]);
-    assert_bits!([1_usize; 19], expect!["13"]);
-    assert_bits!(
-        [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        expect!["19"]
-    );
+    expect!["46"].assert_eq(&encoded_bits!(1024_usize * 1024 * 1024 * 1024));
+    expect!["56"].assert_eq(&encoded_bits!(1024_usize * 1024 * 1024 * 1024 * 1024));
+    expect!["20"].assert_eq(&encoded_bits!([0_usize; 128]));
+    expect!["13"].assert_eq(&encoded_bits!([1_usize; 19]));
+    expect!["19"].assert_eq(&encoded_bits!([
+        0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]));
 }
 
 #[test]
@@ -366,7 +365,7 @@ fn small() {
             let bits = super::encoded_bits!(Encoded::<_, Small>::new(v));
             assert_eq!(
                 Encoded::<_, Small>::new(v).millibits(&mut Default::default()),
-                Some(1000 * bits),
+                Some(1000 * bits.parse::<usize>().unwrap()),
                 "small wrong size"
             );
             (v, bits)
@@ -375,10 +374,10 @@ fn small() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits.to_string()
+        bits
     }
     fn normal_size(v: usize) -> usize {
-        let bits = super::encoded_bits!(v);
+        let bits: usize = super::encoded_bits!(v).parse().unwrap();
         assert_eq!(
             v.millibits(&mut Default::default()),
             Some(1000 * bits),

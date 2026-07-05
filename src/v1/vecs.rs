@@ -28,12 +28,12 @@ impl<T: Encode> Encode for Vec<T> {
 }
 #[test]
 fn size() {
-    use super::{assert_bits, assert_bits_all};
-    assert_bits!(Vec::<usize>::new(), expect!["3"]);
+    use super::{assert_bits_all, encoded_bits};
+    expect!["3"].assert_eq(&encoded_bits!(Vec::<usize>::new()));
     assert_bits_all!(0_usize..4, |value| vec![value], expect!["6"]);
-    assert_bits!(dbg!((0_usize..1).collect::<Vec<_>>()), expect!["6"]);
-    assert_bits!(dbg!((0_usize..2).collect::<Vec<_>>()), expect!["10"]);
-    assert_bits!(dbg!((0_usize..10).collect::<Vec<_>>()), expect!["61"]);
+    expect!["6"].assert_eq(&encoded_bits!(dbg!((0_usize..1).collect::<Vec<_>>())));
+    expect!["10"].assert_eq(&encoded_bits!(dbg!((0_usize..2).collect::<Vec<_>>())));
+    expect!["61"].assert_eq(&encoded_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
 }
 
 pub struct Context<T, S: EncodingStrategy<T>> {

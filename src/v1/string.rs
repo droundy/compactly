@@ -246,17 +246,17 @@ impl EncodingStrategy<String> for Compressible {
 
 #[test]
 fn size() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::Encoded;
 
-    assert_bits!("".to_string(), expect!["3"]);
-    assert_bits!("a".to_string(), expect!["11"]);
-    assert_bits!("A".to_string(), expect!["11"]);
-    assert_bits!("É".to_string(), expect!["16"]);
-    assert_bits!("😊".to_string(), expect!["23"]);
-    assert_bits!("hello world".to_string(), expect!["74"]);
-    assert_bits!("Hello world".to_string(), expect!["76"]);
-    assert_bits!("hhhhhhhhhhh".to_string(), expect!["35"]);
+    expect!["3"].assert_eq(&encoded_bits!("".to_string()));
+    expect!["11"].assert_eq(&encoded_bits!("a".to_string()));
+    expect!["11"].assert_eq(&encoded_bits!("A".to_string()));
+    expect!["16"].assert_eq(&encoded_bits!("É".to_string()));
+    expect!["23"].assert_eq(&encoded_bits!("😊".to_string()));
+    expect!["74"].assert_eq(&encoded_bits!("hello world".to_string()));
+    expect!["76"].assert_eq(&encoded_bits!("Hello world".to_string()));
+    expect!["35"].assert_eq(&encoded_bits!("hhhhhhhhhhh".to_string()));
 
     fn compare_small_bits(value: &str) -> String {
         println!("comparing {value:?}");
@@ -342,7 +342,7 @@ fn size() {
         Some(39424),
         "just a string"
     );
-    assert_bits!(s.clone(), expect!["40"]);
+    expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = "hello world this is a string".to_string();
     assert_eq!(
@@ -350,7 +350,7 @@ fn size() {
         Some(165025),
         "just a string"
     );
-    assert_bits!(s.clone(), expect!["165"]);
+    expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Some(14000) millibits (14 bits), small: Some(20000) millibits (20 bits)"]
         .assert_eq(&compare_vecs(&["h"]));
@@ -415,8 +415,8 @@ fn sorted() {
     .collect::<Vec<_>>();
     let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
-    assert_bits!(strings.clone(), expect!["242"]);
-    assert_bits!(encoded_strings.clone(), expect!["204"]);
+    expect!["242"].assert_eq(&encoded_bits!(strings.clone()));
+    expect!["204"].assert_eq(&encoded_bits!(encoded_strings.clone()));
 
     let strings: Vec<String> = COMPRESSIBLE_TEXT
         .split(' ')
@@ -426,21 +426,21 @@ fn sorted() {
         .collect::<Vec<_>>();
     let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
-    use super::assert_bits;
+    use super::encoded_bits;
 
-    assert_bits!(strings.clone(), expect!["5958"]);
-    assert_bits!(encoded_strings.clone(), expect!["4961"]);
+    expect!["5958"].assert_eq(&encoded_bits!(strings.clone()));
+    expect!["4961"].assert_eq(&encoded_bits!(encoded_strings.clone()));
 }
 
 #[test]
 fn crash_from_bench() {
-    use super::assert_bits;
+    use super::encoded_bits;
     use crate::{Encoded, Values};
     let names = ["Al", "Aïr"];
     let vec = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
-    assert_bits!(vec.clone(), expect!["54"]);
+    expect!["54"].assert_eq(&encoded_bits!(vec.clone()));
     let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
-    assert_bits!(compressible.clone(), expect!["69"]);
+    expect!["69"].assert_eq(&encoded_bits!(compressible.clone()));
     let sorted = Encoded::<Vec<String>, Values<Sorted>>::new(vec.clone());
-    assert_bits!(sorted.clone(), expect!["51"]);
+    expect!["51"].assert_eq(&encoded_bits!(sorted.clone()));
 }
