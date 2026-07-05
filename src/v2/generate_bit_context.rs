@@ -321,12 +321,15 @@ pub fn main() {
     .bitc()
     .name;
     const FILENAME: &str = file!();
+    let count = variants.len();
     println!(
         r"//! Generated with `{FILENAME}`
 use super::ans::Probability;
 
 impl BitContext {{
 pub const CONFIDENT: Self = {confident_name};
+/// Number of variants; every `BitContext as usize` discriminant is below this.
+pub const COUNT: usize = {count};
     }}
 "
     );

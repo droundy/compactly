@@ -1,8 +1,10 @@
-//! Generated with `src/ans/generate_bit_context.rs`
+//! Generated with `src/v2/generate_bit_context.rs`
 use super::ans::Probability;
 
 impl BitContext {
     pub const CONFIDENT: Self = True0False4;
+    /// Number of variants; every `BitContext as usize` discriminant is below this.
+    pub const COUNT: usize = 675;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

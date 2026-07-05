@@ -145,13 +145,14 @@ impl ArithState {
         self.lo + (width >> SHIFT) * prob.get() as u64
     }
 
-    /// Minimum interval width required before coding a whole 16-bit tree
-    /// symbol in one step. Guarantees every one of the `2^16` slots spans at
-    /// least `2^16` values, so slot boundaries are exact and the top-slot
-    /// rounding waste is at most a `2^-16` fraction of the interval. The
-    /// per-bit path tolerates arbitrarily narrow intervals, so this is only
-    /// enforced (via [`ArithState::clamp_for_symbol`]) on the symbol path.
-    const MIN_SYMBOL_WIDTH: u64 = 1 << 32;
+    /// Minimum interval width required before coding a whole tree symbol in
+    /// one step. Guarantees every one of the `M` slots spans at least `M`
+    /// values, so slot boundaries are exact and the top-slot rounding waste is
+    /// at most a `1/M` fraction of the interval. The per-bit path tolerates
+    /// arbitrarily narrow intervals, so this is only enforced (via
+    /// [`ArithState::clamp_for_symbol`]) on the symbol path. (Must stay below
+    /// `2^56` for `clamp_for_symbol`'s single-boundary argument to hold.)
+    const MIN_SYMBOL_WIDTH: u64 = (SymbolRange::M as u64) * (SymbolRange::M as u64);
 
     /// Carry-less clamp renormalization (Subbotin-style): if the interval is
     /// too narrow for a symbol step, it must straddle exactly one top-byte
