@@ -48,12 +48,12 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
 
 #[test]
 fn hashset() {
-    use super::{assert_size, encoded_bits};
+    use super::{assert_size, estimated_bits};
     assert_size!(HashSet::<usize>::new(), expect!["1"]);
     assert_size!(HashSet::from([0_usize]), expect!["1"]);
     assert_size!(HashSet::from([1_usize]), expect!["1"]);
     assert_size!(HashSet::from([5_usize]), expect!["2"]);
-    expect!["6"].assert_eq(&encoded_bits!(HashSet::from([true, false])));
+    expect!["6"].assert_eq(&estimated_bits!(HashSet::from([true, false])));
     // assert_size!(HashSet::from([0_usize, 1, 2]), 3);
     // assert_size!(HashSet::from([0_usize, 1]), 1);
     // Sizes of larger hash sets are unpredictable because the values come out
@@ -169,19 +169,19 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
 
 #[test]
 fn btreeset() {
-    use super::{ans_encoded_bits, encoded_bits};
-    expect!["3"].assert_eq(&encoded_bits!(BTreeSet::<usize>::new()));
-    expect!["6"].assert_eq(&encoded_bits!(BTreeSet::from([0_usize])));
-    expect!["6"].assert_eq(&encoded_bits!(BTreeSet::from([1_usize])));
-    expect!["8"].assert_eq(&encoded_bits!(BTreeSet::from([5_usize])));
-    expect!["10"].assert_eq(&encoded_bits!(BTreeSet::from([0_usize, 1])));
-    expect!["12"].assert_eq(&encoded_bits!(BTreeSet::from([0_usize, 1, 2])));
-    expect!["40"].assert_eq(&encoded_bits!(BTreeSet::from_iter(0_usize..70)));
-    expect!["87"].assert_eq(&encoded_bits!(BTreeSet::from_iter(0_usize..1024)));
-    expect!["4"].assert_eq(&encoded_bits!(BTreeSet::from([false])));
-    expect!["4"].assert_eq(&encoded_bits!(BTreeSet::from([true])));
-    expect!["6"].assert_eq(&encoded_bits!(BTreeSet::from([false, true])));
-    expect!["160"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
+    use super::{ans_encoded_bits, encoded_bits, estimated_bits};
+    expect!["3"].assert_eq(&estimated_bits!(BTreeSet::<usize>::new()));
+    expect!["6"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize])));
+    expect!["6"].assert_eq(&estimated_bits!(BTreeSet::from([1_usize])));
+    expect!["8"].assert_eq(&estimated_bits!(BTreeSet::from([5_usize])));
+    expect!["10"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize, 1])));
+    expect!["12"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize, 1, 2])));
+    expect!["40"].assert_eq(&estimated_bits!(BTreeSet::from_iter(0_usize..70)));
+    expect!["85"].assert_eq(&estimated_bits!(BTreeSet::from_iter(0_usize..1024)));
+    expect!["4"].assert_eq(&estimated_bits!(BTreeSet::from([false])));
+    expect!["4"].assert_eq(&estimated_bits!(BTreeSet::from([true])));
+    expect!["6"].assert_eq(&estimated_bits!(BTreeSet::from([false, true])));
+    expect!["157"].assert_eq(&estimated_bits!(BTreeSet::from_iter(
         1_000_000_u64..1_001_024
     )));
     expect!["243"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
@@ -194,39 +194,39 @@ fn btreeset() {
 
 #[test]
 fn compact_btreeset() {
-    use super::{ans_encoded_bits, encoded_bits};
+    use super::{ans_encoded_bits, encoded_bits, estimated_bits};
     use crate::Encoded;
-    expect!["3"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["3"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::<u64>::new()
     )));
-    expect!["9"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        0_u64
-    ]))));
-    expect!["9"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        1_u64
-    ]))));
-    expect!["11"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        5_u64
-    ]))));
-    expect!["41"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        u32::MAX as u64
-    ]))));
-    expect!["74"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        u64::MAX
-    ]))));
-    expect!["15"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        0_u64, 1
-    ]))));
-    expect!["19"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(BTreeSet::from([
-        0_u64, 1, 2
-    ]))));
-    expect!["55"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["9"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [0_u64]
+    ))));
+    expect!["9"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [1_u64]
+    ))));
+    expect!["11"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [5_u64]
+    ))));
+    expect!["40"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [u32::MAX as u64]
+    ))));
+    expect!["73"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [u64::MAX]
+    ))));
+    expect!["15"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [0_u64, 1]
+    ))));
+    expect!["18"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(BTreeSet::from(
+        [0_u64, 1, 2]
+    ))));
+    expect!["55"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(0_u64..70)
     )));
-    expect!["124"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["121"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(0_u64..1024)
     )));
-    expect!["143"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["140"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(1_000_000_u64..1_001_024)
     )));
     expect!["214"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(

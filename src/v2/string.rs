@@ -365,8 +365,8 @@ fn sorted() {
     .collect::<Vec<_>>();
     let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
-    expect!["242"].assert_eq(&encoded_bits!(strings.clone()));
-    expect!["204"].assert_eq(&encoded_bits!(encoded_strings.clone()));
+    expect!["242"].assert_eq(&estimated_bits!(strings.clone()));
+    expect!["203"].assert_eq(&estimated_bits!(encoded_strings.clone()));
 
     let strings: Vec<String> = COMPRESSIBLE_TEXT
         .split(' ')
@@ -376,10 +376,10 @@ fn sorted() {
         .collect::<Vec<_>>();
     let encoded_strings: Encoded<Vec<String>, Values<Sorted>> =
         crate::Encoded::new(strings.clone());
-    use super::encoded_bits;
+    use super::estimated_bits;
 
-    expect!["5957"].assert_eq(&encoded_bits!(strings.clone()));
-    expect!["4960"].assert_eq(&encoded_bits!(encoded_strings.clone()));
+    expect!["5953"].assert_eq(&estimated_bits!(strings.clone()));
+    expect!["4957"].assert_eq(&estimated_bits!(encoded_strings.clone()));
 }
 
 #[test]

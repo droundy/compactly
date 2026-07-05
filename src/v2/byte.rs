@@ -334,35 +334,35 @@ impl EncodingStrategy<i8> for Sorted {
 
 #[test]
 fn size() {
-    use super::{assert_bits_all, encoded_bits};
-    expect!["3"].assert_eq(&encoded_bits!(u8::MAX));
-    expect!["8"].assert_eq(&encoded_bits!(0_u8));
+    use super::{assert_bits_all, estimated_bits};
+    expect!["8"].assert_eq(&estimated_bits!(u8::MAX));
+    expect!["8"].assert_eq(&estimated_bits!(0_u8));
     assert_bits_all!(3_u8..255, expect!["8"]);
-    expect!["31"].assert_eq(&encoded_bits!(*b"hello"));
-    expect!["68"].assert_eq(&encoded_bits!(*b"hello world"));
-    expect!["129"].assert_eq(&encoded_bits!(*b"hello world, hello world"));
-    expect!["111"].assert_eq(&encoded_bits!(*b"hello hello, hello hello"));
-    expect!["195"].assert_eq(&encoded_bits!(
+    expect!["31"].assert_eq(&estimated_bits!(*b"hello"));
+    expect!["68"].assert_eq(&estimated_bits!(*b"hello world"));
+    expect!["129"].assert_eq(&estimated_bits!(*b"hello world, hello world"));
+    expect!["110"].assert_eq(&estimated_bits!(*b"hello hello, hello hello"));
+    expect!["195"].assert_eq(&estimated_bits!(
         *b"hello hello, hello hello, hello hello, hello hello"
     ));
-    expect!["37"].assert_eq(&encoded_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh"));
-    expect!["44"].assert_eq(&encoded_bits!(
+    expect!["37"].assert_eq(&estimated_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh"));
+    expect!["44"].assert_eq(&estimated_bits!(
         *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
     ));
-    expect!["8"].assert_eq(&encoded_bits!(*b"\0"));
-    expect!["8"].assert_eq(&encoded_bits!(*b"\x01"));
-    expect!["13"].assert_eq(&encoded_bits!(*b"\x01\x01"));
-    expect!["19"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01"));
-    expect!["21"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01"));
-    expect!["22"].assert_eq(&encoded_bits!(*b"\x01\x01\x01\x01\x01\x01"));
-    expect!["25"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04"));
-    expect!["30"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05"));
-    expect!["36"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06"));
-    expect!["40"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07"));
-    expect!["47"].assert_eq(&encoded_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08"));
+    expect!["8"].assert_eq(&estimated_bits!(*b"\0"));
+    expect!["8"].assert_eq(&estimated_bits!(*b"\x01"));
+    expect!["13"].assert_eq(&estimated_bits!(*b"\x01\x01"));
+    expect!["19"].assert_eq(&estimated_bits!(*b"\x01\x01\x01\x01"));
+    expect!["21"].assert_eq(&estimated_bits!(*b"\x01\x01\x01\x01\x01"));
+    expect!["22"].assert_eq(&estimated_bits!(*b"\x01\x01\x01\x01\x01\x01"));
+    expect!["25"].assert_eq(&estimated_bits!(*b"\x01\x02\x03\x04"));
+    expect!["30"].assert_eq(&estimated_bits!(*b"\x01\x02\x03\x04\x05"));
+    expect!["35"].assert_eq(&estimated_bits!(*b"\x01\x02\x03\x04\x05\x06"));
+    expect!["40"].assert_eq(&estimated_bits!(*b"\x01\x02\x03\x04\x05\x06\x07"));
+    expect!["47"].assert_eq(&estimated_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08"));
 
-    expect!["8"].assert_eq(&encoded_bits!(i8::MAX));
-    expect!["8"].assert_eq(&encoded_bits!(0_i8));
+    expect!["8"].assert_eq(&estimated_bits!(i8::MAX));
+    expect!["8"].assert_eq(&estimated_bits!(0_i8));
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn small_i8() {
     fn size_of(vals: impl IntoIterator<Item = i8>) -> String {
         let mut sizes = vals.into_iter().map(|v| {
             println!("Checking {v}");
-            (v, super::encoded_bits!(Encoded::<i8, Small>::new(v)))
+            (v, super::estimated_bits!(Encoded::<i8, Small>::new(v)))
         });
         let (_, bits) = sizes.next().expect("size_of needs at least one value");
         for (v, other) in sizes {
@@ -445,8 +445,7 @@ fn small_i8() {
     // zigzag {128..255} → 11 bits: {64..127, -65..-128}
     expect!["11"].assert_eq(&size_of([64i8, 127, -65]));
     // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
-    // The Range coder compresses all-ones sequences well, same as 3.assert_eq(&encoded_bits!(u8::MAX)).
-    // Mirror the small_u8 test for u8=255: only verify entropy, not actual coded size.
+    // Mirror the small_u8 test for u8=255: verify the millibits entropy estimate directly.
     assert_eq!(
         crate::Encoded::<i8, Small>::new(-128).millibits(),
         super::Millibits::bits(11)
@@ -488,9 +487,9 @@ fn sorted_u8_roundtrip() {
 
 #[test]
 fn sorted_u8_ascii() {
-    use super::encoded_bits;
+    use super::estimated_bits;
     use crate::Encoded;
-    expect!["29"].assert_eq(&encoded_bits!([
+    expect!["28"].assert_eq(&estimated_bits!([
         Encoded::<u8, Sorted>::new(b'h'),
         Encoded::<u8, Sorted>::new(b'e'),
         Encoded::<u8, Sorted>::new(b'l'),

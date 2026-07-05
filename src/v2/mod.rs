@@ -333,8 +333,32 @@ macro_rules! encoded_bits {
 #[cfg(test)]
 pub(crate) use encoded_bits;
 
+/// Round-trips the value once (encode → decode → assert equal) and evaluates to
+/// a `String` holding the estimated size in bits according to the [`Millibits`]
+/// entropy estimator, ready to pass to `expect![...].assert_eq(...)`.
+///
+/// Prefer this over [`encoded_bits!`] when the test is about how compactly a
+/// format encodes a value: it measures the format's entropy directly, free of
+/// the range coder's rounding and per-copy amortization. Reach for
+/// [`encoded_bits!`] only when the actual coded output is what's under test
+/// (e.g. comparing the range coder against `Ans`, or checking that the coder
+/// achieves its `millibits` estimate).
+#[cfg(test)]
+macro_rules! estimated_bits {
+    ($v:expr) => {{
+        let v = $v;
+        let bits = crate::v2::Encode::millibits(&v).as_bits();
+        let bytes = super::encode(&v);
+        let decoded = super::decode(&bytes);
+        assert_eq!(decoded, Some(v), "decoded value is incorrect");
+        bits
+    }};
+}
+#[cfg(test)]
+pub(crate) use estimated_bits;
+
 /// Takes an iterator of values (optionally mapped through a function) that are
-/// all expected to have the same [`encoded_bits!`] count, and checks that
+/// all expected to have the same [`estimated_bits!`] count, and checks that
 /// count against the expected value.
 #[cfg(test)]
 macro_rules! assert_bits_all {
@@ -347,9 +371,9 @@ macro_rules! assert_bits_all {
         let first = iter
             .next()
             .expect("assert_bits_all! needs at least one value");
-        let bits = f(first).millibits().as_bits();
+        let bits = crate::v2::estimated_bits!(f(first));
         for v in iter {
-            let other = f(v).millibits().as_bits();
+            let other = crate::v2::estimated_bits!(f(v));
             assert_eq!(other, bits, "encoded size differs for {v:?}");
         }
         $expected.assert_eq(&bits);

@@ -149,7 +149,7 @@ impl<const N: usize> Encode for ULessThan<N> {
 
 #[test]
 fn size() {
-    use super::encoded_bits;
+    use super::estimated_bits;
     fn test_urange<const N: usize>() {
         for i in 0..N {
             let v = ULessThan::<N>::new(i);
@@ -173,28 +173,28 @@ fn size() {
     test_urange::<256>();
     test_urange::<257>();
 
-    expect!["1"].assert_eq(&encoded_bits!(ULessThan::<3>::try_from(0).unwrap()));
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<3>::try_from(1).unwrap()));
-    expect!["1"].assert_eq(&encoded_bits!(ULessThan::<3>::try_from(2).unwrap()));
+    expect!["1"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(0).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(1).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(2).unwrap()));
 
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<5>::try_from(0).unwrap()));
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<5>::try_from(1).unwrap()));
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<5>::try_from(2).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<5>::try_from(3).unwrap()));
-    expect!["1"].assert_eq(&encoded_bits!(ULessThan::<5>::try_from(4).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(0).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(1).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(2).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(3).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(4).unwrap()));
 
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(0).unwrap()));
-    expect!["2"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(1).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(2).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(3).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(4).unwrap()));
-    expect!["1"].assert_eq(&encoded_bits!(ULessThan::<6>::try_from(5).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(0).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(1).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(2).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(3).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(4).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(5).unwrap()));
 
-    expect!["7"].assert_eq(&encoded_bits!(ULessThan::<128>::try_from(0).unwrap()));
-    expect!["7"].assert_eq(&encoded_bits!(ULessThan::<128>::try_from(1).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<128>::try_from(127).unwrap()));
+    expect!["7"].assert_eq(&estimated_bits!(ULessThan::<128>::try_from(0).unwrap()));
+    expect!["7"].assert_eq(&estimated_bits!(ULessThan::<128>::try_from(1).unwrap()));
+    expect!["7"].assert_eq(&estimated_bits!(ULessThan::<128>::try_from(127).unwrap()));
 
-    expect!["8"].assert_eq(&encoded_bits!(ULessThan::<256>::try_from(0).unwrap()));
-    expect!["8"].assert_eq(&encoded_bits!(ULessThan::<256>::try_from(1).unwrap()));
-    expect!["3"].assert_eq(&encoded_bits!(ULessThan::<256>::try_from(255).unwrap()));
+    expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(0).unwrap()));
+    expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(1).unwrap()));
+    expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(255).unwrap()));
 }

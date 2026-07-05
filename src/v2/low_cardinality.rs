@@ -195,7 +195,7 @@ where
 
 #[test]
 fn low_cardinality() {
-    use super::encoded_bits;
+    use super::estimated_bits;
     use crate::Encoded;
 
     let strings = [
@@ -216,10 +216,10 @@ fn low_cardinality() {
         .map(Encoded::<_, LowCardinality>::new)
         .collect::<Vec<_>>();
 
-    expect!["284430"].assert_eq(&encoded_bits!(v.clone()));
-    expect!["1673"].assert_eq(&encoded_bits!(low.clone()));
-    expect!["610"].assert_eq(&encoded_bits!(strings.clone().to_vec()));
-    expect!["612"].assert_eq(&encoded_bits!(strings
+    expect!["284235"].assert_eq(&estimated_bits!(v.clone()));
+    expect!["1671"].assert_eq(&estimated_bits!(low.clone()));
+    expect!["610"].assert_eq(&estimated_bits!(strings.clone().to_vec()));
+    expect!["612"].assert_eq(&estimated_bits!(strings
         .iter()
         .cloned()
         .map(Encoded::<_, LowCardinality>::new)

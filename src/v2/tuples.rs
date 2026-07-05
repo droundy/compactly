@@ -251,30 +251,30 @@ impl<
 
 #[test]
 fn sizes() {
-    use super::encoded_bits;
+    use super::estimated_bits;
 
-    expect!["2"].assert_eq(&encoded_bits!((false, false)));
-    expect!["2"].assert_eq(&encoded_bits!((false, true)));
-    expect!["1"].assert_eq(&encoded_bits!((true, true)));
-    expect!["2"].assert_eq(&encoded_bits!((true, false)));
+    expect!["2"].assert_eq(&estimated_bits!((false, false)));
+    expect!["2"].assert_eq(&estimated_bits!((false, true)));
+    expect!["2"].assert_eq(&estimated_bits!((true, true)));
+    expect!["2"].assert_eq(&estimated_bits!((true, false)));
 
-    expect!["1"].assert_eq(&encoded_bits!((true, true, true)));
+    expect!["3"].assert_eq(&estimated_bits!((true, true, true)));
 
-    expect!["1"].assert_eq(&encoded_bits!((true, true, true, true)));
+    expect!["4"].assert_eq(&estimated_bits!((true, true, true, true)));
 
-    expect!["3"].assert_eq(&encoded_bits!((false, false, false)));
+    expect!["3"].assert_eq(&estimated_bits!((false, false, false)));
 
-    expect!["4"].assert_eq(&encoded_bits!((false, false, false, false)));
+    expect!["4"].assert_eq(&estimated_bits!((false, false, false, false)));
 
-    expect!["5"].assert_eq(&encoded_bits!((false, false, false, false, false)));
+    expect!["5"].assert_eq(&estimated_bits!((false, false, false, false, false)));
 
-    expect!["6"].assert_eq(&encoded_bits!((false, false, false, false, false, false)));
+    expect!["6"].assert_eq(&estimated_bits!((false, false, false, false, false, false)));
 
-    expect!["7"].assert_eq(&encoded_bits!((
+    expect!["7"].assert_eq(&estimated_bits!((
         false, false, false, false, false, false, false
     )));
 
-    expect!["8"].assert_eq(&encoded_bits!((
+    expect!["8"].assert_eq(&estimated_bits!((
         false, false, false, false, false, false, false, false
     )));
 }
