@@ -4,6 +4,9 @@ use super::{
     byte::UBits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan,
 };
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
@@ -187,47 +190,56 @@ impl EncodingStrategy<usize> for Sorted {
 fn size() {
     use super::raw_bits;
     use crate::Encoded;
-    raw_bits!(Encoded::<_, Small>::new(0_u64), @"6 bits");
-    raw_bits!(0_usize, @"3 bits");
-    raw_bits!(Encoded::<_, Small>::new(1_u64), @"6 bits");
-    raw_bits!(1_usize, @"3 bits");
-    raw_bits!(Encoded::<_, Small>::new(2_u64), @"7 bits");
-    raw_bits!(2_usize, @"3 bits");
-    raw_bits!(3_usize, @"3 bits");
-    raw_bits!(4_usize, @"7 bits");
-    raw_bits!(5_usize, @"7 bits");
-    raw_bits!(6_usize, @"8 bits");
-    raw_bits!(7_usize, @"8 bits");
-    raw_bits!(8_usize, @"9 bits");
-    raw_bits!(Encoded::<_, Small>::new(16_u64), @"10 bits");
-    raw_bits!(16_usize, @"10 bits");
-    raw_bits!(Encoded::<_, Small>::new(32_u64), @"11 bits");
-    raw_bits!(32_usize, @"11 bits");
-    raw_bits!(Encoded::<_, Small>::new(64_u64), @"12 bits");
-    raw_bits!(64_usize, @"12 bits");
-    raw_bits!(Encoded::<_, Small>::new(128_u64), @"13 bits");
-    raw_bits!(128_usize, @"13 bits");
-    raw_bits!(Encoded::<_, Small>::new(256_u64), @"14 bits");
-    raw_bits!(256_usize, @"14 bits");
-    raw_bits!(512_usize, @"15 bits");
-    raw_bits!(Encoded::<_, Small>::new(1024_u64), @"16 bits");
-    raw_bits!(1024_usize, @"16 bits");
-    raw_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), @"26 bits");
-    raw_bits!(1024_usize * 1024, @"26 bits");
-    raw_bits!(1024_usize * 1024 * 1024, @"36 bits");
-    raw_bits!(u32::MAX as usize, @"38 bits");
+    raw_bits!(Encoded::<_, Small>::new(0_u64), expect!["6 bits"]);
+    raw_bits!(0_usize, expect!["3 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(1_u64), expect!["6 bits"]);
+    raw_bits!(1_usize, expect!["3 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(2_u64), expect!["7 bits"]);
+    raw_bits!(2_usize, expect!["3 bits"]);
+    raw_bits!(3_usize, expect!["3 bits"]);
+    raw_bits!(4_usize, expect!["7 bits"]);
+    raw_bits!(5_usize, expect!["7 bits"]);
+    raw_bits!(6_usize, expect!["8 bits"]);
+    raw_bits!(7_usize, expect!["8 bits"]);
+    raw_bits!(8_usize, expect!["9 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(16_u64), expect!["10 bits"]);
+    raw_bits!(16_usize, expect!["10 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(32_u64), expect!["11 bits"]);
+    raw_bits!(32_usize, expect!["11 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(64_u64), expect!["12 bits"]);
+    raw_bits!(64_usize, expect!["12 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(128_u64), expect!["13 bits"]);
+    raw_bits!(128_usize, expect!["13 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(256_u64), expect!["14 bits"]);
+    raw_bits!(256_usize, expect!["14 bits"]);
+    raw_bits!(512_usize, expect!["15 bits"]);
+    raw_bits!(Encoded::<_, Small>::new(1024_u64), expect!["16 bits"]);
+    raw_bits!(1024_usize, expect!["16 bits"]);
+    raw_bits!(
+        Encoded::<_, Small>::new(1024_u64 * 1024),
+        expect!["26 bits"]
+    );
+    raw_bits!(1024_usize * 1024, expect!["26 bits"]);
+    raw_bits!(1024_usize * 1024 * 1024, expect!["36 bits"]);
+    raw_bits!(u32::MAX as usize, expect!["38 bits"]);
     // Note the code will work for u32, but the following two tests will fail.
-    raw_bits!(1024_usize * 1024 * 1024 * 1024, @"46 bits");
-    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, @"56 bits");
-    raw_bits!([0_usize; 128], @"384 bits, entropy Millibits(20013)");
-    raw_bits!([1_usize; 19], @"57 bits, entropy Millibits(12834)");
-    raw_bits!([0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], @"78 bits, entropy Millibits(18846)");
+    raw_bits!(1024_usize * 1024 * 1024 * 1024, expect!["46 bits"]);
+    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, expect!["56 bits"]);
+    raw_bits!(
+        [0_usize; 128],
+        expect!["384 bits, entropy Millibits(20013)"]
+    );
+    raw_bits!([1_usize; 19], expect!["57 bits, entropy Millibits(12834)"]);
+    raw_bits!(
+        [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        expect!["78 bits, entropy Millibits(18846)"]
+    );
 }
 
 #[test]
 fn small() {
     use crate::Encoded;
-    fn small_size(vals: impl IntoIterator<Item = usize>) -> usize {
+    fn small_size(vals: impl IntoIterator<Item = usize>) -> String {
         let mut sizes = vals.into_iter().map(|v| {
             println!("Checking {v}");
             let val = Encoded::<_, Small>::new(v);
@@ -255,7 +267,7 @@ fn small() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits
+        bits.to_string()
     }
     fn normal_size(v: usize) -> usize {
         let encoded = super::Raw::encode(&v);
@@ -282,31 +294,31 @@ fn small() {
         )
     }
 
-    insta::assert_snapshot!(both_sizes(0), @"small: 3 bits, normal: 3 bits");
-    insta::assert_snapshot!(both_sizes(1), @"small: 3 bits, normal: 3 bits");
-    insta::assert_snapshot!(both_sizes(2), @"small: 4 bits, normal: 3 bits");
-    insta::assert_snapshot!(both_sizes(4), @"small: 5 bits, normal: 7 bits");
-    insta::assert_snapshot!(both_sizes(5), @"small: 5 bits, normal: 7 bits");
-    insta::assert_snapshot!(both_sizes(23), @"small: 7 bits, normal: 11 bits");
-    insta::assert_snapshot!(both_sizes(37), @"small: 8 bits, normal: 12 bits");
-    insta::assert_snapshot!(both_sizes(63), @"small: 8 bits, normal: 12 bits");
-    insta::assert_snapshot!(both_sizes(117), @"small: 14 bits, normal: 13 bits");
-    insta::assert_snapshot!(both_sizes(u32::MAX as usize), @"small: 40 bits, normal: 38 bits");
-    insta::assert_snapshot!(small_size(0..2), @"3");
-    insta::assert_snapshot!(small_size(2..4), @"4");
-    insta::assert_snapshot!(small_size(4..8), @"5");
-    insta::assert_snapshot!(small_size(8..16), @"6");
-    insta::assert_snapshot!(small_size(16..32), @"7");
-    insta::assert_snapshot!(small_size(32..64), @"8");
-    insta::assert_snapshot!(small_size(64..66), @"9");
-    insta::assert_snapshot!(small_size(66..68), @"10");
-    insta::assert_snapshot!(small_size(68..72), @"11");
-    insta::assert_snapshot!(small_size(72..80), @"12");
-    insta::assert_snapshot!(small_size(80..96), @"13");
-    insta::assert_snapshot!(small_size(96..128), @"14");
-    insta::assert_snapshot!(small_size(128..192), @"15");
-    insta::assert_snapshot!(small_size(192..320), @"16");
-    insta::assert_snapshot!(small_size(320..512), @"17");
+    expect!["small: 3 bits, normal: 3 bits"].assert_eq(&both_sizes(0));
+    expect!["small: 3 bits, normal: 3 bits"].assert_eq(&both_sizes(1));
+    expect!["small: 4 bits, normal: 3 bits"].assert_eq(&both_sizes(2));
+    expect!["small: 5 bits, normal: 7 bits"].assert_eq(&both_sizes(4));
+    expect!["small: 5 bits, normal: 7 bits"].assert_eq(&both_sizes(5));
+    expect!["small: 7 bits, normal: 11 bits"].assert_eq(&both_sizes(23));
+    expect!["small: 8 bits, normal: 12 bits"].assert_eq(&both_sizes(37));
+    expect!["small: 8 bits, normal: 12 bits"].assert_eq(&both_sizes(63));
+    expect!["small: 14 bits, normal: 13 bits"].assert_eq(&both_sizes(117));
+    expect!["small: 40 bits, normal: 38 bits"].assert_eq(&both_sizes(u32::MAX as usize));
+    expect!["3"].assert_eq(&small_size(0..2));
+    expect!["4"].assert_eq(&small_size(2..4));
+    expect!["5"].assert_eq(&small_size(4..8));
+    expect!["6"].assert_eq(&small_size(8..16));
+    expect!["7"].assert_eq(&small_size(16..32));
+    expect!["8"].assert_eq(&small_size(32..64));
+    expect!["9"].assert_eq(&small_size(64..66));
+    expect!["10"].assert_eq(&small_size(66..68));
+    expect!["11"].assert_eq(&small_size(68..72));
+    expect!["12"].assert_eq(&small_size(72..80));
+    expect!["13"].assert_eq(&small_size(80..96));
+    expect!["14"].assert_eq(&small_size(96..128));
+    expect!["15"].assert_eq(&small_size(128..192));
+    expect!["16"].assert_eq(&small_size(192..320));
+    expect!["17"].assert_eq(&small_size(320..512));
 }
 
 #[test]

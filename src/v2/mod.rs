@@ -239,12 +239,12 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
 
 #[cfg(test)]
 macro_rules! assert_size {
-    ($v:expr, @$size:literal) => {
+    ($v:expr, $expected:expr) => {
         let v = $v;
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
-        insta::assert_snapshot!(bytes.len(), @$size);
+        $expected.assert_eq(&bytes.len().to_string());
     };
 }
 #[cfg(test)]
@@ -282,8 +282,8 @@ pub(crate) use encoded_bits;
 
 #[cfg(test)]
 macro_rules! assert_bits {
-    ($v:expr, @$size:literal) => {
-        insta::assert_snapshot!(crate::v2::encoded_bits!($v), @$size);
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::encoded_bits!($v).to_string());
     };
 }
 #[cfg(test)]
@@ -294,10 +294,10 @@ pub(crate) use assert_bits;
 /// bits.
 #[cfg(test)]
 macro_rules! assert_bits_all {
-    ($values:expr, @$size:literal) => {
-        crate::v2::assert_bits_all!($values, |v| v, @$size);
+    ($values:expr, $expected:expr) => {
+        crate::v2::assert_bits_all!($values, |v| v, $expected);
     };
-    ($values:expr, $f:expr, @$size:literal) => {
+    ($values:expr, $f:expr, $expected:expr) => {
         let f = $f;
         let mut iter = ($values).into_iter();
         let first = iter
@@ -308,7 +308,7 @@ macro_rules! assert_bits_all {
             let other = crate::v2::encoded_bits!(f(v));
             assert_eq!(other, bits, "encoded size differs for {v:?}");
         }
-        insta::assert_snapshot!(bits, @$size);
+        $expected.assert_eq(&bits.to_string());
     };
 }
 #[cfg(test)]
@@ -336,8 +336,8 @@ pub(crate) use raw_size;
 
 #[cfg(test)]
 macro_rules! raw_bits {
-    ($v:expr, @$size:literal) => {
-        insta::assert_snapshot!(crate::v2::raw_size!($v), @$size);
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::raw_size!($v));
     };
 }
 #[cfg(test)]
@@ -372,8 +372,8 @@ pub(crate) use ans_encoded_bits;
 
 #[cfg(test)]
 macro_rules! assert_ans_bits {
-    ($v:expr, @$size:literal) => {
-        insta::assert_snapshot!(crate::v2::ans_encoded_bits!($v), @$size);
+    ($v:expr, $expected:expr) => {
+        $expected.assert_eq(&crate::v2::ans_encoded_bits!($v).to_string());
     };
 }
 #[cfg(test)]

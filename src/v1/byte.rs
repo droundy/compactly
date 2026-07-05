@@ -2,6 +2,9 @@ use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Small};
 use std::io::{Read, Write};
 
+#[cfg(test)]
+use expect_test::expect;
+
 #[derive(Clone)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
@@ -387,37 +390,43 @@ impl EncodingStrategy<u8> for Small {
 #[test]
 fn size() {
     use super::{assert_bits, assert_bits_all};
-    assert_bits!(u8::MAX, @"3");
-    assert_bits!(0_u8, @"8");
-    assert_bits_all!(3_u8..255, @"8");
-    assert_bits!(*b"hello", @"31");
-    assert_bits!(*b"hello world", @"68");
-    assert_bits!(*b"hello world, hello world", @"129");
-    assert_bits!(*b"hello hello, hello hello", @"111");
-    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", @"195");
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", @"37");
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", @"44");
-    assert_bits!(*b"\0", @"8");
-    assert_bits!(*b"\x01", @"8");
-    assert_bits!(*b"\x01\x01", @"13");
-    assert_bits!(*b"\x01\x01\x01\x01", @"19");
-    assert_bits!(*b"\x01\x01\x01\x01\x01", @"21");
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", @"22");
-    assert_bits!(*b"\x01\x02\x03\x04", @"25");
-    assert_bits!(*b"\x01\x02\x03\x04\x05", @"30");
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", @"36");
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", @"40");
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", @"47");
+    assert_bits!(u8::MAX, expect!["3"]);
+    assert_bits!(0_u8, expect!["8"]);
+    assert_bits_all!(3_u8..255, expect!["8"]);
+    assert_bits!(*b"hello", expect!["31"]);
+    assert_bits!(*b"hello world", expect!["68"]);
+    assert_bits!(*b"hello world, hello world", expect!["129"]);
+    assert_bits!(*b"hello hello, hello hello", expect!["111"]);
+    assert_bits!(
+        *b"hello hello, hello hello, hello hello, hello hello",
+        expect!["195"]
+    );
+    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", expect!["37"]);
+    assert_bits!(
+        *b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+        expect!["44"]
+    );
+    assert_bits!(*b"\0", expect!["8"]);
+    assert_bits!(*b"\x01", expect!["8"]);
+    assert_bits!(*b"\x01\x01", expect!["13"]);
+    assert_bits!(*b"\x01\x01\x01\x01", expect!["19"]);
+    assert_bits!(*b"\x01\x01\x01\x01\x01", expect!["21"]);
+    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", expect!["22"]);
+    assert_bits!(*b"\x01\x02\x03\x04", expect!["25"]);
+    assert_bits!(*b"\x01\x02\x03\x04\x05", expect!["30"]);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", expect!["36"]);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", expect!["40"]);
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", expect!["47"]);
 
-    assert_bits!(i8::MAX, @"8");
-    assert_bits!(0_i8, @"8");
+    assert_bits!(i8::MAX, expect!["8"]);
+    assert_bits!(0_i8, expect!["8"]);
 }
 
 #[test]
 fn small() {
     use super::Small;
     use crate::Encoded;
-    fn size_of(vals: impl IntoIterator<Item = u8>) -> usize {
+    fn size_of(vals: impl IntoIterator<Item = u8>) -> String {
         let mut sizes = vals.into_iter().map(|v| {
             println!("Checking {v}");
             let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
@@ -432,17 +441,17 @@ fn small() {
         for (v, other) in sizes {
             assert_eq!(other, bits, "encoded size differs for {v}");
         }
-        bits
+        bits.to_string()
     }
 
-    insta::assert_snapshot!(size_of(0..2), @"3");
-    insta::assert_snapshot!(size_of(2..4), @"4");
-    insta::assert_snapshot!(size_of(4..8), @"5");
-    insta::assert_snapshot!(size_of(8..16), @"6");
-    insta::assert_snapshot!(size_of(16..32), @"7");
-    insta::assert_snapshot!(size_of(32..64), @"8");
-    insta::assert_snapshot!(size_of(64..128), @"10");
-    insta::assert_snapshot!(size_of(128..255), @"11");
+    expect!["3"].assert_eq(&size_of(0..2));
+    expect!["4"].assert_eq(&size_of(2..4));
+    expect!["5"].assert_eq(&size_of(4..8));
+    expect!["6"].assert_eq(&size_of(8..16));
+    expect!["7"].assert_eq(&size_of(16..32));
+    expect!["8"].assert_eq(&size_of(32..64));
+    expect!["10"].assert_eq(&size_of(64..128));
+    expect!["11"].assert_eq(&size_of(128..255));
     assert_eq!(
         Encoded::<u8, Small>::new(255u8).millibits(&mut Default::default()),
         Some(11000)
