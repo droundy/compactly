@@ -87,12 +87,12 @@ impl<T: Encode> Encode for Box<T> {
 }
 #[test]
 fn size() {
-    use super::{assert_bits_all, encoded_bits};
-    expect!["3"].assert_eq(&encoded_bits!(Vec::<usize>::new()));
+    use super::{assert_bits_all, estimated_bits};
+    expect!["3"].assert_eq(&estimated_bits!(Vec::<usize>::new()));
     assert_bits_all!(0_usize..4, |value| vec![value], expect!["6"]);
-    expect!["6"].assert_eq(&encoded_bits!(dbg!((0_usize..1).collect::<Vec<_>>())));
-    expect!["10"].assert_eq(&encoded_bits!(dbg!((0_usize..2).collect::<Vec<_>>())));
-    expect!["60"].assert_eq(&encoded_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
+    expect!["6"].assert_eq(&estimated_bits!(dbg!((0_usize..1).collect::<Vec<_>>())));
+    expect!["10"].assert_eq(&estimated_bits!(dbg!((0_usize..2).collect::<Vec<_>>())));
+    expect!["59"].assert_eq(&estimated_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
 }
 
 pub struct Context<T, S: EncodingStrategy<T>> {
