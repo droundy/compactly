@@ -213,28 +213,28 @@ fn size() {
     test_urange::<256>();
     test_urange::<257>();
 
-    assert_bits!(ULessThan::<3>::try_from(0).unwrap(), 1);
-    assert_bits!(ULessThan::<3>::try_from(1).unwrap(), 2);
-    assert_bits!(ULessThan::<3>::try_from(2).unwrap(), 1);
+    assert_bits!(ULessThan::<3>::try_from(0).unwrap(), @"1");
+    assert_bits!(ULessThan::<3>::try_from(1).unwrap(), @"2");
+    assert_bits!(ULessThan::<3>::try_from(2).unwrap(), @"1");
 
-    assert_bits!(ULessThan::<5>::try_from(0).unwrap(), 2);
-    assert_bits!(ULessThan::<5>::try_from(1).unwrap(), 2);
-    assert_bits!(ULessThan::<5>::try_from(2).unwrap(), 2);
-    assert_bits!(ULessThan::<5>::try_from(3).unwrap(), 3);
-    assert_bits!(ULessThan::<5>::try_from(4).unwrap(), 1);
+    assert_bits!(ULessThan::<5>::try_from(0).unwrap(), @"2");
+    assert_bits!(ULessThan::<5>::try_from(1).unwrap(), @"2");
+    assert_bits!(ULessThan::<5>::try_from(2).unwrap(), @"2");
+    assert_bits!(ULessThan::<5>::try_from(3).unwrap(), @"3");
+    assert_bits!(ULessThan::<5>::try_from(4).unwrap(), @"1");
 
-    assert_bits!(ULessThan::<6>::try_from(0).unwrap(), 2);
-    assert_bits!(ULessThan::<6>::try_from(1).unwrap(), 2);
-    assert_bits!(ULessThan::<6>::try_from(2).unwrap(), 3);
-    assert_bits!(ULessThan::<6>::try_from(3).unwrap(), 3);
-    assert_bits!(ULessThan::<6>::try_from(4).unwrap(), 3);
-    assert_bits!(ULessThan::<6>::try_from(5).unwrap(), 1);
+    assert_bits!(ULessThan::<6>::try_from(0).unwrap(), @"2");
+    assert_bits!(ULessThan::<6>::try_from(1).unwrap(), @"2");
+    assert_bits!(ULessThan::<6>::try_from(2).unwrap(), @"3");
+    assert_bits!(ULessThan::<6>::try_from(3).unwrap(), @"3");
+    assert_bits!(ULessThan::<6>::try_from(4).unwrap(), @"3");
+    assert_bits!(ULessThan::<6>::try_from(5).unwrap(), @"1");
 
-    assert_bits!(ULessThan::<128>::try_from(0).unwrap(), 7);
-    assert_bits!(ULessThan::<128>::try_from(1).unwrap(), 7);
-    assert_bits!(ULessThan::<128>::try_from(127).unwrap(), 3);
+    assert_bits!(ULessThan::<128>::try_from(0).unwrap(), @"7");
+    assert_bits!(ULessThan::<128>::try_from(1).unwrap(), @"7");
+    assert_bits!(ULessThan::<128>::try_from(127).unwrap(), @"3");
 
-    assert_bits!(ULessThan::<256>::try_from(0).unwrap(), 8);
-    assert_bits!(ULessThan::<256>::try_from(1).unwrap(), 8);
-    assert_bits!(ULessThan::<256>::try_from(255).unwrap(), 3);
+    assert_bits!(ULessThan::<256>::try_from(0).unwrap(), @"8");
+    assert_bits!(ULessThan::<256>::try_from(1).unwrap(), @"8");
+    assert_bits!(ULessThan::<256>::try_from(255).unwrap(), @"3");
 }

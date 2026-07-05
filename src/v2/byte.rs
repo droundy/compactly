@@ -355,73 +355,63 @@ impl EncodingStrategy<i8> for Sorted {
 
 #[test]
 fn size() {
-    use super::assert_bits;
-    assert_bits!(u8::MAX, 3);
-    assert_bits!(0_u8, 8);
-    for b in 3_u8..255 {
-        println!("Byte {b}");
-        assert_bits!(b, 8);
-    }
-    assert_bits!(*b"hello", 31);
-    assert_bits!(*b"hello world", 68);
-    assert_bits!(*b"hello world, hello world", 129);
-    assert_bits!(*b"hello hello, hello hello", 111);
-    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", 195);
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", 37);
-    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", 44);
-    assert_bits!(*b"\0", 8);
-    assert_bits!(*b"\x01", 8);
-    assert_bits!(*b"\x01\x01", 13);
-    assert_bits!(*b"\x01\x01\x01\x01", 19);
-    assert_bits!(*b"\x01\x01\x01\x01\x01", 21);
-    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", 22);
-    assert_bits!(*b"\x01\x02\x03\x04", 25);
-    assert_bits!(*b"\x01\x02\x03\x04\x05", 30);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", 36);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", 40);
-    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", 47);
+    use super::{assert_bits, assert_bits_all};
+    assert_bits!(u8::MAX, @"3");
+    assert_bits!(0_u8, @"8");
+    assert_bits_all!(3_u8..255, @"8");
+    assert_bits!(*b"hello", @"31");
+    assert_bits!(*b"hello world", @"68");
+    assert_bits!(*b"hello world, hello world", @"129");
+    assert_bits!(*b"hello hello, hello hello", @"111");
+    assert_bits!(*b"hello hello, hello hello, hello hello, hello hello", @"195");
+    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhh", @"37");
+    assert_bits!(*b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", @"44");
+    assert_bits!(*b"\0", @"8");
+    assert_bits!(*b"\x01", @"8");
+    assert_bits!(*b"\x01\x01", @"13");
+    assert_bits!(*b"\x01\x01\x01\x01", @"19");
+    assert_bits!(*b"\x01\x01\x01\x01\x01", @"21");
+    assert_bits!(*b"\x01\x01\x01\x01\x01\x01", @"22");
+    assert_bits!(*b"\x01\x02\x03\x04", @"25");
+    assert_bits!(*b"\x01\x02\x03\x04\x05", @"30");
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06", @"36");
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07", @"40");
+    assert_bits!(*b"\x01\x02\x03\x04\x05\x06\x07\x08", @"47");
 
-    assert_bits!(i8::MAX, 8);
-    assert_bits!(0_i8, 8);
+    assert_bits!(i8::MAX, @"8");
+    assert_bits!(0_i8, @"8");
 }
 
 #[test]
 fn small() {
-    use super::{assert_bits, Small};
+    use super::Small;
     use crate::Encoded;
-    fn check_size(v: u8, expected: usize) {
-        println!("Checking {v}");
-        assert_eq!(
-            Encoded::<u8, Small>::new(v).millibits(),
-            super::Millibits::bits(expected)
-        );
-        assert_bits!(Encoded::<u8, Small>::new(v), expected);
+    fn size_of(vals: impl IntoIterator<Item = u8>) -> usize {
+        let mut sizes = vals.into_iter().map(|v| {
+            println!("Checking {v}");
+            let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
+            assert_eq!(
+                Encoded::<u8, Small>::new(v).millibits(),
+                super::Millibits::bits(bits),
+                "millibits estimate disagrees for {v}"
+            );
+            (v, bits)
+        });
+        let (_, bits) = sizes.next().expect("size_of needs at least one value");
+        for (v, other) in sizes {
+            assert_eq!(other, bits, "encoded size differs for {v}");
+        }
+        bits
     }
 
-    for x in 0..2 {
-        check_size(x, 3);
-    }
-    for x in 2..4 {
-        check_size(x, 4);
-    }
-    for x in 4..8 {
-        check_size(x, 5);
-    }
-    for x in 8..16 {
-        check_size(x, 6);
-    }
-    for x in 16..32 {
-        check_size(x, 7);
-    }
-    for x in 32..64 {
-        check_size(x, 8);
-    }
-    for x in 64..128 {
-        check_size(x, 10);
-    }
-    for x in 128..255 {
-        check_size(x, 11);
-    }
+    insta::assert_snapshot!(size_of(0..2), @"3");
+    insta::assert_snapshot!(size_of(2..4), @"4");
+    insta::assert_snapshot!(size_of(4..8), @"5");
+    insta::assert_snapshot!(size_of(8..16), @"6");
+    insta::assert_snapshot!(size_of(16..32), @"7");
+    insta::assert_snapshot!(size_of(32..64), @"8");
+    insta::assert_snapshot!(size_of(64..128), @"10");
+    insta::assert_snapshot!(size_of(128..255), @"11");
     assert_eq!(
         Encoded::<u8, Small>::new(255u8).millibits(),
         super::Millibits::bits(11)
@@ -430,7 +420,7 @@ fn small() {
 
 #[test]
 fn small_i8() {
-    use super::{assert_bits, Small};
+    use super::Small;
     use crate::Encoded;
 
     // Round-trip every i8 value.
@@ -440,45 +430,37 @@ fn small_i8() {
         assert_eq!(v, dec, "round-trip failed for {v}");
     }
 
-    fn check_size(v: i8, expected: usize) {
-        assert_bits!(
-            Encoded::<i8, Small>::new(v),
-            expected,
-            "unexpected size for {v}"
-        );
+    fn size_of(vals: impl IntoIterator<Item = i8>) -> usize {
+        let mut sizes = vals.into_iter().map(|v| {
+            println!("Checking {v}");
+            (v, super::encoded_bits!(Encoded::<i8, Small>::new(v)))
+        });
+        let (_, bits) = sizes.next().expect("size_of needs at least one value");
+        for (v, other) in sizes {
+            assert_eq!(other, bits, "encoded size differs for {v}");
+        }
+        bits
     }
 
     // Zig-zag mapping → same bit ranges as Small u8:
     // zigzag {0,1} → 3 bits: i8 values {0, -1}
-    check_size(0, 3);
-    check_size(-1, 3);
+    insta::assert_snapshot!(size_of([0]), @"3");
+    insta::assert_snapshot!(size_of([-1]), @"3");
     // zigzag {2,3} → 4 bits: {1, -2}
-    check_size(1, 4);
-    check_size(-2, 4);
+    insta::assert_snapshot!(size_of([1]), @"4");
+    insta::assert_snapshot!(size_of([-2]), @"4");
     // zigzag {4..7} → 5 bits: {2, 3, -3, -4}
-    for v in [2i8, 3, -3, -4] {
-        check_size(v, 5);
-    }
+    insta::assert_snapshot!(size_of([2i8, 3, -3, -4]), @"5");
     // zigzag {8..15} → 6 bits: {4..7, -5..-8}
-    for v in [4i8, 7, -5, -8] {
-        check_size(v, 6);
-    }
+    insta::assert_snapshot!(size_of([4i8, 7, -5, -8]), @"6");
     // zigzag {16..31} → 7 bits: {8..15, -9..-16}
-    for v in [8i8, 15, -9, -16] {
-        check_size(v, 7);
-    }
+    insta::assert_snapshot!(size_of([8i8, 15, -9, -16]), @"7");
     // zigzag {32..63} → 8 bits: {16..31, -17..-32}
-    for v in [16i8, 31, -17, -32] {
-        check_size(v, 8);
-    }
+    insta::assert_snapshot!(size_of([16i8, 31, -17, -32]), @"8");
     // zigzag {64..127} → 10 bits: {32..63, -33..-64}
-    for v in [32i8, 63, -33, -64] {
-        check_size(v, 10);
-    }
+    insta::assert_snapshot!(size_of([32i8, 63, -33, -64]), @"10");
     // zigzag {128..255} → 11 bits: {64..127, -65..-128}
-    for v in [64i8, 127, -65] {
-        check_size(v, 11);
-    }
+    insta::assert_snapshot!(size_of([64i8, 127, -65]), @"11");
     // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
     // The Range coder compresses all-ones sequences well, same as assert_bits!(u8::MAX, 3).
     // Mirror the small_u8 test for u8=255: only verify entropy, not actual coded size.
@@ -525,14 +507,11 @@ fn sorted_u8_roundtrip() {
 fn sorted_u8_ascii() {
     use super::assert_bits;
     use crate::Encoded;
-    assert_bits!(
-        [
+    assert_bits!([
             Encoded::<u8, Sorted>::new(b'h'),
             Encoded::<u8, Sorted>::new(b'e'),
             Encoded::<u8, Sorted>::new(b'l'),
             Encoded::<u8, Sorted>::new(b'l'),
             Encoded::<u8, Sorted>::new(b'o'),
-        ],
-        29
-    );
+        ], @"29");
 }

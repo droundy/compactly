@@ -195,24 +195,27 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
 
 #[cfg(test)]
 macro_rules! assert_size {
-    ($v:expr, $size:expr) => {
+    ($v:expr, @$size:literal) => {
         let v = $v;
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
-        assert_eq!(bytes.len(), $size, "unexpected size");
+        insta::assert_snapshot!(bytes.len(), @$size);
     };
 }
 #[cfg(test)]
 pub(crate) use assert_size;
 
+/// Encodes the value once and as 64 copies, checking that both round-trip,
+/// and evaluates to the number of bits (rounded) needed to encode the 64
+/// copies.
 #[cfg(test)]
-macro_rules! assert_bits {
-    ($v:expr, $size:expr) => {
-        let v1 = $v;
-        let bytes = super::encode(&v1);
+macro_rules! encoded_bits {
+    ($v:expr) => {{
+        let one = $v;
+        let bytes = super::encode(&one);
         let decoded = super::decode(&bytes);
-        assert_eq!(decoded, Some(v1), "decoded value is incorrect");
+        assert_eq!(decoded, Some(one), "decoded value is incorrect");
         let v = (
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
@@ -226,38 +229,42 @@ macro_rules! assert_bits {
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        assert_eq!((bytes.len() + 4) / 8, $size, "unexpected number of bits");
-    };
-    ($v:expr, $size:expr, $msg:expr) => {
-        let v1 = $v;
-        let bytes = super::encode(&v1);
-        let decoded = super::decode(&bytes);
-        assert_eq!(decoded, Some(v1), "decoded value is incorrect: {}", $msg);
-        let v = (
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-        );
-        let bytes = super::encode(&v);
-        let decoded = super::decode(&bytes);
-        assert_eq!(
-            decoded,
-            Some(v),
-            "decoded tuple value is incorrect: {}",
-            $msg
-        );
-        assert_eq!(
-            (bytes.len() + 4) / 8,
-            $size,
-            "unexpected number of bits: {}",
-            $msg
-        );
+        (bytes.len() + 4) / 8
+    }};
+}
+#[cfg(test)]
+pub(crate) use encoded_bits;
+
+#[cfg(test)]
+macro_rules! assert_bits {
+    ($v:expr, @$size:literal) => {
+        insta::assert_snapshot!(crate::v1::encoded_bits!($v), @$size);
     };
 }
 #[cfg(test)]
 pub(crate) use assert_bits;
+
+/// Like [`assert_bits!`], but takes an iterator of values (optionally mapped
+/// through a function) that are all expected to encode to the same number of
+/// bits.
+#[cfg(test)]
+macro_rules! assert_bits_all {
+    ($values:expr, @$size:literal) => {
+        crate::v1::assert_bits_all!($values, |v| v, @$size);
+    };
+    ($values:expr, $f:expr, @$size:literal) => {
+        let f = $f;
+        let mut iter = ($values).into_iter();
+        let first = iter
+            .next()
+            .expect("assert_bits_all! needs at least one value");
+        let bits = crate::v1::encoded_bits!(f(first));
+        for v in iter {
+            let other = crate::v1::encoded_bits!(f(v));
+            assert_eq!(other, bits, "encoded size differs for {v:?}");
+        }
+        insta::assert_snapshot!(bits, @$size);
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_bits_all;

@@ -1,6 +1,8 @@
 use crate::Sorted;
 
-use super::{byte::UBits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan};
+use super::{
+    byte::UBits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan,
+};
 
 #[derive(Default, Clone)]
 pub struct UsizeContext {
@@ -35,8 +37,7 @@ impl Encode for usize {
     }
 }
 
-#[derive(Clone)]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SmallContext {
     small_nonzero: <UBits<3> as Encode>::Context,
     b1: <UBits<1> as Encode>::Context,
@@ -184,115 +185,128 @@ impl EncodingStrategy<usize> for Sorted {
 
 #[test]
 fn size() {
-    use super::{raw_bits, Millibits};
+    use super::raw_bits;
     use crate::Encoded;
-    raw_bits!(Encoded::<_, Small>::new(0_u64), 6);
-    raw_bits!(0_usize, 3);
-    raw_bits!(Encoded::<_, Small>::new(1_u64), 6);
-    raw_bits!(1_usize, 3);
-    raw_bits!(Encoded::<_, Small>::new(2_u64), 7);
-    raw_bits!(2_usize, 3);
-    raw_bits!(3_usize, 3);
-    raw_bits!(4_usize, 7);
-    raw_bits!(5_usize, 7);
-    raw_bits!(6_usize, 8);
-    raw_bits!(7_usize, 8);
-    raw_bits!(8_usize, 9);
-    raw_bits!(Encoded::<_, Small>::new(16_u64), 10);
-    raw_bits!(16_usize, 10);
-    raw_bits!(Encoded::<_, Small>::new(32_u64), 11);
-    raw_bits!(32_usize, 11);
-    raw_bits!(Encoded::<_, Small>::new(64_u64), 12);
-    raw_bits!(64_usize, 12);
-    raw_bits!(Encoded::<_, Small>::new(128_u64), 13);
-    raw_bits!(128_usize, 13);
-    raw_bits!(Encoded::<_, Small>::new(256_u64), 14);
-    raw_bits!(256_usize, 14);
-    raw_bits!(512_usize, 15);
-    raw_bits!(Encoded::<_, Small>::new(1024_u64), 16);
-    raw_bits!(1024_usize, 16);
-    raw_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), 26);
-    raw_bits!(1024_usize * 1024, 26);
-    raw_bits!(1024_usize * 1024 * 1024, 36);
-    raw_bits!(u32::MAX as usize, 38);
+    raw_bits!(Encoded::<_, Small>::new(0_u64), @"6 bits");
+    raw_bits!(0_usize, @"3 bits");
+    raw_bits!(Encoded::<_, Small>::new(1_u64), @"6 bits");
+    raw_bits!(1_usize, @"3 bits");
+    raw_bits!(Encoded::<_, Small>::new(2_u64), @"7 bits");
+    raw_bits!(2_usize, @"3 bits");
+    raw_bits!(3_usize, @"3 bits");
+    raw_bits!(4_usize, @"7 bits");
+    raw_bits!(5_usize, @"7 bits");
+    raw_bits!(6_usize, @"8 bits");
+    raw_bits!(7_usize, @"8 bits");
+    raw_bits!(8_usize, @"9 bits");
+    raw_bits!(Encoded::<_, Small>::new(16_u64), @"10 bits");
+    raw_bits!(16_usize, @"10 bits");
+    raw_bits!(Encoded::<_, Small>::new(32_u64), @"11 bits");
+    raw_bits!(32_usize, @"11 bits");
+    raw_bits!(Encoded::<_, Small>::new(64_u64), @"12 bits");
+    raw_bits!(64_usize, @"12 bits");
+    raw_bits!(Encoded::<_, Small>::new(128_u64), @"13 bits");
+    raw_bits!(128_usize, @"13 bits");
+    raw_bits!(Encoded::<_, Small>::new(256_u64), @"14 bits");
+    raw_bits!(256_usize, @"14 bits");
+    raw_bits!(512_usize, @"15 bits");
+    raw_bits!(Encoded::<_, Small>::new(1024_u64), @"16 bits");
+    raw_bits!(1024_usize, @"16 bits");
+    raw_bits!(Encoded::<_, Small>::new(1024_u64 * 1024), @"26 bits");
+    raw_bits!(1024_usize * 1024, @"26 bits");
+    raw_bits!(1024_usize * 1024 * 1024, @"36 bits");
+    raw_bits!(u32::MAX as usize, @"38 bits");
     // Note the code will work for u32, but the following two tests will fail.
-    raw_bits!(1024_usize * 1024 * 1024 * 1024, 46);
-    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, 56);
-    raw_bits!([0_usize; 128], 384, Millibits::new(20013));
-    raw_bits!([1_usize; 19], 57, Millibits::new(12834));
-    raw_bits!(
-        [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        78,
-        Millibits::new(18846)
-    );
+    raw_bits!(1024_usize * 1024 * 1024 * 1024, @"46 bits");
+    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, @"56 bits");
+    raw_bits!([0_usize; 128], @"384 bits, entropy Millibits(20013)");
+    raw_bits!([1_usize; 19], @"57 bits, entropy Millibits(12834)");
+    raw_bits!([0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], @"78 bits, entropy Millibits(18846)");
 }
 
 #[test]
 fn small() {
-    use super::raw_bits;
     use crate::Encoded;
-    fn check_size(v: usize, expected: usize) {
-        println!("Checking {v}");
-        assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(),
-            super::Millibits::bits(expected),
-            "small wrong size"
-        );
-        raw_bits!(Encoded::<_, Small>::new(v), expected);
+    fn small_size(vals: impl IntoIterator<Item = usize>) -> usize {
+        let mut sizes = vals.into_iter().map(|v| {
+            println!("Checking {v}");
+            let val = Encoded::<_, Small>::new(v);
+            let encoded = super::Raw::encode(&val);
+            let decoded = super::Raw::decode(&encoded);
+            assert_eq!(
+                decoded,
+                Some(Encoded::<_, Small>::new(v)),
+                "raw round-trip failed for {v}"
+            );
+            let (bits, entropy) = super::Raw::sizes(&val);
+            assert_eq!(
+                entropy,
+                super::Millibits::bits(bits),
+                "entropy disagrees with raw size for {v}"
+            );
+            assert_eq!(
+                val.millibits(),
+                super::Millibits::bits(bits),
+                "small wrong size"
+            );
+            (v, bits)
+        });
+        let (_, bits) = sizes.next().expect("small_size needs at least one value");
+        for (v, other) in sizes {
+            assert_eq!(other, bits, "encoded size differs for {v}");
+        }
+        bits
     }
-    fn check_both(v: usize, expected: usize, normal: usize) {
-        println!("Checking {v}");
+    fn normal_size(v: usize) -> usize {
+        let encoded = super::Raw::encode(&v);
+        let decoded = super::Raw::decode(&encoded);
+        assert_eq!(decoded, Some(v), "raw round-trip failed for {v}");
+        let (bits, entropy) = super::Raw::sizes(&v);
         assert_eq!(
-            Encoded::<_, Small>::new(v).millibits(),
-            super::Millibits::bits(expected),
-            "small wrong size"
+            entropy,
+            super::Millibits::bits(bits),
+            "entropy disagrees with raw size for {v}"
         );
         assert_eq!(
             v.millibits(),
-            super::Millibits::bits(normal),
+            super::Millibits::bits(bits),
             "normal wrong size"
         );
-        raw_bits!(Encoded::<_, Small>::new(v), expected);
-        raw_bits!(v, normal);
+        bits
+    }
+    fn both_sizes(v: usize) -> String {
+        format!(
+            "small: {} bits, normal: {} bits",
+            small_size([v]),
+            normal_size(v)
+        )
     }
 
-    check_both(0, 3, 3);
-    check_both(1, 3, 3);
-    check_both(2, 4, 3);
-    check_both(4, 5, 7);
-    check_both(5, 5, 7);
-    check_both(23, 7, 11);
-    check_both(37, 8, 12);
-    check_both(63, 8, 12);
-    check_both(117, 14, 13);
-    check_both(u32::MAX as usize, 40, 38);
-    for x in 0..2 {
-        check_size(x, 3);
-    }
-    for x in 2..4 {
-        check_size(x, 4);
-    }
-    for x in 4..8 {
-        check_size(x, 5);
-    }
-    for x in 8..16 {
-        check_size(x, 6);
-    }
-    for x in 16..32 {
-        check_size(x, 7);
-    }
-    for x in 32..64 {
-        check_size(x, 8);
-    }
-    for x in 64..66 { check_size(x, 9); }
-    for x in 66..68 { check_size(x, 10); }
-    for x in 68..72 { check_size(x, 11); }
-    for x in 72..80 { check_size(x, 12); }
-    for x in 80..96 { check_size(x, 13); }
-    for x in 96..128 { check_size(x, 14); }
-    for x in 128..192 { check_size(x, 15); }
-    for x in 192..320 { check_size(x, 16); }
-    for x in 320..512 { check_size(x, 17); }
+    insta::assert_snapshot!(both_sizes(0), @"small: 3 bits, normal: 3 bits");
+    insta::assert_snapshot!(both_sizes(1), @"small: 3 bits, normal: 3 bits");
+    insta::assert_snapshot!(both_sizes(2), @"small: 4 bits, normal: 3 bits");
+    insta::assert_snapshot!(both_sizes(4), @"small: 5 bits, normal: 7 bits");
+    insta::assert_snapshot!(both_sizes(5), @"small: 5 bits, normal: 7 bits");
+    insta::assert_snapshot!(both_sizes(23), @"small: 7 bits, normal: 11 bits");
+    insta::assert_snapshot!(both_sizes(37), @"small: 8 bits, normal: 12 bits");
+    insta::assert_snapshot!(both_sizes(63), @"small: 8 bits, normal: 12 bits");
+    insta::assert_snapshot!(both_sizes(117), @"small: 14 bits, normal: 13 bits");
+    insta::assert_snapshot!(both_sizes(u32::MAX as usize), @"small: 40 bits, normal: 38 bits");
+    insta::assert_snapshot!(small_size(0..2), @"3");
+    insta::assert_snapshot!(small_size(2..4), @"4");
+    insta::assert_snapshot!(small_size(4..8), @"5");
+    insta::assert_snapshot!(small_size(8..16), @"6");
+    insta::assert_snapshot!(small_size(16..32), @"7");
+    insta::assert_snapshot!(small_size(32..64), @"8");
+    insta::assert_snapshot!(small_size(64..66), @"9");
+    insta::assert_snapshot!(small_size(66..68), @"10");
+    insta::assert_snapshot!(small_size(68..72), @"11");
+    insta::assert_snapshot!(small_size(72..80), @"12");
+    insta::assert_snapshot!(small_size(80..96), @"13");
+    insta::assert_snapshot!(small_size(96..128), @"14");
+    insta::assert_snapshot!(small_size(128..192), @"15");
+    insta::assert_snapshot!(small_size(192..320), @"16");
+    insta::assert_snapshot!(small_size(320..512), @"17");
 }
 
 #[test]

@@ -169,32 +169,37 @@ impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
 
 #[test]
 fn decimal_float() {
-    use super::assert_bits;
     use crate::Encoded;
 
-    fn test_value(v: f64, dec: usize, bin: usize) {
+    fn sizes(v: f64) -> String {
         println!("Testing {v}.");
-        assert_bits!(v, bin);
-        assert_bits!(Encoded::<f64, Decimal>::from(v), dec);
+        format!(
+            "decimal: {} bits, binary: {} bits",
+            super::encoded_bits!(Encoded::<f64, Decimal>::from(v)),
+            super::encoded_bits!(v)
+        )
     }
-    fn test32(v: f32, dec: usize, bin: usize) {
+    fn sizes32(v: f32) -> String {
         println!("Testing {v}.");
-        assert_bits!(v, bin);
-        assert_bits!(Encoded::<f32, Decimal>::from(v), dec);
+        format!(
+            "decimal: {} bits, binary: {} bits",
+            super::encoded_bits!(Encoded::<f32, Decimal>::from(v)),
+            super::encoded_bits!(v)
+        )
     }
 
-    test_value(1.1, 18, 65);
-    test_value(0.1, 16, 65);
-    test_value(0.9, 18, 65);
-    test_value(128.332, 31, 65);
-    test_value(1.0_f64.exp(), 68, 65);
-    test_value(0.0, 9, 3);
-    test_value(8.0, 11, 10);
-    test_value(8e200, 24, 65);
-    test_value(8e300, 25, 65);
+    insta::assert_snapshot!(sizes(1.1), @"decimal: 18 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(0.1), @"decimal: 16 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(0.9), @"decimal: 18 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(128.332), @"decimal: 31 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(1.0_f64.exp()), @"decimal: 68 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(0.0), @"decimal: 9 bits, binary: 3 bits");
+    insta::assert_snapshot!(sizes(8.0), @"decimal: 11 bits, binary: 10 bits");
+    insta::assert_snapshot!(sizes(8e200), @"decimal: 24 bits, binary: 65 bits");
+    insta::assert_snapshot!(sizes(8e300), @"decimal: 25 bits, binary: 65 bits");
 
-    test32(1.0_f32.exp(), 39, 33);
-    test32(0.1, 15, 33);
-    test32(0.0, 8, 3);
-    test32(8.0, 10, 9);
+    insta::assert_snapshot!(sizes32(1.0_f32.exp()), @"decimal: 39 bits, binary: 33 bits");
+    insta::assert_snapshot!(sizes32(0.1), @"decimal: 15 bits, binary: 33 bits");
+    insta::assert_snapshot!(sizes32(0.0), @"decimal: 8 bits, binary: 3 bits");
+    insta::assert_snapshot!(sizes32(8.0), @"decimal: 10 bits, binary: 9 bits");
 }
