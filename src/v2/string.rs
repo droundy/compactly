@@ -3,10 +3,13 @@ use crate::{Compressible, Small, Sorted};
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct CharContext {
-    is_ascii: <bool as Encode>::Context,
-    ascii: <Bits<128> as Encode>::Context,
+    /// Leading byte, coded through the full byte tree: the 7 low bits of the
+    /// codepoint plus a high bit set for non-ASCII, exactly UTF-8's lead-byte
+    /// convention. An ASCII character is thus a single tree symbol whose top
+    /// bit rides the same adaptive tree as the value bits — no separate
+    /// is-ASCII bit and no escape.
+    first: <Bits<256> as Encode>::Context,
     n_chunks: <ULessThan<3> as Encode>::Context,
-    chunk1: <Bits<32> as Encode>::Context,
     chunks: [<Bits<64> as Encode>::Context; 3],
 }
 
@@ -14,29 +17,27 @@ impl Encode for char {
     type Context = CharContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let mut x = u32::from(*self);
+        let x = u32::from(*self);
         let is_ascii = x < 128;
-        // The `is_ascii` bit and the 7-bit ASCII tree are fused into one
-        // escaped-tree symbol: one coder step per ASCII character, with the
-        // non-ASCII case as the escape.
-        writer.encode_escaped_tree(
-            &mut ctx.is_ascii,
-            &mut ctx.ascii.0,
-            is_ascii.then_some(x as usize),
-        );
+        let first = (x as u8 & 0x7f) | (u8::from(!is_ascii) << 7);
+        Bits::<256>::try_from(first)
+            .unwrap()
+            .encode(writer, &mut ctx.first);
         if !is_ascii {
-            let n_chunks = if x < 32 * 64 {
+            // The low 7 bits are already in `first`; encode the rest in 6-bit
+            // continuation chunks (again mirroring UTF-8).
+            let mut rest = x >> 7;
+            let n_chunks = if rest < 64 {
                 0
-            } else if x < 32 * 64 * 64 {
+            } else if rest < 64 * 64 {
                 1
             } else {
                 2
             };
             let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             n_chunks.encode(writer, &mut ctx.n_chunks);
-            Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1);
             for i in 0_usize..1 + usize::from(n_chunks) {
-                Bits::<64>::take_from(&mut x).encode(writer, &mut ctx.chunks[i]);
+                Bits::<64>::take_from(&mut rest).encode(writer, &mut ctx.chunks[i]);
             }
         }
     }
@@ -45,14 +46,15 @@ impl Encode for char {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        if let Some(v) = reader.decode_escaped_tree(&mut ctx.is_ascii, &mut ctx.ascii.0) {
-            Ok(char::from(v as u8))
+        let first: u8 = Bits::<256>::decode(reader, &mut ctx.first)?.into();
+        if first < 128 {
+            Ok(char::from(first))
         } else {
             let n_chunks = ULessThan::<3>::decode(reader, &mut ctx.n_chunks)?;
-            let mut out: u32 = u8::from(Bits::<32>::decode(reader, &mut ctx.chunk1)?) as u32;
+            let mut out = (first & 0x7f) as u32;
             for i in 0_usize..1 + usize::from(n_chunks) {
                 let chunk = u8::from(Bits::<64>::decode(reader, &mut ctx.chunks[i])?) as u32;
-                out |= chunk << (5 + 6 * i);
+                out |= chunk << (7 + 6 * i);
             }
             char::from_u32(out).ok_or_else(|| std::io::Error::other("invalid char value"))
         }

@@ -1,10 +1,9 @@
 use super::Encode;
 
 /// Adaptive context for [`Bits<N>`] encoding; holds one bit context per node in
-/// the log2(N)-level binary tree. The array is `pub(super)` so `char`'s
-/// escaped-tree fusion can hand it to `encode_escaped_tree` directly.
+/// the log2(N)-level binary tree.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct BitsContext<const N: usize>(pub(super) [<bool as Encode>::Context; N]);
+pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
     fn default() -> Self {
         Self([Default::default(); N])

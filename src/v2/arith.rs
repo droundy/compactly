@@ -281,23 +281,6 @@ impl EntropyCoder for Range {
         self.bytes.extend_from_slice(&self.state.ready_bytes());
     }
 
-    /// Escaped-tree symbol encode: one interval narrowing for the fused
-    /// root-bit + tree symbol (see [`EntropyCoder::encode_escaped_tree`]).
-    #[inline]
-    fn encode_escaped_tree<const N: usize>(
-        &mut self,
-        root: &mut super::bit_context::BitContext,
-        contexts: &mut [super::bit_context::BitContext; N],
-        value: Option<usize>,
-    ) {
-        while self.state.clamp_for_symbol() {
-            self.bytes.extend_from_slice(&self.state.ready_bytes());
-        }
-        let range = SymbolRange::for_value_escaped(root, contexts, value);
-        self.state.narrow_symbol(range);
-        self.bytes.extend_from_slice(&self.state.ready_bytes());
-    }
-
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
         self.incompressible_bytes.extend_from_slice(bytes);
@@ -455,42 +438,6 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         }
         let slot = state.symbol_slot(value);
         let (range, decoded) = SymbolRange::from_slot(contexts, slot);
-        state.narrow_symbol(range);
-        pull(&mut state, &mut value, &mut bytes);
-        self.state = state;
-        self.value = value;
-        self.bytes = bytes;
-        decoded
-    }
-
-    /// Escaped-tree symbol decode: identical to [`Self::decode_tree`] but the
-    /// walk starts at the fused root bit and may stop there (the escape).
-    #[inline]
-    fn decode_escaped_tree<const N: usize>(
-        &mut self,
-        root: &mut super::bit_context::BitContext,
-        contexts: &mut [super::bit_context::BitContext; N],
-    ) -> Option<usize> {
-        let mut state = self.state;
-        let mut value = self.value;
-        let mut bytes = self.bytes;
-        let pull = |state: &mut ArithState, value: &mut u64, bytes: &mut &[u8]| {
-            let n = state.consume_decoded_bytes();
-            for _ in 0..n {
-                let byte = if let Some((&b, r)) = bytes.split_first() {
-                    *bytes = r;
-                    b
-                } else {
-                    0
-                };
-                *value = (*value << 8) + byte as u64;
-            }
-        };
-        while state.clamp_for_symbol() {
-            pull(&mut state, &mut value, &mut bytes);
-        }
-        let slot = state.symbol_slot(value);
-        let (range, decoded) = SymbolRange::from_slot_escaped(root, contexts, slot);
         state.narrow_symbol(range);
         pull(&mut state, &mut value, &mut bytes);
         self.state = state;

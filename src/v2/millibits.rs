@@ -27,20 +27,6 @@ impl super::EntropyCoder for Millibits {
         let millibits = (SymbolRange::BITS as f64 - (width as f64).log2()) * 1000.0;
         *self += Millibits(millibits.round() as u32);
     }
-
-    /// Like `encode_tree`: one exact `-log2(width / M)` estimate for the
-    /// whole escaped-tree symbol.
-    fn encode_escaped_tree<const N: usize>(
-        &mut self,
-        root: &mut super::bit_context::BitContext,
-        contexts: &mut [super::bit_context::BitContext; N],
-        value: Option<usize>,
-    ) {
-        use super::symbol::SymbolRange;
-        let width = SymbolRange::for_value_escaped(root, contexts, value).width();
-        let millibits = (SymbolRange::BITS as f64 - (width as f64).log2()) * 1000.0;
-        *self += Millibits(millibits.round() as u32);
-    }
 }
 
 impl Millibits {

@@ -98,31 +98,6 @@ pub trait EntropyCoder: Default {
         }
     }
 
-    /// Encode one *escaped-tree* symbol: a `root` bit for "is a value
-    /// present", then — only when present — the `log2(N)`-bit tree for the
-    /// value. This is the `bool`-guarded-tree pattern (`char`'s `is_ascii` +
-    /// 7-bit ASCII tree) fused so single-step coders pay one step for the
-    /// common present case instead of two; `None` is the escape and costs
-    /// just the root bit.
-    ///
-    /// The default implementation is the unfused bit-by-bit coding (kept by
-    /// `Raw`); `Range`/`Ans`/`Millibits` override it with a single
-    /// [`symbol::SymbolRange`] step. Adaptation is identical either way.
-    #[inline]
-    fn encode_escaped_tree<const N: usize>(
-        &mut self,
-        root: &mut bit_context::BitContext,
-        contexts: &mut [bit_context::BitContext; N],
-        value: Option<usize>,
-    ) {
-        let present = value.is_some();
-        self.encode_bit(root.probability(), present);
-        *root = root.adapt(present);
-        if let Some(value) = value {
-            self.encode_tree(contexts, value);
-        }
-    }
-
     /// Encode a given slice of incompressible bytes.
     ///
     /// Note that ideall implementations will do something more efficient than
@@ -183,22 +158,6 @@ pub trait EntropyDecoder {
             node = (node << 1) + 1 + bit as usize;
         }
         node - (N - 1)
-    }
-
-    /// Decode one escaped-tree symbol; the inverse of
-    /// [`EntropyCoder::encode_escaped_tree`]. Returns `None` for the escape,
-    /// or the decoded value in `0..N`.
-    #[inline]
-    fn decode_escaped_tree<const N: usize>(
-        &mut self,
-        root: &mut bit_context::BitContext,
-        contexts: &mut [bit_context::BitContext; N],
-    ) -> Option<usize> {
-        if self.decode_bit(root) {
-            Some(self.decode_tree(contexts))
-        } else {
-            None
-        }
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
