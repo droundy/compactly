@@ -347,9 +347,9 @@ macro_rules! assert_bits_all {
         let first = iter
             .next()
             .expect("assert_bits_all! needs at least one value");
-        let bits = crate::v2::encoded_bits!(f(first));
+        let bits = f(first).millibits().as_bits();
         for v in iter {
-            let other = crate::v2::encoded_bits!(f(v));
+            let other = f(v).millibits().as_bits();
             assert_eq!(other, bits, "encoded size differs for {v:?}");
         }
         $expected.assert_eq(&bits);

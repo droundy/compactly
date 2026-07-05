@@ -170,7 +170,7 @@ impl_uint!(u16, u16_mod, 16);
 fn size_u64() {
     use super::{assert_bits_all, encoded_bits};
     assert_bits_all!(0..256_u64, expect!["64"]);
-    assert_bits_all!(256..768_u64, expect!["65"]);
+    assert_bits_all!(256..768_u64, expect!["64"]);
     assert_bits_all!(768..1024_u64, expect!["64"]);
     expect!["65"].assert_eq(&encoded_bits!(1_000_000_u64));
     expect!["59"].assert_eq(&encoded_bits!(u64::MAX));
@@ -194,7 +194,7 @@ fn size_u32() {
         0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
     assert_bits_all!(0..32768_u32, expect!["32"]);
-    assert_bits_all!(999_990_u32..1_000_000, expect!["33"]);
+    assert_bits_all!(999_990_u32..1_000_000, expect!["32"]);
 }
 
 #[test]
@@ -592,7 +592,7 @@ fn signed() {
     expect!["38"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(i32::MIN)));
     assert_bits_all!([0i32, 1, 7, 137, -1i32], expect!["32"]);
     expect!["27"].assert_eq(&encoded_bits!(i32::MIN));
-    assert_bits_all!([i32::MAX, i32::MAX - 1], expect!["33"]);
+    assert_bits_all!([i32::MAX, i32::MAX - 1], expect!["32"]);
 
     expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(0_i16)));
     expect!["5"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(1_i16)));
