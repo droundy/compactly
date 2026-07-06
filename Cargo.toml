@@ -86,3 +86,11 @@ required-features = ["v2"]
 name = "micro-batch"
 required-features = ["v2"]
 
+[[bin]]
+name = "ans-decode-phases"
+required-features = ["v2"]
+
+[[bin]]
+name = "ans-encode-phases"
+required-features = ["v2"]
+
