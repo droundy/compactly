@@ -276,9 +276,9 @@ fn main() -> io::Result<()> {
     let chunks1_probs = tree_probs(&chunks1_freq);
     let chunks2_probs = tree_probs(&chunks2_freq);
 
-    // --- Generate src/v2/char_init.rs ---
+    // --- Generate src/v2/ulessthan/char_init.rs ---
 
-    let out_path = "src/v2/char_init.rs";
+    let out_path = "src/v2/ulessthan/char_init.rs";
     let mut out = BufWriter::new(File::create(out_path)?);
 
     writeln!(
@@ -301,17 +301,16 @@ fn main() -> io::Result<()> {
         "// observed frequency. MAX_COUNT={MAX_COUNT} pseudo-observations keeps adaptation fast."
     )?;
     writeln!(out)?;
-    writeln!(out, "use super::bit_context::BitContext;")?;
-    writeln!(out, "use super::bits::BitsContext;")?;
-    writeln!(out, "use super::string::CharContext;")?;
-    writeln!(out, "use super::ulessthan::ULessThanContext;")?;
+    writeln!(out, "use super::super::bit_context::BitContext;")?;
+    writeln!(out, "use super::super::bits::BitsContext;")?;
+    writeln!(out, "use super::super::string::CharContext;")?;
+    writeln!(out, "use super::ULessThanContext;")?;
     writeln!(out)?;
     writeln!(out, "#[allow(dead_code)]")?;
     writeln!(
         out,
-        "pub(crate) fn initial_char_context() -> CharContext {{"
+        "pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {{"
     )?;
-    writeln!(out, "    CharContext {{")?;
     // is_ascii
     writeln!(out, "        // P(ASCII) = {:.1}%", is_ascii_prob * 100.0)?;
     writeln!(
@@ -324,32 +323,28 @@ fn main() -> io::Result<()> {
     write!(out, "        ")?;
     write_bits_context(&mut out, &ascii_probs, "        ")?;
     writeln!(out, ",")?;
-    // n_chunks (ULessThan<3>)
+    // n_chunks (ULessThan<3>): array[split-1], so idx0=P(>=1), idx1=P(>=2|>=1), idx2=unused
     let nc0 = best_bit_context(n_chunks_ctx0);
-    let nc3 = best_bit_context(n_chunks_ctx3);
+    let nc1 = best_bit_context(n_chunks_ctx3);
     writeln!(
         out,
-        "        // n_chunks: idx0=P(>=1)={:.1}%, idx3=P(>=2|>=1)={:.1}%",
+        "        // n_chunks: idx0=P(>=1)={:.1}%, idx1=P(>=2|>=1)={:.1}%",
         n_chunks_ctx0 * 100.0,
         n_chunks_ctx3 * 100.0
     )?;
     writeln!(out, "        n_chunks: ULessThanContext {{")?;
-    writeln!(out, "            bits: vec![")?;
+    writeln!(out, "            bits: [")?;
     writeln!(
         out,
         "                BitContext::{nc0},  // idx 0: P(n_chunks >= 1)"
     )?;
     writeln!(
         out,
-        "                BitContext::True0False0,  // idx 1: unused"
+        "                BitContext::{nc1},  // idx 1: P(n_chunks >= 2 | >= 1)"
     )?;
     writeln!(
         out,
-        "                BitContext::True0False0,  // idx 2: unused"
-    )?;
-    writeln!(
-        out,
-        "                BitContext::{nc3},  // idx 3: P(n_chunks >= 2 | >= 1)"
+        "                BitContext::True0False0,  // idx 2: unused (N-1)"
     )?;
     writeln!(out, "            ],")?;
     writeln!(out, "        }},")?;
@@ -370,8 +365,7 @@ fn main() -> io::Result<()> {
         writeln!(out, ",")?;
     }
     writeln!(out, "        ],")?;
-    writeln!(out, "    }}")?;
-    writeln!(out, "}}")?;
+    writeln!(out, "}};")?;
 
     drop(out);
 
