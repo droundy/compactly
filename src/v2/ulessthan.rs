@@ -49,23 +49,28 @@ impl<const N: usize> TryFrom<usize> for ULessThan<N> {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// Adaptive context for [`ULessThan<N>`] encoding.
+///
+/// Holds one bit context per internal node of the decision tree. The tree over
+/// the `N` possible values has exactly `N - 1` internal nodes, and each node
+/// splits its interval at `split = accumulated_value + value_considered`, which
+/// the encode/decode loops guarantee to lie in `1..N`. That `split` is the cut
+/// separating leaf `split - 1` from leaf `split`, and each such cut belongs to a
+/// unique node (the lowest common ancestor of those two leaves), so `split - 1`
+/// is a collision-free index in `0..N-1`. A `[_; N]` therefore holds every
+/// node's context exactly (index `N - 1` is left unused), which keeps the
+/// context allocation-free and usable in a `const`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ULessThanContext<const N: usize> {
-    /// This uses way more context than is needed, because I couldn't find an
-    /// elegant way to map the N needed context to the possible bit sequences.  :(
-    bits: Vec<<bool as Encode>::Context>,
+    bits: [<bool as Encode>::Context; N],
 }
 
-impl<const N: usize> ULessThanContext<N> {
+impl<const N: usize> Default for ULessThanContext<N> {
     #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut <bool as Encode>::Context {
-        if self.bits.len() <= index {
-            self.bits.reserve(index - self.bits.len());
-            while self.bits.len() <= index {
-                self.bits.push(Default::default());
-            }
+    fn default() -> Self {
+        Self {
+            bits: [Default::default(); N],
         }
-        &mut self.bits[index]
     }
 }
 
@@ -83,38 +88,21 @@ impl<const N: usize> Encode for ULessThan<N> {
     type Context = ULessThanContext<N>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let mut filled_up = 0;
         let mut accumulated_value = 0;
-        let mut bits_chosen = 0;
-        // println!("N={N} and value {}", self.0);
+        // big endian bits, splitting values by half each time
         let mut possible_values_left = N;
-        let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
-        let mut i = 1;
+        let mut value_considered = half(possible_values_left);
         while accumulated_value + value_considered < N && possible_values_left > 1 {
-            let bit = self.0 >= accumulated_value + value_considered;
-            // println!(
-            //     "bit {i} is {bit:?} == {} >= {}",
-            //     self.0,
-            //     accumulated_value + value_considered
-            // );
-            // println!(
-            //     "{}: bit {i} is {bit:?} with context {} considering {value_considered} with {possible_values_left} values left to consider",
-            //     self.0,
-            //     filled_up + bits_chosen
-            // );
-            let ctx = ctx.index_mut(filled_up + bits_chosen);
-            bit.encode(writer, ctx);
-            filled_up += i;
+            let split = accumulated_value + value_considered;
+            let bit = self.0 >= split;
+            bit.encode(writer, &mut ctx.bits[split - 1]);
             if bit {
-                bits_chosen += 1 << i;
-                accumulated_value += value_considered;
+                accumulated_value = split;
                 possible_values_left -= value_considered;
             } else {
                 possible_values_left = value_considered;
             }
-            // println!("E {i} ==> {filled_up} -> {accumulated_value}");
             value_considered = half(possible_values_left);
-            i += 1;
         }
     }
     #[inline]
@@ -122,26 +110,19 @@ impl<const N: usize> Encode for ULessThan<N> {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let mut filled_up = 0;
         let mut accumulated_value = 0;
-        let mut bits_chosen = 0;
         let mut possible_values_left = N;
         let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
-        let mut i = 1;
         while accumulated_value + value_considered < N && possible_values_left > 1 {
-            let ctx = ctx.index_mut(filled_up + bits_chosen);
-            let bit = bool::decode(reader, ctx)?;
-            filled_up += i;
+            let split = accumulated_value + value_considered;
+            let bit = bool::decode(reader, &mut ctx.bits[split - 1])?;
             if bit {
-                bits_chosen += 1 << i;
-                accumulated_value += value_considered;
+                accumulated_value = split;
                 possible_values_left -= value_considered;
             } else {
                 possible_values_left = value_considered;
             }
-            // println!("D {i} ==> {filled_up} -> {accumulated_value}");
             value_considered = half(possible_values_left);
-            i += 1;
         }
         Ok(Self(accumulated_value))
     }
@@ -197,4 +178,16 @@ fn size() {
     expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(0).unwrap()));
     expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(1).unwrap()));
     expect!["8"].assert_eq(&estimated_bits!(ULessThan::<256>::try_from(255).unwrap()));
+}
+
+#[test]
+fn context_is_const_and_allocation_free() {
+    // The whole point of the array-backed context: it can live in a `const`
+    // (no heap allocation, no runtime initialization).
+    const _CTX: ULessThanContext<3> = ULessThanContext {
+        bits: [super::bit_context::BitContext::True0False0; 3],
+    };
+    // A `ULessThan<N>` context holds exactly `N` bit contexts.
+    assert_eq!(ULessThanContext::<3>::default().bits.len(), 3);
+    assert_eq!(ULessThanContext::<256>::default().bits.len(), 256);
 }
