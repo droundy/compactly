@@ -232,6 +232,14 @@ fn format_sz(sz: f64) -> String {
 
 fn main() {
     bench_all("books", &comparison::books::books());
+    bench_all(
+        "three kingdoms (Chinese)",
+        &[comparison::books::three_kingdoms()],
+    );
+    bench_all(
+        "english-arabic dictionary",
+        &[comparison::dictionary::dictionary()],
+    );
     let suicide_vec = comparison::suicides_per_million()
         .keys()
         .cloned()
