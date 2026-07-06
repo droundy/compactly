@@ -14,6 +14,7 @@ mod bits;
 mod bools;
 mod byte;
 mod bytes;
+pub(crate) mod char_init;
 mod floats;
 #[cfg(feature = "generate_bit_context")]
 pub mod generate_bit_context;

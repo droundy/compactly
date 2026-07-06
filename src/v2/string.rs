@@ -6,11 +6,11 @@ use expect_test::expect;
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct CharContext {
-    is_ascii: <bool as Encode>::Context,
-    ascii: <Bits<128> as Encode>::Context,
-    n_chunks: <ULessThan<3> as Encode>::Context,
-    chunk1: <Bits<32> as Encode>::Context,
-    chunks: [<Bits<64> as Encode>::Context; 3],
+    pub(crate) is_ascii: <bool as Encode>::Context,
+    pub(crate) ascii: <Bits<128> as Encode>::Context,
+    pub(crate) n_chunks: <ULessThan<3> as Encode>::Context,
+    pub(crate) chunk1: <Bits<32> as Encode>::Context,
+    pub(crate) chunks: [<Bits<64> as Encode>::Context; 3],
 }
 
 impl Encode for char {

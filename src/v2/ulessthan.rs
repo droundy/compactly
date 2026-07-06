@@ -53,7 +53,7 @@ impl<const N: usize> TryFrom<usize> for ULessThan<N> {
 pub struct ULessThanContext<const N: usize> {
     /// This uses way more context than is needed, because I couldn't find an
     /// elegant way to map the N needed context to the possible bit sequences.  :(
-    bits: Vec<<bool as Encode>::Context>,
+    pub(crate) bits: Vec<<bool as Encode>::Context>,
 }
 
 impl<const N: usize> ULessThanContext<N> {
