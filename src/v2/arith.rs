@@ -1,4 +1,5 @@
 pub use super::ans::Probability;
+use super::symbol::SymbolRange;
 use super::{EntropyCoder, EntropyDecoder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,6 +144,68 @@ impl ArithState {
         debug_assert!(self.lo >> 56 != self.hi >> 56);
         self.lo + (width >> SHIFT) * prob.get() as u64
     }
+
+    /// Minimum interval width required before coding a whole tree symbol in
+    /// one step. Guarantees every one of the `M` slots spans at least `M`
+    /// values, so slot boundaries are exact and the top-slot rounding waste is
+    /// at most a `1/M` fraction of the interval. The per-bit path tolerates
+    /// arbitrarily narrow intervals, so this is only enforced (via
+    /// [`ArithState::clamp_for_symbol`]) on the symbol path. (Must stay below
+    /// `2^56` for `clamp_for_symbol`'s single-boundary argument to hold.)
+    const MIN_SYMBOL_WIDTH: u64 = (SymbolRange::M as u64) * (SymbolRange::M as u64);
+
+    /// Carry-less clamp renormalization (Subbotin-style): if the interval is
+    /// too narrow for a symbol step, it must straddle exactly one top-byte
+    /// boundary (byte-wise renormalization would otherwise have shifted it
+    /// out). Discard the smaller side of that boundary so renormalization can
+    /// proceed; the encoder simply never codes into the discarded part, at a
+    /// cost of at most one bit per (rare) clamp. The choice depends only on
+    /// `(lo, hi)`, which encoder and decoder share, so they always agree.
+    ///
+    /// Returns whether it clamped; the caller must then renormalize
+    /// (`ready_bytes` / `consume_decoded_bytes`) and call this again.
+    #[inline]
+    fn clamp_for_symbol(&mut self) -> bool {
+        if self.hi - self.lo >= Self::MIN_SYMBOL_WIDTH {
+            return false;
+        }
+        // width < 2^56 with unequal top bytes ⟹ exactly one multiple of 2^56
+        // lies in (lo, hi]: hi rounded down to its top byte.
+        let boundary = self.hi & (0xFF << 56);
+        debug_assert!(self.lo < boundary && boundary <= self.hi);
+        if boundary - self.lo > self.hi - boundary + 1 {
+            self.hi = boundary - 1;
+        } else {
+            self.lo = boundary;
+        }
+        true
+    }
+
+    /// Narrow the interval to `range`'s slots. Requires
+    /// `width >= MIN_SYMBOL_WIDTH` (see [`ArithState::clamp_for_symbol`]).
+    /// The top slot absorbs the sub-slot rounding remainder, mirroring how the
+    /// per-bit `encode` gives the true branch everything above `split`.
+    #[inline]
+    fn narrow_symbol(&mut self, range: SymbolRange) {
+        let step = (self.hi - self.lo) >> SymbolRange::BITS;
+        let end = range.start() + range.width();
+        self.hi = if end == SymbolRange::M {
+            self.hi
+        } else {
+            self.lo + step * end as u64 - 1
+        };
+        self.lo += step * range.start() as u64;
+        debug_assert!(self.hi > self.lo);
+    }
+
+    /// Which slot the decoder's window `value` falls in. Values in the
+    /// top-slot remainder (and garbage past the end of the stream) clamp to
+    /// the top slot.
+    #[inline]
+    fn symbol_slot(&self, value: u64) -> u32 {
+        let step = (self.hi - self.lo) >> SymbolRange::BITS;
+        (value.wrapping_sub(self.lo) / step).min((SymbolRange::M - 1) as u64) as u32
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -198,6 +261,25 @@ impl EntropyCoder for Range {
             self.bytes
                 .extend_from_slice(&self.state.encode(probability_of_false, value));
         }
+    }
+
+    /// Whole-tree symbol encode: one interval narrowing + renormalization for
+    /// the `log2(N)`-bit symbol instead of one per bit.
+    #[inline]
+    fn encode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        value: usize,
+    ) {
+        if N < 2 {
+            return;
+        }
+        while self.state.clamp_for_symbol() {
+            self.bytes.extend_from_slice(&self.state.ready_bytes());
+        }
+        let range = SymbolRange::for_value(contexts, value);
+        self.state.narrow_symbol(range);
+        self.bytes.extend_from_slice(&self.state.ready_bytes());
     }
 
     #[inline]
@@ -324,6 +406,46 @@ fn decode_step(
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Whole-tree symbol decode, the inverse of `Range::encode_tree`: recover
+    /// the slot with one division, walk the tree to the value, then do a
+    /// single narrowing + renormalization. State is kept in locals across the
+    /// whole symbol (register-resident), as in `decode_bits`.
+    #[inline]
+    fn decode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        let mut state = self.state;
+        let mut value = self.value;
+        let mut bytes = self.bytes;
+        let pull = |state: &mut ArithState, value: &mut u64, bytes: &mut &[u8]| {
+            let n = state.consume_decoded_bytes();
+            for _ in 0..n {
+                let byte = if let Some((&b, r)) = bytes.split_first() {
+                    *bytes = r;
+                    b
+                } else {
+                    0
+                };
+                *value = (*value << 8) + byte as u64;
+            }
+        };
+        while state.clamp_for_symbol() {
+            pull(&mut state, &mut value, &mut bytes);
+        }
+        let slot = state.symbol_slot(value);
+        let (range, decoded) = SymbolRange::from_slot(contexts, slot);
+        state.narrow_symbol(range);
+        pull(&mut state, &mut value, &mut bytes);
+        self.state = state;
+        self.value = value;
+        self.bytes = bytes;
+        decoded
+    }
+
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`
     /// override). We keep `state`/`value`/`bytes` in locals and do lookup → decode
     /// → adapt in one pass, touching each independent context once, rather than
@@ -492,6 +614,131 @@ mod tests {
         );
         assert_eq!(bytes.count, 1);
         assert_eq!(bytes.bytes, [255, 0, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn symbol_state_roundtrip() {
+        // Symbol narrowing must round-trip from every reachable state,
+        // including adversarially narrow straddled intervals that force the
+        // clamp renormalization.
+        fn test_state(s: ArithState) {
+            // encoder side: clamp until wide enough (bytes are emitted by the
+            // caller in the real coder; here we only track state agreement)
+            let mut enc = s;
+            let mut enc_clamp_bytes = Vec::new();
+            while enc.clamp_for_symbol() {
+                enc_clamp_bytes.extend_from_slice(&enc.ready_bytes());
+            }
+            // decoder side must clamp identically, consuming the same count
+            let mut dec = s;
+            let mut dec_consumed = 0;
+            while dec.clamp_for_symbol() {
+                dec_consumed += dec.consume_decoded_bytes();
+            }
+            assert_eq!(enc, dec, "clamp must be deterministic in (lo, hi)");
+            assert_eq!(enc_clamp_bytes.len(), dec_consumed);
+            assert!(enc.hi - enc.lo >= ArithState::MIN_SYMBOL_WIDTH);
+
+            // a random symbol interval
+            let start = rand::random::<u32>() % SymbolRange::M;
+            let width = 1 + rand::random::<u32>() % (SymbolRange::M - start);
+            let range = SymbolRange::test_new(start, width);
+            let mut narrowed = enc;
+            narrowed.narrow_symbol(range);
+            assert!(narrowed.lo >= enc.lo && narrowed.hi <= enc.hi);
+            // every value in the narrowed interval must recover a slot inside
+            // the coded range
+            for value in [
+                narrowed.lo,
+                narrowed.hi,
+                narrowed.lo + (narrowed.hi - narrowed.lo) / 2,
+            ] {
+                let slot = enc.symbol_slot(value);
+                assert!(
+                    slot >= start && slot < start + width,
+                    "slot {slot} outside [{start}, {}) for {enc:x?} value {value:x}",
+                    start + width
+                );
+            }
+        }
+
+        // the canonical narrowest straddle
+        test_state(ArithState {
+            lo: u64::MAX / 2,
+            hi: u64::MAX / 2 + 1,
+        });
+        for _ in 0..10_000 {
+            let mut s = ArithState::default();
+            if rand::random::<bool>() {
+                // adversarial: tiny width straddling a top-byte boundary
+                let boundary = ((rand::random::<u64>() % 255) + 1) << 56;
+                let below = rand::random::<u64>() % (1 << (rand::random::<u32>() % 40));
+                let above = rand::random::<u64>() % (1 << (rand::random::<u32>() % 40));
+                s.lo = boundary - 1 - below;
+                s.hi = boundary + above;
+            } else {
+                s.lo = rand::random();
+                if s.lo == u64::MAX {
+                    s.lo = 0;
+                }
+                s.hi = s.lo + 1 + (rand::random::<u64>() % (u64::MAX - s.lo));
+            }
+            s.ready_bytes();
+            if s.hi > s.lo {
+                test_state(s);
+            }
+        }
+    }
+
+    #[test]
+    fn encode_decode_symbols_and_bits() {
+        // Full-stream mixed test through the real encoder/decoder: interleaved
+        // bits and whole-tree byte symbols with shared adapting contexts.
+        for trial in 0..2000 {
+            let n_ops = rand::random::<usize>() % 200;
+            #[derive(Debug, Clone, Copy)]
+            enum Planned {
+                Bit(bool, Probability),
+                Byte(u8),
+            }
+            let mut plan = Vec::new();
+            for _ in 0..n_ops {
+                if rand::random::<bool>() {
+                    plan.push(Planned::Bit(rand::random(), rand::random()));
+                } else {
+                    plan.push(Planned::Byte(rand::random()));
+                }
+            }
+            let mut encode_contexts = [super::super::bit_context::BitContext::default(); 256];
+            let mut encoder = Range::default();
+            for op in &plan {
+                match *op {
+                    Planned::Bit(b, probability) => encoder.encode_bit(probability, b),
+                    Planned::Byte(b) => encoder.encode_tree(&mut encode_contexts, b as usize),
+                }
+            }
+            let bytes = encoder.into_vec();
+            let mut decoder = Decoder::new(&bytes);
+            let mut decode_contexts = [super::super::bit_context::BitContext::default(); 256];
+            for (i, op) in plan.iter().enumerate() {
+                match *op {
+                    Planned::Bit(b, probability) => {
+                        let decoded = decode_step(
+                            &mut decoder.state,
+                            &mut decoder.value,
+                            &mut decoder.bytes,
+                            probability,
+                        );
+                        assert_eq!(decoded, b, "bit {i} of trial {trial}");
+                    }
+                    Planned::Byte(b) => {
+                        let decoded = decoder.decode_tree(&mut decode_contexts);
+                        assert_eq!(decoded, b as usize, "byte {i} of trial {trial}");
+                    }
+                }
+            }
+            assert_eq!(encode_contexts, decode_contexts);
+        }
     }
 
     #[test]

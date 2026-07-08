@@ -226,7 +226,7 @@ fn low_cardinality() {
     );
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
-        expect!["v1: 8379 bits, v2: 9221 bits"]
+        expect!["v1: 8379 bits, v2: 9222 bits"]
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(

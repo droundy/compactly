@@ -346,11 +346,11 @@ fn eager() {
         for chunk in Lz77::default().eager(b"aaa") {
             chunk.encode(&mut millibits_of_literals, &mut ctx);
         }
-        assert_eq!(millibits_of_literals, super::Millibits::new(22976));
+        assert_eq!(millibits_of_literals, super::Millibits::new(22988));
         let mb_of_vec = Lz77::default().eager(b"aaa").millibits();
-        assert_eq!(mb_of_vec, super::Millibits::new(25976));
+        assert_eq!(mb_of_vec, super::Millibits::new(25988));
         let mb_of_string = b"aaa".to_vec().millibits();
-        assert_eq!(mb_of_string, super::Millibits::new(19976));
+        assert_eq!(mb_of_string, super::Millibits::new(19988));
     }
     assert_eq!(
         Lz77::default().eager(b"aaaaaaaaaaaaaaaaaaaa"),
@@ -568,7 +568,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8979 bits, small: 7110 bits"]
+    expect!["normal: 8985 bits, small: 7113 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     assert_eq!(true.millibits(), super::Millibits::bits(1));
@@ -604,16 +604,16 @@ fn size() {
         .assert_eq(&compare_small_bits(b"hello world hello wood"));
     expect!["normal: 127 bits, small: 98 bits"]
         .assert_eq(&compare_small_bits(b"hello world hello world"));
-    expect!["normal: 412 bits, small: 418 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 413 bits, small: 419 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
     ));
-    expect!["normal: 1537 bits, small: 834 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1539 bits, small: 835 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
     ));
-    expect!["normal: 1608 bits, small: 1004 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1609 bits, small: 1005 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
@@ -629,27 +629,27 @@ fn size() {
     );
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
+    assert_eq!(s.millibits(), super::Millibits::new(39549), "just a string");
     expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = b"hello world this is a string".to_vec();
     assert_eq!(
         s.millibits(),
-        super::Millibits::new(165025),
+        super::Millibits::new(165201),
         "just a string"
     );
     expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(14000) (14 bits), small: Millibits(20000) (20 bits)"]
         .assert_eq(&compare_vecs(&[b"h"]));
-    expect!["normal: Millibits(76790) (77 bits), small: Millibits(82790) (83 bits)"]
+    expect!["normal: Millibits(76841) (77 bits), small: Millibits(82841) (83 bits)"]
         .assert_eq(&compare_vecs(&[b"hello world"]));
-    expect!["normal: Millibits(128070) (128 bits), small: Millibits(101716) (102 bits)"]
+    expect!["normal: Millibits(128206) (128 bits), small: Millibits(101770) (102 bits)"]
         .assert_eq(&compare_vecs(&[b"hello world", b"hello world"]));
-    expect!["normal: Millibits(172264) (172 bits), small: Millibits(112527) (113 bits)"].assert_eq(
+    expect!["normal: Millibits(172498) (173 bits), small: Millibits(112584) (113 bits)"].assert_eq(
         &compare_vecs(&[b"hello world", b"hello world", b"hello world"]),
     );
-    expect!["normal: Millibits(262073) (262 bits), small: Millibits(145730) (146 bits)"].assert_eq(
+    expect!["normal: Millibits(262517) (263 bits), small: Millibits(145803) (146 bits)"].assert_eq(
         &compare_vecs(&[
             b"hello world",
             b"hello world",
@@ -657,7 +657,7 @@ fn size() {
             b"hello world hello world",
         ]),
     );
-    expect!["normal: Millibits(495559) (496 bits), small: Millibits(413131) (413 bits)"].assert_eq(
+    expect!["normal: Millibits(496105) (496 bits), small: Millibits(413459) (414 bits)"].assert_eq(
         &compare_vecs(&[
             b"The quick brown fox jumps over the lazy dog.",
             b"The",

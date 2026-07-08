@@ -4,7 +4,7 @@ use crate::{Incompressible, Small, Sorted};
 #[cfg(test)]
 use expect_test::expect;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ByteContext([<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
     #[inline]
@@ -341,7 +341,7 @@ fn size() {
     expect!["31"].assert_eq(&estimated_bits!(*b"hello"));
     expect!["68"].assert_eq(&estimated_bits!(*b"hello world"));
     expect!["129"].assert_eq(&estimated_bits!(*b"hello world, hello world"));
-    expect!["110"].assert_eq(&estimated_bits!(*b"hello hello, hello hello"));
+    expect!["111"].assert_eq(&estimated_bits!(*b"hello hello, hello hello"));
     expect!["195"].assert_eq(&estimated_bits!(
         *b"hello hello, hello hello, hello hello, hello hello"
     ));

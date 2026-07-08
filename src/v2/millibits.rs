@@ -13,6 +13,20 @@ impl super::EntropyCoder for Millibits {
             *self += probability.millibits(bit);
         }
     }
+
+    /// A whole tree symbol costs `-log2(width / M)` bits: one exact estimate
+    /// for the symbol rather than `log2(N)` separately-rounded per-bit
+    /// estimates, matching what the single-step coders actually pay.
+    fn encode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        value: usize,
+    ) {
+        use super::symbol::SymbolRange;
+        let width = SymbolRange::for_value(contexts, value).width();
+        let millibits = (SymbolRange::BITS as f64 - (width as f64).log2()) * 1000.0;
+        *self += Millibits(millibits.round() as u32);
+    }
 }
 
 impl Millibits {

@@ -1,8 +1,10 @@
-//! Generated with `src/ans/generate_bit_context.rs`
+//! Generated with `src/v2/generate_bit_context.rs`
 use super::ans::Probability;
 
 impl BitContext {
     pub const CONFIDENT: Self = True0False4;
+    /// Number of variants; every `BitContext as usize` discriminant is below this.
+    pub const COUNT: usize = 675;
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -688,7 +690,7 @@ use BitContext::*;
 
 impl BitContext {
     #[inline]
-    pub fn probability(self) -> Probability {
+    pub const fn probability(self) -> Probability {
         const LOOKUP: [Probability; 675] = [
             Probability::new(128, 128),
             Probability::new(171, 85),
@@ -1370,7 +1372,7 @@ impl BitContext {
     }
 
     #[inline]
-    pub fn adapt(self, bit: bool) -> Self {
+    pub const fn adapt(self, bit: bool) -> Self {
         const OUTCOMES: [BitContext; 2 * 675] = [
             True0False1,   // from True0False0 with false
             True1False1,   // from True1False0 with false
