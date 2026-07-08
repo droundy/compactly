@@ -260,9 +260,9 @@ fn main() -> io::Result<()> {
     let two_chunk_a_probs = tree_probs(&two_chunk_a_freq);
     let two_chunk_b_probs = tree_probs(&two_chunk_b_freq);
 
-    // --- Generate src/v2/char_init.rs ---
+    // --- Generate src/v2/string/init.rs ---
 
-    let out_path = "src/v2/char_init.rs";
+    let out_path = "src/v2/string/init.rs";
     let mut out = BufWriter::new(File::create(out_path)?);
 
     writeln!(
@@ -285,13 +285,13 @@ fn main() -> io::Result<()> {
         "// observed frequency. MAX_COUNT={MAX_COUNT} pseudo-observations keeps adaptation fast."
     )?;
     writeln!(out)?;
-    writeln!(out, "use super::bit_context::BitContext;")?;
-    writeln!(out, "use super::byte::ByteContext;")?;
-    writeln!(out, "use super::string::CharContext;")?;
+    writeln!(out, "use super::super::bit_context::BitContext;")?;
+    writeln!(out, "use super::super::byte::ByteContext;")?;
+    writeln!(out, "use super::CharContext;")?;
     writeln!(out)?;
     writeln!(
         out,
-        "pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {{"
+        "pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {{"
     )?;
     writeln!(out, "    // P(ASCII) = {:.1}%", is_ascii_prob * 100.0)?;
     for (name, probs, label) in [

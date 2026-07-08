@@ -4,11 +4,11 @@
 // Each BitContext is the lowest-count state whose P(true) best matches the
 // observed frequency. MAX_COUNT=4 pseudo-observations keeps adaptation fast.
 
-use super::bit_context::BitContext;
-use super::byte::ByteContext;
-use super::string::CharContext;
+use super::super::bit_context::BitContext;
+use super::super::byte::ByteContext;
+use super::CharContext;
 
-pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
+pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
     // P(ASCII) = 94.9%
     // leading byte (length class + high bits)
     first: ByteContext([

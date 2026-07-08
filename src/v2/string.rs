@@ -1,3 +1,5 @@
+mod init;
+
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
 use crate::{Compressible, Small, Sorted};
 
@@ -16,19 +18,19 @@ pub struct CharContext {
     /// two) and its low 6 bits hold the *high* bits of the codepoint. The low
     /// bytes go in the continuation chunks, so each script's char identity
     /// (its low byte) lands in a single adaptive `u8` tree.
-    pub(crate) first: <u8 as Encode>::Context,
+    first: <u8 as Encode>::Context,
     /// Low byte of a one-continuation char.
-    pub(crate) one_chunk: <u8 as Encode>::Context,
+    one_chunk: <u8 as Encode>::Context,
     /// Middle byte (`x >> 8`) of a two-continuation char.
-    pub(crate) two_chunk_a: <u8 as Encode>::Context,
+    two_chunk_a: <u8 as Encode>::Context,
     /// Low byte of a two-continuation char.
-    pub(crate) two_chunk_b: <u8 as Encode>::Context,
+    two_chunk_b: <u8 as Encode>::Context,
 }
 
 impl Default for CharContext {
     #[inline]
     fn default() -> Self {
-        super::char_init::INITIAL_CHAR_CONTEXT
+        init::INITIAL_CHAR_CONTEXT
     }
 }
 
