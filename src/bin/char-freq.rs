@@ -101,8 +101,8 @@ fn tree_probs(freq: &[u64]) -> Vec<f64> {
     probs
 }
 
-fn write_bits_context<W: Write>(out: &mut W, probs: &[f64], indent: &str) -> io::Result<()> {
-    writeln!(out, "BitsContext([")?;
+fn write_byte_context<W: Write>(out: &mut W, probs: &[f64], indent: &str) -> io::Result<()> {
+    writeln!(out, "ByteContext([")?;
     for p in probs {
         writeln!(out, "{indent}    BitContext::{},", best_bit_context(*p))?;
     }
@@ -217,34 +217,33 @@ fn main() -> io::Result<()> {
     }
 
     // --- Aggregate frequency tables for each part of CharContext ---
+    //
+    // Mirrors `impl Encode for char` in src/v2/string.rs: a UTF-8-style
+    // big-endian leading byte (whose top bits tag the length class), then
+    // zero, one, or two continuation bytes coded in their own u8 trees.
+    const ONE_CHUNK_CUTOFF: u32 = 1 << 14;
 
-    let mut ascii_freq = [0u64; 128];
-    let mut chunk1_freq = [0u64; 32];
-    let mut chunks0_freq = [0u64; 64];
-    let mut chunks1_freq = [0u64; 64];
-    let mut chunks2_freq = [0u64; 64];
+    let mut first_freq = [0u64; 256];
+    let mut one_chunk_freq = [0u64; 256];
+    let mut two_chunk_a_freq = [0u64; 256];
+    let mut two_chunk_b_freq = [0u64; 256];
     let mut ascii_total = 0u64;
     let mut non_ascii_total = 0u64;
-    let mut n_chunks_ge1 = 0u64; // cp >= 2048
-    let mut n_chunks_ge2 = 0u64; // cp >= 131072
 
     for (&c, &freq) in &global_freqs {
-        let cp = c as u32;
-        if cp < 128 {
+        let x = c as u32;
+        if x < 128 {
             ascii_total += freq;
-            ascii_freq[cp as usize] += freq;
+            first_freq[x as usize] += freq;
+        } else if x < ONE_CHUNK_CUTOFF {
+            non_ascii_total += freq;
+            first_freq[(0x80 | (x >> 8)) as usize] += freq;
+            one_chunk_freq[(x & 0xff) as usize] += freq;
         } else {
             non_ascii_total += freq;
-            chunk1_freq[(cp & 0x1F) as usize] += freq;
-            chunks0_freq[((cp >> 5) & 0x3F) as usize] += freq;
-            if cp >= 2048 {
-                n_chunks_ge1 += freq;
-                chunks1_freq[((cp >> 11) & 0x3F) as usize] += freq;
-                if cp >= 131072 {
-                    n_chunks_ge2 += freq;
-                    chunks2_freq[((cp >> 17) & 0x3F) as usize] += freq;
-                }
-            }
+            first_freq[(0xc0 | (x >> 16)) as usize] += freq;
+            two_chunk_a_freq[((x >> 8) & 0xff) as usize] += freq;
+            two_chunk_b_freq[(x & 0xff) as usize] += freq;
         }
     }
 
@@ -256,29 +255,14 @@ fn main() -> io::Result<()> {
         0.5
     };
 
-    // ULessThan<3> context uses only indices 0 and 3 (see ulessthan.rs trace).
-    // Index 0: P(n_chunks >= 1)
-    // Index 3: P(n_chunks >= 2 | n_chunks >= 1)
-    let n_chunks_ctx0 = if non_ascii_total > 0 {
-        n_chunks_ge1 as f64 / non_ascii_total as f64
-    } else {
-        0.5
-    };
-    let n_chunks_ctx3 = if n_chunks_ge1 > 0 {
-        n_chunks_ge2 as f64 / n_chunks_ge1 as f64
-    } else {
-        0.5
-    };
+    let first_probs = tree_probs(&first_freq);
+    let one_chunk_probs = tree_probs(&one_chunk_freq);
+    let two_chunk_a_probs = tree_probs(&two_chunk_a_freq);
+    let two_chunk_b_probs = tree_probs(&two_chunk_b_freq);
 
-    let ascii_probs = tree_probs(&ascii_freq);
-    let chunk1_probs = tree_probs(&chunk1_freq);
-    let chunks0_probs = tree_probs(&chunks0_freq);
-    let chunks1_probs = tree_probs(&chunks1_freq);
-    let chunks2_probs = tree_probs(&chunks2_freq);
+    // --- Generate src/v2/char_init.rs ---
 
-    // --- Generate src/v2/ulessthan/char_init.rs ---
-
-    let out_path = "src/v2/ulessthan/char_init.rs";
+    let out_path = "src/v2/char_init.rs";
     let mut out = BufWriter::new(File::create(out_path)?);
 
     writeln!(
@@ -301,69 +285,42 @@ fn main() -> io::Result<()> {
         "// observed frequency. MAX_COUNT={MAX_COUNT} pseudo-observations keeps adaptation fast."
     )?;
     writeln!(out)?;
-    writeln!(out, "use super::super::bit_context::BitContext;")?;
-    writeln!(out, "use super::super::bits::BitsContext;")?;
-    writeln!(out, "use super::super::string::CharContext;")?;
-    writeln!(out, "use super::ULessThanContext;")?;
+    writeln!(out, "use super::bit_context::BitContext;")?;
+    writeln!(out, "use super::byte::ByteContext;")?;
+    writeln!(out, "use super::string::CharContext;")?;
     writeln!(out)?;
     writeln!(
         out,
         "pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {{"
     )?;
-    // is_ascii
-    writeln!(out, "        // P(ASCII) = {:.1}%", is_ascii_prob * 100.0)?;
-    writeln!(
-        out,
-        "        is_ascii: BitContext::{},",
-        best_bit_context(is_ascii_prob)
-    )?;
-    // ascii tree
-    writeln!(out, "        ascii: ")?;
-    write!(out, "        ")?;
-    write_bits_context(&mut out, &ascii_probs, "        ")?;
-    writeln!(out, ",")?;
-    // n_chunks (ULessThan<3>): array[split-1], so idx0=P(>=1), idx1=P(>=2|>=1), idx2=unused
-    let nc0 = best_bit_context(n_chunks_ctx0);
-    let nc1 = best_bit_context(n_chunks_ctx3);
-    writeln!(
-        out,
-        "        // n_chunks: idx0=P(>=1)={:.1}%, idx1=P(>=2|>=1)={:.1}%",
-        n_chunks_ctx0 * 100.0,
-        n_chunks_ctx3 * 100.0
-    )?;
-    writeln!(out, "        n_chunks: ULessThanContext {{")?;
-    writeln!(out, "            bits: [")?;
-    writeln!(
-        out,
-        "                BitContext::{nc0},  // idx 0: P(n_chunks >= 1)"
-    )?;
-    writeln!(
-        out,
-        "                BitContext::{nc1},  // idx 1: P(n_chunks >= 2 | >= 1)"
-    )?;
-    writeln!(
-        out,
-        "                BitContext::True0False0,  // idx 2: unused (N-1)"
-    )?;
-    writeln!(out, "            ],")?;
-    writeln!(out, "        }},")?;
-    // chunk1
-    writeln!(out, "        chunk1: ")?;
-    write!(out, "        ")?;
-    write_bits_context(&mut out, &chunk1_probs, "        ")?;
-    writeln!(out, ",")?;
-    // chunks[0..3]
-    writeln!(out, "        chunks: [")?;
-    for (probs, label) in [
-        (&chunks0_probs, "bits 5-10 of codepoint"),
-        (&chunks1_probs, "bits 11-16 (cp >= 2048)"),
-        (&chunks2_probs, "bits 17-22 (cp >= 131072)"),
+    writeln!(out, "    // P(ASCII) = {:.1}%", is_ascii_prob * 100.0)?;
+    for (name, probs, label) in [
+        (
+            "first",
+            &first_probs,
+            "leading byte (length class + high bits)",
+        ),
+        (
+            "one_chunk",
+            &one_chunk_probs,
+            "low byte of a one-continuation char",
+        ),
+        (
+            "two_chunk_a",
+            &two_chunk_a_probs,
+            "middle byte of a two-continuation char",
+        ),
+        (
+            "two_chunk_b",
+            &two_chunk_b_probs,
+            "low byte of a two-continuation char",
+        ),
     ] {
-        write!(out, "            // {label}\n            ")?;
-        write_bits_context(&mut out, probs, "            ")?;
+        writeln!(out, "    // {label}")?;
+        write!(out, "    {name}: ")?;
+        write_byte_context(&mut out, probs, "    ")?;
         writeln!(out, ",")?;
     }
-    writeln!(out, "        ],")?;
     writeln!(out, "}};")?;
 
     drop(out);

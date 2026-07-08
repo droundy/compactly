@@ -174,7 +174,7 @@ fn size_u64() {
     assert_bits_all!(768..1024_u64, expect!["64"]);
     expect!["64"].assert_eq(&estimated_bits!(1_000_000_u64));
     expect!["64"].assert_eq(&estimated_bits!(u64::MAX));
-    expect!["427"].assert_eq(&estimated_bits!([0_u64; 128]));
+    expect!["428"].assert_eq(&estimated_bits!([0_u64; 128]));
     expect!["101"].assert_eq(&estimated_bits!([1_u64; 2]));
     expect!["274"].assert_eq(&estimated_bits!([1_u64; 19]));
     expect!["305"].assert_eq(&estimated_bits!([
@@ -186,7 +186,7 @@ fn size_u64() {
 fn size_u32() {
     use super::{assert_bits_all, estimated_bits};
     expect!["32"].assert_eq(&estimated_bits!(u32::MAX));
-    expect!["213"].assert_eq(&estimated_bits!([0_u32; 128]));
+    expect!["215"].assert_eq(&estimated_bits!([0_u32; 128]));
     expect!["3125"].assert_eq(&estimated_bits!([u32::MAX; 128]));
     expect!["51"].assert_eq(&estimated_bits!([1_u32; 2]));
     expect!["137"].assert_eq(&estimated_bits!([1_u32; 19]));
@@ -202,10 +202,10 @@ fn size_u16() {
     use super::{assert_bits_all, estimated_bits};
     assert_bits_all!(0..21845_u16, expect!["16"]);
     expect!["16"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["107"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["108"].assert_eq(&estimated_bits!([0_u16; 128]));
     expect!["1077"].assert_eq(&estimated_bits!([u16::MAX; 128]));
     expect!["25"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["68"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["69"].assert_eq(&estimated_bits!([1_u16; 19]));
     expect!["80"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
@@ -345,7 +345,7 @@ fn compact_u32() {
     expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(7_u32)));
     expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(8_u32)));
     expect!["37"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u32::MAX)));
-    expect!["33"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(0_u32); 128]));
+    expect!["34"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(0_u32); 128]));
     expect!["3159"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(u32::MAX); 128]));
     expect!["8"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 2]));
     expect!["21"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 19]));

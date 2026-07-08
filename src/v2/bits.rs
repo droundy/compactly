@@ -6,7 +6,7 @@ use expect_test::expect;
 /// Adaptive context for [`Bits<N>`] encoding; holds one bit context per node in
 /// the log2(N)-level binary tree.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct BitsContext<const N: usize>(pub(crate) [<bool as Encode>::Context; N]);
+pub struct BitsContext<const N: usize>([<bool as Encode>::Context; N]);
 impl<const N: usize> Default for BitsContext<N> {
     fn default() -> Self {
         Self([Default::default(); N])

@@ -1,5 +1,3 @@
-pub(crate) mod char_init;
-
 use super::Encode;
 
 #[cfg(test)]

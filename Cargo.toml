@@ -92,3 +92,11 @@ required-features = ["v2"]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
+[[bin]]
+name = "ans-decode-phases"
+required-features = ["v2"]
+
+[[bin]]
+name = "ans-encode-phases"
+required-features = ["v2"]
+
