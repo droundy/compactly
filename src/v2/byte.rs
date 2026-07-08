@@ -5,7 +5,7 @@ use crate::{Incompressible, Small, Sorted};
 use expect_test::expect;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ByteContext([<bool as Encode>::Context; 256]);
+pub struct ByteContext(pub(crate) [<bool as Encode>::Context; 256]);
 impl Default for ByteContext {
     #[inline]
     fn default() -> Self {
