@@ -1,20 +1,12 @@
+use super::bits::Bits;
 use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Small, Sorted};
 
 #[cfg(test)]
 use expect_test::expect;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ByteContext(pub(crate) [<bool as Encode>::Context; 256]);
-impl Default for ByteContext {
-    #[inline]
-    fn default() -> Self {
-        ByteContext([Default::default(); 256])
-    }
-}
-
 impl Encode for u8 {
-    type Context = ByteContext;
+    type Context = <Bits<256> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         writer.encode_tree(&mut ctx.0, *self as usize)

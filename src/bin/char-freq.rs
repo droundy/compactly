@@ -102,7 +102,7 @@ fn tree_probs(freq: &[u64]) -> Vec<f64> {
 }
 
 fn write_byte_context<W: Write>(out: &mut W, probs: &[f64], indent: &str) -> io::Result<()> {
-    writeln!(out, "ByteContext([")?;
+    writeln!(out, "BitsContext([")?;
     for p in probs {
         writeln!(out, "{indent}    BitContext::{},", best_bit_context(*p))?;
     }
@@ -286,7 +286,7 @@ fn main() -> io::Result<()> {
     )?;
     writeln!(out)?;
     writeln!(out, "use super::super::bit_context::BitContext;")?;
-    writeln!(out, "use super::super::byte::ByteContext;")?;
+    writeln!(out, "use super::super::bits::BitsContext;")?;
     writeln!(out, "use super::CharContext;")?;
     writeln!(out)?;
     writeln!(

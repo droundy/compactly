@@ -5,13 +5,13 @@
 // observed frequency. MAX_COUNT=4 pseudo-observations keeps adaptation fast.
 
 use super::super::bit_context::BitContext;
-use super::super::byte::ByteContext;
+use super::super::bits::BitsContext;
 use super::CharContext;
 
 pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
     // P(ASCII) = 94.9%
     // leading byte (length class + high bits)
-    first: ByteContext([
+    first: BitsContext([
         BitContext::True0False4,
         BitContext::True3False0,
         BitContext::True0False3,
@@ -270,7 +270,7 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
         BitContext::True0False0,
     ]),
     // low byte of a one-continuation char
-    one_chunk: ByteContext([
+    one_chunk: BitsContext([
         BitContext::True0False4,
         BitContext::True0False1,
         BitContext::True1False0,
@@ -529,7 +529,7 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
         BitContext::True0False0,
     ]),
     // middle byte of a two-continuation char
-    two_chunk_a: ByteContext([
+    two_chunk_a: BitsContext([
         BitContext::True0False3,
         BitContext::True4False0,
         BitContext::True0False4,
@@ -788,7 +788,7 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
         BitContext::True0False0,
     ]),
     // low byte of a two-continuation char
-    two_chunk_b: ByteContext([
+    two_chunk_b: BitsContext([
         BitContext::True0False0,
         BitContext::True1False2,
         BitContext::True0False0,
