@@ -571,27 +571,27 @@ fn size() {
     expect!["normal: 8979 bits, small: 7110 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
-    assert_eq!(true.millibits(), super::Millibits::bits(1));
-    assert_eq!('a'.millibits(), super::Millibits::bits(8));
-    assert_eq!(
-        Chunk {
+    expect!["1000 mb"].assert_eq(&true.millibits().to_string());
+    expect!["4585 mb"].assert_eq(&'a'.millibits().to_string());
+    expect!["14000 mb"].assert_eq(
+        &Chunk {
             literal: b"a".to_vec().into_boxed_slice(),
             length: 0,
             back: 0,
-            offset: 0
+            offset: 0,
         }
-        .millibits(),
-        super::Millibits::bits(14)
+        .millibits()
+        .to_string(),
     );
-    assert_eq!(
-        Chunk {
+    expect!["13000 mb"].assert_eq(
+        &Chunk {
             literal: Box::new([]),
             back: 0,
             offset: 0,
-            length: 2
+            length: 2,
         }
-        .millibits(),
-        super::Millibits::bits(13)
+        .millibits()
+        .to_string(),
     );
     expect!["normal: 3 bits, small: 3 bits"].assert_eq(&compare_small_bits(b""));
     expect!["normal: 11 bits, small: 17 bits"].assert_eq(&compare_small_bits(b"a"));
@@ -622,22 +622,14 @@ fn size() {
 
     expect!["normal: Millibits(3000) (3 bits), small: Millibits(3000) (3 bits)"]
         .assert_eq(&compare_vecs(&[]));
-    assert_eq!(
-        b"h".to_vec().millibits(),
-        super::Millibits::bits(11),
-        "just h string"
-    );
+    expect!["11000 mb"].assert_eq(&b"h".to_vec().millibits().to_string());
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    assert_eq!(s.millibits(), super::Millibits::new(39424), "just a string");
+    expect!["39424 mb"].assert_eq(&s.millibits().to_string());
     expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = b"hello world this is a string".to_vec();
-    assert_eq!(
-        s.millibits(),
-        super::Millibits::new(165025),
-        "just a string"
-    );
+    expect!["165025 mb"].assert_eq(&s.millibits().to_string());
     expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(14000) (14 bits), small: Millibits(20000) (20 bits)"]

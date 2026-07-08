@@ -9,7 +9,6 @@ use super::super::bits::BitsContext;
 use super::super::string::CharContext;
 use super::ULessThanContext;
 
-#[allow(dead_code)]
 pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
     // P(ASCII) = 94.9%
     is_ascii: BitContext::True4False0,

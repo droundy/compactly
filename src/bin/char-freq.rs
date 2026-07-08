@@ -306,7 +306,6 @@ fn main() -> io::Result<()> {
     writeln!(out, "use super::super::string::CharContext;")?;
     writeln!(out, "use super::ULessThanContext;")?;
     writeln!(out)?;
-    writeln!(out, "#[allow(dead_code)]")?;
     writeln!(
         out,
         "pub(crate) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {{"
