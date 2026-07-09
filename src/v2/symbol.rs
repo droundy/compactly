@@ -81,6 +81,16 @@ pub(crate) const fn half(i: usize) -> usize {
     }
 }
 
+/// Above this `N`, the `Range` decoder uses the speculative
+/// [`SymbolRange::from_uless_slot_prefetching`] walk instead of the plain
+/// [`SymbolRange::from_uless_slot`]. `Range` only: its symbol step carries a
+/// u64 division whose latency shadow absorbs the speculation's ~2x
+/// instruction count (measured −4…−17% for every N ≥ 4, +11% at N = 3);
+/// `Ans`'s lean symbol step leaves that work exposed and measures *slower at
+/// every N* (+4…+22%), so it always takes the plain walk. Swept with
+/// `just-decompress-uless` over N = 3…128; table in OPTIMIZING.md.
+pub(crate) const ULESS_PREFETCH_MIN_N: usize = 3;
+
 /// A sub-interval `[start, start + width)` of the fixed total `M = 1 << BITS`,
 /// playing the role for a whole tree symbol that [`Probability`] plays for a
 /// single bit.
@@ -267,11 +277,12 @@ impl SymbolRange {
     /// [`Self::for_uless_value`], and return the interval together with the
     /// decoded value in `0..N`.
     ///
-    /// Unlike [`Self::from_slot`] there is no speculative child prefetch:
-    /// these trees are shallow (enum discriminants, depth 1-2), and the
-    /// prefetch's extra [`half`] index arithmetic and double loads measured
-    /// *slower* than this plain walk on `just-decompress-enums` (Ans +6%,
-    /// Range +9% over plain).
+    /// This is the plain walk, always used by `Ans` and used by `Range` for
+    /// `N <= ULESS_PREFETCH_MIN_N`; the speculative
+    /// [`Self::from_uless_slot_prefetching`] variant roughly doubles the
+    /// instruction count (both children's [`half`] index arithmetic, double
+    /// FUSED loads, register-pressure spills), which only `Range`'s
+    /// division-heavy symbol step can absorb — see [`ULESS_PREFETCH_MIN_N`].
     #[inline]
     pub(crate) fn from_uless_slot<const N: usize>(
         contexts: &mut [BitContext; N],
@@ -301,6 +312,63 @@ impl SymbolRange {
             } else {
                 range = lower;
                 possible_values_left = value_considered;
+            }
+        }
+        (range, accumulated_value)
+    }
+
+    /// The speculative variant of [`Self::from_uless_slot`], used by `Range`
+    /// for `N > ULESS_PREFETCH_MIN_N`: both candidate child contexts are
+    /// fetched before the node's bit resolves (their positions depend only on
+    /// the current interval, not the bit), so the FUSED loads issue a level
+    /// ahead of the serial split/compare chain, leaving just a select on the
+    /// critical path. A leaf child gets a harmless dummy index 0 — if the
+    /// walk descends into it the loop ends and the fetched entry is unused.
+    #[inline]
+    pub(crate) fn from_uless_slot_prefetching<const N: usize>(
+        contexts: &mut [BitContext; N],
+        slot: u32,
+    ) -> (Self, usize) {
+        let mut range = Self::full();
+        if N <= 1 {
+            return (range, 0);
+        }
+        let mut accumulated_value = 0;
+        let mut possible_values_left = N;
+        let mut value_considered = half(N);
+        let mut split = value_considered;
+        let mut cur = FUSED[contexts[split - 1] as usize];
+        loop {
+            let lo_len = value_considered;
+            let hi_len = possible_values_left - value_considered;
+            let slot_split = range.split_reserving(cur.prob, lo_len as u32, hi_len as u32);
+            let lo_vc = half(lo_len);
+            let hi_vc = half(hi_len);
+            let lo_split = accumulated_value + lo_vc;
+            let hi_split = split + hi_vc;
+            let lo_cur = FUSED[contexts[if lo_len > 1 { lo_split - 1 } else { 0 }] as usize];
+            let hi_cur = FUSED[contexts[if hi_len > 1 { hi_split - 1 } else { 0 }] as usize];
+            let lower = range.lower(slot_split);
+            let bit = !lower.contains(slot);
+            contexts[split - 1] = cur.next[bit as usize];
+            range = if bit { range.upper(slot_split) } else { lower };
+            if bit {
+                accumulated_value = split;
+                possible_values_left = hi_len;
+                if hi_len <= 1 {
+                    break;
+                }
+                value_considered = hi_vc;
+                split = hi_split;
+                cur = hi_cur;
+            } else {
+                possible_values_left = lo_len;
+                if lo_len <= 1 {
+                    break;
+                }
+                value_considered = lo_vc;
+                split = lo_split;
+                cur = lo_cur;
             }
         }
         (range, accumulated_value)
@@ -391,6 +459,14 @@ mod tests {
                 assert_eq!(dec_range, range);
                 assert_eq!(decoded, value);
                 assert_eq!(dec_ctx, enc_ctx, "contexts must adapt identically");
+                // The speculative walk (used by Range for larger N) must be
+                // indistinguishable from the plain one.
+                let mut spec_ctx = contexts;
+                let (spec_range, spec_decoded) =
+                    SymbolRange::from_uless_slot_prefetching(&mut spec_ctx, slot);
+                assert_eq!(spec_range, range);
+                assert_eq!(spec_decoded, value);
+                assert_eq!(spec_ctx, enc_ctx, "speculative walk must adapt identically");
             }
         }
         assert_eq!(total, SymbolRange::M, "intervals must cover all of M");

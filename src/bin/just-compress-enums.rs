@@ -2,8 +2,8 @@
 //! `ULessThan<3>` walk); the encode-side twin of `just-decompress-enums`,
 //! same data and distribution.
 //!
-//! Usage: `just-compress-enums [ans|range] [iterations]` (defaults:
-//! `ans`, 2000).
+//! Usage: `just-compress-enums [ans|range] [seventeen] [iterations]` (defaults:
+//! `ans`, 3-variant, 2000).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, compactly::v2::Encode)]
 enum ThreeOptions {
@@ -30,19 +30,29 @@ fn data() -> Vec<ThreeOptions> {
         .collect()
 }
 
-fn main() {
-    let coder = std::env::args()
-        .find(|a| a == "ans" || a == "range")
-        .unwrap_or("ans".to_string());
-    let iterations: usize = std::env::args()
-        .filter_map(|a| a.parse().ok())
-        .next()
-        .unwrap_or(2000);
-    let data = data();
-    println!("encoding {} enums with {coder}", data.len());
+#[derive(Debug, Clone, Copy, PartialEq, Eq, compactly::v2::Encode)]
+enum SeventeenOptions {
+    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q,
+}
 
+fn data_seventeen() -> Vec<SeventeenOptions> {
+    use SeventeenOptions::*;
+    const VARIANTS: [SeventeenOptions; 17] =
+        [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q];
+    let mut x = 0x123456789abcdef0u64;
+    (0..100_000)
+        .map(|_| {
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            VARIANTS[((x >> 33) % 17) as usize]
+        })
+        .collect()
+}
+
+fn run<T: compactly::v2::Encode>(data: Vec<T>, coder: &str, iterations: usize) -> usize {
     let mut total = 0usize;
-    match coder.as_str() {
+    match coder {
         "ans" => {
             for _ in 0..iterations {
                 total += std::hint::black_box(compactly::v2::Ans::encode(&data)).len();
@@ -55,5 +65,24 @@ fn main() {
         }
         _ => unreachable!(),
     }
+    total
+}
+
+fn main() {
+    let coder = std::env::args()
+        .find(|a| a == "ans" || a == "range")
+        .unwrap_or("ans".to_string());
+    let seventeen = std::env::args().any(|a| a == "seventeen");
+    let iterations: usize = std::env::args()
+        .filter_map(|a| a.parse().ok())
+        .next()
+        .unwrap_or(2000);
+    let variants = if seventeen { 17 } else { 3 };
+    println!("encoding 100000 {variants}-variant enums with {coder}");
+    let total = if seventeen {
+        run(data_seventeen(), &coder, iterations)
+    } else {
+        run(data(), &coder, iterations)
+    };
     println!("total encoded {total}");
 }

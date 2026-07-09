@@ -479,6 +479,9 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     }
 
     /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
+    /// Unlike `Ans`, `Range` switches to the speculative prefetching walk for
+    /// deeper trees — its division-heavy symbol step absorbs the speculation's
+    /// extra instructions (see `symbol::ULESS_PREFETCH_MIN_N`).
     #[inline]
     fn decode_uless_tree<const N: usize>(
         &mut self,
@@ -490,7 +493,11 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         if N > SymbolRange::M as usize {
             return super::decode_uless_bitwise(self, contexts);
         }
-        self.decode_symbol_step(|slot| SymbolRange::from_uless_slot(contexts, slot))
+        if N > super::symbol::ULESS_PREFETCH_MIN_N {
+            self.decode_symbol_step(|slot| SymbolRange::from_uless_slot_prefetching(contexts, slot))
+        } else {
+            self.decode_symbol_step(|slot| SymbolRange::from_uless_slot(contexts, slot))
+        }
     }
 
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`

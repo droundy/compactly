@@ -32,10 +32,13 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
-  - `just-decompress-enums [ans|range] [iters]` / `just-compress-enums …` —
-    decode/encode a `Vec` of 100k skewed 3-variant enums (default 2000×);
-    isolates the `ULessThan<3>` discriminant path (its uneven root cannot use
-    the balanced power-of-two split).
+  - `just-decompress-enums [ans|range] [seventeen] [iters]` /
+    `just-compress-enums …` — decode/encode a `Vec` of 100k skewed 3-variant
+    (or uniform 17-variant) enums (default 2000×); isolates the
+    `ULessThan` discriminant path through the derive.
+  - `just-decompress-uless <N> [ans|range] [iters]` — decode 50k uniform
+    `ULessThan<N>` values for N in a monomorphized ladder (3…128); the
+    depth-sweep tool that located the per-coder prefetch crossover.
 - Instruction count is NOT a good proxy here: decode is **latency-bound**
   (measured IPC ≈ 1.39), so fewer instructions can still be slower and vice
   versa. Trust cycles.
@@ -345,10 +348,43 @@ Final numbers for the seeded, division-free design vs pre-change main
 - **decode: Range −4.4%, Ans +10.4%** — Range's pricier per-bit steps make
   the single symbol step a win; Ans's lean bit steps don't, on this
   ~100%-discriminant microbench. Porting `from_slot`'s speculative child
-  prefetch into `from_uless_slot` was a DEAD END: these trees are 1-2 levels
-  deep (vs 8 for bytes), so the prefetch's extra `half` index arithmetic and
-  double loads measured *worse* than the plain walk (Ans +17.4%, Range +4.7%
+  prefetch into `from_uless_slot` made N=3 *worse* (Ans +17.4%, Range +4.7%
   vs main; i.e. +6%/+9% over plain) — reverted.
+
+**Why the prefetch loses on shallow trees (profiled 2026-07-08):** on the
+N=3 workload the prefetch build executes **+81% instructions** and +69%
+branches for the same decodes (perf stat), yet only +6% cycles — IPC rises
+2.10 → 3.60 as the wide core absorbs the speculative work. Both versions
+fully unroll (zero backward jumps); the cost is the speculation itself
+(both children's `half` index arithmetic + double FUSED loads per level,
+mostly wasted at depth 1-2) plus **register pressure**: the prefetch's
+carried state (`cur`/`lo_cur`/`hi_cur`, both splits/lengths) produces 9
+stack-spill stores + 13 reloads in the hot function where the plain walk
+has zero, putting store-forwarding latency back *on* the critical path.
+**Depth flips the verdict** (`just-decompress-enums seventeen`, N=17,
+depth 4-5): prefetch went Ans +1.4% (wash) / **Range −7.6%** — instructions
+still +70-83%, but now there is real serial-chain latency to hide, same as
+the depth-8 byte tree where speculation won originally.
+
+**The real crossover is per-coder, not per-depth** (swept 2026-07-08 with
+`just-decompress-uless`, min cycles of 3 interleaved rounds, prefetch Δ vs
+plain; run on battery under load — spreads on decisive cells ≤1.6%):
+
+| N   | Ans    | Range  |     | N   | Ans    | Range  |
+|-----|--------|--------|-----|-----|--------|--------|
+| 3   | +15.0% | +11.0% |     | 16  | +10.6% | −12.2% |
+| 4   | +17.3% | −16.9% |     | 24  | +12.2% | −7.5%  |
+| 6   | +22.5% | −13.0% |     | 32  | +10.0% | −6.4%  |
+| 8   | +10.1% | −10.6% |     | 64  | +4.4%  | −4.7%  |
+| 12  | +13.1% | −10.5% |     | 128 | +10.5% | −3.7%  |
+
+`Ans` never wants the prefetch on this pure-`ULessThan` workload — its lean
+symbol step leaves the speculative instructions exposed (the N=17 enum
+"wash" is as close as it gets, diluted by the enum-match layer). `Range`
+wants it for everything but N=3: its u64 `symbol_slot` division gives the
+speculation a latency shadow to hide in. Shipped as a per-coder choice:
+`Range::decode_uless_tree` takes `from_uless_slot_prefetching` for
+`N > ULESS_PREFETCH_MIN_N = 3`, `Ans` always takes the plain walk.
 - **size: parity on adapted data** (17564 bytes both sides), fractional-bit
   wins on fresh contexts.
 
