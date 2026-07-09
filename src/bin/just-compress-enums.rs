@@ -32,13 +32,28 @@ fn data() -> Vec<ThreeOptions> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, compactly::v2::Encode)]
 enum SeventeenOptions {
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
 }
 
 fn data_seventeen() -> Vec<SeventeenOptions> {
     use SeventeenOptions::*;
-    const VARIANTS: [SeventeenOptions; 17] =
-        [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q];
+    const VARIANTS: [SeventeenOptions; 17] = [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q];
     let mut x = 0x123456789abcdef0u64;
     (0..100_000)
         .map(|_| {

@@ -263,22 +263,8 @@ impl EntropyCoder for Range {
         }
     }
 
-    /// Whole-tree symbol encode: one interval narrowing + renormalization for
-    /// the `log2(N)`-bit symbol instead of one per bit.
-    #[inline]
-    fn encode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
-        value: usize,
-    ) {
-        if N < 2 {
-            return;
-        }
-        self.write_symbol(SymbolRange::for_value(contexts, value));
-    }
-
-    /// Whole `ULessThan` symbol encode; same single narrowing as
-    /// [`Self::encode_tree`] but over the uneven binary-search tree.
+    /// Whole `ULessThan` symbol encode: one interval narrowing +
+    /// renormalization for the whole symbol instead of one per bit.
     #[inline]
     fn encode_uless_tree<const N: usize>(
         &mut self,
@@ -289,9 +275,9 @@ impl EntropyCoder for Range {
             return;
         }
         if N > SymbolRange::M as usize {
-            return super::encode_uless_bitwise(self, contexts, value);
+            return super::symbol::encode_bitwise(self, contexts, value);
         }
-        self.write_symbol(SymbolRange::for_uless_value(contexts, value));
+        self.write_symbol(super::symbol::encode_walk(contexts, value));
     }
 
     #[inline]
@@ -302,8 +288,7 @@ impl EntropyCoder for Range {
 
 impl Range {
     /// Code one whole-symbol interval: clamp the range state so a symbol
-    /// fits, then a single narrowing + renormalization (shared by
-    /// `encode_tree` and `encode_uless_tree`).
+    /// fits, then a single narrowing + renormalization.
     #[inline]
     fn write_symbol(&mut self, range: SymbolRange) {
         while self.state.clamp_for_symbol() {
@@ -466,22 +451,10 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole-tree symbol decode; see [`Decoder::decode_symbol_step`].
-    #[inline]
-    fn decode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
-    ) -> usize {
-        if N < 2 {
-            return 0;
-        }
-        self.decode_symbol_step(|slot| SymbolRange::from_slot(contexts, slot))
-    }
-
     /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
-    /// Unlike `Ans`, `Range` switches to the speculative prefetching walk for
-    /// deeper trees — its division-heavy symbol step absorbs the speculation's
-    /// extra instructions (see `symbol::ULESS_PREFETCH_MIN_N`).
+    /// Unlike `Ans`, `Range` asks for the speculating walk — its
+    /// division-heavy symbol step absorbs the speculation's extra
+    /// instructions (see `symbol::decode_walk_speculating`).
     #[inline]
     fn decode_uless_tree<const N: usize>(
         &mut self,
@@ -491,13 +464,9 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             return 0;
         }
         if N > SymbolRange::M as usize {
-            return super::decode_uless_bitwise(self, contexts);
+            return super::symbol::decode_bitwise(self, contexts);
         }
-        if N > super::symbol::ULESS_PREFETCH_MIN_N {
-            self.decode_symbol_step(|slot| SymbolRange::from_uless_slot_prefetching(contexts, slot))
-        } else {
-            self.decode_symbol_step(|slot| SymbolRange::from_uless_slot(contexts, slot))
-        }
+        self.decode_symbol_step(|slot| super::symbol::decode_walk_speculating(contexts, slot))
     }
 
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`
@@ -768,7 +737,7 @@ mod tests {
             for op in &plan {
                 match *op {
                     Planned::Bit(b, probability) => encoder.encode_bit(probability, b),
-                    Planned::Byte(b) => encoder.encode_tree(&mut encode_contexts, b as usize),
+                    Planned::Byte(b) => encoder.encode_uless_tree(&mut encode_contexts, b as usize),
                 }
             }
             let bytes = encoder.into_vec();
@@ -786,7 +755,7 @@ mod tests {
                         assert_eq!(decoded, b, "bit {i} of trial {trial}");
                     }
                     Planned::Byte(b) => {
-                        let decoded = decoder.decode_tree(&mut decode_contexts);
+                        let decoded = decoder.decode_uless_tree(&mut decode_contexts);
                         assert_eq!(decoded, b as usize, "byte {i} of trial {trial}");
                     }
                 }

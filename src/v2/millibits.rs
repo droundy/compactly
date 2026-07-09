@@ -15,19 +15,8 @@ impl super::EntropyCoder for Millibits {
     }
 
     /// A whole tree symbol costs `-log2(width / M)` bits: one exact estimate
-    /// for the symbol rather than `log2(N)` separately-rounded per-bit
-    /// estimates, matching what the single-step coders actually pay.
-    fn encode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
-        value: usize,
-    ) {
-        use super::symbol::SymbolRange;
-        *self += Self::symbol_cost(SymbolRange::for_value(contexts, value));
-    }
-
-    /// Like [`Self::encode_tree`], one exact whole-symbol estimate for a
-    /// `ULessThan` value, matching the single-step coders.
+    /// for the symbol rather than separately-rounded per-bit estimates,
+    /// matching what the single-step coders actually pay.
     fn encode_uless_tree<const N: usize>(
         &mut self,
         contexts: &mut [super::bit_context::BitContext; N],
@@ -35,9 +24,9 @@ impl super::EntropyCoder for Millibits {
     ) {
         use super::symbol::SymbolRange;
         if N > SymbolRange::M as usize {
-            return super::encode_uless_bitwise(self, contexts, value);
+            return super::symbol::encode_bitwise(self, contexts, value);
         }
-        *self += Self::symbol_cost(SymbolRange::for_uless_value(contexts, value));
+        *self += Self::symbol_cost(super::symbol::encode_walk(contexts, value));
     }
 }
 

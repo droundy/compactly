@@ -1,4 +1,4 @@
-use super::bits::Bits;
+use super::ulessthan::ULessThan;
 use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Small, Sorted};
 
@@ -6,51 +6,45 @@ use crate::{Incompressible, Small, Sorted};
 use expect_test::expect;
 
 impl Encode for u8 {
-    type Context = <Bits<256> as Encode>::Context;
+    type Context = <ULessThan<256> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_tree(&mut ctx.0, *self as usize)
+        ULessThan::<256>::new(*self as usize).encode(writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        Ok(reader.decode_tree(&mut ctx.0) as u8)
+        Ok(usize::from(ULessThan::<256>::decode(reader, ctx)?) as u8)
     }
 }
 
 macro_rules! small_num {
     ($t:ty, $nbits:literal, $maxval:literal, $doublemax:literal, $testname:ident) => {
         mod $testname {
-            use super::{Encode, UBits};
-
-            #[derive(Clone)]
-            pub struct Context([<bool as Encode>::Context; $doublemax]);
-
-            impl Default for Context {
-                #[inline]
-                fn default() -> Self {
-                    Self([Default::default(); $doublemax])
-                }
-            }
+            use super::{Encode, UBits, ULessThan};
 
             impl Encode for $t {
-                type Context = Context;
+                type Context = <ULessThan<$doublemax> as Encode>::Context;
                 #[inline]
                 fn encode<E: super::super::EntropyCoder>(
                     &self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    writer.encode_tree(&mut ctx.0, u8::from(*self) as usize)
+                    ULessThan::<$doublemax>::new(u8::from(*self) as usize).encode(writer, ctx)
                 }
                 #[inline]
                 fn decode<D: super::super::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    Ok(((reader.decode_tree(&mut ctx.0)) as u8).try_into().unwrap())
+                    Ok(
+                        (usize::from(ULessThan::<$doublemax>::decode(reader, ctx)?) as u8)
+                            .try_into()
+                            .unwrap(),
+                    )
                 }
             }
 

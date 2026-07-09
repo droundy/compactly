@@ -54,17 +54,27 @@ impl<const N: usize> TryFrom<usize> for ULessThan<N> {
 /// Adaptive context for [`ULessThan<N>`] encoding.
 ///
 /// Holds one bit context per internal node of the decision tree. The tree over
-/// the `N` possible values has exactly `N - 1` internal nodes, and each node
-/// splits its interval at `split = accumulated_value + value_considered`, which
-/// the encode/decode loops guarantee to lie in `1..N`. That `split` is the cut
-/// separating leaf `split - 1` from leaf `split`, and each such cut belongs to a
-/// unique node (the lowest common ancestor of those two leaves), so `split - 1`
-/// is a collision-free index in `0..N-1`. A `[_; N]` therefore holds every
-/// node's context exactly (index `N - 1` is left unused), which keeps the
-/// context allocation-free and usable in a `const`.
+/// the `N` possible values has exactly `N - 1` internal nodes, indexed in one
+/// of two ways depending on `N` (chosen consistently by every walk):
+///
+/// - **Power-of-two `N`**: the tree is complete, and contexts live in heap
+///   order (`node = (node << 1) + 1 + bit`). The heap layout is what makes
+///   the hot `u8` decode walk fast: a child's index depends only on the
+///   parent's, so both children's contexts can be fetched before the node's
+///   bit resolves (see `symbol::complete::from_slot`).
+/// - **Otherwise**: each node splits its interval at `split =
+///   accumulated_value + value_considered`, which the encode/decode loops
+///   guarantee to lie in `1..N`. That `split` is the cut separating leaf
+///   `split - 1` from leaf `split`, and each such cut belongs to a unique
+///   node (the lowest common ancestor of those two leaves), so `split - 1`
+///   is a collision-free index in `0..N-1`.
+///
+/// Either way a `[_; N]` holds every node's context exactly (one index is
+/// left unused), which keeps the context allocation-free and usable in a
+/// `const`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ULessThanContext<const N: usize> {
-    bits: [<bool as Encode>::Context; N],
+    pub(crate) bits: [<bool as Encode>::Context; N],
 }
 
 impl<const N: usize> ULessThanContext<N> {
@@ -75,8 +85,9 @@ impl<const N: usize> ULessThanContext<N> {
     /// itself stays the plain learned probability — a static weight there
     /// would fight the adapted contexts forever; see
     /// `SymbolRange::split_reserving`). Balanced nodes seed to the ordinary
-    /// default state, so power-of-two `N` is unchanged, and adaptation
-    /// converges to the empirical distribution exactly as before.
+    /// default state, so for power-of-two `N` (every node balanced) this is
+    /// all-default whatever the indexing scheme, and adaptation converges to
+    /// the empirical distribution exactly as before.
     const SEEDED: [BitContext; N] = {
         let mut bits = [BitContext::True0False0; N];
         // Walk every internal node (start, len) of the tree; each visit pops

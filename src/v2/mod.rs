@@ -10,7 +10,6 @@ mod arc;
 mod arith;
 mod array;
 mod bit_context;
-mod bits;
 mod bools;
 mod byte;
 mod bytes;
@@ -70,55 +69,26 @@ pub trait EntropyCoder: Default {
         writer
     }
 
-    /// Encode one whole `log2(N)`-bit tree symbol.
-    ///
-    /// `contexts` is the heap-shaped context array walked as
-    /// `node = (node << 1) + 1 + bit` (the `u8`/`Bits<N>`/`UBits<N>` codes);
-    /// its length `N` is exactly `1 << n_bits`, so the bit count is derived
-    /// from the array type and the walk fully unrolls after monomorphization.
-    ///
-    /// The default implementation codes the tree bit-by-bit, identical to the
-    /// historical per-bit walk (`Raw` keeps it, preserving its bit-packed
-    /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
-    /// `Millibits`) override it via [`symbol::SymbolRange`]: same contexts,
-    /// same adaptation, but a single coding step instead of `log2(N)`.
-    #[inline]
-    fn encode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [bit_context::BitContext; N],
-        value: usize,
-    ) {
-        let n_bits = N.ilog2();
-        debug_assert_eq!(1 << n_bits, N);
-        debug_assert!(value < N);
-        let mut node = 0usize;
-        for i in (0..n_bits).rev() {
-            let bit = (value >> i) & 1 == 1;
-            let context = &mut contexts[node];
-            self.encode_bit(context.probability(), bit);
-            *context = context.adapt(bit);
-            node = (node << 1) + 1 + bit as usize;
-        }
-    }
-
     /// Encode one whole [`ULessThan<N>`](ULessThan) symbol: a binary search over `0..N`
     /// for arbitrary `N` (not necessarily a power of two), with the context
     /// for the cut at `split` stored at index `split - 1` (see
-    /// `ULessThanContext`).
+    /// `ULessThanContext`). For power-of-two `N` the search is a balanced
+    /// binary tree, so this is also how `u8`/`UBits<N>` symbols are coded.
     ///
     /// The default implementation codes the search bit-by-bit, identical to
     /// the historical walk (`Raw` keeps it, preserving its bit-packed
     /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
-    /// `Millibits`) override it to pay a single coding step, as with
-    /// [`Self::encode_tree`] — except when `N` exceeds the symbol slot count
-    /// [`symbol::SymbolRange::M`], where they too fall back to per-bit.
+    /// `Millibits`) override it via [`symbol::SymbolRange`] to pay a single
+    /// coding step (one renormalization) instead of one per level — except
+    /// when `N` exceeds the symbol slot count [`symbol::SymbolRange::M`],
+    /// where they too fall back to per-bit.
     #[inline]
     fn encode_uless_tree<const N: usize>(
         &mut self,
         contexts: &mut [bit_context::BitContext; N],
         value: usize,
     ) {
-        encode_uless_bitwise(self, contexts, value)
+        symbol::encode_bitwise(self, contexts, value)
     }
 
     /// Encode a given slice of incompressible bytes.
@@ -165,30 +135,13 @@ pub trait EntropyDecoder {
         bit
     }
 
-    /// Decode one whole tree symbol; the inverse of
-    /// [`EntropyCoder::encode_tree`]. Returns the decoded value in `0..N`.
+    /// Decode one whole [`ULessThan<N>`](ULessThan) symbol; the inverse of
+    /// [`EntropyCoder::encode_uless_tree`]. Returns the decoded value in
+    /// `0..N`.
     ///
     /// Infallible like [`Self::decode_bits`]: running past the encoded data
     /// yields arbitrary (but in-range) values, which higher-level
     /// `Encode::decode` impls validate.
-    #[inline]
-    fn decode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [bit_context::BitContext; N],
-    ) -> usize {
-        let n_bits = N.ilog2();
-        debug_assert_eq!(1 << n_bits, N);
-        let mut node = 0usize;
-        for _ in 0..n_bits {
-            let bit = self.decode_bit(&mut contexts[node]);
-            node = (node << 1) + 1 + bit as usize;
-        }
-        node - (N - 1)
-    }
-
-    /// Decode one whole [`ULessThan<N>`](ULessThan) symbol; the inverse of
-    /// [`EntropyCoder::encode_uless_tree`]. Returns the decoded value in
-    /// `0..N`. Infallible like [`Self::decode_tree`].
     #[inline]
     fn decode_uless_tree<const N: usize>(
         &mut self,
@@ -197,7 +150,7 @@ pub trait EntropyDecoder {
     where
         Self: Sized,
     {
-        decode_uless_bitwise(self, contexts)
+        symbol::decode_bitwise(self, contexts)
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
@@ -206,58 +159,6 @@ pub trait EntropyDecoder {
     /// build one on; every coder either copies bytes wholesale (`Ans`/`Range`) or
     /// reads raw bits (`Raw`).
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error>;
-}
-
-/// The per-bit [`ULessThan`] walk: the default `encode_uless_tree`, and the
-/// fallback the symbol coders use when `N` exceeds the slot count
-/// [`symbol::SymbolRange::M`] (a whole-symbol interval cannot give every leaf
-/// a slot then). Splits the remaining value interval at [`symbol::half`] and
-/// codes one adaptive bit per level, contexts indexed by `split - 1`.
-#[inline]
-pub(crate) fn encode_uless_bitwise<E: EntropyCoder, const N: usize>(
-    writer: &mut E,
-    contexts: &mut [bit_context::BitContext; N],
-    value: usize,
-) {
-    debug_assert!(value < N);
-    let mut accumulated_value = 0;
-    let mut possible_values_left = N;
-    while possible_values_left > 1 {
-        let value_considered = symbol::half(possible_values_left);
-        let split = accumulated_value + value_considered;
-        let bit = value >= split;
-        let context = &mut contexts[split - 1];
-        writer.encode_bit(context.probability(), bit);
-        *context = context.adapt(bit);
-        if bit {
-            accumulated_value = split;
-            possible_values_left -= value_considered;
-        } else {
-            possible_values_left = value_considered;
-        }
-    }
-}
-
-/// The per-bit inverse of [`encode_uless_bitwise`].
-#[inline]
-pub(crate) fn decode_uless_bitwise<D: EntropyDecoder, const N: usize>(
-    reader: &mut D,
-    contexts: &mut [bit_context::BitContext; N],
-) -> usize {
-    let mut accumulated_value = 0;
-    let mut possible_values_left = N;
-    while possible_values_left > 1 {
-        let value_considered = symbol::half(possible_values_left);
-        let split = accumulated_value + value_considered;
-        let bit = reader.decode_bit(&mut contexts[split - 1]);
-        if bit {
-            accumulated_value = split;
-            possible_values_left -= value_considered;
-        } else {
-            possible_values_left = value_considered;
-        }
-    }
-    accumulated_value
 }
 
 /// Trait for types that can be compactly encoded.

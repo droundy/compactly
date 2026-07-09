@@ -27,8 +27,10 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
     2000× (~138B cycles/run); needs `ipv6.txt` in the cwd.
   - `just-decompress-strings [ans|range] [iters]` — decode a
     `BTreeSet<String>` of 38k meteorite names (default 2000×, ~83B cycles on
-    `Ans`); THE per-character `char`/`Bits<128>` tree-walk workload. Reads
+    `Ans`); THE per-character `char`/`u8` tree-walk workload. Reads
     `comparison/src/meteorites.csv`, so run from the workspace root.
+  - `just-compress-strings [ans|range] [iters]` — the encode-side twin of
+    `just-decompress-strings` (default 2000×; ~40B cycles per 1000 on `Ans`).
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
@@ -391,6 +393,62 @@ speculation a latency shadow to hide in. Shipped as a per-coder choice:
 Broad workloads (`just-decompress`, `just-decompress-strings`, both coders)
 stayed within the ±0.5% layout-noise floor throughout — real data dilutes
 the discriminant path heavily.
+
+### Bits → ULessThan unification (2026-07-09)
+`Bits<N>`/`BitsContext` and the `encode_tree`/`decode_tree` trait methods are
+gone: `u8` and `UBits<N>` now delegate to `ULessThan<2^k>`, and `symbol.rs`
+holds one cutoff-free implementation per tree layout in its own module —
+`complete` (power-of-two `N`: heap-ordered contexts, speculative decode; the
+old `Bits` machinery verbatim) and `uneven` (any `N`: split-ordered contexts,
+plain + prefetching decode) — with the compile-time dispatchers
+(`encode_walk`, `decode_walk`, `decode_walk_speculating`,
+`{en,de}code_bitwise`) as the only home of the `N`-based cutoffs. Bitstream
+is **byte-identical to main** (verified: zero expect-test churn, encoded
+sizes equal on the meteorite workload), because for power-of-two `N` both
+trees make identical probability/bit decisions and context indexing is
+internal state.
+
+Lessons from the three attempts it took (each measured on
+`just-{de,}compress-strings`, min cycles of 3-5 interleaved pinned pairs):
+
+1. **A rolled walk is disastrous on the hot byte path.** The naive swap left
+   the `u8` tree as `while possible_values_left > 1` — LLVM cannot prove the
+   balanced tree's path-independence, so the walk kept a live `bsr`
+   (runtime `half`), loop control, and a backward branch: strings decode
+   **+13/+22%** (Ans/Range), encode **+16/+22%**. Fix: bound the loop by
+   `const { uless_depth(N) }` (exact longest path, computed at compile time)
+   with an early break — the loop fully unrolls, and for power-of-two `N`
+   every level's lengths constant-fold. This alone recovered encode to
+   *better than main* (Ans −3.6%) but decode still lagged (+11/+8%).
+2. **The heap layout itself is the decode win — now cleanly isolated.** The
+   unrolled split-indexed walk executes the *same instruction count* as
+   main's speculative heap walk (+0.1%) with fewer branch misses, yet +11%
+   cycles for Ans: pure serial-FUSED-load latency. The split-order
+   prefetching walk does NOT recover it (Ans +14.5%, worse than plain — the
+   extra index arithmetic and spills land in a register-starved inlined
+   frame), and `#[inline(never)]`-outlining the walk is also worse (+17/+19%:
+   the coder state round-trips through memory per symbol). Only the heap
+   layout gives speculation for free: child indices `2n+1`/`2n+2` depend on
+   nothing but the parent's index. Hence the pow2/other split of
+   `complete` vs `uneven` — this is the "sparse heap" idea with the sparse
+   part not needed (power-of-two trees are dense in `[BitContext; N]`;
+   awkward `N` would need up to ~2N slots, unexpressible with stable const
+   generics anyway).
+3. **`ULessThan` itself got much faster.** vs main (uniform
+   `just-decompress-uless`): pow2 `N` now takes the heap walk — N=8 **Ans
+   −38.8% / Range −21.6%**, N=16 **−31.2% / −20.9%**, N=128 **−25.7% /
+   −19.5%** — and non-pow2 `N` gains the const-depth unroll — N=6 Ans
+   **−15.7%**, N=12 Range **−11.3%**. N=3 enums: wash (±0.2%).
+
+Final numbers vs main (`just-{de,}compress-strings`, the `u8`-heaviest real
+workload): decode **Ans +3.2%, Range +3.2%**; encode **Ans −3.8%, Range
++0.3%**; `just-decompress` (u64) ±0.5%. The residual ~3% decode cost is NOT
+in the walk (the four `from_slot` monomorphizations are byte-identical
+functions in both binaries) but in glue — total instructions +1.6%,
+suspects: `ULessThanContext::default()` copying `SEEDED` where
+`BitsContext::default()` was a memset, and inlining shifts around the `u8` →
+`ULessThan<256>` delegation. Worth a follow-up look if strings decode
+matters more than the ladder wins.
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):

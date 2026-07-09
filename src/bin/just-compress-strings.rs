@@ -1,11 +1,10 @@
-//! Focused benchmark for the per-character string-decode hot path (the
-//! `char`/`u8` tree walk): decode a `BTreeSet<String>` of meteorite
-//! names repeatedly.
+//! Focused benchmark for the per-character string-*encode* hot path (the
+//! `char`/`u8` tree walk): encode a `BTreeSet<String>` of meteorite names
+//! repeatedly. The decode-side counterpart is `just-decompress-strings`.
 //!
-//! Usage: `just-decompress-strings [ans|range] [iterations]` (defaults:
-//! `ans`, 2000). Reads the names from `comparison/src/meteorites.csv`
-//! (falling back to `../comparison/src/meteorites.csv`), so run it from the
-//! workspace root, like `just-decompress-net` and its `ipv6.txt`.
+//! Usage: `just-compress-strings [ans|range] [iterations]` (defaults: `ans`,
+//! 2000). Reads the names from `comparison/src/meteorites.csv` (falling back
+//! to `../comparison/src/meteorites.csv`), so run it from the workspace root.
 
 use std::collections::BTreeSet;
 
@@ -44,31 +43,21 @@ fn main() {
         .or_else(|_| std::fs::read_to_string("../comparison/src/meteorites.csv"))
         .expect("run from the workspace root so comparison/src/meteorites.csv is found");
     let names = first_fields(&csv);
-    println!("decoding {} meteorite names with {coder}", names.len());
+    println!("encoding {} meteorite names with {coder}", names.len());
 
     let mut total = 0usize;
     match coder.as_str() {
         "ans" => {
-            let encoded = compactly::v2::Ans::encode(&names);
-            println!("encoded size {}", encoded.len());
             for _ in 0..iterations {
-                total += std::hint::black_box(
-                    compactly::v2::Ans::decode::<BTreeSet<String>>(&encoded).unwrap(),
-                )
-                .len();
+                total += std::hint::black_box(compactly::v2::Ans::encode(&names)).len();
             }
         }
         "range" => {
-            let encoded = compactly::v2::encode(&names);
-            println!("encoded size {}", encoded.len());
             for _ in 0..iterations {
-                total += std::hint::black_box(
-                    compactly::v2::decode::<BTreeSet<String>>(&encoded).unwrap(),
-                )
-                .len();
+                total += std::hint::black_box(compactly::v2::encode(&names)).len();
             }
         }
         _ => unreachable!(),
     }
-    println!("total decoded {total}");
+    println!("total encoded bytes {total}");
 }
