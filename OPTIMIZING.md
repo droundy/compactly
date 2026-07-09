@@ -32,6 +32,10 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
+  - `just-decompress-enums [ans|range] [iters]` / `just-compress-enums …` —
+    decode/encode a `Vec` of 100k skewed 3-variant enums (default 2000×);
+    isolates the `ULessThan<3>` discriminant path (its uneven root cannot use
+    the balanced power-of-two split).
 - Instruction count is NOT a good proxy here: decode is **latency-bound**
   (measured IPC ≈ 1.39), so fewer instructions can still be slower and vice
   versa. Trust cycles.
@@ -308,6 +312,49 @@ the *entropy/step* phase (one op and one renorm per char instead of two;
 −34% replay, −23% into_vec), and `Range` — whose per-bit steps are pricier —
 wins outright on decode too. The escaped walk adds its root level to the
 decode chain, which eats part of the saved step on `Ans`.
+
+### ULessThan multisymbol coding with seeded contexts (2026-07-08)
+`ULessThan<N>` now codes one whole symbol per value (`encode_uless_tree` /
+`decode_uless_tree`, walks in `symbol.rs`), like the `Bits`/`u8` trees but
+over the uneven binary-search shape (`SymbolRange::split_reserving`: per-child
+leaf-count reserves, plain learned probability, no division). With fresh
+contexts every value costs the *fractional* `log2(N)` bits, achieved by
+seeding each node's initial `BitContext` at its children's leaf proportion
+`lo/(lo+hi)` at compile time (`ULessThanContext::SEEDED`); balanced nodes
+seed to the ordinary default, so power-of-two `N` (every `usize` length) is
+untouched. The old per-bit walk charged integer 3-or-4 bits for `N = 10`; its
+apparent sub-integer sizes for last-variant values were an end-of-stream
+artifact (the exhausted decoder hallucinates `true` bits, so a trailing
+all-`true` run truncates for free), which the symbol path gives up — hence
+the `tests/derive.rs` enum size bumps.
+
+Two designs that DON'T work, measured on the dedicated
+`just-{de,}compress-enums` workloads (min cycles, 3 alternating pinned runs):
+- **Bayes leaf-weighting in the split** (`lo*p : hi*(1-p)`): the adapted
+  context already converges to the empirical bit frequency, so a static
+  weight on top permanently skews the coded probability — **+3% encoded
+  size** on adapted skewed 3-variant enums, and its u64 division on the
+  serial decode chain cost **+39%** Ans / **+8.8%** Range decode cycles.
+- (The balanced-node fast path recovered none of that on real workloads —
+  the division sat exactly on the unbalanced nodes real enums use.)
+
+Final numbers for the seeded, division-free design vs pre-change main
+(min cycles, 3 alternating pinned runs on the pure-discriminant workloads):
+- **encode: Ans −32.8%, Range −19.9%** — one buffered op instead of
+  `~log2(N)` per value.
+- **decode: Range −4.4%, Ans +10.4%** — Range's pricier per-bit steps make
+  the single symbol step a win; Ans's lean bit steps don't, on this
+  ~100%-discriminant microbench. Porting `from_slot`'s speculative child
+  prefetch into `from_uless_slot` was a DEAD END: these trees are 1-2 levels
+  deep (vs 8 for bytes), so the prefetch's extra `half` index arithmetic and
+  double loads measured *worse* than the plain walk (Ans +17.4%, Range +4.7%
+  vs main; i.e. +6%/+9% over plain) — reverted.
+- **size: parity on adapted data** (17564 bytes both sides), fractional-bit
+  wins on fresh contexts.
+
+Broad workloads (`just-decompress`, `just-decompress-strings`, both coders)
+stayed within the ±0.5% layout-noise floor throughout — real data dilutes
+the discriminant path heavily.
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):

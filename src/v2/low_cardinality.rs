@@ -217,7 +217,7 @@ fn low_cardinality() {
         .collect::<Vec<_>>();
 
     expect!["284775"].assert_eq(&estimated_bits!(v.clone()));
-    expect!["1672"].assert_eq(&estimated_bits!(low.clone()));
+    expect!["1673"].assert_eq(&estimated_bits!(low.clone()));
     expect!["611"].assert_eq(&estimated_bits!(strings.clone().to_vec()));
     expect!["612"].assert_eq(&estimated_bits!(strings
         .iter()

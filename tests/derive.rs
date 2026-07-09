@@ -130,7 +130,7 @@ fn simple_enum() {
     }
 
     assert_bits!(A::A, expect!["v1: 2 bits, v2: 2 bits"]);
-    assert_bits!(A::D, expect!["v1: 1 bits, v2: 1 bits"]);
+    assert_bits!(A::D, expect!["v1: 1 bits, v2: 2 bits"]);
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub enum Bool {
@@ -160,7 +160,7 @@ fn bigger_enum() {
 
     assert_bits!(A::A, expect!["v1: 3 bits, v2: 3 bits"]);
     assert_bits!(A::D, expect!["v1: 3 bits, v2: 3 bits"]);
-    assert_bits!(A::J, expect!["v1: 1 bits, v2: 1 bits"]);
+    assert_bits!(A::J, expect!["v1: 1 bits, v2: 3 bits"]);
 }
 
 #[test]

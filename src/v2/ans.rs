@@ -55,11 +55,18 @@ impl EntropyCoder for Ans {
         if N < 2 {
             return;
         }
-        let range = SymbolRange::for_value(contexts, value);
-        self.ops.push(Op::Symbol {
-            start: range.start() as u16,
-            width_minus_1: (range.width() - 1) as u16,
-        });
+        self.push_symbol(SymbolRange::for_value(contexts, value));
+    }
+
+    #[inline]
+    fn encode_uless_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N], value: usize) {
+        if N < 2 {
+            return;
+        }
+        if N > SymbolRange::M as usize {
+            return super::encode_uless_bitwise(self, contexts, value);
+        }
+        self.push_symbol(SymbolRange::for_uless_value(contexts, value));
     }
 
     #[inline]
@@ -68,6 +75,15 @@ impl EntropyCoder for Ans {
     }
 }
 impl Ans {
+    /// Record one whole-symbol op (shared by `encode_tree` and
+    /// `encode_uless_tree`).
+    #[inline]
+    fn push_symbol(&mut self, range: SymbolRange) {
+        self.ops.push(Op::Symbol {
+            start: range.start() as u16,
+            width_minus_1: (range.width() - 1) as u16,
+        });
+    }
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -286,24 +302,22 @@ fn decode_step(state: &mut State, bytes: &mut &[u8], probability: Probability) -
     b
 }
 
-impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole-tree symbol decode: peek the low [`SymbolRange::BITS`] bits of the
-    /// state as the slot, walk the tree to recover value and interval, then do
-    /// a single rANS advance + renormalization instead of `log2(N)` of them.
+impl<'a> Decoder<'a> {
+    /// Shared whole-symbol decode step: peek the low [`SymbolRange::BITS`]
+    /// bits of the state as the slot, let `walk` recover the value and
+    /// interval (adapting its contexts), then do a single rANS advance +
+    /// renormalization instead of one per bit.
     ///
     /// The bit steps (total 256) and symbol steps (total `M = 2^16`) share the
     /// same normalization interval `[2^24, 2^32)`, so they can interleave
     /// freely in one state/stream; a symbol step may need to pull up to two
     /// bytes where a bit step pulls at most one.
     #[inline(always)]
-    fn decode_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> usize {
-        if N < 2 {
-            return 0;
-        }
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
         let mut state = self.state.state;
         let mut bytes = self.bytes;
         let slot = state & (SymbolRange::M - 1);
-        let (range, value) = SymbolRange::from_slot(contexts, slot);
+        let (range, value) = walk(slot);
         state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
         while state < (1 << (State::BITS - 8)) {
             let Some((&byte, rest)) = bytes.split_first() else {
@@ -315,6 +329,29 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         self.state.state = state;
         self.bytes = bytes;
         value
+    }
+}
+
+impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Whole-tree symbol decode; see [`Decoder::decode_symbol_step`].
+    #[inline(always)]
+    fn decode_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        self.decode_symbol_step(|slot| SymbolRange::from_slot(contexts, slot))
+    }
+
+    /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
+    #[inline(always)]
+    fn decode_uless_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        if N > SymbolRange::M as usize {
+            return super::decode_uless_bitwise(self, contexts);
+        }
+        self.decode_symbol_step(|slot| SymbolRange::from_uless_slot(contexts, slot))
     }
 
     /// Adaptive batch decode, fused into a single pass.

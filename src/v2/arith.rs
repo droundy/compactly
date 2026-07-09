@@ -274,12 +274,24 @@ impl EntropyCoder for Range {
         if N < 2 {
             return;
         }
-        while self.state.clamp_for_symbol() {
-            self.bytes.extend_from_slice(&self.state.ready_bytes());
+        self.write_symbol(SymbolRange::for_value(contexts, value));
+    }
+
+    /// Whole `ULessThan` symbol encode; same single narrowing as
+    /// [`Self::encode_tree`] but over the uneven binary-search tree.
+    #[inline]
+    fn encode_uless_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        value: usize,
+    ) {
+        if N < 2 {
+            return;
         }
-        let range = SymbolRange::for_value(contexts, value);
-        self.state.narrow_symbol(range);
-        self.bytes.extend_from_slice(&self.state.ready_bytes());
+        if N > SymbolRange::M as usize {
+            return super::encode_uless_bitwise(self, contexts, value);
+        }
+        self.write_symbol(SymbolRange::for_uless_value(contexts, value));
     }
 
     #[inline]
@@ -289,6 +301,17 @@ impl EntropyCoder for Range {
 }
 
 impl Range {
+    /// Code one whole-symbol interval: clamp the range state so a symbol
+    /// fits, then a single narrowing + renormalization (shared by
+    /// `encode_tree` and `encode_uless_tree`).
+    #[inline]
+    fn write_symbol(&mut self, range: SymbolRange) {
+        while self.state.clamp_for_symbol() {
+            self.bytes.extend_from_slice(&self.state.ready_bytes());
+        }
+        self.state.narrow_symbol(range);
+        self.bytes.extend_from_slice(&self.state.ready_bytes());
+    }
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -405,19 +428,14 @@ fn decode_step(
     out
 }
 
-impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole-tree symbol decode, the inverse of `Range::encode_tree`: recover
-    /// the slot with one division, walk the tree to the value, then do a
-    /// single narrowing + renormalization. State is kept in locals across the
-    /// whole symbol (register-resident), as in `decode_bits`.
+impl<'a> Decoder<'a> {
+    /// Shared whole-symbol decode step, the inverse of `Range::write_symbol`:
+    /// recover the slot with one division, let `walk` recover the value and
+    /// interval (adapting its contexts), then do a single narrowing +
+    /// renormalization. State is kept in locals across the whole symbol
+    /// (register-resident), as in `decode_bits`.
     #[inline]
-    fn decode_tree<const N: usize>(
-        &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
-    ) -> usize {
-        if N < 2 {
-            return 0;
-        }
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
         let mut state = self.state;
         let mut value = self.value;
         let mut bytes = self.bytes;
@@ -437,13 +455,42 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             pull(&mut state, &mut value, &mut bytes);
         }
         let slot = state.symbol_slot(value);
-        let (range, decoded) = SymbolRange::from_slot(contexts, slot);
+        let (range, decoded) = walk(slot);
         state.narrow_symbol(range);
         pull(&mut state, &mut value, &mut bytes);
         self.state = state;
         self.value = value;
         self.bytes = bytes;
         decoded
+    }
+}
+
+impl<'a> EntropyDecoder for Decoder<'a> {
+    /// Whole-tree symbol decode; see [`Decoder::decode_symbol_step`].
+    #[inline]
+    fn decode_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        self.decode_symbol_step(|slot| SymbolRange::from_slot(contexts, slot))
+    }
+
+    /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
+    #[inline]
+    fn decode_uless_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> usize {
+        if N < 2 {
+            return 0;
+        }
+        if N > SymbolRange::M as usize {
+            return super::decode_uless_bitwise(self, contexts);
+        }
+        self.decode_symbol_step(|slot| SymbolRange::from_uless_slot(contexts, slot))
     }
 
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`

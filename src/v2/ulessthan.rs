@@ -1,3 +1,5 @@
+use super::bit_context::BitContext;
+use super::symbol::half;
 use super::Encode;
 
 #[cfg(test)]
@@ -65,22 +67,78 @@ pub struct ULessThanContext<const N: usize> {
     bits: [<bool as Encode>::Context; N],
 }
 
+impl<const N: usize> ULessThanContext<N> {
+    /// Initial per-node contexts, computed at compile time: each node starts
+    /// at the low-count [`BitContext`] state whose probability best matches
+    /// its children's leaf proportion `lo/(lo+hi)`, so a *fresh* context
+    /// codes every value in the fractional `log2(N)` bits (the coding split
+    /// itself stays the plain learned probability — a static weight there
+    /// would fight the adapted contexts forever; see
+    /// `SymbolRange::split_reserving`). Balanced nodes seed to the ordinary
+    /// default state, so power-of-two `N` is unchanged, and adaptation
+    /// converges to the empirical distribution exactly as before.
+    const SEEDED: [BitContext; N] = {
+        let mut bits = [BitContext::True0False0; N];
+        // Walk every internal node (start, len) of the tree; each visit pops
+        // one interval and pushes its two children, so the stack grows by at
+        // most one per level of the deepest path. Intervals shrink by at
+        // least 1/4 per level, so 192 covers any possible `usize` N.
+        let mut stack = [(0usize, 0usize); 192];
+        stack[0] = (0, N);
+        let mut top = 1;
+        while top > 0 {
+            top -= 1;
+            let (start, len) = stack[top];
+            if len > 1 {
+                let vc = half(len);
+                let split = start + vc;
+                bits[split - 1] = seed_context(vc as u64, (len - vc) as u64);
+                stack[top] = (start, vc);
+                stack[top + 1] = (split, len - vc);
+                top += 2;
+            }
+        }
+        bits
+    };
+}
+
+/// The lowest-count [`BitContext`] state whose probability best matches
+/// `lo/(lo+hi)`, searched by walking `adapt` up to 4 observations deep from
+/// the default state — the same few-pseudo-observations seeding as the
+/// generated char tables in `string/init.rs`, so a node whose real data
+/// disagrees with the prior re-adapts quickly.
+const fn seed_context(lo: u64, hi: u64) -> BitContext {
+    let mut best = BitContext::True0False0;
+    let mut best_err = seed_err(best, lo, hi);
+    let mut path = 0u32;
+    while path < 1 << 4 {
+        let mut state = BitContext::True0False0;
+        let mut k = 0;
+        while k < 4 {
+            state = state.adapt((path >> k) & 1 == 1);
+            let err = seed_err(state, lo, hi);
+            // Strict `<` keeps the first (lowest-count) state on ties.
+            if err < best_err {
+                best_err = err;
+                best = state;
+            }
+            k += 1;
+        }
+        path += 1;
+    }
+    best
+}
+
+/// `|P(false) - lo/(lo+hi)|` scaled by `256*(lo+hi)` to stay in integers.
+const fn seed_err(state: BitContext, lo: u64, hi: u64) -> u64 {
+    let p = state.probability().prob.get() as u64;
+    (p * (lo + hi)).abs_diff(256 * lo)
+}
+
 impl<const N: usize> Default for ULessThanContext<N> {
     #[inline]
     fn default() -> Self {
-        Self {
-            bits: [Default::default(); N],
-        }
-    }
-}
-
-#[inline]
-fn half(i: usize) -> usize {
-    let half = i / 2;
-    if half > 1 {
-        1 << half.ilog(2)
-    } else {
-        half
+        Self { bits: Self::SEEDED }
     }
 }
 
@@ -88,43 +146,14 @@ impl<const N: usize> Encode for ULessThan<N> {
     type Context = ULessThanContext<N>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let mut accumulated_value = 0;
-        // big endian bits, splitting values by half each time
-        let mut possible_values_left = N;
-        let mut value_considered = half(possible_values_left);
-        while accumulated_value + value_considered < N && possible_values_left > 1 {
-            let split = accumulated_value + value_considered;
-            let bit = self.0 >= split;
-            bit.encode(writer, &mut ctx.bits[split - 1]);
-            if bit {
-                accumulated_value = split;
-                possible_values_left -= value_considered;
-            } else {
-                possible_values_left = value_considered;
-            }
-            value_considered = half(possible_values_left);
-        }
+        writer.encode_uless_tree(&mut ctx.bits, self.0)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let mut accumulated_value = 0;
-        let mut possible_values_left = N;
-        let mut value_considered = half(possible_values_left); // big endian bits, splitting values by half each time
-        while accumulated_value + value_considered < N && possible_values_left > 1 {
-            let split = accumulated_value + value_considered;
-            let bit = bool::decode(reader, &mut ctx.bits[split - 1])?;
-            if bit {
-                accumulated_value = split;
-                possible_values_left -= value_considered;
-            } else {
-                possible_values_left = value_considered;
-            }
-            value_considered = half(possible_values_left);
-        }
-        Ok(Self(accumulated_value))
+        Ok(Self(reader.decode_uless_tree(&mut ctx.bits)))
     }
 }
 
@@ -154,18 +183,18 @@ fn size() {
     test_urange::<256>();
     test_urange::<257>();
 
-    expect!["1"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(0).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(0).unwrap()));
     expect!["2"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(1).unwrap()));
     expect!["2"].assert_eq(&estimated_bits!(ULessThan::<3>::try_from(2).unwrap()));
 
     expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(0).unwrap()));
     expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(1).unwrap()));
     expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(2).unwrap()));
-    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(3).unwrap()));
-    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(4).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(3).unwrap()));
+    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<5>::try_from(4).unwrap()));
 
-    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(0).unwrap()));
-    expect!["2"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(1).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(0).unwrap()));
+    expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(1).unwrap()));
     expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(2).unwrap()));
     expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(3).unwrap()));
     expect!["3"].assert_eq(&estimated_bits!(ULessThan::<6>::try_from(4).unwrap()));

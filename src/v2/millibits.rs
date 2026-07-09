@@ -23,9 +23,30 @@ impl super::EntropyCoder for Millibits {
         value: usize,
     ) {
         use super::symbol::SymbolRange;
-        let width = SymbolRange::for_value(contexts, value).width();
-        let millibits = (SymbolRange::BITS as f64 - (width as f64).log2()) * 1000.0;
-        *self += Millibits(millibits.round() as u32);
+        *self += Self::symbol_cost(SymbolRange::for_value(contexts, value));
+    }
+
+    /// Like [`Self::encode_tree`], one exact whole-symbol estimate for a
+    /// `ULessThan` value, matching the single-step coders.
+    fn encode_uless_tree<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        value: usize,
+    ) {
+        use super::symbol::SymbolRange;
+        if N > SymbolRange::M as usize {
+            return super::encode_uless_bitwise(self, contexts, value);
+        }
+        *self += Self::symbol_cost(SymbolRange::for_uless_value(contexts, value));
+    }
+}
+
+impl Millibits {
+    /// `-log2(width / M)` bits, in millibits.
+    fn symbol_cost(range: super::symbol::SymbolRange) -> Self {
+        use super::symbol::SymbolRange;
+        let millibits = (SymbolRange::BITS as f64 - (range.width() as f64).log2()) * 1000.0;
+        Millibits(millibits.round() as u32)
     }
 }
 
