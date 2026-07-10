@@ -1,5 +1,5 @@
 //! Focused benchmark for the enum-discriminant decode hot path (the
-//! `ULessThan<3>` walk, whose uneven root node cannot use the balanced
+//! `AtMost<2>` walk, whose uneven root node cannot use the balanced
 //! divisionless split): decode a `Vec<ThreeOptions>` repeatedly.
 //!
 //! The value distribution matches the `btreeset<vec![ThreeOptions; 15]>`

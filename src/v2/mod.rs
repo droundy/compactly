@@ -9,6 +9,7 @@ mod ans;
 mod arc;
 mod arith;
 mod array;
+mod atmost;
 mod bit_context;
 mod bools;
 mod byte;
@@ -30,16 +31,15 @@ mod sets;
 mod string;
 mod symbol;
 mod tuples;
-mod ulessthan;
 mod usizes;
 mod vecs;
 
 use crate::{LowCardinality, Small};
 pub use ans::Ans;
 pub use arith::Range;
+pub use atmost::AtMost;
 pub use millibits::Millibits;
 pub use raw::Raw;
-pub use ulessthan::ULessThan;
 
 const FIFTY_PERCENT: ans::Probability = ans::Probability::new(127, 127);
 
@@ -69,23 +69,23 @@ pub trait EntropyCoder: Default {
         writer
     }
 
-    /// Encode one whole [`ULessThan<N>`](ULessThan) symbol: a binary search over `0..N`
-    /// for arbitrary `N` (not necessarily a power of two), with the context
-    /// for the cut at `split` stored at index `split - 1` (see
-    /// `ULessThanContext`). For power-of-two `N` the search is a balanced
-    /// binary tree, so this is also how `u8`/`UBits<N>` symbols are coded.
+    /// Encode one whole [`AtMost<MAX>`](AtMost) symbol: a binary search over
+    /// `0..=MAX` for arbitrary `MAX`, with the context for the cut at
+    /// `split` stored at index `split - 1` (see `AtMostContext`). For a
+    /// power-of-two value count the search is a balanced binary tree, so
+    /// this is also how `u8`/`UBits<N>` symbols are coded.
     ///
     /// The default implementation codes the search bit-by-bit, identical to
     /// the historical walk (`Raw` keeps it, preserving its bit-packed
     /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
     /// `Millibits`) override it via [`symbol::SymbolRange`] to pay a single
     /// coding step (one renormalization) instead of one per level — except
-    /// when `N` exceeds the symbol slot count [`symbol::SymbolRange::M`],
-    /// where they too fall back to per-bit.
+    /// when the value count exceeds the symbol slot count
+    /// [`symbol::SymbolRange::M`], where they too fall back to per-bit.
     #[inline]
-    fn encode_uless_tree<const N: usize>(
+    fn encode_atmost_tree<const MAX: usize>(
         &mut self,
-        contexts: &mut [bit_context::BitContext; N],
+        contexts: &mut [bit_context::BitContext; MAX],
         value: usize,
     ) {
         symbol::encode_bitwise(self, contexts, value)
@@ -135,17 +135,17 @@ pub trait EntropyDecoder {
         bit
     }
 
-    /// Decode one whole [`ULessThan<N>`](ULessThan) symbol; the inverse of
-    /// [`EntropyCoder::encode_uless_tree`]. Returns the decoded value in
-    /// `0..N`.
+    /// Decode one whole [`AtMost<MAX>`](AtMost) symbol; the inverse of
+    /// [`EntropyCoder::encode_atmost_tree`]. Returns the decoded value in
+    /// `0..=MAX`.
     ///
     /// Infallible like [`Self::decode_bits`]: running past the encoded data
     /// yields arbitrary (but in-range) values, which higher-level
     /// `Encode::decode` impls validate.
     #[inline]
-    fn decode_uless_tree<const N: usize>(
+    fn decode_atmost_tree<const MAX: usize>(
         &mut self,
-        contexts: &mut [bit_context::BitContext; N],
+        contexts: &mut [bit_context::BitContext; MAX],
     ) -> usize
     where
         Self: Sized,

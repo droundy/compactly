@@ -4,14 +4,14 @@
 // Each BitContext is the lowest-count state whose P(true) best matches the
 // observed frequency. MAX_COUNT=4 pseudo-observations keeps adaptation fast.
 
+use super::super::atmost::AtMostContext;
 use super::super::bit_context::BitContext;
-use super::super::ulessthan::ULessThanContext;
 use super::CharContext;
 
 pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
     // P(ASCII) = 94.9%
     // leading byte (length class + high bits)
-    first: ULessThanContext {
+    first: AtMostContext {
         bits: [
             BitContext::True0False4,
             BitContext::True3False0,
@@ -244,7 +244,6 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
             BitContext::True0False0,
             BitContext::True0False0,
             BitContext::True0False4,
-            BitContext::True0False0,
             BitContext::True0False0,
             BitContext::True0False0,
             BitContext::True0False0,
@@ -272,7 +271,7 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
         ],
     },
     // low byte of a one-continuation char
-    one_chunk: ULessThanContext {
+    one_chunk: AtMostContext {
         bits: [
             BitContext::True0False4,
             BitContext::True0False1,
@@ -529,11 +528,10 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
             BitContext::True1False2,
             BitContext::True0False4,
             BitContext::True0False3,
-            BitContext::True0False0,
         ],
     },
     // middle byte of a two-continuation char
-    two_chunk_a: ULessThanContext {
+    two_chunk_a: AtMostContext {
         bits: [
             BitContext::True0False3,
             BitContext::True4False0,
@@ -789,12 +787,11 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
             BitContext::True4False0,
             BitContext::True0False4,
             BitContext::True4False0,
-            BitContext::True0False0,
             BitContext::True0False0,
         ],
     },
     // low byte of a two-continuation char
-    two_chunk_b: ULessThanContext {
+    two_chunk_b: AtMostContext {
         bits: [
             BitContext::True0False0,
             BitContext::True1False2,
@@ -1051,7 +1048,6 @@ pub(super) const INITIAL_CHAR_CONTEXT: CharContext = CharContext {
             BitContext::True1False2,
             BitContext::True4False0,
             BitContext::True0False2,
-            BitContext::True0False0,
         ],
     },
 };

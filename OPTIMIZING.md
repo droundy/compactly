@@ -37,10 +37,11 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   - `just-decompress-enums [ans|range] [seventeen] [iters]` /
     `just-compress-enums …` — decode/encode a `Vec` of 100k skewed 3-variant
     (or uniform 17-variant) enums (default 2000×); isolates the
-    `ULessThan` discriminant path through the derive.
+    `AtMost` discriminant path through the derive.
   - `just-decompress-uless <N> [ans|range] [iters]` — decode 50k uniform
-    `ULessThan<N>` values for N in a monomorphized ladder (3…128); the
-    depth-sweep tool that located the per-coder prefetch crossover.
+    `AtMost<N-1>` values for value counts N in a monomorphized ladder
+    (3…128); the depth-sweep tool that located the per-coder prefetch
+    crossover.
 - Instruction count is NOT a good proxy here: decode is **latency-bound**
   (measured IPC ≈ 1.39), so fewer instructions can still be slower and vice
   versa. Trust cycles.
@@ -449,6 +450,40 @@ suspects: `ULessThanContext::default()` copying `SEEDED` where
 `BitsContext::default()` was a memset, and inlining shifts around the `u8` →
 `ULessThan<256>` delegation. Worth a follow-up look if strings decode
 matters more than the ladder wins.
+
+### ULessThan<N+1> → AtMost<MAX>: dropping the unused context slot (2026-07-09)
+`ULessThan<N>` is now `AtMost<MAX>` (holding `0..=MAX`), and its context
+shrank from `[BitContext; N]` (one slot never touched — `N` values need only
+`N − 1` internal nodes) to a snug `[BitContext; MAX]`. Everything downstream
+reparametrized: the `symbol.rs` walks take `MAX`, the trait methods are
+`encode_atmost_tree`/`decode_atmost_tree`, `u8` delegates to `AtMost<255>`,
+the derive emits `AtMost<{variants − 1}>` (a fieldless single-variant enum's
+discriminant context is now zero-sized), and the generated char tables in
+`string/init.rs` dropped their unused 256th entry (255 × 4 contexts). The
+used indices and walk order are unchanged, so the bitstream is
+**byte-identical** (zero expect-test churn; equal encoded bytes on the
+meteorite and uniform-ladder workloads).
+
+Performance is regression-free, but proving that taught a lesson about this
+machine's noise floor on the *microbenchmarks* (the `just-decompress-uless`
+ladder and `just-decompress-enums` runs are 1–8 B cycles, much shorter than
+the strings runs):
+
+- Real wins on the big workload: strings decode **Ans −2.1%, Range −0.9%**
+  (recovering most of the unification's ~+3% glue residual — the four
+  `CharContext` tables now pack 1020 contiguous bytes instead of 1024),
+  uless ladder N=6 Ans −3.0%, N=3 Ans −1.1%; everything else ±0.5%.
+- The plain A/B first showed scary-looking scatter: uless-8-range **+3.5%**,
+  enums-dec-ans **+3.7%**, but also uless-16-range **−3.1%** — the same
+  `complete` walk code at neighboring depths moving in opposite directions.
+  Instruction counts were identical to ±0.01% in every case (no bounds
+  checks appeared; same work). Rebuilding *both* sides with
+  `-C llvm-args=-align-all-functions=6 -C llvm-args=-align-all-nofallthru-blocks=6`
+  made every delta collapse (+3.5→−1.0%, +3.7→+0.4%, +1.6→−0.3%) and
+  uless-16-range *flip sign* (−3.1→+2.2%): pure code-placement luck.
+  **Rule: on the short ladder/enum bins, treat |Δ| ≲ 3.5% with identical
+  instruction counts as layout noise, and use the forced-alignment rebuild
+  to adjudicate before believing any delta there.**
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):

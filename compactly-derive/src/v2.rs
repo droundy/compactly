@@ -229,7 +229,8 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         }
     });
     let num_variants = s.variants().len();
-    let discriminant_type = quote! { compactly::v2::ULessThan<#num_variants> };
+    let max_discriminant = num_variants - 1;
+    let discriminant_type = quote! { compactly::v2::AtMost<#max_discriminant> };
     let get_discriminant = |variant: &VariantInfo| -> usize {
         s.variants()
             .iter()
@@ -241,7 +242,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::v2::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant);
+            compactly::v2::AtMost::<#max_discriminant>::new(#discriminant).encode(writer, &mut ctx.discriminant);
         }
     });
 
@@ -404,7 +405,7 @@ fn field_named_discriminant_is_renamed() {
     let s = synstructure::Structure::new(&di);
     let output = pretty(derive_compactly(s));
     assert!(
-        output.contains("discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,"),
+        output.contains("discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,"),
         "expected hardcoded discriminant field:\n{output}"
     );
     assert!(
@@ -413,7 +414,7 @@ fn field_named_discriminant_is_renamed() {
     );
     assert!(
         !output.contains(
-            "discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,\n        discriminant: <u32 as Encode>::Context,"
+            "discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,\n        discriminant: <u32 as Encode>::Context,"
         ),
         "must not have duplicate discriminant fields:\n{output}"
     );
@@ -469,7 +470,7 @@ fn impl_two_strategies() {
                 Sorted, Values,
             };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
                 __binding_0: <u32 as Encode>::Context,
             }
             impl Default for DerivedContext {
@@ -526,7 +527,7 @@ fn impl_two_strategies() {
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {
                         NewType(ref __binding_0) => {
-                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                            compactly::v2::AtMost::<0usize>::new(0usize)
                                 .encode(writer, &mut ctx.discriminant);
                         }
                     }
@@ -540,7 +541,7 @@ fn impl_two_strategies() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                    let discriminant: compactly::v2::AtMost<0usize> = Encode::decode(
                         reader,
                         &mut ctx.discriminant,
                     )?;
@@ -580,7 +581,7 @@ fn impl_strategies() {
                 Sorted, Values,
             };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
                 __binding_0: <u32 as Encode>::Context,
             }
             impl Default for DerivedContext {
@@ -621,7 +622,7 @@ fn impl_strategies() {
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {
                         NewType(ref __binding_0) => {
-                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                            compactly::v2::AtMost::<0usize>::new(0usize)
                                 .encode(writer, &mut ctx.discriminant);
                         }
                     }
@@ -635,7 +636,7 @@ fn impl_strategies() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                    let discriminant: compactly::v2::AtMost<0usize> = Encode::decode(
                         reader,
                         &mut ctx.discriminant,
                     )?;
@@ -674,7 +675,7 @@ fn impl_newtype() {
                 Sorted, Values,
             };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::ULessThan<1usize> as Encode>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
                 __binding_0: <u32 as Encode>::Context,
             }
             impl Default for DerivedContext {
@@ -699,7 +700,7 @@ fn impl_newtype() {
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {
                         NewType(ref __binding_0) => {
-                            compactly::v2::ULessThan::<1usize>::new(0usize)
+                            compactly::v2::AtMost::<0usize>::new(0usize)
                                 .encode(writer, &mut ctx.discriminant);
                         }
                     }
@@ -713,7 +714,7 @@ fn impl_newtype() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    let discriminant: compactly::v2::ULessThan<1usize> = Encode::decode(
+                    let discriminant: compactly::v2::AtMost<0usize> = Encode::decode(
                         reader,
                         &mut ctx.discriminant,
                     )?;

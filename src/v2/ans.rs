@@ -51,11 +51,15 @@ impl EntropyCoder for Ans {
     }
 
     #[inline]
-    fn encode_uless_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N], value: usize) {
-        if N < 2 {
+    fn encode_atmost_tree<const MAX: usize>(
+        &mut self,
+        contexts: &mut [BitContext; MAX],
+        value: usize,
+    ) {
+        if MAX == 0 {
             return;
         }
-        if N > SymbolRange::M as usize {
+        if MAX >= SymbolRange::M as usize {
             return super::symbol::encode_bitwise(self, contexts, value);
         }
         self.push_symbol(super::symbol::encode_walk(contexts, value));
@@ -67,7 +71,7 @@ impl EntropyCoder for Ans {
     }
 }
 impl Ans {
-    /// Record one whole-symbol op for `encode_uless_tree`.
+    /// Record one whole-symbol op for `encode_atmost_tree`.
     #[inline]
     fn push_symbol(&mut self, range: SymbolRange) {
         self.ops.push(Op::Symbol {
@@ -324,13 +328,13 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
+    /// Whole `AtMost` symbol decode; see [`Decoder::decode_symbol_step`].
     #[inline(always)]
-    fn decode_uless_tree<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> usize {
-        if N < 2 {
+    fn decode_atmost_tree<const MAX: usize>(&mut self, contexts: &mut [BitContext; MAX]) -> usize {
+        if MAX == 0 {
             return 0;
         }
-        if N > SymbolRange::M as usize {
+        if MAX >= SymbolRange::M as usize {
             return super::symbol::decode_bitwise(self, contexts);
         }
         self.decode_symbol_step(|slot| super::symbol::decode_walk(contexts, slot))
@@ -422,7 +426,7 @@ impl StateOnly {
     }
 
     /// The decode counterpart to [`StateOnly::encode_symbol`], for tests; the
-    /// trait's `decode_uless_tree` inlines this same logic.
+    /// trait's `decode_atmost_tree` inlines this same logic.
     #[cfg(test)]
     fn decode_symbol(
         mut self,
@@ -552,17 +556,17 @@ fn check_ans_mixed_bits_and_symbols() {
         }
         // Adapting contexts: encode and decode must walk identical context
         // state, so use a fixed context array driven by the same data.
-        let mut encode_contexts = [BitContext::default(); 256];
+        let mut encode_contexts = [BitContext::default(); 255];
         let mut writer = Ans::default();
         for op in &plan {
             match *op {
                 Planned::Bit(b, probability) => writer.encode_bit(probability, b),
-                Planned::Byte(b) => writer.encode_uless_tree(&mut encode_contexts, b as usize),
+                Planned::Byte(b) => writer.encode_atmost_tree(&mut encode_contexts, b as usize),
             }
         }
         let encoded = writer.into_vec();
         let mut decoder = Decoder::from(encoded.as_slice());
-        let mut decode_contexts = [BitContext::default(); 256];
+        let mut decode_contexts = [BitContext::default(); 255];
         for (i, op) in plan.iter().enumerate() {
             match *op {
                 Planned::Bit(b, probability) => {
@@ -571,7 +575,7 @@ fn check_ans_mixed_bits_and_symbols() {
                     assert_eq!(bit, b, "bit {i} of trial {trial}");
                 }
                 Planned::Byte(b) => {
-                    let v = decoder.decode_uless_tree(&mut decode_contexts);
+                    let v = decoder.decode_atmost_tree(&mut decode_contexts);
                     assert_eq!(v, b as usize, "byte {i} of trial {trial}");
                 }
             }

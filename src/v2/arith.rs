@@ -263,18 +263,18 @@ impl EntropyCoder for Range {
         }
     }
 
-    /// Whole `ULessThan` symbol encode: one interval narrowing +
+    /// Whole `AtMost` symbol encode: one interval narrowing +
     /// renormalization for the whole symbol instead of one per bit.
     #[inline]
-    fn encode_uless_tree<const N: usize>(
+    fn encode_atmost_tree<const MAX: usize>(
         &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
+        contexts: &mut [super::bit_context::BitContext; MAX],
         value: usize,
     ) {
-        if N < 2 {
+        if MAX == 0 {
             return;
         }
-        if N > SymbolRange::M as usize {
+        if MAX >= SymbolRange::M as usize {
             return super::symbol::encode_bitwise(self, contexts, value);
         }
         self.write_symbol(super::symbol::encode_walk(contexts, value));
@@ -451,19 +451,19 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole `ULessThan` symbol decode; see [`Decoder::decode_symbol_step`].
+    /// Whole `AtMost` symbol decode; see [`Decoder::decode_symbol_step`].
     /// Unlike `Ans`, `Range` asks for the speculating walk — its
     /// division-heavy symbol step absorbs the speculation's extra
     /// instructions (see `symbol::decode_walk_speculating`).
     #[inline]
-    fn decode_uless_tree<const N: usize>(
+    fn decode_atmost_tree<const MAX: usize>(
         &mut self,
-        contexts: &mut [super::bit_context::BitContext; N],
+        contexts: &mut [super::bit_context::BitContext; MAX],
     ) -> usize {
-        if N < 2 {
+        if MAX == 0 {
             return 0;
         }
-        if N > SymbolRange::M as usize {
+        if MAX >= SymbolRange::M as usize {
             return super::symbol::decode_bitwise(self, contexts);
         }
         self.decode_symbol_step(|slot| super::symbol::decode_walk_speculating(contexts, slot))
@@ -732,17 +732,19 @@ mod tests {
                     plan.push(Planned::Byte(rand::random()));
                 }
             }
-            let mut encode_contexts = [super::super::bit_context::BitContext::default(); 256];
+            let mut encode_contexts = [super::super::bit_context::BitContext::default(); 255];
             let mut encoder = Range::default();
             for op in &plan {
                 match *op {
                     Planned::Bit(b, probability) => encoder.encode_bit(probability, b),
-                    Planned::Byte(b) => encoder.encode_uless_tree(&mut encode_contexts, b as usize),
+                    Planned::Byte(b) => {
+                        encoder.encode_atmost_tree(&mut encode_contexts, b as usize)
+                    }
                 }
             }
             let bytes = encoder.into_vec();
             let mut decoder = Decoder::new(&bytes);
-            let mut decode_contexts = [super::super::bit_context::BitContext::default(); 256];
+            let mut decode_contexts = [super::super::bit_context::BitContext::default(); 255];
             for (i, op) in plan.iter().enumerate() {
                 match *op {
                     Planned::Bit(b, probability) => {
@@ -755,7 +757,7 @@ mod tests {
                         assert_eq!(decoded, b, "bit {i} of trial {trial}");
                     }
                     Planned::Byte(b) => {
-                        let decoded = decoder.decode_uless_tree(&mut decode_contexts);
+                        let decoded = decoder.decode_atmost_tree(&mut decode_contexts);
                         assert_eq!(decoded, b as usize, "byte {i} of trial {trial}");
                     }
                 }

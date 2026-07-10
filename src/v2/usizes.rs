@@ -1,8 +1,6 @@
 use crate::Sorted;
 
-use super::{
-    byte::UBits, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small, ULessThan,
-};
+use super::{byte::UBits, AtMost, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -10,7 +8,7 @@ use expect_test::expect;
 #[derive(Default, Clone)]
 pub struct UsizeContext {
     less_than_four: <bool as Encode>::Context,
-    small: <ULessThan<4> as Encode>::Context,
+    small: <AtMost<3> as Encode>::Context,
     big: <Small as EncodingStrategy<u64>>::Context,
 }
 
@@ -18,7 +16,7 @@ impl Encode for usize {
     type Context = UsizeContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        if let Ok(r) = ULessThan::<4>::try_from(*self) {
+        if let Ok(r) = AtMost::<3>::try_from(*self) {
             true.encode(writer, &mut ctx.less_than_four);
             r.encode(writer, &mut ctx.small)
         } else {
@@ -32,7 +30,7 @@ impl Encode for usize {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         if bool::decode(reader, &mut ctx.less_than_four)? {
-            ULessThan::<4>::decode(reader, &mut ctx.small).map(usize::from)
+            AtMost::<3>::decode(reader, &mut ctx.small).map(usize::from)
         } else {
             let v: u64 = Small::decode(reader, &mut ctx.big)?;
             usize::try_from(v + 4).map_err(std::io::Error::other)

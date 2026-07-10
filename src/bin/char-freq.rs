@@ -75,14 +75,15 @@ fn best_bit_context(p_true: f64) -> String {
     format!("True{}False{}", best.0, best.1)
 }
 
-/// For a power-of-two frequency table, compute P(bit=1) at each internal node
-/// of the binary tree used by `ULessThanContext<N>` (the `u8` code). For
-/// power-of-two `N` the contexts are heap-ordered: node k covers [lo, hi),
-/// left child is 2k+1, right child is 2k+2.
+/// For a power-of-two frequency table over `n` values, compute P(bit=1) at
+/// each of the `n - 1` internal nodes of the binary tree used by
+/// `AtMostContext<{n - 1}>` (the `u8` code). For a power-of-two value count
+/// the contexts are heap-ordered: node k covers [lo, hi), left child is
+/// 2k+1, right child is 2k+2.
 fn tree_probs(freq: &[u64]) -> Vec<f64> {
     assert!(freq.len().is_power_of_two());
     let n = freq.len();
-    let mut probs = vec![0.5_f64; n];
+    let mut probs = vec![0.5_f64; n - 1];
     fn fill(node: usize, lo: usize, hi: usize, freq: &[u64], probs: &mut Vec<f64>) {
         if hi - lo <= 1 {
             return;
@@ -103,7 +104,7 @@ fn tree_probs(freq: &[u64]) -> Vec<f64> {
 }
 
 fn write_byte_context<W: Write>(out: &mut W, probs: &[f64], indent: &str) -> io::Result<()> {
-    writeln!(out, "ULessThanContext {{ bits: [")?;
+    writeln!(out, "AtMostContext {{ bits: [")?;
     for p in probs {
         writeln!(out, "{indent}    BitContext::{},", best_bit_context(*p))?;
     }
@@ -287,7 +288,7 @@ fn main() -> io::Result<()> {
     )?;
     writeln!(out)?;
     writeln!(out, "use super::super::bit_context::BitContext;")?;
-    writeln!(out, "use super::super::ulessthan::ULessThanContext;")?;
+    writeln!(out, "use super::super::atmost::AtMostContext;")?;
     writeln!(out, "use super::CharContext;")?;
     writeln!(out)?;
     writeln!(

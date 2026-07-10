@@ -1,5 +1,5 @@
 //! Focused benchmark for the enum-discriminant encode hot path (the
-//! `ULessThan<3>` walk); the encode-side twin of `just-decompress-enums`,
+//! `AtMost<2>` walk); the encode-side twin of `just-decompress-enums`,
 //! same data and distribution.
 //!
 //! Usage: `just-compress-enums [ans|range] [seventeen] [iterations]` (defaults:

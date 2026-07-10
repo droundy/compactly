@@ -1,4 +1,4 @@
-use super::ulessthan::ULessThan;
+use super::atmost::AtMost;
 use super::{Encode, EncodingStrategy};
 use crate::{Incompressible, Small, Sorted};
 
@@ -6,45 +6,43 @@ use crate::{Incompressible, Small, Sorted};
 use expect_test::expect;
 
 impl Encode for u8 {
-    type Context = <ULessThan<256> as Encode>::Context;
+    type Context = <AtMost<255> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        ULessThan::<256>::new(*self as usize).encode(writer, ctx)
+        AtMost::<255>::new(*self as usize).encode(writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        Ok(usize::from(ULessThan::<256>::decode(reader, ctx)?) as u8)
+        Ok(usize::from(AtMost::<255>::decode(reader, ctx)?) as u8)
     }
 }
 
 macro_rules! small_num {
-    ($t:ty, $nbits:literal, $maxval:literal, $doublemax:literal, $testname:ident) => {
+    ($t:ty, $nbits:literal, $maxval:literal, $testname:ident) => {
         mod $testname {
-            use super::{Encode, UBits, ULessThan};
+            use super::{AtMost, Encode, UBits};
 
             impl Encode for $t {
-                type Context = <ULessThan<$doublemax> as Encode>::Context;
+                type Context = <AtMost<$maxval> as Encode>::Context;
                 #[inline]
                 fn encode<E: super::super::EntropyCoder>(
                     &self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    ULessThan::<$doublemax>::new(u8::from(*self) as usize).encode(writer, ctx)
+                    AtMost::<$maxval>::new(u8::from(*self) as usize).encode(writer, ctx)
                 }
                 #[inline]
                 fn decode<D: super::super::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    Ok(
-                        (usize::from(ULessThan::<$doublemax>::decode(reader, ctx)?) as u8)
-                            .try_into()
-                            .unwrap(),
-                    )
+                    Ok((usize::from(AtMost::<$maxval>::decode(reader, ctx)?) as u8)
+                        .try_into()
+                        .unwrap())
                 }
             }
 
@@ -94,14 +92,14 @@ impl<const N: u8> TryFrom<u8> for UBits<N> {
     }
 }
 
-small_num!(UBits<1>, 1, 1, 2, ub1);
-small_num!(UBits<2>, 2, 3, 4, ub2);
-small_num!(UBits<3>, 3, 7, 8, ub3);
-small_num!(UBits<4>, 4, 15, 16, ub4);
-small_num!(UBits<5>, 5, 31, 32, ub5);
-small_num!(UBits<6>, 6, 63, 64, ub6);
-small_num!(UBits<7>, 7, 127, 128, ub7);
-small_num!(UBits<8>, 8, 255, 256, ub8);
+small_num!(UBits<1>, 1, 1, ub1);
+small_num!(UBits<2>, 2, 3, ub2);
+small_num!(UBits<3>, 3, 7, ub3);
+small_num!(UBits<4>, 4, 15, ub4);
+small_num!(UBits<5>, 5, 31, ub5);
+small_num!(UBits<6>, 6, 63, ub6);
+small_num!(UBits<7>, 7, 127, ub7);
+small_num!(UBits<8>, 8, 255, ub8);
 
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
