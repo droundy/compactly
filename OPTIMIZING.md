@@ -14,6 +14,27 @@ optimize both approaches with a slight focus on `Ans`.
 The benchmark harness in `benches/` is convenient but the laptop is noisy
 (browsers, Netflix, etc.). For reliable A/B work:
 
+- **Quiesce the machine first — a human task, not Claude's.** The human runs
+  `sudo ./bench-quiet.sh 2` to reserve CPU 2 (a P-core): turbo off (kills
+  thermal drift), performance governor, SMT sibling cpu3 offlined, all other
+  processes and IRQs herded onto the remaining CPUs, ASLR off, unprivileged
+  `perf` enabled. `sudo ./bench-quiet.sh restore` (or a reboot) undoes it.
+  Claude: never run this script or anything else under sudo.
+  - **Before benchmarking, check that the setup is active:** `bench true`
+    exits 0 iff the machine is quiesced. (The setup installs a `bench`
+    wrapper in `/usr/local/bin` that reads the reserved CPU list from
+    `/run/bench-quiet.cpus` and refuses to run without it; `/run` is tmpfs,
+    cleared by both `restore` and reboot, so the check can't be stale.) If
+    it fails, stop and ask the user to run `sudo ./bench-quiet.sh 2` —
+    measurements on an unquiesced machine are not worth taking.
+  - **Run every benchmark through the wrapper:** `bench <cmd…>` expands to
+    `taskset -c <reserved cpus> <cmd…>` — e.g.
+    `bench perf stat -e cpu_core/cycles/ <bin>` for cycle counts, or
+    `bench cargo bench --bench bench` for criterion. Anything not run
+    through it lands on the crowded housekeeping CPUs and gains nothing
+    from the setup. Build first (`cargo build --release` or
+    `cargo bench --no-run`) *outside* the wrapper so compilation isn't
+    pinned to a single core.
 - **Check load first:** `top -b -n1 | grep %Cpu` — want >90% idle.
 - **Prefer cycle counts over wall time:** `perf` counts cycles per-process, so
   it is far less noisy than wall-clock under contention:
