@@ -266,8 +266,6 @@ impl EntropyCoder for Range {
         }
     }
 
-    /// Whole `AtMost` symbol encode: one interval narrowing +
-    /// renormalization for the whole symbol instead of one per bit.
     #[inline]
     fn encode_atmost<const MAX: usize>(
         &mut self,
