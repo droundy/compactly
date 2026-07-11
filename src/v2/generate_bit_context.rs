@@ -2,7 +2,7 @@
 //!
 //! This generating code creates a finite set of BitContext states and
 //! transitions between them based on observations.
-use super::ans::Probability;
+use super::model::Probability;
 use std::num::NonZeroU8;
 
 struct BitC {
@@ -161,7 +161,9 @@ fn lookup_probability(variants: &[Bucket]) {
     let sz = variants.len();
     println!(
         r"#[inline] pub const fn probability(self) -> Probability {{
-        const LOOKUP: [Probability; {sz}] = ["
+        // A `static`, not a `const`: indexed at runtime from hot code, and a
+        // promoted `const` may be duplicated per codegen unit.
+        static LOOKUP: [Probability; {sz}] = ["
     );
 
     for BitC { probability, .. } in variants.iter().map(|b| b.bitc()) {
@@ -180,7 +182,7 @@ fn probability_millibits() {
         r"
         impl Probability {{
            pub fn millibits(self, bit: bool) -> super::Millibits {{
-        const LOOKUP: [u32; 512] = [0,"
+        static LOOKUP: [u32; 512] = [0,"
     );
 
     for i in (1..=255).chain(1..2).chain((1..=255).rev()) {
@@ -232,7 +234,9 @@ fn lookup_adapt(variants: &[Bucket]) {
     println!(
         r"
     #[inline] pub const fn adapt(self, bit: bool) -> Self {{
-        const OUTCOMES: [BitContext; 2*{sz}] = ["
+        // A `static`, not a `const`: indexed at runtime from hot code, and a
+        // promoted `const` may be duplicated per codegen unit.
+        static OUTCOMES: [BitContext; 2*{sz}] = ["
     );
 
     for BitC {
@@ -324,7 +328,7 @@ pub fn main() {
     let count = variants.len();
     println!(
         r"//! Generated with `{FILENAME}`
-use super::ans::Probability;
+use super::model::Probability;
 
 impl BitContext {{
 pub const CONFIDENT: Self = {confident_name};

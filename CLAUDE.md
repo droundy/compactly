@@ -13,12 +13,23 @@ cargo test --test v1-encoding      # run v1 stability tests
 cargo bench                        # run all benchmarks
 cargo bench --bench bench          # run main benchmark suite
 cargo clippy --all-targets --workspace  # lint; expected to pass cleanly
+cargo check --no-default-features  # CI checks this; run before pushing
 ```
 
 `cargo clippy --all-targets --workspace` is expected to pass with no warnings. In
 test code, prefer `#[allow(...)]` for noisy lints over restructuring the test.
+CI runs clippy on the *newest* stable, which may know lints the locally
+installed clippy doesn't — if CI's clippy job fails while local clippy passes,
+read the CI log and apply its suggested fix (or `rustup update stable`).
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
+
+CI also builds with `--no-default-features` (including a wasm target), so it
+compiles every target without `v1`/`v2`. The usual failure is a new `src/bin/`
+binary that uses `compactly::v2` without a matching
+`required-features = ["v2"]` entry under `[[bin]]` in Cargo.toml — add that
+entry whenever you add a binary. The pre-commit hook runs
+`cargo check --no-default-features` to catch this before CI does.
 
 ## Performance work
 

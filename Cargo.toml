@@ -85,6 +85,22 @@ name = "just-decompress-strings"
 required-features = ["v2"]
 
 [[bin]]
+name = "just-compress-strings"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-compress-enums"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress-enums"
+required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress-uless"
+required-features = ["v2"]
+
+[[bin]]
 name = "micro-batch"
 required-features = ["v2"]
 

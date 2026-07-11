@@ -1,8 +1,8 @@
 //! Focused benchmark for the `AtMost<MAX>` decode walk across tree depths:
 //! decode a `Vec<AtMost<MAX>>` of 50k uniform values repeatedly. Uniform
 //! data keeps every tree level exercised (contexts adapt to ~50/50), which is
-//! the stress case for comparing the plain walk against a speculative
-//! prefetching one — see `symbol::decode_walk_speculating`.
+//! the stress case for comparing the plain walk against a speculating one —
+//! see `atmost::walks::decode_walk_speculating`.
 //!
 //! Usage: `just-decompress-uless <N> [ans|range] [iterations]` (defaults:
 //! `ans`, 2000). `N` is the *value count* (`MAX + 1`) and must be one of the
