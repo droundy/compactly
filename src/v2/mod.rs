@@ -148,26 +148,26 @@ pub trait EntropyCoder: Default {
         writer
     }
 
-    /// Encode one whole [`AtMost<MAX>`](AtMost) symbol: a binary search over
-    /// `0..=MAX` for arbitrary `MAX`, with the context for the cut at
-    /// `split` stored at index `split - 1` (see `AtMostContext`). For a
-    /// power-of-two value count the search is a balanced binary tree, so
-    /// this is also how `u8`/`UBits<N>` symbols are coded.
+    /// Encode one whole [`AtMost<MAX>`](AtMost) symbol — the adaptive
+    /// primitive for "one of `MAX + 1` values", as [`Self::encode_bits`] is
+    /// for bits. The tree search over `0..=MAX` and the per-node context
+    /// bookkeeping are `AtMost`'s implementation details (see
+    /// `atmost::walks`); the coder only chooses how to *pay* for the walk.
     ///
-    /// The default implementation codes the search bit-by-bit, identical to
-    /// the historical walk (`Raw` keeps it, preserving its bit-packed
-    /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
-    /// `Millibits`) override it via `model::SymbolRange` to pay a single
-    /// coding step (one renormalization) instead of one per level — except
-    /// when the value count exceeds the symbol slot count
-    /// `model::SymbolRange::M`, where they too fall back to per-bit.
+    /// The default implementation codes the search bit-by-bit through
+    /// [`Self::encode_bit`], identical to the historical walk (`Raw` keeps
+    /// it, preserving its bit-packed format). Coders with a whole-symbol
+    /// primitive (`Range`, `Ans`, `Millibits` — the internal
+    /// `model::SymbolCoder` trait) override it with a one-liner into
+    /// `atmost::walks::encode_symbol_or_bitwise`, paying a single coding
+    /// step (one renormalization) for the whole symbol.
     #[inline]
-    fn encode_atmost_tree<const MAX: usize>(
+    fn encode_atmost<const MAX: usize>(
         &mut self,
-        contexts: &mut [bit_context::BitContext; MAX],
-        value: usize,
+        ctx: &mut atmost::AtMostContext<MAX>,
+        value: AtMost<MAX>,
     ) {
-        atmost::walks::encode_bitwise(self, contexts, value)
+        atmost::walks::encode_bitwise(self, &mut ctx.bits, value.into())
     }
 
     /// Encode a given slice of incompressible bytes.
@@ -217,21 +217,20 @@ pub trait EntropyDecoder {
     }
 
     /// Decode one whole [`AtMost<MAX>`](AtMost) symbol; the inverse of
-    /// [`EntropyCoder::encode_atmost_tree`]. Returns the decoded value in
-    /// `0..=MAX`.
+    /// [`EntropyCoder::encode_atmost`].
     ///
     /// Infallible like [`Self::decode_bits`]: running past the encoded data
     /// yields arbitrary (but in-range) values, which higher-level
     /// `Encode::decode` impls validate.
     #[inline]
-    fn decode_atmost_tree<const MAX: usize>(
+    fn decode_atmost<const MAX: usize>(
         &mut self,
-        contexts: &mut [bit_context::BitContext; MAX],
-    ) -> usize
+        ctx: &mut atmost::AtMostContext<MAX>,
+    ) -> AtMost<MAX>
     where
         Self: Sized,
     {
-        atmost::walks::decode_bitwise(self, contexts)
+        AtMost::new(atmost::walks::decode_bitwise(self, &mut ctx.bits))
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
@@ -516,7 +515,7 @@ macro_rules! check_mixed_bits_and_symbols {
                 *ctx = rand::random();
             }
             let mut enc_bits = bit_bank;
-            let mut enc_bytes = [BitContext::default(); 255];
+            let mut enc_bytes = crate::v2::atmost::AtMostContext::<255>::default();
             let mut writer = <$coder>::default();
             let mut which = 0usize;
             for op in &plan {
@@ -527,14 +526,16 @@ macro_rules! check_mixed_bits_and_symbols {
                         writer.encode_bit(ctx.probability(), b);
                         *ctx = ctx.adapt(b);
                     }
-                    Planned::Byte(b) => writer.encode_atmost_tree(&mut enc_bytes, b as usize),
+                    Planned::Byte(b) => {
+                        writer.encode_atmost(&mut enc_bytes, crate::v2::AtMost::new(b as usize))
+                    }
                 }
             }
             let encoded: Vec<u8> = writer.into_vec();
             #[allow(clippy::redundant_closure_call)]
             let mut decoder = ($make_decoder)(encoded.as_slice());
             let mut dec_bits = bit_bank;
-            let mut dec_bytes = [BitContext::default(); 255];
+            let mut dec_bytes = crate::v2::atmost::AtMostContext::<255>::default();
             let mut which = 0usize;
             for (i, op) in plan.iter().enumerate() {
                 match *op {
@@ -544,8 +545,8 @@ macro_rules! check_mixed_bits_and_symbols {
                         assert_eq!(bit, b, "bit {i} of trial {trial}");
                     }
                     Planned::Byte(b) => {
-                        let v = decoder.decode_atmost_tree(&mut dec_bytes);
-                        assert_eq!(v, b as usize, "byte {i} of trial {trial}");
+                        let v = decoder.decode_atmost(&mut dec_bytes);
+                        assert_eq!(usize::from(v), b as usize, "byte {i} of trial {trial}");
                     }
                 }
             }

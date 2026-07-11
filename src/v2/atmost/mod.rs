@@ -161,14 +161,14 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     type Context = AtMostContext<MAX>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_atmost_tree(&mut ctx.bits, self.0)
+        writer.encode_atmost(ctx, *self)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        Ok(Self(reader.decode_atmost_tree(&mut ctx.bits)))
+        Ok(reader.decode_atmost(ctx))
     }
 }
 
