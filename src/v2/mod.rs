@@ -161,19 +161,13 @@ pub trait EntropyCoder: Default {
         writer
     }
 
-    /// Encode one whole [`AtMost<MAX>`](AtMost) symbol — the adaptive
+    /// Encode one whole [`AtMost<MAX>`](AtMost) value — the adaptive
     /// primitive for "one of `MAX + 1` values", as [`Self::encode_bits`] is
-    /// for bits. The tree search over `0..=MAX` and the per-node context
-    /// bookkeeping are `AtMost`'s implementation details (see
-    /// `atmost::walks`); the coder only chooses how to *pay* for the walk.
+    /// for bits.
     ///
-    /// The default implementation codes the search bit-by-bit through
-    /// [`Self::encode_bit`], identical to the historical walk (`Raw` keeps
-    /// it, preserving its bit-packed format). Coders with a whole-symbol
-    /// primitive (`Range`, `Ans`, `Millibits` — the internal
-    /// `model::SymbolCoder` trait) override it with a one-liner into
-    /// `atmost::walks::encode_symbol_or_bitwise`, paying a single coding
-    /// step (one renormalization) for the whole symbol.
+    /// A default implementation is provided in terms of [`Self::encode_bit`],
+    /// so a coder need only override this if it can code a whole value more
+    /// efficiently than one bit at a time.
     #[inline]
     fn encode_atmost<const MAX: usize>(
         &mut self,
@@ -232,7 +226,7 @@ pub trait EntropyDecoder {
         bit
     }
 
-    /// Decode one whole [`AtMost<MAX>`](AtMost) symbol; the inverse of
+    /// Decode one whole [`AtMost<MAX>`](AtMost) value; the inverse of
     /// [`EntropyCoder::encode_atmost`].
     ///
     /// Infallible like [`Self::decode_bits`]: running past the encoded data
