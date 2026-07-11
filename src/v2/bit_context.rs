@@ -1,5 +1,5 @@
 //! Generated with `src/v2/generate_bit_context.rs`
-use super::ans::Probability;
+use super::model::Probability;
 
 impl BitContext {
     pub const CONFIDENT: Self = True0False4;
@@ -691,7 +691,9 @@ use BitContext::*;
 impl BitContext {
     #[inline]
     pub const fn probability(self) -> Probability {
-        const LOOKUP: [Probability; 675] = [
+        // A `static`, not a `const`: indexed at runtime from hot code, and a
+        // promoted `const` may be duplicated per codegen unit.
+        static LOOKUP: [Probability; 675] = [
             Probability::new(128, 128),
             Probability::new(171, 85),
             Probability::new(192, 64),
@@ -1373,7 +1375,9 @@ impl BitContext {
 
     #[inline]
     pub const fn adapt(self, bit: bool) -> Self {
-        const OUTCOMES: [BitContext; 2 * 675] = [
+        // A `static`, not a `const`: indexed at runtime from hot code, and a
+        // promoted `const` may be duplicated per codegen unit.
+        static OUTCOMES: [BitContext; 2 * 675] = [
             True0False1,   // from True0False0 with false
             True1False1,   // from True1False0 with false
             True2False1,   // from True2False0 with false
@@ -2731,7 +2735,7 @@ impl BitContext {
 
 impl Probability {
     pub fn millibits(self, bit: bool) -> super::Millibits {
-        const LOOKUP: [u32; 512] = [
+        static LOOKUP: [u32; 512] = [
             0, 8000, 7000, 6415, 6000, 5678, 5415, 5192, 5000, 4830, 4678, 4540, 4415, 4299, 4192,
             4093, 4000, 3912, 3830, 3752, 3678, 3607, 3540, 3476, 3415, 3356, 3299, 3245, 3192,
             3142, 3093, 3045, 3000, 2955, 2912, 2870, 2830, 2790, 2752, 2714, 2678, 2642, 2607,

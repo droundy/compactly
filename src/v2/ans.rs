@@ -1,14 +1,18 @@
-mod probability;
-
 use super::bit_context::BitContext;
-use super::symbol::SymbolRange;
+use super::model::Probability;
+use super::model::SymbolRange;
 use super::{EntropyCoder, EntropyDecoder};
-pub use probability::Probability;
 mod bytes;
 use bytes::Bytes;
 
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
+
+impl From<Probability> for State {
+    fn from(value: Probability) -> Self {
+        Self::from(value.prob.get())
+    }
+}
 
 const MAGIC_HAS_INCOMPRESSIBLE: u8 = 137;
 const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
@@ -60,9 +64,9 @@ impl EntropyCoder for Ans {
             return;
         }
         if MAX >= SymbolRange::M as usize {
-            return super::symbol::encode_bitwise(self, contexts, value);
+            return super::atmost::walks::encode_bitwise(self, contexts, value);
         }
-        self.push_symbol(super::symbol::encode_walk(contexts, value));
+        self.push_symbol(super::atmost::walks::encode_walk(contexts, value));
     }
 
     #[inline]
@@ -335,9 +339,9 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             return 0;
         }
         if MAX >= SymbolRange::M as usize {
-            return super::symbol::decode_bitwise(self, contexts);
+            return super::atmost::walks::decode_bitwise(self, contexts);
         }
-        self.decode_symbol_step(|slot| super::symbol::decode_walk(contexts, slot))
+        self.decode_symbol_step(|slot| super::atmost::walks::decode_walk(contexts, slot))
     }
 
     /// Adaptive batch decode, fused into a single pass.
@@ -537,51 +541,7 @@ fn check_state_only_symbol() {
 
 #[test]
 fn check_ans_mixed_bits_and_symbols() {
-    // Bits (total 256) and tree symbols (total 2^16) share one state and
-    // stream; interleavings of the two must round-trip.
-    for trial in 0..2000 {
-        let n_ops = rand::random::<usize>() % 200;
-        #[derive(Debug, Clone, Copy)]
-        enum Planned {
-            Bit(bool, Probability),
-            Byte(u8),
-        }
-        let mut plan = Vec::new();
-        for _ in 0..n_ops {
-            if rand::random::<bool>() {
-                plan.push(Planned::Bit(rand::random(), rand::random()));
-            } else {
-                plan.push(Planned::Byte(rand::random()));
-            }
-        }
-        // Adapting contexts: encode and decode must walk identical context
-        // state, so use a fixed context array driven by the same data.
-        let mut encode_contexts = [BitContext::default(); 255];
-        let mut writer = Ans::default();
-        for op in &plan {
-            match *op {
-                Planned::Bit(b, probability) => writer.encode_bit(probability, b),
-                Planned::Byte(b) => writer.encode_atmost_tree(&mut encode_contexts, b as usize),
-            }
-        }
-        let encoded = writer.into_vec();
-        let mut decoder = Decoder::from(encoded.as_slice());
-        let mut decode_contexts = [BitContext::default(); 255];
-        for (i, op) in plan.iter().enumerate() {
-            match *op {
-                Planned::Bit(b, probability) => {
-                    let bit =
-                        decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
-                    assert_eq!(bit, b, "bit {i} of trial {trial}");
-                }
-                Planned::Byte(b) => {
-                    let v = decoder.decode_atmost_tree(&mut decode_contexts);
-                    assert_eq!(v, b as usize, "byte {i} of trial {trial}");
-                }
-            }
-        }
-        assert_eq!(encode_contexts, decode_contexts);
-    }
+    super::check_mixed_bits_and_symbols!(Ans, Decoder::from);
 }
 
 #[test]

@@ -1,4 +1,83 @@
-//! The `ans` format of compactly.
+//! The `v2` format of compactly: adaptive entropy coding with two
+//! interchangeable coders (`Range`, the default, and the faster-decoding
+//! `Ans`).
+//!
+//! # How v2 fits together
+//!
+//! Three layers, each blind to the ones above it:
+//!
+//! 1. **Entropy coders** — [`EntropyCoder`]/[`EntropyDecoder`]
+//!    implementations that turn a sequence of probability-weighted coding
+//!    decisions into bytes and back. A coder knows nothing about types:
+//!
+//!    | Coder | Purpose |
+//!    |-------|---------|
+//!    | [`Range`] | Default; arithmetic/range coding; what [`encode`]/[`decode`] use |
+//!    | [`Ans`] | rANS; same interface, decodes faster (runs the stream backwards, so encoding buffers ops) |
+//!    | [`Millibits`] | Size estimation only; accumulates fractional bits, produces no bytes |
+//!    | [`Raw`] | Bit-packing with the probabilities ignored; the coder traits' default method bodies *are* its format |
+//!
+//! 2. **The probability model** — `BitContext` (in `bit_context.rs`) is a
+//!    small adaptive state machine (a generated 675-state table): ask it
+//!    `probability()`, tell it what happened with `adapt(bit)`. `model.rs`
+//!    holds the vocabulary the coders actually consume — `Probability` for
+//!    one bit, `SymbolRange` for one whole tree symbol — plus `BitModel`,
+//!    a context's hot-path data fused into a single table load.
+//!
+//! 3. **Codecs** — [`Encode`] impls (and [`EncodingStrategy`] variants) for
+//!    each type decide *which* bits and symbols to code under *which*
+//!    contexts. The derive macro generates a `Context` struct with one field
+//!    per struct field, so every field's model adapts independently.
+//!
+//! ## The unit of coding is a sub-interval
+//!
+//! Every adaptive thing a coder accepts means "narrow your state to the
+//! sub-interval `[start, start + width)` of `[0, 2^k)`":
+//!
+//! - a bit with `Probability` `p` is the two-slot case, `k = 8`:
+//!   `[0, 256p)` for false, `[256p, 256)` for true;
+//! - a whole [`AtMost`] symbol with a `SymbolRange` is the general case,
+//!   `k = 16`, built by the tree walks in `atmost::walks`.
+//!
+//! Conceptually a bool *is* an `AtMost<1>`. They stay separate primitives on
+//! purpose: the coders give bits and symbols deliberately different
+//! renormalization regimes (`Ans` bit steps refill at most one byte against
+//! a base-256 total; symbol steps up to two bytes against base-2^16), bits
+//! dominate the coded traffic, and the batched [`EntropyDecoder::decode_bits`]
+//! fast path is a bits-only concept. Merging them was measured and rejected;
+//! see OPTIMIZING.md.
+//!
+//! ## The lockstep contract
+//!
+//! The decoder can only recover values because it reproduces, bit for bit,
+//! every probability the encoder used. So encode and decode of each codec
+//! must read and adapt *the same contexts in the same order*, and the tree
+//! walks guarantee that the whole-symbol and bit-by-bit paths adapt
+//! identically (tested against a reference walk in `atmost::walks`). Coder
+//! decode is deliberately infallible — running past the end of the stream
+//! yields arbitrary in-range values — and validation happens once, in
+//! `Encode::decode` impls.
+//!
+//! ## Performance doctrine (invariants, not suggestions)
+//!
+//! Decode is **latency-bound** (measured IPC ≈ 1.4): the next coding step
+//! cannot start until the previous bit resolves, so cycles — never
+//! instruction counts — decide. Standing invariants, each backed by
+//! measurement:
+//!
+//! - tree walks fully unroll (compile-time trip counts via `const` tree
+//!   depth) and inline into the coder's symbol step;
+//! - work moves *off* the serial bit-resolution chain (speculating on both
+//!   children) only where a coder's symbol step can absorb the extra
+//!   instructions — the choice is per-coder and measured, recorded in the
+//!   walk inventory in `atmost::walks`;
+//! - probability priors belong in seeded initial contexts
+//!   (`AtMostContext::SEEDED`), never in the coding split.
+//!
+//! Benchmarking discipline, results, and the graveyard of measured dead ends
+//! live in OPTIMIZING.md.
+//!
+//! # Stability
 //!
 //! This format should be unmodified after the 1.0 release, except for addition
 //! of support for new strategies, which won't change the binary format of types
@@ -22,6 +101,7 @@ mod low_cardinality;
 mod maps;
 mod markers;
 mod millibits;
+mod model;
 mod net;
 mod nonzero;
 mod option;
@@ -29,7 +109,6 @@ mod other_crate_types;
 mod raw;
 mod sets;
 mod string;
-mod symbol;
 mod tuples;
 mod usizes;
 mod vecs;
@@ -41,7 +120,7 @@ pub use atmost::AtMost;
 pub use millibits::Millibits;
 pub use raw::Raw;
 
-const FIFTY_PERCENT: ans::Probability = ans::Probability::new(127, 127);
+const FIFTY_PERCENT: model::Probability = model::Probability::new(127, 127);
 
 /// A place where we can put bits where we have estimated the probabilities.
 pub trait EntropyCoder: Default {
@@ -53,12 +132,12 @@ pub trait EntropyCoder: Default {
     /// the same batched shape.
     fn encode_bits<const N: usize>(
         &mut self,
-        bits_with_probabilities: [(bool, ans::Probability); N],
+        bits_with_probabilities: [(bool, model::Probability); N],
     );
 
     /// Encode a given bit with its probability. The `N == 1` case.
     #[inline(always)]
-    fn encode_bit(&mut self, probability: ans::Probability, bit: bool) {
+    fn encode_bit(&mut self, probability: model::Probability, bit: bool) {
         self.encode_bits([(bit, probability)]);
     }
 
@@ -78,22 +157,22 @@ pub trait EntropyCoder: Default {
     /// The default implementation codes the search bit-by-bit, identical to
     /// the historical walk (`Raw` keeps it, preserving its bit-packed
     /// format). Coders with a whole-symbol primitive (`Range`, `Ans`,
-    /// `Millibits`) override it via [`symbol::SymbolRange`] to pay a single
+    /// `Millibits`) override it via `model::SymbolRange` to pay a single
     /// coding step (one renormalization) instead of one per level — except
     /// when the value count exceeds the symbol slot count
-    /// [`symbol::SymbolRange::M`], where they too fall back to per-bit.
+    /// `model::SymbolRange::M`, where they too fall back to per-bit.
     #[inline]
     fn encode_atmost_tree<const MAX: usize>(
         &mut self,
         contexts: &mut [bit_context::BitContext; MAX],
         value: usize,
     ) {
-        symbol::encode_bitwise(self, contexts, value)
+        atmost::walks::encode_bitwise(self, contexts, value)
     }
 
     /// Encode a given slice of incompressible bytes.
     ///
-    /// Note that ideall implementations will do something more efficient than
+    /// Note that ideally implementations will do something more efficient than
     /// just omitting to track probabilities, but the default implementation
     /// should suffice for correctness.
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
@@ -106,7 +185,9 @@ pub trait EntropyCoder: Default {
     }
 }
 
-/// A way .
+/// The read-side counterpart of [`EntropyCoder`]: decodes the bits, symbols,
+/// and incompressible bytes in the same order they were encoded, adapting the
+/// same contexts identically.
 pub trait EntropyDecoder {
     /// Decode `N` bits, each with its own independent probability context.
     ///
@@ -150,7 +231,7 @@ pub trait EntropyDecoder {
     where
         Self: Sized,
     {
-        symbol::decode_bitwise(self, contexts)
+        atmost::walks::decode_bitwise(self, contexts)
     }
 
     /// Decode a fixed number of incompressible bytes into a slice.
@@ -169,10 +250,10 @@ pub trait Encode: Sized {
     /// Context storing probability model for this type.
     type Context: Default + Clone;
 
-    /// Encode this value to the [`Writer<W>`].
+    /// Encode this value with the given [`EntropyCoder`].
     fn encode<E: EntropyCoder>(&self, encoder: &mut E, ctx: &mut Self::Context);
 
-    /// Decode value from ['Reader<R>`].
+    /// Decode a value with the given [`EntropyDecoder`].
     fn decode<D: EntropyDecoder>(
         entropy_decoder: &mut D,
         ctx: &mut Self::Context,
@@ -293,13 +374,18 @@ pub(crate) use assert_size;
 /// Encodes the value once and as 64 copies, checking that both round-trip,
 /// and evaluates to a `String` holding the number of bits (rounded) needed to
 /// encode the 64 copies, ready to pass to `expect![...].assert_eq(...)`.
+/// Uses the default `Range` coder unless another coder type is given as the
+/// first argument.
 #[cfg(test)]
 macro_rules! encoded_bits {
-    ($v:expr) => {{
+    ($v:expr) => {
+        crate::v2::encoded_bits!(crate::v2::Range, $v)
+    };
+    ($coder:ty, $v:expr) => {{
         let one = $v;
-        let bytes = super::encode(&one);
+        let bytes = <$coder>::encode(&one);
         println!("Bytes are {bytes:?} for {one:?}");
-        let decoded = super::decode(&bytes);
+        let decoded = <$coder>::decode(&bytes);
         assert_eq!(decoded, Some(one), "decoded value is incorrect");
         let v = (
             ($v, $v, $v, $v, $v, $v, $v, $v),
@@ -311,8 +397,8 @@ macro_rules! encoded_bits {
             ($v, $v, $v, $v, $v, $v, $v, $v),
             ($v, $v, $v, $v, $v, $v, $v, $v),
         );
-        let bytes = super::encode(&v);
-        let decoded = super::decode(&bytes);
+        let bytes = <$coder>::encode(&v);
+        let decoded = <$coder>::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
         ((bytes.len() + 4) / 8).to_string()
     }};
@@ -398,29 +484,75 @@ macro_rules! raw_bits {
 #[cfg(test)]
 pub(crate) use raw_bits;
 
-/// Like [`encoded_bits!`] but for the `Ans` coder.
+/// Round-trips randomly interleaved context-driven bits and whole-tree byte
+/// symbols through a real coder: bits (total 256) and tree symbols
+/// (total 2^16) share one state and stream, and encode and decode must adapt
+/// identical context state throughout. `$make_decoder` builds the coder's
+/// decoder from a `&[u8]`.
 #[cfg(test)]
-macro_rules! ans_encoded_bits {
-    ($v:expr) => {{
-        let one = $v;
-        let bytes = super::Ans::encode(&one);
-        let decoded = super::Ans::decode(&bytes);
-        assert_eq!(decoded, Some(one), "decoded value is incorrect");
-        let v = (
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-            ($v, $v, $v, $v, $v, $v, $v, $v),
-        );
-        let bytes = super::Ans::encode(&v);
-        let decoded = super::Ans::decode(&bytes);
-        assert_eq!(decoded, Some(v), "decoded tuple value is incorrect");
-        ((bytes.len() + 4) / 8).to_string()
+macro_rules! check_mixed_bits_and_symbols {
+    ($coder:ty, $make_decoder:expr) => {{
+        use crate::v2::bit_context::BitContext;
+        use crate::v2::{EntropyCoder, EntropyDecoder};
+        for trial in 0..2000 {
+            let n_ops = rand::random::<usize>() % 200;
+            #[derive(Debug, Clone, Copy)]
+            enum Planned {
+                Bit(bool),
+                Byte(u8),
+            }
+            let mut plan = Vec::new();
+            for _ in 0..n_ops {
+                if rand::random::<bool>() {
+                    plan.push(Planned::Bit(rand::random()));
+                } else {
+                    plan.push(Planned::Byte(rand::random()));
+                }
+            }
+            // Bits draw round-robin from a bank of contexts starting in
+            // random states, so the coder sees a wide range of probabilities.
+            let mut bit_bank = [BitContext::default(); 8];
+            for ctx in bit_bank.iter_mut() {
+                *ctx = rand::random();
+            }
+            let mut enc_bits = bit_bank;
+            let mut enc_bytes = [BitContext::default(); 255];
+            let mut writer = <$coder>::default();
+            let mut which = 0usize;
+            for op in &plan {
+                match *op {
+                    Planned::Bit(b) => {
+                        let ctx = &mut enc_bits[which % 8];
+                        which += 1;
+                        writer.encode_bit(ctx.probability(), b);
+                        *ctx = ctx.adapt(b);
+                    }
+                    Planned::Byte(b) => writer.encode_atmost_tree(&mut enc_bytes, b as usize),
+                }
+            }
+            let encoded: Vec<u8> = writer.into_vec();
+            #[allow(clippy::redundant_closure_call)]
+            let mut decoder = ($make_decoder)(encoded.as_slice());
+            let mut dec_bits = bit_bank;
+            let mut dec_bytes = [BitContext::default(); 255];
+            let mut which = 0usize;
+            for (i, op) in plan.iter().enumerate() {
+                match *op {
+                    Planned::Bit(b) => {
+                        let bit = decoder.decode_bit(&mut dec_bits[which % 8]);
+                        which += 1;
+                        assert_eq!(bit, b, "bit {i} of trial {trial}");
+                    }
+                    Planned::Byte(b) => {
+                        let v = decoder.decode_atmost_tree(&mut dec_bytes);
+                        assert_eq!(v, b as usize, "byte {i} of trial {trial}");
+                    }
+                }
+            }
+            assert_eq!(enc_bits, dec_bits, "bit contexts must adapt identically");
+            assert_eq!(enc_bytes, dec_bytes, "byte contexts must adapt identically");
+        }
     }};
 }
 #[cfg(test)]
-pub(crate) use ans_encoded_bits;
+pub(crate) use check_mixed_bits_and_symbols;

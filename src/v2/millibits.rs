@@ -7,7 +7,7 @@ pub struct Millibits(u32);
 impl super::EntropyCoder for Millibits {
     fn encode_bits<const N: usize>(
         &mut self,
-        bits_with_probabilities: [(bool, super::ans::Probability); N],
+        bits_with_probabilities: [(bool, super::model::Probability); N],
     ) {
         for (bit, probability) in bits_with_probabilities {
             *self += probability.millibits(bit);
@@ -22,18 +22,18 @@ impl super::EntropyCoder for Millibits {
         contexts: &mut [super::bit_context::BitContext; MAX],
         value: usize,
     ) {
-        use super::symbol::SymbolRange;
+        use super::model::SymbolRange;
         if MAX >= SymbolRange::M as usize {
-            return super::symbol::encode_bitwise(self, contexts, value);
+            return super::atmost::walks::encode_bitwise(self, contexts, value);
         }
-        *self += Self::symbol_cost(super::symbol::encode_walk(contexts, value));
+        *self += Self::symbol_cost(super::atmost::walks::encode_walk(contexts, value));
     }
 }
 
 impl Millibits {
     /// `-log2(width / M)` bits, in millibits.
-    fn symbol_cost(range: super::symbol::SymbolRange) -> Self {
-        use super::symbol::SymbolRange;
+    fn symbol_cost(range: super::model::SymbolRange) -> Self {
+        use super::model::SymbolRange;
         let millibits = (SymbolRange::BITS as f64 - (range.width() as f64).log2()) * 1000.0;
         Millibits(millibits.round() as u32)
     }

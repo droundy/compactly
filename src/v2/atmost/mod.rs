@@ -1,6 +1,8 @@
+pub(crate) mod walks;
+
 use super::bit_context::BitContext;
-use super::symbol::half;
 use super::Encode;
+use walks::half;
 
 #[cfg(test)]
 use expect_test::expect;
@@ -63,7 +65,7 @@ impl<const MAX: usize> TryFrom<usize> for AtMost<MAX> {
 ///   (`node = (node << 1) + 1 + bit`). The heap layout is what makes the hot
 ///   `u8` decode walk fast: a child's index depends only on the parent's, so
 ///   both children's contexts can be fetched before the node's bit resolves
-///   (see `symbol::complete::from_slot`).
+///   (see `walks::complete::from_slot`).
 /// - **Otherwise**: each node splits its interval at `split =
 ///   accumulated_value + value_considered`, which the encode/decode loops
 ///   guarantee to lie in `1..=MAX`. That `split` is the cut separating leaf

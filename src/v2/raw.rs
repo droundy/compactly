@@ -1,4 +1,4 @@
-pub use super::ans::Probability;
+use super::model::Probability;
 #[cfg(test)]
 use super::Millibits;
 use super::{EntropyCoder, EntropyDecoder};

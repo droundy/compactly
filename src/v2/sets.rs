@@ -169,7 +169,7 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
 
 #[test]
 fn btreeset() {
-    use super::{ans_encoded_bits, encoded_bits, estimated_bits};
+    use super::{encoded_bits, estimated_bits};
     expect!["3"].assert_eq(&estimated_bits!(BTreeSet::<usize>::new()));
     expect!["6"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize])));
     expect!["6"].assert_eq(&estimated_bits!(BTreeSet::from([1_usize])));
@@ -187,14 +187,15 @@ fn btreeset() {
     expect!["245"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
         2_000_000_u64..2_002_048
     )));
-    expect!["245"].assert_eq(&ans_encoded_bits!(BTreeSet::from_iter(
-        2_000_000_u64..2_002_048
-    )));
+    expect!["245"].assert_eq(&encoded_bits!(
+        super::Ans,
+        BTreeSet::from_iter(2_000_000_u64..2_002_048)
+    ));
 }
 
 #[test]
 fn compact_btreeset() {
-    use super::{ans_encoded_bits, encoded_bits, estimated_bits};
+    use super::{encoded_bits, estimated_bits};
     use crate::Encoded;
     expect!["3"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::<u64>::new()
@@ -232,7 +233,8 @@ fn compact_btreeset() {
     expect!["217"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(2_000_000_u64..2_002_048)
     )));
-    expect!["217"].assert_eq(&ans_encoded_bits!(Encoded::<_, Small>::new(
-        BTreeSet::from_iter(2_000_000_u64..2_002_048)
-    )));
+    expect!["217"].assert_eq(&encoded_bits!(
+        super::Ans,
+        Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048))
+    ));
 }

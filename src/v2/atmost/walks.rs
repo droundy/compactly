@@ -1,13 +1,15 @@
-//! Whole-tree symbol coding.
+//! The tree walks behind [`AtMost<MAX>`](super::AtMost): an implementation
+//! detail of `AtMost`, hidden behind the coder traits' `encode_atmost_tree`/
+//! `decode_atmost_tree` methods.
 //!
-//! The [`AtMost<MAX>`](super::AtMost) code (and through it `u8` /
-//! `UBits<N>`, whose power-of-two-count trees are the balanced special case)
-//! walks a binary search tree of adaptive [`BitContext`]s, historically
-//! paying one coder step (one renormalization) per bit. [`SymbolRange`] lets
-//! a coder pay a *single* step for the whole symbol: the tree walk builds one
-//! cumulative sub-interval of the fixed total `M = 1 << 16`, touching and
-//! adapting exactly the same contexts in the same order as the per-bit walk,
-//! and the coder codes that interval in one `encode_symbol`-style operation.
+//! The `AtMost<MAX>` code (and through it `u8` / `UBits<N>`, whose
+//! power-of-two-count trees are the balanced special case) walks a binary
+//! search tree of adaptive [`BitContext`]s, historically paying one coder
+//! step (one renormalization) per bit. [`SymbolRange`] lets a coder pay a
+//! *single* step for the whole symbol: the tree walk builds one cumulative
+//! sub-interval of the fixed total `M = 1 << 16`, touching and adapting
+//! exactly the same contexts in the same order as the per-bit walk, and the
+//! coder codes that interval in one `encode_symbol`-style operation.
 //!
 //! Every walk is generic over `MAX`, the largest encodable value: the tree
 //! covers the `MAX + 1` values `0..=MAX` and has exactly `MAX` internal
@@ -17,74 +19,38 @@
 //! tree layout is a complete, cutoff-free implementation in its own module —
 //! [`complete`] for a power-of-two value count (heap-ordered contexts,
 //! speculative decode) and [`uneven`] for arbitrary `MAX` (split-ordered
-//! contexts, plain and prefetching decode variants) — so each can be tested
+//! contexts, plain and speculating decode variants) — so each can be tested
 //! and benchmarked on its own. The dispatchers at the bottom
 //! ([`encode_walk`], [`decode_walk`], [`decode_walk_speculating`],
 //! [`encode_bitwise`], [`decode_bitwise`]) pick the right implementation
 //! from `MAX` at compile time; they are the only place the cutoffs live.
+//!
+//! The *definition* of the code is the recursive bit-at-a-time
+//! `reference_for_value` walk in this module's tests; every production walk
+//! below is an unrolled, fused, or speculating restatement of it, and the
+//! tests hold them all to bit-identical behavior (same intervals, same
+//! context adaptation).
+//!
+//! # Walk inventory
+//!
+//! | Walk | Used by | Schedule | Why (measured) |
+//! |------|---------|----------|----------------|
+//! | [`complete::for_value`] | every symbol coder's encode, power-of-two value count | plain | encode has no bit-decision latency chain to hide |
+//! | [`complete::from_slot`] | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
+//! | [`uneven::for_value`] | every symbol coder's encode, other `MAX` | plain | as above |
+//! | [`uneven::from_slot`] | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
+//! | [`uneven::from_slot_speculating`] | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
+//! | [`complete::encode_bitwise`] / [`uneven::encode_bitwise`] (and decode twins) | `Raw` always; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code — and `Raw`'s bit-packed format |
 
-use super::ans::Probability;
-use super::bit_context::BitContext;
-use super::{EntropyCoder, EntropyDecoder};
-
-/// One [`BitContext`]'s hot-path data gathered into a single table entry: its
-/// bit probability plus both `adapt` successors. The tree walks below pay one
-/// load per node from [`FUSED`] instead of separate `probability()` and
-/// `adapt()` table lookups, and the successor for either bit outcome is
-/// already in hand when the bit resolves.
-#[derive(Clone, Copy)]
-struct FusedContext {
-    /// `[adapt(false), adapt(true)]`.
-    next: [BitContext; 2],
-    /// The probability that the bit is false.
-    prob: Probability,
-}
-
-impl FusedContext {
-    const fn new(state: BitContext) -> Self {
-        Self {
-            next: [state.adapt(false), state.adapt(true)],
-            prob: state.probability(),
-        }
-    }
-}
-
-/// [`FusedContext::new`] for every state reachable from
-/// `BitContext::default()`, indexed by discriminant. Built by compile-time BFS
-/// over `adapt`; every context starts at the default state, so reachable
-/// states are exactly the ones a walk can ever load. (Unreachable slots hold
-/// the default state's entry and are never read.)
-static FUSED: [FusedContext; BitContext::COUNT] = {
-    let start = BitContext::True0False0;
-    let mut table = [FusedContext::new(start); BitContext::COUNT];
-    let mut queued = [false; BitContext::COUNT];
-    let mut queue = [start; BitContext::COUNT];
-    queued[start as usize] = true;
-    let (mut head, mut tail) = (0, 1);
-    while head < tail {
-        let state = queue[head];
-        head += 1;
-        let entry = FusedContext::new(state);
-        table[state as usize] = entry;
-        let mut j = 0;
-        while j < 2 {
-            let next = entry.next[j];
-            if !queued[next as usize] {
-                queued[next as usize] = true;
-                queue[tail] = next;
-                tail += 1;
-            }
-            j += 1;
-        }
-    }
-    table
-};
+use super::super::bit_context::BitContext;
+use super::super::model::SymbolRange;
+use super::super::{EntropyCoder, EntropyDecoder};
 
 /// Where the [`AtMost`](super::AtMost) binary-search tree cuts an
 /// interval of `i` possible values: the largest power of two below `i` (so
 /// every walk in [`uneven`] agrees on the shape).
 #[inline]
-pub(crate) const fn half(i: usize) -> usize {
+pub(super) const fn half(i: usize) -> usize {
     let half = i / 2;
     if half > 1 {
         1 << half.ilog(2)
@@ -98,7 +64,7 @@ pub(crate) const fn half(i: usize) -> usize {
 /// `0..tree_depth(MAX + 1)` loop (with an early break at each leaf) instead
 /// of `while len > 1`: the compile-time trip count lets the loop fully
 /// unroll.
-pub(crate) const fn tree_depth(len: usize) -> u32 {
+const fn tree_depth(len: usize) -> u32 {
     if len <= 1 {
         0
     } else {
@@ -112,7 +78,7 @@ pub(crate) const fn tree_depth(len: usize) -> u32 {
 }
 
 /// From this `MAX` up, [`decode_walk_speculating`] uses
-/// [`uneven::from_slot_prefetching`] instead of the plain
+/// [`uneven::from_slot_speculating`] instead of the plain
 /// [`uneven::from_slot`] (a power-of-two value count always takes
 /// [`complete::from_slot`], whose heap layout makes speculation nearly
 /// free). Only `Range` asks for the speculating walk: its symbol step
@@ -122,124 +88,26 @@ pub(crate) const fn tree_depth(len: usize) -> u32 {
 /// *slower at every value count* (+4…+22%), so it always takes the plain
 /// walk. Swept with `just-decompress-uless` over value counts 3…128; table
 /// in OPTIMIZING.md.
-pub(crate) const PREFETCH_MIN_MAX: usize = 3;
-
-/// A sub-interval `[start, start + width)` of the fixed total `M = 1 << BITS`,
-/// playing the role for a whole tree symbol that [`Probability`] plays for a
-/// single bit.
-///
-/// Invariant: `width >= 1` and `start + width <= M`, so every representable
-/// symbol keeps at least one slot and decoding is lossless by construction for
-/// any probability skew (see [`SymbolRange::split_reserving`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SymbolRange {
-    start: u32,
-    width: u32,
-}
-
-impl SymbolRange {
-    /// log2 of the total slot count. 16 bits gives every leaf of a tree of up
-    /// to 8 levels at least one slot even under the reserve clamp, while
-    /// keeping the `Ans` symbol step inside the existing `u32` state. Kept as
-    /// a single named const so a future deeper-fusion experiment can bump it.
-    pub const BITS: u32 = 16;
-    /// The total number of slots that a whole symbol is coded out of.
-    pub const M: u32 = 1 << Self::BITS;
-
-    /// First slot of the interval.
-    #[inline]
-    pub(crate) fn start(self) -> u32 {
-        self.start
-    }
-    /// Number of slots in the interval (the symbol's frequency out of `M`).
-    #[inline]
-    pub(crate) fn width(self) -> u32 {
-        self.width
-    }
-
-    /// Arbitrary interval for coder-level tests (real intervals only come
-    /// from the tree walks below).
-    #[cfg(test)]
-    pub(crate) fn test_new(start: u32, width: u32) -> Self {
-        assert!(width >= 1 && start + width <= Self::M);
-        Self { start, width }
-    }
-
-    #[inline]
-    fn full() -> Self {
-        Self {
-            start: 0,
-            width: Self::M,
-        }
-    }
-
-    /// Split point for the false/lower branch, given the node's bit
-    /// probability and children carrying `lo` and `hi` leaves: the lower
-    /// child reserves `lo` slots and the upper `hi`, so by induction every
-    /// descendant leaf keeps at least one slot at any probability skew.
-    ///
-    /// The reserve is applied by squeezing the probability onto the reduced
-    /// width (`width - lo - hi`) rather than clamping the split, because a
-    /// clamp puts two extra compare/select ops on the serial per-level
-    /// dependency chain of the (latency-bound) decode walk. The squeeze skews
-    /// each split toward the middle by at most an `N/M` fraction (≤ 2^-8 for
-    /// a byte tree), a sub-millibit cost per bit.
-    ///
-    /// The cut itself is the plain learned probability, NOT weighted by the
-    /// `lo : hi` leaf counts: the adaptive context converges to the empirical
-    /// bit frequency, and any static weighting multiplied on top would skew
-    /// the coded probability away from that optimum forever after (measured
-    /// +3% on adapted skewed 3-variant enums). The fractional-bit cost for
-    /// *unadapted* values comes from seeding each node's initial context at
-    /// `lo/(lo+hi)` instead — see `AtMostContext::default`.
-    #[inline]
-    fn split_reserving(self, p: Probability, lo: u32, hi: u32) -> u32 {
-        debug_assert!(self.width >= lo + hi);
-        // The product below must fit in u32: width <= M = 2^BITS and prob < 2^8.
-        // If a deeper-fusion experiment bumps BITS past 24, revisit this method.
-        const { assert!(Self::BITS + 8 <= u32::BITS) };
-        (((self.width - lo - hi) * p.prob.get() as u32) >> 8) + lo
-    }
-
-    #[inline]
-    fn lower(self, split: u32) -> Self {
-        Self {
-            start: self.start,
-            width: split,
-        }
-    }
-    #[inline]
-    fn upper(self, split: u32) -> Self {
-        Self {
-            start: self.start + split,
-            width: self.width - split,
-        }
-    }
-    /// Whether `slot` falls in this interval. Callers maintain `slot >= start`.
-    #[inline]
-    fn contains(self, slot: u32) -> bool {
-        debug_assert!(slot >= self.start);
-        slot - self.start < self.width
-    }
-}
+const SPECULATE_MIN_MAX: usize = 3;
 
 /// The balanced-tree implementation for a **power-of-two value count**
 /// (`MAX + 1` a power of two): a complete binary tree with contexts stored
 /// in heap order (`node = (node << 1) + 1 + bit`), the layout the `u8` hot
 /// path relies on. A child's index depends only on the parent's — not on the
-/// current interval — so the decode walk fetches both children's [`FUSED`]
-/// entries before the node's bit resolves at no extra index arithmetic,
-/// hiding the load latency that otherwise dominates the serial per-level
-/// chain (measured worth ~8-11% on the `u8`-heavy string decode path for
-/// both coders versus the split-ordered walks in [`uneven`]).
-pub(crate) mod complete {
+/// current interval — so the decode walk fetches both children's
+/// [`BitModel`](super::super::model::BitModel) entries before the node's bit
+/// resolves at no extra index arithmetic, hiding the load latency that
+/// otherwise dominates the serial per-level chain (measured worth ~8-11% on
+/// the `u8`-heavy string decode path for both coders versus the
+/// split-ordered walks in [`uneven`]).
+mod complete {
     use super::*;
 
     /// Walk the heap tree for `value`, adapting the contexts exactly as the
     /// per-bit walk would, and return the symbol's interval. `MAX + 1` must
     /// be a power of two and `value <= MAX`.
     #[inline]
-    pub(crate) fn for_value<const MAX: usize>(
+    pub(super) fn for_value<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         value: usize,
     ) -> SymbolRange {
@@ -249,7 +117,7 @@ pub(crate) mod complete {
         debug_assert!(value <= MAX);
         let mut node = 0usize;
         for i in (0..n_bits).rev() {
-            let cur = FUSED[contexts[node] as usize];
+            let cur = contexts[node].model();
             let reserve = 1u32 << i;
             let split = range.split_reserving(cur.prob, reserve, reserve);
             let bit = (value >> i) & 1 == 1;
@@ -268,7 +136,7 @@ pub(crate) mod complete {
     /// contexts identically to [`for_value`], and return the interval
     /// together with the decoded value in `0..=MAX`.
     #[inline]
-    pub(crate) fn from_slot<const MAX: usize>(
+    pub(super) fn from_slot<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         slot: u32,
     ) -> (SymbolRange, usize) {
@@ -277,7 +145,7 @@ pub(crate) mod complete {
         debug_assert_eq!(1 << n_bits, MAX + 1);
         debug_assert!(slot < SymbolRange::M);
         let mut node = 0usize;
-        let mut cur = FUSED[contexts[0] as usize];
+        let mut cur = contexts[0].model();
         for i in (0..n_bits).rev() {
             let reserve = 1u32 << i;
             let split = range.split_reserving(cur.prob, reserve, reserve);
@@ -285,12 +153,12 @@ pub(crate) mod complete {
             let bit = !lower.contains(slot);
             let adapted = cur.next[bit as usize];
             if i > 0 {
-                // Speculatively fetch both children's fused entries: these
+                // Speculatively fetch both children's model entries: these
                 // loads depend only on `node`, not on `bit`, so they issue a
                 // full level ahead of the serial split/compare chain, leaving
                 // just a select on the critical path.
-                let left = FUSED[contexts[2 * node + 1] as usize];
-                let right = FUSED[contexts[2 * node + 2] as usize];
+                let left = contexts[2 * node + 1].model();
+                let right = contexts[2 * node + 2].model();
                 cur = if bit { right } else { left };
             }
             contexts[node] = adapted;
@@ -304,7 +172,7 @@ pub(crate) mod complete {
     /// format, and the fallback when the value count exceeds
     /// [`SymbolRange::M`].
     #[inline]
-    pub(crate) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
+    pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,
         contexts: &mut [BitContext; MAX],
         value: usize,
@@ -323,7 +191,7 @@ pub(crate) mod complete {
 
     /// The per-bit inverse of [`encode_bitwise`].
     #[inline]
-    pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
+    pub(super) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
         reader: &mut D,
         contexts: &mut [BitContext; MAX],
     ) -> usize {
@@ -343,14 +211,14 @@ pub(crate) mod complete {
 /// the lowest common ancestor of leaves `split - 1` and `split` — so the
 /// index is collision-free in `0..MAX`). Fresh contexts are seeded so every
 /// value costs the fractional `log2(MAX + 1)` bits; see `AtMostContext`.
-pub(crate) mod uneven {
+mod uneven {
     use super::*;
 
     /// Walk the search tree for `value`, adapting the contexts exactly as
     /// the per-bit walk would, and return the symbol's interval. Requires
     /// `MAX + 1 <= M` so every leaf can reserve a slot.
     #[inline]
-    pub(crate) fn for_value<const MAX: usize>(
+    pub(super) fn for_value<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         value: usize,
     ) -> SymbolRange {
@@ -365,7 +233,7 @@ pub(crate) mod uneven {
             }
             let value_considered = half(possible_values_left);
             let split = accumulated_value + value_considered;
-            let cur = FUSED[contexts[split - 1] as usize];
+            let cur = contexts[split - 1].model();
             let slot_split = range.split_reserving(
                 cur.prob,
                 value_considered as u32,
@@ -389,14 +257,14 @@ pub(crate) mod uneven {
     /// the contexts identically to [`for_value`], and return the interval
     /// together with the decoded value in `0..=MAX`.
     ///
-    /// This is the plain walk: each level's [`FUSED`] load waits for the
-    /// previous level's bit. The [`from_slot_prefetching`] variant hides
+    /// This is the plain walk: each level's model load waits for the
+    /// previous level's bit. The [`from_slot_speculating`] variant hides
     /// that latency but roughly doubles the instruction count (both
-    /// children's [`half`] index arithmetic, double [`FUSED`] loads,
+    /// children's [`half`] index arithmetic, double model loads,
     /// register-pressure spills), which only `Range`'s division-heavy
-    /// symbol step can absorb — see [`PREFETCH_MIN_MAX`].
+    /// symbol step can absorb — see [`SPECULATE_MIN_MAX`].
     #[inline]
-    pub(crate) fn from_slot<const MAX: usize>(
+    pub(super) fn from_slot<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         slot: u32,
     ) -> (SymbolRange, usize) {
@@ -411,7 +279,7 @@ pub(crate) mod uneven {
             }
             let value_considered = half(possible_values_left);
             let split = accumulated_value + value_considered;
-            let cur = FUSED[contexts[split - 1] as usize];
+            let cur = contexts[split - 1].model();
             let slot_split = range.split_reserving(
                 cur.prob,
                 value_considered as u32,
@@ -434,13 +302,13 @@ pub(crate) mod uneven {
 
     /// The speculative variant of [`from_slot`]: both candidate child
     /// contexts are fetched before the node's bit resolves (their positions
-    /// depend only on the current interval, not the bit), so the [`FUSED`]
+    /// depend only on the current interval, not the bit), so the model
     /// loads issue a level ahead of the serial split/compare chain, leaving
     /// just a select on the critical path. A leaf child gets a harmless
     /// dummy index 0 — if the walk descends into it the loop ends and the
     /// fetched entry is unused.
     #[inline]
-    pub(crate) fn from_slot_prefetching<const MAX: usize>(
+    pub(super) fn from_slot_speculating<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         slot: u32,
     ) -> (SymbolRange, usize) {
@@ -452,7 +320,7 @@ pub(crate) mod uneven {
         let mut possible_values_left = MAX + 1;
         let mut value_considered = half(MAX + 1);
         let mut split = value_considered;
-        let mut cur = FUSED[contexts[split - 1] as usize];
+        let mut cur = contexts[split - 1].model();
         // Every path breaks at a leaf within `tree_depth(MAX + 1)`
         // iterations; the compile-time bound is what lets the loop fully
         // unroll.
@@ -464,8 +332,8 @@ pub(crate) mod uneven {
             let hi_vc = half(hi_len);
             let lo_split = accumulated_value + lo_vc;
             let hi_split = split + hi_vc;
-            let lo_cur = FUSED[contexts[if lo_len > 1 { lo_split - 1 } else { 0 }] as usize];
-            let hi_cur = FUSED[contexts[if hi_len > 1 { hi_split - 1 } else { 0 }] as usize];
+            let lo_cur = contexts[if lo_len > 1 { lo_split - 1 } else { 0 }].model();
+            let hi_cur = contexts[if hi_len > 1 { hi_split - 1 } else { 0 }].model();
             let lower = range.lower(slot_split);
             let bit = !lower.contains(slot);
             contexts[split - 1] = cur.next[bit as usize];
@@ -496,7 +364,7 @@ pub(crate) mod uneven {
     /// format, and the fallback when the value count exceeds
     /// [`SymbolRange::M`].
     #[inline]
-    pub(crate) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
+    pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,
         contexts: &mut [BitContext; MAX],
         value: usize,
@@ -522,7 +390,7 @@ pub(crate) mod uneven {
 
     /// The per-bit inverse of [`encode_bitwise`].
     #[inline]
-    pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
+    pub(super) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
         reader: &mut D,
         contexts: &mut [BitContext; MAX],
     ) -> usize {
@@ -576,11 +444,11 @@ pub(crate) fn decode_walk<const MAX: usize>(
 }
 
 /// [`decode_walk`], but spending extra instructions to hide the per-level
-/// [`FUSED`] load latency where a heavier symbol step can absorb them: the
+/// model-load latency where a heavier symbol step can absorb them: the
 /// right choice for `Range`, whose u64 division provides the latency shadow.
 /// A power-of-two value count takes [`complete::from_slot`] as always;
-/// other `MAX` at or above [`PREFETCH_MIN_MAX`] take
-/// [`uneven::from_slot_prefetching`].
+/// other `MAX` at or above [`SPECULATE_MIN_MAX`] take
+/// [`uneven::from_slot_speculating`].
 #[inline]
 pub(crate) fn decode_walk_speculating<const MAX: usize>(
     contexts: &mut [BitContext; MAX],
@@ -588,8 +456,8 @@ pub(crate) fn decode_walk_speculating<const MAX: usize>(
 ) -> (SymbolRange, usize) {
     if (MAX + 1).is_power_of_two() {
         complete::from_slot(contexts, slot)
-    } else if MAX >= PREFETCH_MIN_MAX {
-        uneven::from_slot_prefetching(contexts, slot)
+    } else if MAX >= SPECULATE_MIN_MAX {
+        uneven::from_slot_speculating(contexts, slot)
     } else {
         uneven::from_slot(contexts, slot)
     }
@@ -630,21 +498,90 @@ pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
 mod tests {
     use super::*;
 
+    /// The *definition* of `AtMost` coding, in its original bit-at-a-time
+    /// form: recursively split the interval of possible values at [`half`],
+    /// code one adaptive bit per split using the plain generated
+    /// `probability()`/`adapt()` tables (independent of the fused
+    /// `BitContext::model` path the production walks take), and narrow the
+    /// slot interval with `split_reserving` exactly as a per-bit coder
+    /// would. Every production walk must match it exactly — in interval and
+    /// in post-walk contexts. `index_of(start, len)` names the context of
+    /// the node covering values `start..start + len`, the only thing the
+    /// two layouts disagree on.
+    fn reference_for_value<const MAX: usize>(
+        contexts: &mut [BitContext; MAX],
+        index_of: impl Fn(usize, usize) -> usize + Copy,
+        start: usize,
+        len: usize,
+        range: SymbolRange,
+        value: usize,
+    ) -> SymbolRange {
+        if len <= 1 {
+            return range;
+        }
+        let vc = half(len);
+        let node = index_of(start, len);
+        let split =
+            range.split_reserving(contexts[node].probability(), vc as u32, (len - vc) as u32);
+        let bit = value >= start + vc;
+        contexts[node] = contexts[node].adapt(bit);
+        if bit {
+            reference_for_value(
+                contexts,
+                index_of,
+                start + vc,
+                len - vc,
+                range.upper(split),
+                value,
+            )
+        } else {
+            reference_for_value(contexts, index_of, start, vc, range.lower(split), value)
+        }
+    }
+
+    /// [`complete`]'s heap index for the node covering `start..start + len`
+    /// of a complete tree over `MAX + 1` leaves.
+    fn heap_index<const MAX: usize>(start: usize, len: usize) -> usize {
+        (MAX + 1) / len - 1 + start / len
+    }
+
+    /// [`uneven`]'s split-order index for the node covering
+    /// `start..start + len`: the cut at `split` lives at `split - 1`.
+    fn split_index(start: usize, len: usize) -> usize {
+        start + half(len) - 1
+    }
+
     /// The encode-side and decode-side [`complete`] walks (power-of-two
-    /// value count) must build identical intervals and adapt the contexts
-    /// identically, for every slot of the interval.
+    /// value count) must match the bit-at-a-time reference definition and
+    /// each other: identical intervals, identical context adaptation, for
+    /// every slot of the interval.
     fn check_complete_determinism<const MAX: usize>(contexts: [BitContext; MAX]) {
         let mut total = 0u32;
         for value in 0..=MAX {
+            let mut ref_ctx = contexts;
+            let range = reference_for_value(
+                &mut ref_ctx,
+                heap_index::<MAX>,
+                0,
+                MAX + 1,
+                SymbolRange::full(),
+                value,
+            );
             let mut enc_ctx = contexts;
-            let range = complete::for_value(&mut enc_ctx, value);
-            assert!(range.width >= 1, "leaf lost its slot for value {value}");
             assert_eq!(
-                range.start, total,
+                complete::for_value(&mut enc_ctx, value),
+                range,
+                "interval must match the bit-at-a-time reference for value {value}"
+            );
+            assert_eq!(enc_ctx, ref_ctx, "contexts must adapt like the reference");
+            assert!(range.width() >= 1, "leaf lost its slot for value {value}");
+            assert_eq!(
+                range.start(),
+                total,
                 "intervals must tile [0, M) in value order"
             );
-            total += range.width;
-            for slot in [range.start, range.start + range.width - 1] {
+            total += range.width();
+            for slot in [range.start(), range.start() + range.width() - 1] {
                 let mut dec_ctx = contexts;
                 let (dec_range, decoded) = complete::from_slot(&mut dec_ctx, slot);
                 assert_eq!(dec_range, range);
@@ -656,36 +593,92 @@ mod tests {
     }
 
     /// Same as [`check_complete_determinism`] but for the [`uneven`] walks
-    /// (any `MAX`): intervals must tile `[0, M)` in value order (the search
-    /// tree keeps values ordered), every leaf must keep a slot, and both
-    /// decode walks must agree with the encode walk for every slot boundary.
+    /// (any `MAX`): every walk must match the bit-at-a-time reference,
+    /// intervals must tile `[0, M)` in value order (the search tree keeps
+    /// values ordered), every leaf must keep a slot, and both decode walks
+    /// must agree with the encode walk for every slot boundary.
     fn check_uneven_determinism<const MAX: usize>(contexts: [BitContext; MAX]) {
         let mut total = 0u32;
         for value in 0..=MAX {
+            let mut ref_ctx = contexts;
+            let range = reference_for_value(
+                &mut ref_ctx,
+                split_index,
+                0,
+                MAX + 1,
+                SymbolRange::full(),
+                value,
+            );
             let mut enc_ctx = contexts;
-            let range = uneven::for_value(&mut enc_ctx, value);
-            assert!(range.width >= 1, "leaf lost its slot for value {value}");
             assert_eq!(
-                range.start, total,
+                uneven::for_value(&mut enc_ctx, value),
+                range,
+                "interval must match the bit-at-a-time reference for value {value}"
+            );
+            assert_eq!(enc_ctx, ref_ctx, "contexts must adapt like the reference");
+            assert!(range.width() >= 1, "leaf lost its slot for value {value}");
+            assert_eq!(
+                range.start(),
+                total,
                 "intervals must tile [0, M) in value order"
             );
-            total += range.width;
-            for slot in [range.start, range.start + range.width - 1] {
+            total += range.width();
+            for slot in [range.start(), range.start() + range.width() - 1] {
                 let mut dec_ctx = contexts;
                 let (dec_range, decoded) = uneven::from_slot(&mut dec_ctx, slot);
                 assert_eq!(dec_range, range);
                 assert_eq!(decoded, value);
                 assert_eq!(dec_ctx, enc_ctx, "contexts must adapt identically");
-                // The speculative walk must be indistinguishable from the
+                // The speculating walk must be indistinguishable from the
                 // plain one.
                 let mut spec_ctx = contexts;
-                let (spec_range, spec_decoded) = uneven::from_slot_prefetching(&mut spec_ctx, slot);
+                let (spec_range, spec_decoded) = uneven::from_slot_speculating(&mut spec_ctx, slot);
                 assert_eq!(spec_range, range);
                 assert_eq!(spec_decoded, value);
-                assert_eq!(spec_ctx, enc_ctx, "speculative walk must adapt identically");
+                assert_eq!(spec_ctx, enc_ctx, "speculating walk must adapt identically");
             }
         }
         assert_eq!(total, SymbolRange::M, "intervals must cover all of M");
+    }
+
+    /// The per-bit walks must adapt the contexts exactly like the reference
+    /// (this is the invariant that lets the symbol coders and the bitwise
+    /// fallback share one context array), and must round-trip through a real
+    /// coder.
+    fn check_bitwise_matches_reference<const MAX: usize>(contexts: [BitContext; MAX]) {
+        let index_of = |start: usize, len: usize| {
+            if (MAX + 1).is_power_of_two() {
+                heap_index::<MAX>(start, len)
+            } else {
+                split_index(start, len)
+            }
+        };
+        for value in 0..=MAX {
+            let mut ref_ctx = contexts;
+            reference_for_value(
+                &mut ref_ctx,
+                index_of,
+                0,
+                MAX + 1,
+                SymbolRange::full(),
+                value,
+            );
+            let mut enc_ctx = contexts;
+            let mut coder = crate::v2::Range::default();
+            encode_bitwise(&mut coder, &mut enc_ctx, value);
+            assert_eq!(
+                enc_ctx, ref_ctx,
+                "bitwise encode must adapt like the reference for value {value}"
+            );
+            let bytes = coder.into_vec();
+            let mut decoder = crate::v2::arith::Decoder::new(&bytes);
+            let mut dec_ctx = contexts;
+            assert_eq!(decode_bitwise(&mut decoder, &mut dec_ctx), value);
+            assert_eq!(
+                dec_ctx, ref_ctx,
+                "bitwise decode must adapt like the reference for value {value}"
+            );
+        }
     }
 
     /// A context pushed to its most extreme probability, to force the reserve
@@ -696,20 +689,6 @@ mod tests {
             ctx = ctx.adapt(bit);
         }
         ctx
-    }
-
-    /// Every state a context can hold must have a `FUSED` entry that agrees
-    /// with the `probability()`/`adapt()` tables (random sampling covers all
-    /// variants statistically), and the BFS seed must be the default state.
-    #[test]
-    fn fused_matches_tables() {
-        assert_eq!(BitContext::default(), BitContext::True0False0);
-        for _ in 0..20_000 {
-            let state: BitContext = rand::random();
-            let entry = FUSED[state as usize];
-            assert_eq!(entry.prob, state.probability());
-            assert_eq!(entry.next, [state.adapt(false), state.adapt(true)]);
-        }
     }
 
     #[test]
@@ -770,6 +749,24 @@ mod tests {
                 *ctx = rand::random();
             }
             check_uneven_determinism::<76>(random);
+        }
+    }
+
+    #[test]
+    fn bitwise_matches_reference() {
+        check_bitwise_matches_reference::<0>([]);
+        check_bitwise_matches_reference::<1>([BitContext::default(); 1]);
+        check_bitwise_matches_reference::<5>([BitContext::default(); 5]);
+        check_bitwise_matches_reference::<255>([BitContext::default(); 255]);
+        check_bitwise_matches_reference::<256>([BitContext::default(); 256]);
+        check_bitwise_matches_reference::<255>([extreme(true); 255]);
+        check_bitwise_matches_reference::<99>([extreme(false); 99]);
+        for _ in 0..20 {
+            let mut random = [BitContext::default(); 76];
+            for ctx in random.iter_mut() {
+                *ctx = rand::random();
+            }
+            check_bitwise_matches_reference::<76>(random);
         }
     }
 

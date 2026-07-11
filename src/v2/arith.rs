@@ -1,5 +1,4 @@
-pub use super::ans::Probability;
-use super::symbol::SymbolRange;
+use super::model::{Probability, SymbolRange, SHIFT};
 use super::{EntropyCoder, EntropyDecoder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -7,8 +6,6 @@ pub struct ArithState {
     lo: u64,
     hi: u64,
 }
-
-pub const SHIFT: u8 = 8;
 
 impl Default for ArithState {
     #[inline]
@@ -275,9 +272,9 @@ impl EntropyCoder for Range {
             return;
         }
         if MAX >= SymbolRange::M as usize {
-            return super::symbol::encode_bitwise(self, contexts, value);
+            return super::atmost::walks::encode_bitwise(self, contexts, value);
         }
-        self.write_symbol(super::symbol::encode_walk(contexts, value));
+        self.write_symbol(super::atmost::walks::encode_walk(contexts, value));
     }
 
     #[inline]
@@ -454,7 +451,7 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     /// Whole `AtMost` symbol decode; see [`Decoder::decode_symbol_step`].
     /// Unlike `Ans`, `Range` asks for the speculating walk — its
     /// division-heavy symbol step absorbs the speculation's extra
-    /// instructions (see `symbol::decode_walk_speculating`).
+    /// instructions (see `atmost::walks::decode_walk_speculating`).
     #[inline]
     fn decode_atmost_tree<const MAX: usize>(
         &mut self,
@@ -464,9 +461,11 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             return 0;
         }
         if MAX >= SymbolRange::M as usize {
-            return super::symbol::decode_bitwise(self, contexts);
+            return super::atmost::walks::decode_bitwise(self, contexts);
         }
-        self.decode_symbol_step(|slot| super::symbol::decode_walk_speculating(contexts, slot))
+        self.decode_symbol_step(|slot| {
+            super::atmost::walks::decode_walk_speculating(contexts, slot)
+        })
     }
 
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`
@@ -715,55 +714,7 @@ mod tests {
 
     #[test]
     fn encode_decode_symbols_and_bits() {
-        // Full-stream mixed test through the real encoder/decoder: interleaved
-        // bits and whole-tree byte symbols with shared adapting contexts.
-        for trial in 0..2000 {
-            let n_ops = rand::random::<usize>() % 200;
-            #[derive(Debug, Clone, Copy)]
-            enum Planned {
-                Bit(bool, Probability),
-                Byte(u8),
-            }
-            let mut plan = Vec::new();
-            for _ in 0..n_ops {
-                if rand::random::<bool>() {
-                    plan.push(Planned::Bit(rand::random(), rand::random()));
-                } else {
-                    plan.push(Planned::Byte(rand::random()));
-                }
-            }
-            let mut encode_contexts = [super::super::bit_context::BitContext::default(); 255];
-            let mut encoder = Range::default();
-            for op in &plan {
-                match *op {
-                    Planned::Bit(b, probability) => encoder.encode_bit(probability, b),
-                    Planned::Byte(b) => {
-                        encoder.encode_atmost_tree(&mut encode_contexts, b as usize)
-                    }
-                }
-            }
-            let bytes = encoder.into_vec();
-            let mut decoder = Decoder::new(&bytes);
-            let mut decode_contexts = [super::super::bit_context::BitContext::default(); 255];
-            for (i, op) in plan.iter().enumerate() {
-                match *op {
-                    Planned::Bit(b, probability) => {
-                        let decoded = decode_step(
-                            &mut decoder.state,
-                            &mut decoder.value,
-                            &mut decoder.bytes,
-                            probability,
-                        );
-                        assert_eq!(decoded, b, "bit {i} of trial {trial}");
-                    }
-                    Planned::Byte(b) => {
-                        let decoded = decoder.decode_atmost_tree(&mut decode_contexts);
-                        assert_eq!(decoded, b as usize, "byte {i} of trial {trial}");
-                    }
-                }
-            }
-            assert_eq!(encode_contexts, decode_contexts);
-        }
+        super::super::check_mixed_bits_and_symbols!(Range, Decoder::new);
     }
 
     #[test]
