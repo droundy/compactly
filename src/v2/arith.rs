@@ -348,8 +348,8 @@ pub struct Decoder<'a> {
     incompressible: &'a [u8],
 }
 
-const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = [b'Y', b'a'];
-const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = [b'N', b'o'];
+const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = *b"Ya";
+const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = *b"No";
 
 impl<'a> Decoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
