@@ -120,11 +120,22 @@ pub use atmost::AtMost;
 pub use millibits::Millibits;
 pub use raw::Raw;
 
-const FIFTY_PERCENT: model::Probability = model::Probability::new(127, 127);
+/// The default `encode_incompressible_bytes` relies on a fresh context
+/// meaning "no information": its probability must be exactly one half.
+#[test]
+fn default_context_is_fifty_percent() {
+    assert_eq!(
+        bit_context::BitContext::default().probability(),
+        model::Probability::new(127, 127)
+    );
+}
 
 /// A place where we can put bits where we have estimated the probabilities.
 pub trait EntropyCoder: Default {
-    /// Encode `N` bits, each paired with its probability.
+    /// Encode `N` bits, each with its own independent adaptive context —
+    /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
+    /// context's probability and adapts it, so encode- and decode-side
+    /// context bookkeeping cannot drift apart.
     ///
     /// This is the primitive encode operation. Because `N` is a constant,
     /// implementations may keep state in registers across the batch and
@@ -132,13 +143,15 @@ pub trait EntropyCoder: Default {
     /// the same batched shape.
     fn encode_bits<const N: usize>(
         &mut self,
-        bits_with_probabilities: [(bool, model::Probability); N],
+        contexts: &mut [bit_context::BitContext; N],
+        bits: [bool; N],
     );
 
-    /// Encode a given bit with its probability. The `N == 1` case.
+    /// Encode a given bit, adapting its probability context. The `N == 1`
+    /// case of [`Self::encode_bits`].
     #[inline(always)]
-    fn encode_bit(&mut self, probability: model::Probability, bit: bool) {
-        self.encode_bits([(bit, probability)]);
+    fn encode_bit(&mut self, context: &mut bit_context::BitContext, bit: bool) {
+        self.encode_bits(std::array::from_mut(context), [bit]);
     }
 
     /// Encode the `value` into a `Vec<u8>` of bytes.`
@@ -178,7 +191,10 @@ pub trait EntropyCoder: Default {
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
         for mut b in bytes.iter().copied() {
             for _ in 0..8 {
-                self.encode_bit(FIFTY_PERCENT, (b & 1) == 1);
+                // A throwaway default context is exactly a 50/50 probability
+                // (checked by `default_context_is_fifty_percent`), and
+                // discarding it after one bit keeps it that way.
+                self.encode_bit(&mut bit_context::BitContext::default(), (b & 1) == 1);
                 b >>= 1;
             }
         }
@@ -521,10 +537,8 @@ macro_rules! check_mixed_bits_and_symbols {
             for op in &plan {
                 match *op {
                     Planned::Bit(b) => {
-                        let ctx = &mut enc_bits[which % 8];
+                        writer.encode_bit(&mut enc_bits[which % 8], b);
                         which += 1;
-                        writer.encode_bit(ctx.probability(), b);
-                        *ctx = ctx.adapt(b);
                     }
                     Planned::Byte(b) => {
                         writer.encode_atmost(&mut enc_bytes, crate::v2::AtMost::new(b as usize))

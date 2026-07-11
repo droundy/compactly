@@ -228,9 +228,7 @@ mod complete {
         let mut node = 0usize;
         for i in (0..n_bits).rev() {
             let bit = (value >> i) & 1 == 1;
-            let context = &mut contexts[node];
-            writer.encode_bit(context.probability(), bit);
-            *context = context.adapt(bit);
+            writer.encode_bit(&mut contexts[node], bit);
             node = (node << 1) + 1 + bit as usize;
         }
     }
@@ -422,9 +420,7 @@ mod uneven {
             let value_considered = half(possible_values_left);
             let split = accumulated_value + value_considered;
             let bit = value >= split;
-            let context = &mut contexts[split - 1];
-            writer.encode_bit(context.probability(), bit);
-            *context = context.adapt(bit);
+            writer.encode_bit(&mut contexts[split - 1], bit);
             if bit {
                 accumulated_value = split;
                 possible_values_left -= value_considered;

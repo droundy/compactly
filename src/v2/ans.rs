@@ -46,12 +46,13 @@ enum Op {
 
 impl EntropyCoder for Ans {
     #[inline]
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        self.ops.extend(
-            bits_with_probabilities
-                .into_iter()
-                .map(|(b, probability)| Op::Bit(b, probability)),
-        );
+    fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
+        self.ops
+            .extend(bits.into_iter().zip(contexts.iter_mut()).map(|(b, ctx)| {
+                let probability = ctx.probability();
+                *ctx = ctx.adapt(b);
+                Op::Bit(b, probability)
+            }));
     }
 
     #[inline]
@@ -551,8 +552,9 @@ fn check_ans_coder() {
             distros.resize_with(size, rand::random::<Probability>);
             let mut writer = Ans::default();
             for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-                // rev here
-                writer.encode_bit(probability, b);
+                // `Op::Bit` is the coder's bit primitive at an arbitrary
+                // probability (the trait only offers context-driven encoding).
+                writer.ops.push(Op::Bit(b, probability));
             }
             let bytes = writer.into_vec();
             let mut decoder = Decoder::from(bytes.as_slice());
@@ -598,7 +600,7 @@ mod test {
             let mut encoder = Ans::default();
 
             for &(p, bit) in &probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
 
             let bytes = encoder.into_vec();
@@ -644,13 +646,13 @@ mod test {
             let mut encoder = Ans::default();
 
             for &(p, bit) in &probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
             for bytes in &inc {
                 encoder.encode_incompressible_bytes(bytes);
             }
             for &(p, bit) in &after_probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
 
             let bytes = encoder.into_vec();

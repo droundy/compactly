@@ -10,9 +10,7 @@ impl Encode for bool {
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        // println!("Encoding {self:?}");
-        writer.encode_bit(ctx.probability(), *self);
-        *ctx = ctx.adapt(*self);
+        writer.encode_bit(ctx, *self);
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(

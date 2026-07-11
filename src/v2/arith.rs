@@ -254,10 +254,15 @@ pub struct Range {
 
 impl EntropyCoder for Range {
     #[inline]
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        for (value, probability_of_false) in bits_with_probabilities {
+    fn encode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
+    ) {
+        for (value, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
             self.bytes
-                .extend_from_slice(&self.state.encode(probability_of_false, value));
+                .extend_from_slice(&self.state.encode(ctx.probability(), value));
+            *ctx = ctx.adapt(value);
         }
     }
 
@@ -718,7 +723,11 @@ mod tests {
             println!("\n\ntesting {probs:?}");
             let mut encoder = Range::default();
             for &(p, bit) in &probs {
-                encoder.encode_bit(p, bit);
+                // `ArithState::encode` is the coder's bit primitive at an
+                // arbitrary probability (the trait only offers context-driven
+                // encoding).
+                let ready = encoder.state.encode(p, bit);
+                encoder.bytes.extend_from_slice(&ready);
             }
             let bytes = encoder.into_vec();
             println!("\n\nEncoded random as: {bytes:02x?}\n");

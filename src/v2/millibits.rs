@@ -7,10 +7,12 @@ pub struct Millibits(u32);
 impl super::EntropyCoder for Millibits {
     fn encode_bits<const N: usize>(
         &mut self,
-        bits_with_probabilities: [(bool, super::model::Probability); N],
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
     ) {
-        for (bit, probability) in bits_with_probabilities {
-            *self += probability.millibits(bit);
+        for (bit, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
+            *self += ctx.probability().millibits(bit);
+            *ctx = ctx.adapt(bit);
         }
     }
 
