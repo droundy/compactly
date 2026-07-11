@@ -52,7 +52,11 @@ use super::{AtMost, AtMostContext};
 /// `AtMost<0>` costs nothing; a value count beyond [`SymbolRange::M`] cannot
 /// give every leaf a slot, so it falls back to the per-bit walk; everything
 /// else is one tree walk plus one [`SymbolCoder::encode_symbol`] step.
-#[inline]
+///
+/// `inline(always)`: this is a thin dispatch layer, and the walk must fuse
+/// into the coder's symbol step (measured +13% instructions on `AtMost<7>`
+/// decode when the compiler outlined the equivalent decode layer).
+#[inline(always)]
 pub(crate) fn encode_symbol_or_bitwise<C: SymbolCoder, const MAX: usize>(
     coder: &mut C,
     ctx: &mut AtMostContext<MAX>,
@@ -70,8 +74,9 @@ pub(crate) fn encode_symbol_or_bitwise<C: SymbolCoder, const MAX: usize>(
 
 /// The decode side of [`encode_symbol_or_bitwise`], with the same guards;
 /// the walk schedule comes from the coder's measured [`SymbolDecoder::WALK`]
-/// policy (const, so the branch folds away per coder).
-#[inline]
+/// policy (const, so the branch folds away per coder). `inline(always)` as
+/// on the encode side.
+#[inline(always)]
 pub(crate) fn decode_symbol_or_bitwise<D: SymbolDecoder, const MAX: usize>(
     reader: &mut D,
     ctx: &mut AtMostContext<MAX>,
