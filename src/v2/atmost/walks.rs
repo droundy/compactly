@@ -2,10 +2,10 @@
 //! detail of `AtMost`, hidden behind the coder traits' `encode_atmost`/
 //! `decode_atmost` methods.
 //!
-//! The `AtMost<MAX>` code (and through it `u8` / `UBits<N>`, whose
-//! power-of-two-count trees are the balanced special case) walks a binary
-//! search tree of adaptive [`BitContext`]s, historically paying one coder
-//! step (one renormalization) per bit. [`SymbolRange`] lets a coder pay a
+//! The `AtMost<MAX>` code (and through it `u8`, whose power-of-two-count
+//! tree is the balanced special case) walks a binary search tree of adaptive
+//! [`BitContext`]s, historically paying one coder step (one renormalization)
+//! per bit. [`SymbolRange`] lets a coder pay a
 //! *single* step for the whole symbol: the tree walk builds one cumulative
 //! sub-interval of the fixed total `M = 1 << 16`, touching and adapting
 //! exactly the same contexts in the same order as the per-bit walk, and the
