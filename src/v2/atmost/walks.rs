@@ -40,8 +40,8 @@
 //! |------|---------|----------|----------------|
 //! | [`Walk::Complete`] ([`complete::for_value`] / [`complete::from_slot`]) | shootout only | plain | measures the heap-speculation assumption below against a real baseline |
 //! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
-//! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
-//! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
+//! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` outside the [`speculation_pays`] window | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
+//! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode inside the [`speculation_pays`] window | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions — while the unrolled walk stays shallow ([`SPECULATE_MAX_DEPTH`]) or the tree is too deep to unroll at all ([`SPECULATE_HUGE_MIN_MAX`]) |
 //! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
@@ -120,18 +120,49 @@ const fn tree_depth(len: usize) -> u32 {
     }
 }
 
-/// From this `MAX` up, [`Walk::production`] resolves to
-/// [`Walk::UnevenSpeculating`] instead of the plain [`Walk::Uneven`] (a
-/// power-of-two value count always takes [`Walk::CompleteSpeculating`],
-/// whose heap layout makes speculation nearly free). Only `Range` asks for
-/// the speculating walk: its symbol step
-/// carries a u64 division whose latency shadow absorbs the speculation's ~2x
-/// instruction count (measured −4…−17% for every value count ≥ 4, +11% at
-/// 3); `Ans`'s lean symbol step leaves that work exposed and measures
-/// *slower at every value count* (+4…+22%), so it always takes the plain
-/// walk. Swept with `just-decompress-uless` over value counts 3…128; table
-/// in OPTIMIZING.md.
+/// Lower bound of the [`speculation_pays`] window: below this `MAX` the
+/// tree is too shallow for speculation to have any latency to hide
+/// (measured +11% at `MAX = 3`'s value count with `just-decompress-uless`).
 const SPECULATE_MIN_MAX: usize = 3;
+
+/// Upper [`tree_depth`] bound of the [`speculation_pays`] window: up to
+/// this worst-case depth the fully-unrolled speculating walk wins, and past
+/// it the unroll's ~2x per-level work (both children's [`half`] index
+/// arithmetic, double model loads, register-pressure spills) outgrows the
+/// division-latency shadow it hides in. The 2026-07-12 quiesced
+/// two-distribution shootout put the flip exactly on this step: `MAX = 33`
+/// (depth 6) still favors speculating, while at `MAX` = 34/40/64/128/256/512
+/// (depth 7+) the plain walk decodes 14–22% faster on uniform values and
+/// 33–42% faster on skewed values (skew makes the plain walk's path
+/// predictable, widening the gap). One measured exception is left on the
+/// plain side to keep the rule simple: `MAX = 48`'s plain walk
+/// monomorphizes anomalously slowly (reproducibly, across binaries) and
+/// would still prefer speculation by 12–18% — see the walk-shootout entries
+/// in OPTIMIZING.md.
+const SPECULATE_MAX_DEPTH: u32 = 6;
+
+/// The [`speculation_pays`] window reopens at this `MAX`: by here the tree
+/// is deep enough that the walk no longer fully unrolls, a different
+/// codegen regime where the same shootout measured speculation faster again
+/// on both distributions (`MAX` = 700/2048/3000). The boundary is somewhere
+/// in the unmeasured 513..700; 700 keeps the untested span on the plain
+/// (safe) side.
+const SPECULATE_HUGE_MIN_MAX: usize = 700;
+
+/// Whether [`Walk::production`] resolves a *non-power-of-two* value count to
+/// [`Walk::UnevenSpeculating`] instead of the plain [`Walk::Uneven`] for a
+/// coder that asks to speculate (a power-of-two value count always takes
+/// [`Walk::CompleteSpeculating`], whose heap layout makes speculation nearly
+/// free). Only `Range` asks: its symbol step carries a u64 division whose
+/// latency shadow absorbs the speculation's ~2x instruction count; `Ans`'s
+/// lean symbol step leaves that work exposed and measures *slower at every
+/// value count* (+4…+22%), so it always takes the plain walk. The window's
+/// three bounds are each measured — see their docs and the walk-shootout
+/// entries in OPTIMIZING.md.
+const fn speculation_pays(max: usize) -> bool {
+    max >= SPECULATE_MIN_MAX
+        && (tree_depth(max + 1) <= SPECULATE_MAX_DEPTH || max >= SPECULATE_HUGE_MIN_MAX)
+}
 
 /// Every concrete tree-walk implementation, named for the shootout benchmark
 /// (`benches/atmost.rs`) and for [`Walk::production`]'s dispatch. Each
@@ -195,7 +226,7 @@ impl Walk {
             // Heap-layout speculation is nearly free, so both coders always
             // take it (see `CompleteSpeculating`'s docs).
             Some(Walk::CompleteSpeculating)
-        } else if speculate && MAX >= SPECULATE_MIN_MAX {
+        } else if speculate && speculation_pays(MAX) {
             Some(Walk::UnevenSpeculating)
         } else {
             Some(Walk::Uneven)
@@ -570,7 +601,7 @@ mod uneven {
     /// that latency but roughly doubles the instruction count (both
     /// children's [`half`] index arithmetic, double model loads,
     /// register-pressure spills), which only `Range`'s division-heavy
-    /// symbol step can absorb — see [`SPECULATE_MIN_MAX`].
+    /// symbol step can absorb — see [`speculation_pays`].
     #[inline]
     pub(super) fn from_slot<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
@@ -1126,6 +1157,25 @@ mod tests {
         check_all_walks!(9);
         check_all_walks!(255);
         check_all_walks!(256);
+    }
+
+    /// The three measured bounds of [`speculation_pays`] (see its doc and
+    /// the consts'): too shallow to have latency worth hiding, the
+    /// [`tree_depth`] 6→7 step where the unrolled speculating walk's ~2x
+    /// work outgrows its latency shadow, and the deep-tree reopening where
+    /// the walk no longer unrolls.
+    #[test]
+    fn speculation_window_boundaries() {
+        assert_eq!(Walk::production::<2>(true), Some(Walk::Uneven));
+        assert_eq!(Walk::production::<4>(true), Some(Walk::UnevenSpeculating));
+        assert_eq!(Walk::production::<33>(true), Some(Walk::UnevenSpeculating));
+        assert_eq!(Walk::production::<34>(true), Some(Walk::Uneven));
+        assert_eq!(Walk::production::<512>(true), Some(Walk::Uneven));
+        assert_eq!(Walk::production::<700>(true), Some(Walk::UnevenSpeculating));
+        // A coder that doesn't ask to speculate (Ans) stays plain across
+        // the whole window.
+        assert_eq!(Walk::production::<33>(false), Some(Walk::Uneven));
+        assert_eq!(Walk::production::<700>(false), Some(Walk::Uneven));
     }
 
     #[test]

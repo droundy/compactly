@@ -606,6 +606,78 @@ symbol vs. one per bit), so it needs cross-process/quiesced confirmation and
 some investigation into *why* before anyone considers changing
 `Walk::production` on the strength of it.
 
+### Walk shootout, take 2: the data distribution is a first-class axis (2026-07-12)
+The shootout above fed **uniform** random values — the entropy worst case,
+and a biased one: contexts never adapt away from 50/50, every walk path is
+branch-unpredictable (the best case for the latency-hiding speculating
+walks), and every symbol costs full `log2(MAX + 1)` bits. Production
+`AtMost` data (string bytes, length buckets, enum discriminants) is heavily
+skewed. The bench now sweeps a `Skewed` distribution
+(`floor((MAX + 1)·u⁸)`, ~50% of mass on value 0 at `MAX = 255`) alongside
+`Uniform`, nominates a challenger that wins on *either* distribution, reruns
+it on *both* ([`CONFIRM_ROUNDS`] alternated rounds each), and reports each
+finding as a cross-distribution range (`?` marks a distribution that didn't
+reproduce the win). `ATMOST_DIST=uniform|skewed` restricts the sweep. New
+`MAX` points 33/34/40/48 bracket the uneven tree's worst-case-depth step
+from 6 to 7 (`tree_depth(35)` is the first 7).
+
+What the quiesced two-distribution run (bench-quiet.sh, CPU 2) settled:
+
+- **Range `UnevenSpeculating` decode really is a loss above the depth step,
+  on both distributions**: production `UnevenSpeculating` vs plain `Uneven`
+  at `MAX` = 34/64/128/256/512 is 14–22% slower on Uniform and **33–42%
+  slower on Skewed** (skew makes the plain walk *faster* — predictable
+  path — while speculation stays flat, so realistic data widens the loss).
+  `MAX = 33` (depth 6) still favors speculating; the flip lands exactly on
+  the `tree_depth` 6→7 step, consistent with the +81%-instructions /
+  register-spill profile from the ULessThan-era prefetch work. At
+  `MAX >= 700` speculating wins again (the walk no longer fully unrolls —
+  different codegen regime). Actionable: bound `Range`'s uneven speculation
+  window (planned as its own change).
+- **The scary "Ans per-bit beats the symbol walk at every power-of-two
+  count" finding is a uniform-distribution artifact.** On Skewed it
+  *inverts*: `CompleteBitwise` is 13–27% *slower* than production
+  `CompleteSpeculating` at `MAX` = 7/15/31/63/127/255 (both coders show the
+  same sign flip). This matches the real-string macro history and means no
+  production change is warranted. The per-bit walk's uniform win survives
+  only at the extremes: tiny (`MAX = 1, 2`) and huge (`MAX >= 700`, where
+  it beats plain `Uneven` by 14–35% on *both* distributions — worth a look
+  if anyone ever puts a multi-thousand-value `AtMost` on a hot path).
+- **Distribution-robust findings worth follow-up**: (1) `MAX = 1`'s symbol
+  machinery is pure overhead — plain bit coding wins 5–36% across coders,
+  metrics, and distributions; (2) `Ans` decode at power-of-two `MAX` =
+  15/31/63 prefers `UnevenSpeculating` over production
+  `CompleteSpeculating` on **both** distributions (7–23%), reopening the
+  complete-vs-uneven layout question for mid-size trees (contradicts the
+  2026-07-09 strings-decode lesson, so validate against
+  `just-decompress-strings` before believing it); (3) the `MAX = 48` cell's
+  plain `Uneven` is anomalously slow on Skewed for both coders (~30% slower
+  than neighboring `MAX = 40`) — smells like the known alignment/codegen
+  scatter, treat that cell with suspicion.
+
+### Range's uneven speculation window is now depth-bounded (2026-07-12)
+Acting on the above: `Walk::production` picks `UnevenSpeculating` for
+`Range` only inside a measured window (`speculation_pays` in
+`src/v2/atmost/walks.rs`): `MAX >= 3` **and** (`tree_depth(MAX + 1) <= 6`
+**or** `MAX >= 700`, where the walk no longer fully unrolls and speculation
+measured faster again on both distributions). Since `Uneven` and
+`UnevenSpeculating` are bit-identical decode twins, the encoded format is
+unchanged; only `Range` decode speed for non-power-of-two value counts with
+35..=513 values is affected (derive enums of that size — the `usize`
+buckets are `MAX <= 31` and `u8`/strings are power-of-two counts).
+
+The post-change shootout run confirms the fix: every
+"production `UnevenSpeculating` loses to `Uneven`" finding in the 34..512
+band is gone, and plain `Uneven` is now marked production there. Residual
+exception, deliberately left plain: **`MAX = 48` reproducibly prefers
+speculation** (12–18% on both distributions, both coders' uneven walks) —
+its plain walk monomorphizes anomalously slowly (`MAX = 48` skewed decode
+~88/104 ns vs `MAX = 40`'s ~59/72 ns at the same batch size, consistent
+across two different binaries, so it is a codegen property of that
+monomorphization, not run-to-run scatter). A depth- or count-based rule
+can't capture one bad monomorphization; if `AtMost<48>`-sized enums ever
+matter, investigate that codegen instead of widening the window.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
