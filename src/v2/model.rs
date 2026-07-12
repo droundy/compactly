@@ -14,7 +14,47 @@
 //! single load per node.
 
 use super::bit_context::BitContext;
+use super::{EntropyCoder, EntropyDecoder};
 use std::num::NonZeroU8;
+
+/// A coder with a whole-symbol primitive: it can code one [`SymbolRange`] in
+/// a single coding step (one renormalization) instead of one per tree level.
+/// `Raw` deliberately does not implement this — the coder traits' per-bit
+/// default bodies *are* its bit-packed format.
+///
+/// This is the coder's entire contribution to symbol coding; the tree shape,
+/// the walk schedule, and the `MAX` guards all live in `atmost::walks`.
+pub(crate) trait SymbolCoder: EntropyCoder {
+    /// Code one whole symbol occupying `range` of the total `M`.
+    fn encode_symbol(&mut self, range: SymbolRange);
+}
+
+/// Which decode walk a [`SymbolDecoder`] wants (see the walk inventory in
+/// `atmost::walks`): whether spending ~2x the instructions to fetch both
+/// candidate children before each bit resolves pays off depends on how much
+/// latency the coder's own symbol step can hide, so the choice is a measured
+/// per-coder policy, not a per-type one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WalkStyle {
+    /// Keep the serial dependency chain as lean as possible (`Ans`: its lean
+    /// symbol step leaves speculative work exposed — measured +4…+22% slower
+    /// at every value count).
+    Plain,
+    /// Speculate on both children (`Range`: its u64-division latency shadow
+    /// absorbs the extra instructions — measured −4…−17% at value counts ≥ 4).
+    Speculating,
+}
+
+/// The decode side of [`SymbolCoder`].
+pub(crate) trait SymbolDecoder: EntropyDecoder {
+    /// The measured walk policy for this coder.
+    const WALK: WalkStyle;
+
+    /// One whole-symbol decode step: peek the coder state's current slot in
+    /// `[0, M)`, let `walk` recover the value and interval (adapting its
+    /// contexts), then advance and renormalize once for the whole symbol.
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize;
+}
 
 /// log2 of the number of slots a single bit is coded out of: probabilities
 /// are `prob / 256`.

@@ -1,4 +1,3 @@
-use super::model::Probability;
 #[cfg(test)]
 use super::Millibits;
 use super::{EntropyCoder, EntropyDecoder};
@@ -32,13 +31,22 @@ pub struct Raw {
 }
 
 impl EntropyCoder for Raw {
+    /// Pack `N` raw bits, ignoring the probabilities. The contexts are still
+    /// adapted so they track the decoder's models in lock-step (the packed
+    /// bits don't depend on them, but keeping parity matches the other
+    /// coders).
     #[inline]
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        for (bit, _probability) in bits_with_probabilities {
+    fn encode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
+    ) {
+        for (bit, context) in bits.into_iter().zip(contexts.iter_mut()) {
             #[cfg(test)]
             {
-                self.entropy += _probability.millibits(bit);
+                self.entropy += context.probability().millibits(bit);
             }
+            *context = context.adapt(bit);
             let bit = u8::from(bit);
             let which_bit = self.num_bits & 7;
             if which_bit == 0 {
