@@ -581,7 +581,7 @@ impl_signed!(i64, u64, 64, mod_i64);
 
 #[test]
 fn signed() {
-    use super::{assert_bits_all, estimated_bits, raw_bits};
+    use super::{assert_bits_all, assert_millibits, estimated_bits};
     use crate::{Encoded, Small};
     use std::collections::BTreeSet;
 
@@ -611,14 +611,14 @@ fn signed() {
     expect!["64"].assert_eq(&estimated_bits!(i64::MIN));
     expect!["64"].assert_eq(&estimated_bits!(i64::MAX - 1));
 
-    raw_bits!(
+    assert_millibits!(
         BTreeSet::from([-1i16, 0, 1, 2]),
-        expect!["27 bits, entropy Millibits(21985)"]
+        expect!["Millibits(21986)"]
     );
-    raw_bits!(
+    assert_millibits!(
         BTreeSet::from([-1i64, 0, 1, 2]),
-        expect!["35 bits, entropy Millibits(27979)"]
+        expect!["Millibits(27983)"]
     );
-    raw_bits!(BTreeSet::from([i16::MIN, i16::MAX]), expect!["44 bits"]);
-    raw_bits!(BTreeSet::from([i64::MIN, i64::MAX]), expect!["144 bits"]);
+    assert_millibits!(BTreeSet::from([i16::MIN, i16::MAX]), expect!["44 bits"]);
+    assert_millibits!(BTreeSet::from([i64::MIN, i64::MAX]), expect!["144 bits"]);
 }

@@ -15,7 +15,6 @@
 //!    | [`Range`] | Default; arithmetic/range coding; what [`encode`]/[`decode`] use |
 //!    | [`Ans`] | rANS; same interface, decodes faster (runs the stream backwards, so encoding buffers ops) |
 //!    | [`Millibits`] | Size estimation only; accumulates fractional bits, produces no bytes |
-//!    | [`Raw`] | Bit-packing with the probabilities ignored; the coder traits' default method bodies *are* its format |
 //!
 //! 2. **The probability model** — `BitContext` (in `bit_context.rs`) is a
 //!    small adaptive state machine (a generated 675-state table): ask it
@@ -106,7 +105,6 @@ mod net;
 mod nonzero;
 mod option;
 mod other_crate_types;
-mod raw;
 mod sets;
 mod string;
 mod tuples;
@@ -120,7 +118,6 @@ pub use arith::Range;
 pub use atmost::walks::{Walk, WALKS};
 pub use atmost::AtMost;
 pub use millibits::Millibits;
-pub use raw::Raw;
 
 /// The default `encode_incompressible_bytes` relies on a fresh context
 /// meaning "no information": its probability must be exactly one half.
@@ -248,8 +245,7 @@ pub trait EntropyDecoder {
     /// Decode a fixed number of incompressible bytes into a slice.
     ///
     /// Required (no default) because there is no single-bit no-adapt primitive to
-    /// build one on; every coder either copies bytes wholesale (`Ans`/`Range`) or
-    /// reads raw bits (`Raw`).
+    /// build one on; every coder copies bytes wholesale (`Ans`/`Range`).
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error>;
 }
 
@@ -466,34 +462,29 @@ macro_rules! assert_bits_all {
 #[cfg(test)]
 pub(crate) use assert_bits_all;
 
-/// Checks that the value round-trips through the `Raw` coder, and evaluates
-/// to a string describing the raw size in bits and the estimated entropy.
+/// Round-trips the value through the default `Range` coder, and checks it
+/// against a string describing the estimated size according to [`Millibits`]:
+/// an exact `"N bits"` when the estimate lands on a whole bit, else the raw
+/// `Millibits` debug form.
 #[cfg(test)]
-macro_rules! raw_size {
-    ($v:expr) => {{
+macro_rules! assert_millibits {
+    ($v:expr, $expected:expr) => {{
         let v = $v;
-        let encoded = super::Raw::encode(&v);
-        let decoded = super::Raw::decode(&encoded);
-        let (bits, entropy) = super::Raw::sizes(&v);
-        assert_eq!(decoded, Some(v), "raw decoded value is incorrect");
-        if entropy == super::Millibits::bits(bits) {
+        let entropy = crate::v2::Encode::millibits(&v);
+        let encoded = super::encode(&v);
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(v), "decoded value is incorrect");
+        let bits: usize = entropy.as_bits().parse().unwrap();
+        let s = if entropy == super::Millibits::bits(bits) {
             format!("{bits} bits")
         } else {
-            format!("{bits} bits, entropy {entropy:?}")
-        }
+            format!("{entropy:?}")
+        };
+        $expected.assert_eq(&s);
     }};
 }
 #[cfg(test)]
-pub(crate) use raw_size;
-
-#[cfg(test)]
-macro_rules! raw_bits {
-    ($v:expr, $expected:expr) => {
-        $expected.assert_eq(&crate::v2::raw_size!($v));
-    };
-}
-#[cfg(test)]
-pub(crate) use raw_bits;
+pub(crate) use assert_millibits;
 
 /// Round-trips randomly interleaved context-driven bits and whole-tree byte
 /// symbols through a real coder: bits (total 256) and tree symbols

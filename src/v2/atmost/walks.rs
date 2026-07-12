@@ -42,7 +42,7 @@
 //! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
 //! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
 //! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
-//! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | `Raw` always; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code — and `Raw`'s bit-packed format |
+//! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
 use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange};
@@ -159,9 +159,8 @@ pub enum Walk {
     /// tree, decode fetches both children before the bit resolves.
     UnevenSpeculating,
     /// [`complete::encode_bitwise`] / [`complete::decode_bitwise`]: one
-    /// coder step per bit, heap indexing. `Raw`'s format, and the symbol
-    /// coders' fallback once a power-of-two value count exceeds
-    /// [`SymbolRange::M`].
+    /// coder step per bit, heap indexing. The symbol coders' fallback once a
+    /// power-of-two value count exceeds [`SymbolRange::M`].
     CompleteBitwise,
     /// [`uneven::encode_bitwise`] / [`uneven::decode_bitwise`]: one coder
     /// step per bit, split indexing. Same role as [`Walk::CompleteBitwise`]
@@ -333,8 +332,8 @@ pub(crate) fn decode_atmost_batch<D: SymbolDecoder, const MAX: usize, const WHIC
 }
 
 /// Code one symbol bit-by-bit, picking the layout from `MAX` at compile
-/// time: `Raw`'s `EntropyCoder::encode_atmost`/`decode_atmost` default
-/// implementations use this directly, since `Raw` does not implement
+/// time: the default `EntropyCoder::encode_atmost`/`decode_atmost`
+/// implementations use this directly, for coders that don't implement
 /// [`SymbolCoder`] and so cannot go through [`encode_atmost_walk`]'s
 /// [`Walk`]-based dispatch.
 #[inline]
@@ -479,9 +478,9 @@ mod complete {
         (range, node - MAX)
     }
 
-    /// The per-bit walk over the same tree and contexts: the `Raw` coder's
-    /// format, and the fallback when the value count exceeds
-    /// [`SymbolRange::M`].
+    /// The per-bit walk over the same tree and contexts: the default
+    /// `encode_atmost_tree`/`decode_atmost_tree` format, and the fallback
+    /// when the value count exceeds [`SymbolRange::M`].
     #[inline]
     pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,
@@ -669,9 +668,9 @@ mod uneven {
         (range, accumulated_value)
     }
 
-    /// The per-bit walk over the same tree and contexts: the `Raw` coder's
-    /// format, and the fallback when the value count exceeds
-    /// [`SymbolRange::M`].
+    /// The per-bit walk over the same tree and contexts: the default
+    /// `encode_atmost_tree`/`decode_atmost_tree` format, and the fallback
+    /// when the value count exceeds [`SymbolRange::M`].
     #[inline]
     pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,

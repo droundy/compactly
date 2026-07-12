@@ -152,51 +152,48 @@ impl EncodingStrategy<usize> for Sorted {
 
 #[test]
 fn size() {
-    use super::raw_bits;
+    use super::assert_millibits;
     use crate::Encoded;
-    raw_bits!(Encoded::<_, Small>::new(0_u64), expect!["6 bits"]);
-    raw_bits!(0_usize, expect!["3 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(1_u64), expect!["6 bits"]);
-    raw_bits!(1_usize, expect!["3 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(2_u64), expect!["7 bits"]);
-    raw_bits!(2_usize, expect!["3 bits"]);
-    raw_bits!(3_usize, expect!["3 bits"]);
-    raw_bits!(4_usize, expect!["7 bits"]);
-    raw_bits!(5_usize, expect!["7 bits"]);
-    raw_bits!(6_usize, expect!["8 bits"]);
-    raw_bits!(7_usize, expect!["8 bits"]);
-    raw_bits!(8_usize, expect!["9 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(16_u64), expect!["10 bits"]);
-    raw_bits!(16_usize, expect!["10 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(32_u64), expect!["11 bits"]);
-    raw_bits!(32_usize, expect!["11 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(64_u64), expect!["12 bits"]);
-    raw_bits!(64_usize, expect!["12 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(128_u64), expect!["13 bits"]);
-    raw_bits!(128_usize, expect!["13 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(256_u64), expect!["14 bits"]);
-    raw_bits!(256_usize, expect!["14 bits"]);
-    raw_bits!(512_usize, expect!["15 bits"]);
-    raw_bits!(Encoded::<_, Small>::new(1024_u64), expect!["16 bits"]);
-    raw_bits!(1024_usize, expect!["16 bits"]);
-    raw_bits!(
+    assert_millibits!(Encoded::<_, Small>::new(0_u64), expect!["6 bits"]);
+    assert_millibits!(0_usize, expect!["3 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(1_u64), expect!["6 bits"]);
+    assert_millibits!(1_usize, expect!["3 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(2_u64), expect!["7 bits"]);
+    assert_millibits!(2_usize, expect!["3 bits"]);
+    assert_millibits!(3_usize, expect!["3 bits"]);
+    assert_millibits!(4_usize, expect!["7 bits"]);
+    assert_millibits!(5_usize, expect!["7 bits"]);
+    assert_millibits!(6_usize, expect!["8 bits"]);
+    assert_millibits!(7_usize, expect!["8 bits"]);
+    assert_millibits!(8_usize, expect!["9 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(16_u64), expect!["10 bits"]);
+    assert_millibits!(16_usize, expect!["10 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(32_u64), expect!["11 bits"]);
+    assert_millibits!(32_usize, expect!["11 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(64_u64), expect!["12 bits"]);
+    assert_millibits!(64_usize, expect!["12 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(128_u64), expect!["13 bits"]);
+    assert_millibits!(128_usize, expect!["13 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(256_u64), expect!["14 bits"]);
+    assert_millibits!(256_usize, expect!["14 bits"]);
+    assert_millibits!(512_usize, expect!["15 bits"]);
+    assert_millibits!(Encoded::<_, Small>::new(1024_u64), expect!["16 bits"]);
+    assert_millibits!(1024_usize, expect!["16 bits"]);
+    assert_millibits!(
         Encoded::<_, Small>::new(1024_u64 * 1024),
         expect!["26 bits"]
     );
-    raw_bits!(1024_usize * 1024, expect!["26 bits"]);
-    raw_bits!(1024_usize * 1024 * 1024, expect!["36 bits"]);
-    raw_bits!(u32::MAX as usize, expect!["38 bits"]);
+    assert_millibits!(1024_usize * 1024, expect!["26 bits"]);
+    assert_millibits!(1024_usize * 1024 * 1024, expect!["36 bits"]);
+    assert_millibits!(u32::MAX as usize, expect!["38 bits"]);
     // Note the code will work for u32, but the following two tests will fail.
-    raw_bits!(1024_usize * 1024 * 1024 * 1024, expect!["46 bits"]);
-    raw_bits!(1024_usize * 1024 * 1024 * 1024 * 1024, expect!["56 bits"]);
-    raw_bits!(
-        [0_usize; 128],
-        expect!["384 bits, entropy Millibits(20013)"]
-    );
-    raw_bits!([1_usize; 19], expect!["57 bits, entropy Millibits(12834)"]);
-    raw_bits!(
+    assert_millibits!(1024_usize * 1024 * 1024 * 1024, expect!["46 bits"]);
+    assert_millibits!(1024_usize * 1024 * 1024 * 1024 * 1024, expect!["56 bits"]);
+    assert_millibits!([0_usize; 128], expect!["Millibits(20130)"]);
+    assert_millibits!([1_usize; 19], expect!["Millibits(12844)"]);
+    assert_millibits!(
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        expect!["78 bits, entropy Millibits(18846)"]
+        expect!["Millibits(18862)"]
     );
 }
 
@@ -207,23 +204,19 @@ fn small() {
         let mut sizes = vals.into_iter().map(|v| {
             println!("Checking {v}");
             let val = Encoded::<_, Small>::new(v);
-            let encoded = super::Raw::encode(&val);
-            let decoded = super::Raw::decode(&encoded);
+            let encoded = super::encode(&val);
+            let decoded = super::decode(&encoded);
             assert_eq!(
                 decoded,
                 Some(Encoded::<_, Small>::new(v)),
-                "raw round-trip failed for {v}"
+                "round-trip failed for {v}"
             );
-            let (bits, entropy) = super::Raw::sizes(&val);
+            let entropy = val.millibits();
+            let bits: usize = entropy.as_bits().parse().unwrap();
             assert_eq!(
                 entropy,
                 super::Millibits::bits(bits),
-                "entropy disagrees with raw size for {v}"
-            );
-            assert_eq!(
-                val.millibits(),
-                super::Millibits::bits(bits),
-                "small wrong size"
+                "small size is not a whole number of bits for {v}"
             );
             (v, bits)
         });
@@ -234,19 +227,15 @@ fn small() {
         bits.to_string()
     }
     fn normal_size(v: usize) -> usize {
-        let encoded = super::Raw::encode(&v);
-        let decoded = super::Raw::decode(&encoded);
-        assert_eq!(decoded, Some(v), "raw round-trip failed for {v}");
-        let (bits, entropy) = super::Raw::sizes(&v);
+        let encoded = super::encode(&v);
+        let decoded = super::decode(&encoded);
+        assert_eq!(decoded, Some(v), "round-trip failed for {v}");
+        let entropy = v.millibits();
+        let bits: usize = entropy.as_bits().parse().unwrap();
         assert_eq!(
             entropy,
             super::Millibits::bits(bits),
-            "entropy disagrees with raw size for {v}"
-        );
-        assert_eq!(
-            v.millibits(),
-            super::Millibits::bits(bits),
-            "normal wrong size"
+            "normal size is not a whole number of bits for {v}"
         );
         bits
     }

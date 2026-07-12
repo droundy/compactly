@@ -19,8 +19,6 @@ use std::num::NonZeroU8;
 
 /// A coder with a whole-symbol primitive: it can code one [`SymbolRange`] in
 /// a single coding step (one renormalization) instead of one per tree level.
-/// `Raw` deliberately does not implement this — the coder traits' per-bit
-/// default bodies *are* its bit-packed format.
 ///
 /// This is the coder's entire contribution to symbol coding; the tree shape,
 /// the walk schedule, and the `MAX` guards all live in `atmost::walks`.
