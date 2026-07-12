@@ -168,4 +168,6 @@ fn main() {
     bench_max!(127);
     bench_max!(128);
     bench_max!(255);
+    bench_max!(256);
+    bench_max!(512);
 }
