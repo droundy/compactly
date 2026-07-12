@@ -17,13 +17,16 @@
 //!
 //! The walks are coder-independent, so they live here (written once). Each
 //! tree layout is a complete, cutoff-free implementation in its own module —
-//! [`complete`] for a power-of-two value count (heap-ordered contexts,
-//! speculative decode) and [`uneven`] for arbitrary `MAX` (split-ordered
-//! contexts, plain and speculating decode variants) — so each can be tested
-//! and benchmarked on its own. The dispatchers at the bottom
-//! ([`encode_walk`], [`decode_walk`], [`decode_walk_speculating`],
-//! [`encode_bitwise`], [`decode_bitwise`]) pick the right implementation
-//! from `MAX` at compile time; they are the only place the cutoffs live.
+//! [`complete`] for a power-of-two value count (heap-ordered contexts, plain
+//! and speculating decode variants) and [`uneven`] for arbitrary `MAX`
+//! (split-ordered contexts, plain and speculating decode variants) — so each
+//! can be tested and benchmarked on its own. [`Walk`] names every concrete
+//! (encode, decode) pair; [`Walk::production`] picks the right one from `MAX`
+//! at compile time (the only place the cutoffs live), and
+//! [`encode_atmost_walk`]/[`decode_atmost_walk`] dispatch to it. The
+//! `benches/atmost.rs` shootout drives the same dispatchers with an
+//! explicitly forced [`Walk`] to measure the off-diagonal combinations
+//! production never takes.
 //!
 //! The *definition* of the code is the recursive bit-at-a-time
 //! `reference_for_value` walk in this module's tests; every production walk
@@ -33,17 +36,16 @@
 //!
 //! # Walk inventory
 //!
-//! | Walk | Used by | Schedule | Why (measured) |
+//! | [`Walk`] variant | Used by | Schedule | Why (measured) |
 //! |------|---------|----------|----------------|
-//! | [`complete::for_value`] | every symbol coder's encode, power-of-two value count | plain | encode has no bit-decision latency chain to hide |
-//! | [`complete::from_slot`] | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
-//! | [`uneven::for_value`] | every symbol coder's encode, other `MAX` | plain | as above |
-//! | [`uneven::from_slot`] | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
-//! | [`uneven::from_slot_speculating`] | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
-//! | [`complete::encode_bitwise`] / [`uneven::encode_bitwise`] (and decode twins) | `Raw` always; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code — and `Raw`'s bit-packed format |
+//! | [`Walk::Complete`] ([`complete::for_value`] / [`complete::from_slot`]) | shootout only | plain | measures the heap-speculation assumption below against a real baseline |
+//! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
+//! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
+//! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
+//! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | `Raw` always; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code — and `Raw`'s bit-packed format |
 
 use super::super::bit_context::BitContext;
-use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle};
+use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange};
 use super::super::{EntropyCoder, EntropyDecoder};
 use super::{AtMost, AtMostContext};
 
@@ -63,34 +65,24 @@ pub(crate) fn encode_symbol_or_bitwise<C: SymbolCoder, const MAX: usize>(
     value: AtMost<MAX>,
 ) {
     let value = usize::from(value);
-    if MAX == 0 {
-        // Nothing to code: the one possible value carries no information.
-    } else if MAX >= SymbolRange::M as usize {
-        encode_bitwise(coder, &mut ctx.bits, value)
-    } else {
-        coder.encode_symbol(encode_walk(&mut ctx.bits, value))
+    if let Some(walk) = Walk::production::<MAX>(false) {
+        encode_atmost_walk(walk, coder, ctx, value);
     }
+    // MAX == 0: nothing to code, the one possible value carries no information.
 }
 
 /// The decode side of [`encode_symbol_or_bitwise`], with the same guards;
-/// the walk schedule comes from the coder's measured [`SymbolDecoder::WALK`]
-/// policy (const, so the branch folds away per coder). `inline(always)` as
-/// on the encode side.
+/// the walk comes from [`Walk::production`] using the coder's measured
+/// [`SymbolDecoder::SPECULATES`] policy (const, so the branch folds away per
+/// coder). `inline(always)` as on the encode side.
 #[inline(always)]
 pub(crate) fn decode_symbol_or_bitwise<D: SymbolDecoder, const MAX: usize>(
     reader: &mut D,
     ctx: &mut AtMostContext<MAX>,
 ) -> AtMost<MAX> {
-    let value = if MAX == 0 {
-        0
-    } else if MAX >= SymbolRange::M as usize {
-        decode_bitwise(reader, &mut ctx.bits)
-    } else {
-        let contexts = &mut ctx.bits;
-        reader.decode_symbol_step(|slot| match D::WALK {
-            WalkStyle::Plain => decode_walk(contexts, slot),
-            WalkStyle::Speculating => decode_walk_speculating(contexts, slot),
-        })
+    let value = match Walk::production::<MAX>(D::SPECULATES) {
+        Some(walk) => decode_atmost_walk(walk, reader, ctx),
+        None => 0,
     };
     // Every walk returns a value in 0..=MAX by construction.
     debug_assert!(value <= MAX);
@@ -128,11 +120,11 @@ const fn tree_depth(len: usize) -> u32 {
     }
 }
 
-/// From this `MAX` up, [`decode_walk_speculating`] uses
-/// [`uneven::from_slot_speculating`] instead of the plain
-/// [`uneven::from_slot`] (a power-of-two value count always takes
-/// [`complete::from_slot`], whose heap layout makes speculation nearly
-/// free). Only `Range` asks for the speculating walk: its symbol step
+/// From this `MAX` up, [`Walk::production`] resolves to
+/// [`Walk::UnevenSpeculating`] instead of the plain [`Walk::Uneven`] (a
+/// power-of-two value count always takes [`Walk::CompleteSpeculating`],
+/// whose heap layout makes speculation nearly free). Only `Range` asks for
+/// the speculating walk: its symbol step
 /// carries a u64 division whose latency shadow absorbs the speculation's ~2x
 /// instruction count (measured −4…−17% for every value count ≥ 4, +11% at
 /// 3); `Ans`'s lean symbol step leaves that work exposed and measures
@@ -140,6 +132,218 @@ const fn tree_depth(len: usize) -> u32 {
 /// walk. Swept with `just-decompress-uless` over value counts 3…128; table
 /// in OPTIMIZING.md.
 const SPECULATE_MIN_MAX: usize = 3;
+
+/// Every concrete tree-walk implementation, named for the shootout benchmark
+/// (`benches/atmost.rs`) and for [`Walk::production`]'s dispatch. Each
+/// variant pairs one encode walk with one bit-identical decode walk (proved
+/// by the tests below), so using a single `Walk` for both sides of a round
+/// trip is always correct — independent of which coder or `MAX` would
+/// normally choose it.
+#[doc(hidden)] // benchmark-support surface; not part of the stable API
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Walk {
+    /// [`complete::for_value`] / [`complete::from_slot`]: heap tree, decode
+    /// loads only the child the bit selects. Not used by production (which
+    /// always speculates on the heap tree — see [`Walk::CompleteSpeculating`]);
+    /// included so the shootout can measure that choice against a baseline.
+    Complete,
+    /// [`complete::for_value`] / [`complete::from_slot_speculating`]: heap
+    /// tree, decode fetches both children before the bit resolves. What
+    /// [`Walk::production`] picks for every power-of-two value count, on
+    /// both coders.
+    CompleteSpeculating,
+    /// [`uneven::for_value`] / [`uneven::from_slot`]: split-ordered tree,
+    /// plain decode.
+    Uneven,
+    /// [`uneven::for_value`] / [`uneven::from_slot_speculating`]: split
+    /// tree, decode fetches both children before the bit resolves.
+    UnevenSpeculating,
+    /// [`complete::encode_bitwise`] / [`complete::decode_bitwise`]: one
+    /// coder step per bit, heap indexing. `Raw`'s format, and the symbol
+    /// coders' fallback once a power-of-two value count exceeds
+    /// [`SymbolRange::M`].
+    CompleteBitwise,
+    /// [`uneven::encode_bitwise`] / [`uneven::decode_bitwise`]: one coder
+    /// step per bit, split indexing. Same role as [`Walk::CompleteBitwise`]
+    /// for a non-power-of-two value count.
+    UnevenBitwise,
+}
+
+impl Walk {
+    /// The walk [`encode_symbol_or_bitwise`]/[`decode_symbol_or_bitwise`]
+    /// use for a value count of `MAX + 1`, given whether the coder wants to
+    /// speculate on a non-power-of-two count (see
+    /// [`SymbolDecoder::SPECULATES`]; encode callers pass `false`, since
+    /// every encode walk is shared by its plain/speculating decode twins).
+    /// `None` means `MAX == 0`: the single possible value carries no
+    /// information, so nothing is coded.
+    ///
+    /// `inline(always)`: called with const-evaluable arguments from the
+    /// `inline(always)` dispatch layer, so it must fold to a single constant
+    /// at every call site — see the module doc's cutoff note.
+    #[inline(always)]
+    #[doc(hidden)]
+    pub const fn production<const MAX: usize>(speculate: bool) -> Option<Walk> {
+        if MAX == 0 {
+            None
+        } else if MAX >= SymbolRange::M as usize {
+            Some(if (MAX + 1).is_power_of_two() {
+                Walk::CompleteBitwise
+            } else {
+                Walk::UnevenBitwise
+            })
+        } else if (MAX + 1).is_power_of_two() {
+            // Heap-layout speculation is nearly free, so both coders always
+            // take it (see `CompleteSpeculating`'s docs).
+            Some(Walk::CompleteSpeculating)
+        } else if speculate && MAX >= SPECULATE_MIN_MAX {
+            Some(Walk::UnevenSpeculating)
+        } else {
+            Some(Walk::Uneven)
+        }
+    }
+
+    /// Whether this walk is a valid implementation for value count `MAX + 1`
+    /// — used by the shootout benchmark to skip nonsensical combinations
+    /// (e.g. [`Walk::Complete`] when `MAX + 1` isn't a power of two).
+    #[doc(hidden)]
+    pub const fn applies_to<const MAX: usize>(self) -> bool {
+        match self {
+            Walk::Complete | Walk::CompleteSpeculating => {
+                (MAX + 1).is_power_of_two() && MAX < SymbolRange::M as usize
+            }
+            Walk::Uneven | Walk::UnevenSpeculating => MAX < SymbolRange::M as usize,
+            Walk::CompleteBitwise => (MAX + 1).is_power_of_two(),
+            Walk::UnevenBitwise => true,
+        }
+    }
+}
+
+/// Every [`Walk`] variant, for the shootout benchmark to iterate. The
+/// benchmark indexes this by a `const WHICH_WALK: usize` generic (see
+/// `encode_atmost_batch`/`decode_atmost_batch`) so each walk monomorphizes to
+/// its own branch-free function, exactly like production's
+/// [`Walk::production`]-selected constant.
+#[doc(hidden)]
+pub const WALKS: [Walk; 6] = [
+    Walk::Complete,
+    Walk::CompleteSpeculating,
+    Walk::Uneven,
+    Walk::UnevenSpeculating,
+    Walk::CompleteBitwise,
+    Walk::UnevenBitwise,
+];
+
+/// Code one symbol using an explicitly chosen [`Walk`]. Production calls
+/// this with the constant [`Walk::production`] resolves for `MAX` (folding
+/// away every branch below but one — see the module doc's `inline(always)`
+/// note); the shootout benchmark calls it with a `const WHICH_WALK`-derived
+/// constant from [`WALKS`] for the same effect.
+#[inline(always)]
+pub(crate) fn encode_atmost_walk<C: SymbolCoder, const MAX: usize>(
+    walk: Walk,
+    coder: &mut C,
+    ctx: &mut AtMostContext<MAX>,
+    value: usize,
+) {
+    match walk {
+        Walk::Complete | Walk::CompleteSpeculating => {
+            coder.encode_symbol(complete::for_value(&mut ctx.bits, value))
+        }
+        Walk::Uneven | Walk::UnevenSpeculating => {
+            coder.encode_symbol(uneven::for_value(&mut ctx.bits, value))
+        }
+        Walk::CompleteBitwise => complete::encode_bitwise(coder, &mut ctx.bits, value),
+        Walk::UnevenBitwise => uneven::encode_bitwise(coder, &mut ctx.bits, value),
+    }
+}
+
+/// The decode side of [`encode_atmost_walk`].
+#[inline(always)]
+pub(crate) fn decode_atmost_walk<D: SymbolDecoder, const MAX: usize>(
+    walk: Walk,
+    reader: &mut D,
+    ctx: &mut AtMostContext<MAX>,
+) -> usize {
+    let contexts = &mut ctx.bits;
+    match walk {
+        Walk::Complete => reader.decode_symbol_step(|slot| complete::from_slot(contexts, slot)),
+        Walk::CompleteSpeculating => {
+            reader.decode_symbol_step(|slot| complete::from_slot_speculating(contexts, slot))
+        }
+        Walk::Uneven => reader.decode_symbol_step(|slot| uneven::from_slot(contexts, slot)),
+        Walk::UnevenSpeculating => {
+            reader.decode_symbol_step(|slot| uneven::from_slot_speculating(contexts, slot))
+        }
+        Walk::CompleteBitwise => complete::decode_bitwise(reader, contexts),
+        Walk::UnevenBitwise => uneven::decode_bitwise(reader, contexts),
+    }
+}
+
+/// Encode every value in `values` with an explicitly forced walk, sharing
+/// one adaptive [`AtMostContext`] across the whole batch exactly as a real
+/// `Vec<AtMost<MAX>>` encode would. `WHICH_WALK` indexes [`WALKS`] as a
+/// `const` generic (rather than taking a runtime [`Walk`]) so the walk is a
+/// compile-time constant at every call site, folding
+/// [`encode_atmost_walk`]'s dispatch to a single branch-free path — the
+/// benchmark-side analog of [`Walk::production`]'s constant folding. Backs
+/// the `#[doc(hidden)]` `encode_atmost_batch` methods on `Range` and `Ans`
+/// that `benches/atmost.rs` calls.
+pub(crate) fn encode_atmost_batch<C: SymbolCoder, const MAX: usize, const WHICH_WALK: usize>(
+    mut coder: C,
+    values: &[AtMost<MAX>],
+) -> C {
+    let walk = const { WALKS[WHICH_WALK] };
+    let mut ctx = AtMostContext::<MAX>::default();
+    for &value in values {
+        encode_atmost_walk(walk, &mut coder, &mut ctx, usize::from(value));
+    }
+    coder
+}
+
+/// The decode side of [`encode_atmost_batch`]: decode `n` values with an
+/// explicitly forced walk, sharing one adaptive context across the batch.
+pub(crate) fn decode_atmost_batch<D: SymbolDecoder, const MAX: usize, const WHICH_WALK: usize>(
+    mut reader: D,
+    n: usize,
+) -> Vec<AtMost<MAX>> {
+    let walk = const { WALKS[WHICH_WALK] };
+    let mut ctx = AtMostContext::<MAX>::default();
+    (0..n)
+        .map(|_| AtMost::new(decode_atmost_walk(walk, &mut reader, &mut ctx)))
+        .collect()
+}
+
+/// Code one symbol bit-by-bit, picking the layout from `MAX` at compile
+/// time: `Raw`'s `EntropyCoder::encode_atmost`/`decode_atmost` default
+/// implementations use this directly, since `Raw` does not implement
+/// [`SymbolCoder`] and so cannot go through [`encode_atmost_walk`]'s
+/// [`Walk`]-based dispatch.
+#[inline]
+pub(crate) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
+    writer: &mut E,
+    contexts: &mut [BitContext; MAX],
+    value: usize,
+) {
+    if (MAX + 1).is_power_of_two() {
+        complete::encode_bitwise(writer, contexts, value)
+    } else {
+        uneven::encode_bitwise(writer, contexts, value)
+    }
+}
+
+/// The per-bit inverse of [`encode_bitwise`].
+#[inline]
+pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
+    reader: &mut D,
+    contexts: &mut [BitContext; MAX],
+) -> usize {
+    if (MAX + 1).is_power_of_two() {
+        complete::decode_bitwise(reader, contexts)
+    } else {
+        uneven::decode_bitwise(reader, contexts)
+    }
+}
 
 /// The balanced-tree implementation for a **power-of-two value count**
 /// (`MAX + 1` a power of two): a complete binary tree with contexts stored
@@ -186,12 +390,50 @@ mod complete {
     /// Walk the heap tree driven by a peeked `slot` in `[0, M)`, adapting the
     /// contexts identically to [`for_value`], and return the interval
     /// together with the decoded value in `0..=MAX`.
+    ///
+    /// This is the plain walk: each level's model load waits for the
+    /// previous level's bit, unlike [`from_slot_speculating`]. Production
+    /// never picks this ([`Walk::production`] always speculates on a
+    /// power-of-two value count); it exists for the shootout benchmark to
+    /// measure that choice against a baseline.
     #[inline]
     pub(super) fn from_slot<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
         slot: u32,
     ) -> (SymbolRange, usize) {
         let mut range = SymbolRange::full();
+        let n_bits = (MAX + 1).ilog2();
+        debug_assert_eq!(1 << n_bits, MAX + 1);
+        debug_assert!(slot < SymbolRange::M);
+        let mut node = 0usize;
+        for i in (0..n_bits).rev() {
+            let cur = contexts[node].model();
+            let reserve = 1u32 << i;
+            let split = range.split_reserving(cur.prob, reserve, reserve);
+            let lower = range.lower(split);
+            let bit = !lower.contains(slot);
+            contexts[node] = cur.next[bit as usize];
+            range = if bit { range.upper(split) } else { lower };
+            node = (node << 1) + 1 + bit as usize;
+        }
+        (range, node - MAX)
+    }
+
+    /// The speculative variant of [`from_slot`]: both children's model
+    /// entries are fetched a level ahead of the serial split/compare chain
+    /// (their heap indices depend only on `node`, not on the bit), leaving
+    /// just a select on the critical path. What [`Walk::production`] uses
+    /// for every power-of-two value count, on both coders — see the module
+    /// doc's walk inventory.
+    #[inline]
+    pub(super) fn from_slot_speculating<const MAX: usize>(
+        contexts: &mut [BitContext; MAX],
+        slot: u32,
+    ) -> (SymbolRange, usize) {
+        let mut range = SymbolRange::full();
+        if MAX == 0 {
+            return (range, 0);
+        }
         let n_bits = (MAX + 1).ilog2();
         debug_assert_eq!(1 << n_bits, MAX + 1);
         debug_assert!(slot < SymbolRange::M);
@@ -458,89 +700,6 @@ mod uneven {
     }
 }
 
-/// Build the interval for a known `value` (the encode-side walk), picking
-/// the implementation from `MAX` at compile time: [`complete::for_value`]
-/// for a power-of-two value count, [`uneven::for_value`] otherwise.
-#[inline]
-pub(crate) fn encode_walk<const MAX: usize>(
-    contexts: &mut [BitContext; MAX],
-    value: usize,
-) -> SymbolRange {
-    if (MAX + 1).is_power_of_two() {
-        complete::for_value(contexts, value)
-    } else {
-        uneven::for_value(contexts, value)
-    }
-}
-
-/// Recover the value from a peeked `slot` (the decode-side walk), keeping
-/// the serial dependency chain as lean as possible: [`complete::from_slot`]
-/// for a power-of-two value count (its heap-layout speculation is nearly
-/// free), [`uneven::from_slot`] otherwise. This is the right choice for
-/// `Ans`, whose lean symbol step leaves any speculative work exposed.
-#[inline]
-pub(crate) fn decode_walk<const MAX: usize>(
-    contexts: &mut [BitContext; MAX],
-    slot: u32,
-) -> (SymbolRange, usize) {
-    if (MAX + 1).is_power_of_two() {
-        complete::from_slot(contexts, slot)
-    } else {
-        uneven::from_slot(contexts, slot)
-    }
-}
-
-/// [`decode_walk`], but spending extra instructions to hide the per-level
-/// model-load latency where a heavier symbol step can absorb them: the
-/// right choice for `Range`, whose u64 division provides the latency shadow.
-/// A power-of-two value count takes [`complete::from_slot`] as always;
-/// other `MAX` at or above [`SPECULATE_MIN_MAX`] take
-/// [`uneven::from_slot_speculating`].
-#[inline]
-pub(crate) fn decode_walk_speculating<const MAX: usize>(
-    contexts: &mut [BitContext; MAX],
-    slot: u32,
-) -> (SymbolRange, usize) {
-    if (MAX + 1).is_power_of_two() {
-        complete::from_slot(contexts, slot)
-    } else if MAX >= SPECULATE_MIN_MAX {
-        uneven::from_slot_speculating(contexts, slot)
-    } else {
-        uneven::from_slot(contexts, slot)
-    }
-}
-
-/// Code one symbol bit-by-bit: the default `encode_atmost` (preserving
-/// `Raw`'s bit-packed format), and the fallback the symbol coders use when
-/// the value count exceeds [`SymbolRange::M`] (a whole-symbol interval
-/// cannot give every leaf a slot then). Same trees and context indexing as
-/// [`encode_walk`].
-#[inline]
-pub(crate) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
-    writer: &mut E,
-    contexts: &mut [BitContext; MAX],
-    value: usize,
-) {
-    if (MAX + 1).is_power_of_two() {
-        complete::encode_bitwise(writer, contexts, value)
-    } else {
-        uneven::encode_bitwise(writer, contexts, value)
-    }
-}
-
-/// The per-bit inverse of [`encode_bitwise`].
-#[inline]
-pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
-    reader: &mut D,
-    contexts: &mut [BitContext; MAX],
-) -> usize {
-    if (MAX + 1).is_power_of_two() {
-        complete::decode_bitwise(reader, contexts)
-    } else {
-        uneven::decode_bitwise(reader, contexts)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,6 +793,14 @@ mod tests {
                 assert_eq!(dec_range, range);
                 assert_eq!(decoded, value);
                 assert_eq!(dec_ctx, enc_ctx, "contexts must adapt identically");
+                // The speculating walk must be indistinguishable from the
+                // plain one.
+                let mut spec_ctx = contexts;
+                let (spec_range, spec_decoded) =
+                    complete::from_slot_speculating(&mut spec_ctx, slot);
+                assert_eq!(spec_range, range);
+                assert_eq!(spec_decoded, value);
+                assert_eq!(spec_ctx, enc_ctx, "speculating walk must adapt identically");
             }
         }
         assert_eq!(total, SymbolRange::M, "intervals must cover all of M");
@@ -712,7 +879,11 @@ mod tests {
             );
             let mut enc_ctx = contexts;
             let mut coder = crate::v2::Range::default();
-            encode_bitwise(&mut coder, &mut enc_ctx, value);
+            if (MAX + 1).is_power_of_two() {
+                complete::encode_bitwise(&mut coder, &mut enc_ctx, value);
+            } else {
+                uneven::encode_bitwise(&mut coder, &mut enc_ctx, value);
+            }
             assert_eq!(
                 enc_ctx, ref_ctx,
                 "bitwise encode must adapt like the reference for value {value}"
@@ -720,7 +891,12 @@ mod tests {
             let bytes = coder.into_vec();
             let mut decoder = crate::v2::arith::Decoder::new(&bytes);
             let mut dec_ctx = contexts;
-            assert_eq!(decode_bitwise(&mut decoder, &mut dec_ctx), value);
+            let decoded = if (MAX + 1).is_power_of_two() {
+                complete::decode_bitwise(&mut decoder, &mut dec_ctx)
+            } else {
+                uneven::decode_bitwise(&mut decoder, &mut dec_ctx)
+            };
+            assert_eq!(decoded, value);
             assert_eq!(
                 dec_ctx, ref_ctx,
                 "bitwise decode must adapt like the reference for value {value}"
@@ -740,6 +916,7 @@ mod tests {
 
     #[test]
     fn complete_deterministic_and_lossless() {
+        check_complete_determinism::<0>([]);
         check_complete_determinism::<1>([BitContext::default(); 1]);
         check_complete_determinism::<15>([BitContext::default(); 15]);
         check_complete_determinism::<255>([BitContext::default(); 255]);
@@ -847,5 +1024,74 @@ mod tests {
         let mut ctx = [BitContext::default(); 255];
         let range = complete::for_value(&mut ctx, 0x5a);
         assert_eq!(range.width(), SymbolRange::M >> 8);
+    }
+
+    /// Every [`Walk`] applicable to a given `MAX` must round-trip every
+    /// value through a real coder — the invariant the shootout benchmark
+    /// leans on to force a walk that production would never pick for that
+    /// `MAX`.
+    fn check_walk_round_trips<const MAX: usize>() {
+        for &walk in WALKS.iter() {
+            if !walk.applies_to::<MAX>() {
+                continue;
+            }
+            for value in 0..=MAX {
+                let mut enc_ctx = AtMostContext::<MAX>::default();
+                let mut coder = crate::v2::Range::default();
+                encode_atmost_walk(walk, &mut coder, &mut enc_ctx, value);
+                let bytes = coder.into_vec();
+                let mut decoder = crate::v2::arith::Decoder::new(&bytes);
+                let mut dec_ctx = AtMostContext::<MAX>::default();
+                let decoded = decode_atmost_walk(walk, &mut decoder, &mut dec_ctx);
+                assert_eq!(
+                    decoded, value,
+                    "{walk:?} failed to round-trip {value} of 0..={MAX}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_applicable_walk_round_trips() {
+        check_walk_round_trips::<0>();
+        check_walk_round_trips::<1>();
+        check_walk_round_trips::<2>();
+        check_walk_round_trips::<3>();
+        check_walk_round_trips::<7>();
+        check_walk_round_trips::<8>();
+        check_walk_round_trips::<9>();
+        check_walk_round_trips::<255>();
+        check_walk_round_trips::<256>();
+    }
+
+    #[test]
+    fn production_matches_walks_array() {
+        // `Walk::production` must always name a walk that `applies_to` the
+        // `MAX` it was resolved for, on both the plain and speculating
+        // policies -- otherwise `WALKS` and `Walk::production` could silently
+        // diverge.
+        fn check<const MAX: usize>() {
+            for speculate in [false, true] {
+                if let Some(walk) = Walk::production::<MAX>(speculate) {
+                    assert!(
+                        WALKS.contains(&walk),
+                        "{walk:?} missing from WALKS for MAX={MAX}"
+                    );
+                    assert!(
+                        walk.applies_to::<MAX>(),
+                        "{walk:?} does not apply_to MAX={MAX}"
+                    );
+                }
+            }
+        }
+        check::<0>();
+        check::<1>();
+        check::<2>();
+        check::<3>();
+        check::<7>();
+        check::<8>();
+        check::<9>();
+        check::<255>();
+        check::<256>();
     }
 }

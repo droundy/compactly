@@ -63,6 +63,10 @@ harness = false
 name = "bytes"
 harness = false
 
+[[bench]]
+name = "atmost"
+harness = false
+
 # These binaries use the v2 API, so they cannot build without it.
 [[bin]]
 name = "just-compress"

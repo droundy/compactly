@@ -550,6 +550,43 @@ Two adjudications worth recording:
   neutralize it, so instruction counts + the same-workload/other-coder
   contrast are the tie-breakers, not the alignment rebuild.
 
+### `AtMost<MAX>` walk shootout tool (2026-07-12)
+
+The `MAX`-based cutoffs picking `complete`/`uneven` layout and
+plain/speculating decode (`SPECULATE_MIN_MAX`, the per-coder speculate flag)
+were baked in from earlier A/B sweeps on this machine and had no way to be
+re-measured off the beaten path — the old dispatch only ever called the walk
+it currently picks. Replaced the two-value `WalkStyle` enum and the scattered
+`is_power_of_two`/`SPECULATE_MIN_MAX` branches (`encode_walk`, `decode_walk`,
+`decode_walk_speculating`) with one `Walk` enum (`Complete`,
+`CompleteSpeculating`, `Uneven`, `UnevenSpeculating`, `CompleteBitwise`,
+`UnevenBitwise`) and a single `Walk::production::<MAX>(speculate)` resolver;
+production and the new shootout bench both go through the same
+`encode_atmost_walk`/`decode_atmost_walk` dispatch, called with a
+compile-time-constant `Walk` so it still folds to one branch per
+monomorphization (verified: all `walks.rs` bit-identity tests pass, full
+suite green, `cargo bench --bench bench` unmoved). Added a plain
+(non-speculating) `complete::from_slot` — previously `complete`'s decode was
+*always* speculative, so there was no baseline to compare it against; adding
+it surfaced a real latent bug (unconditional `contexts[0]` load panicking at
+`MAX == 0`, masked in production by the `MAX == 0` short-circuit upstream),
+now fixed with the same early-return `uneven::from_slot_speculating` already
+had.
+
+`benches/atmost.rs` (`cargo bench --bench atmost`) times every
+(coder × `MAX` × applicable `Walk`) for encode and decode via new
+`#[doc(hidden)]` `Range`/`Ans::{encode,decode}_atmost_batch::<MAX,
+WHICH_WALK>` methods (`WHICH_WALK` is a `const` generic indexing the
+`WALKS` array, so each forced walk is still branch-free — no runtime `Walk`
+dispatch anywhere, benchmark included), and marks the walk `Walk::production`
+currently picks. One run on this (noisy) machine: most production choices
+land at/near the fastest option as expected, but `Range`'s
+`UnevenSpeculating` decode measured *slower* than plain `Uneven` at
+`MAX = 64` and `MAX = 128` specifically (other uneven `MAX` favored
+speculating as expected) — single run, not confirmed across quiesced A/B, but
+worth re-checking with `bench-quiet.sh` before trusting `SPECULATE_MIN_MAX`
+at those counts.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
