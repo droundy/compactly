@@ -1,6 +1,6 @@
+use super::atmost::{walks, AtMost, AtMostContext};
 use super::bit_context::BitContext;
-use super::model::Probability;
-use super::model::SymbolRange;
+use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle};
 use super::{EntropyCoder, EntropyDecoder};
 mod bytes;
 use bytes::Bytes;
@@ -46,27 +46,22 @@ enum Op {
 
 impl EntropyCoder for Ans {
     #[inline]
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        self.ops.extend(
-            bits_with_probabilities
-                .into_iter()
-                .map(|(b, probability)| Op::Bit(b, probability)),
-        );
+    fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
+        self.ops
+            .extend(bits.into_iter().zip(contexts.iter_mut()).map(|(b, ctx)| {
+                let probability = ctx.probability();
+                *ctx = ctx.adapt(b);
+                Op::Bit(b, probability)
+            }));
     }
 
     #[inline]
-    fn encode_atmost_tree<const MAX: usize>(
+    fn encode_atmost<const MAX: usize>(
         &mut self,
-        contexts: &mut [BitContext; MAX],
-        value: usize,
+        ctx: &mut AtMostContext<MAX>,
+        value: AtMost<MAX>,
     ) {
-        if MAX == 0 {
-            return;
-        }
-        if MAX >= SymbolRange::M as usize {
-            return super::atmost::walks::encode_bitwise(self, contexts, value);
-        }
-        self.push_symbol(super::atmost::walks::encode_walk(contexts, value));
+        walks::encode_symbol_or_bitwise(self, ctx, value)
     }
 
     #[inline]
@@ -74,15 +69,18 @@ impl EntropyCoder for Ans {
         self.incompressible_bytes.extend_from_slice(bytes);
     }
 }
-impl Ans {
-    /// Record one whole-symbol op for `encode_atmost_tree`.
+
+impl SymbolCoder for Ans {
+    /// Record one deferred whole-symbol op, packed like the bit ops.
     #[inline]
-    fn push_symbol(&mut self, range: SymbolRange) {
+    fn encode_symbol(&mut self, range: SymbolRange) {
         self.ops.push(Op::Symbol {
             start: range.start() as u16,
             width_minus_1: (range.width() - 1) as u16,
         });
     }
+}
+impl Ans {
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -301,8 +299,13 @@ fn decode_step(state: &mut State, bytes: &mut &[u8], probability: Probability) -
     b
 }
 
-impl<'a> Decoder<'a> {
-    /// Shared whole-symbol decode step: peek the low [`SymbolRange::BITS`]
+impl<'a> SymbolDecoder for Decoder<'a> {
+    /// `Ans` always takes the plain walk: its lean symbol step leaves
+    /// speculative work exposed — measured slower at every value count
+    /// (+4…+22%); see the walk inventory in `atmost::walks`.
+    const WALK: WalkStyle = WalkStyle::Plain;
+
+    /// Whole-symbol decode step: peek the low [`SymbolRange::BITS`]
     /// bits of the state as the slot, let `walk` recover the value and
     /// interval (adapting its contexts), then do a single rANS advance +
     /// renormalization instead of one per bit.
@@ -332,16 +335,10 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole `AtMost` symbol decode; see [`Decoder::decode_symbol_step`].
+    /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
     #[inline(always)]
-    fn decode_atmost_tree<const MAX: usize>(&mut self, contexts: &mut [BitContext; MAX]) -> usize {
-        if MAX == 0 {
-            return 0;
-        }
-        if MAX >= SymbolRange::M as usize {
-            return super::atmost::walks::decode_bitwise(self, contexts);
-        }
-        self.decode_symbol_step(|slot| super::atmost::walks::decode_walk(contexts, slot))
+    fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
+        walks::decode_symbol_or_bitwise(self, ctx)
     }
 
     /// Adaptive batch decode, fused into a single pass.
@@ -555,8 +552,9 @@ fn check_ans_coder() {
             distros.resize_with(size, rand::random::<Probability>);
             let mut writer = Ans::default();
             for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
-                // rev here
-                writer.encode_bit(probability, b);
+                // `Op::Bit` is the coder's bit primitive at an arbitrary
+                // probability (the trait only offers context-driven encoding).
+                writer.ops.push(Op::Bit(b, probability));
             }
             let bytes = writer.into_vec();
             let mut decoder = Decoder::from(bytes.as_slice());
@@ -602,7 +600,7 @@ mod test {
             let mut encoder = Ans::default();
 
             for &(p, bit) in &probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
 
             let bytes = encoder.into_vec();
@@ -648,13 +646,13 @@ mod test {
             let mut encoder = Ans::default();
 
             for &(p, bit) in &probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
             for bytes in &inc {
                 encoder.encode_incompressible_bytes(bytes);
             }
             for &(p, bit) in &after_probs {
-                encoder.encode_bit(p.probability(), bit);
+                encoder.encode_bit(&mut p.clone(), bit);
             }
 
             let bytes = encoder.into_vec();

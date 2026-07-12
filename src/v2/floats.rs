@@ -40,13 +40,8 @@ macro_rules! impl_float {
                     // The $bits raw bits are independent (one context per position),
                     // so encode them as a single batch.
                     let bits = $intty::from_le_bytes(self.to_le_bytes());
-                    let pairs = std::array::from_fn::<_, $bits, _>(|i| {
-                        let bit = (bits >> i) & 1 == 1;
-                        let probability = ctx.context[i].probability();
-                        ctx.context[i] = ctx.context[i].adapt(bit);
-                        (bit, probability)
-                    });
-                    writer.encode_bits(pairs);
+                    let values = std::array::from_fn::<_, $bits, _>(|i| (bits >> i) & 1 == 1);
+                    writer.encode_bits(&mut ctx.context, values);
                 }
             }
             #[inline]

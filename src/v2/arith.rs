@@ -1,4 +1,5 @@
-use super::model::{Probability, SymbolRange, SHIFT};
+use super::atmost::{walks, AtMost, AtMostContext};
+use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle, SHIFT};
 use super::{EntropyCoder, EntropyDecoder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -253,28 +254,25 @@ pub struct Range {
 
 impl EntropyCoder for Range {
     #[inline]
-    fn encode_bits<const N: usize>(&mut self, bits_with_probabilities: [(bool, Probability); N]) {
-        for (value, probability_of_false) in bits_with_probabilities {
+    fn encode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
+    ) {
+        for (value, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
             self.bytes
-                .extend_from_slice(&self.state.encode(probability_of_false, value));
+                .extend_from_slice(&self.state.encode(ctx.probability(), value));
+            *ctx = ctx.adapt(value);
         }
     }
 
-    /// Whole `AtMost` symbol encode: one interval narrowing +
-    /// renormalization for the whole symbol instead of one per bit.
     #[inline]
-    fn encode_atmost_tree<const MAX: usize>(
+    fn encode_atmost<const MAX: usize>(
         &mut self,
-        contexts: &mut [super::bit_context::BitContext; MAX],
-        value: usize,
+        ctx: &mut AtMostContext<MAX>,
+        value: AtMost<MAX>,
     ) {
-        if MAX == 0 {
-            return;
-        }
-        if MAX >= SymbolRange::M as usize {
-            return super::atmost::walks::encode_bitwise(self, contexts, value);
-        }
-        self.write_symbol(super::atmost::walks::encode_walk(contexts, value));
+        walks::encode_symbol_or_bitwise(self, ctx, value)
     }
 
     #[inline]
@@ -283,17 +281,20 @@ impl EntropyCoder for Range {
     }
 }
 
-impl Range {
+impl SymbolCoder for Range {
     /// Code one whole-symbol interval: clamp the range state so a symbol
     /// fits, then a single narrowing + renormalization.
     #[inline]
-    fn write_symbol(&mut self, range: SymbolRange) {
+    fn encode_symbol(&mut self, range: SymbolRange) {
         while self.state.clamp_for_symbol() {
             self.bytes.extend_from_slice(&self.state.ready_bytes());
         }
         self.state.narrow_symbol(range);
         self.bytes.extend_from_slice(&self.state.ready_bytes());
     }
+}
+
+impl Range {
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -410,8 +411,14 @@ fn decode_step(
     out
 }
 
-impl<'a> Decoder<'a> {
-    /// Shared whole-symbol decode step, the inverse of `Range::write_symbol`:
+impl<'a> SymbolDecoder for Decoder<'a> {
+    /// Unlike `Ans`, `Range` asks for the speculating walk — its u64-division
+    /// symbol step provides the latency shadow that absorbs the speculation's
+    /// extra instructions (measured −4…−17% at value counts ≥ 4); see the
+    /// walk inventory in `atmost::walks`.
+    const WALK: WalkStyle = WalkStyle::Speculating;
+
+    /// Whole-symbol decode step, the inverse of `Range::encode_symbol`:
     /// recover the slot with one division, let `walk` recover the value and
     /// interval (adapting its contexts), then do a single narrowing +
     /// renormalization. State is kept in locals across the whole symbol
@@ -448,24 +455,10 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
-    /// Whole `AtMost` symbol decode; see [`Decoder::decode_symbol_step`].
-    /// Unlike `Ans`, `Range` asks for the speculating walk — its
-    /// division-heavy symbol step absorbs the speculation's extra
-    /// instructions (see `atmost::walks::decode_walk_speculating`).
+    /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
     #[inline]
-    fn decode_atmost_tree<const MAX: usize>(
-        &mut self,
-        contexts: &mut [super::bit_context::BitContext; MAX],
-    ) -> usize {
-        if MAX == 0 {
-            return 0;
-        }
-        if MAX >= SymbolRange::M as usize {
-            return super::atmost::walks::decode_bitwise(self, contexts);
-        }
-        self.decode_symbol_step(|slot| {
-            super::atmost::walks::decode_walk_speculating(contexts, slot)
-        })
+    fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
+        walks::decode_symbol_or_bitwise(self, ctx)
     }
 
     /// Adaptive batch decode, fused into a single pass (mirrors the `Ans`
@@ -728,7 +721,11 @@ mod tests {
             println!("\n\ntesting {probs:?}");
             let mut encoder = Range::default();
             for &(p, bit) in &probs {
-                encoder.encode_bit(p, bit);
+                // `ArithState::encode` is the coder's bit primitive at an
+                // arbitrary probability (the trait only offers context-driven
+                // encoding).
+                let ready = encoder.state.encode(p, bit);
+                encoder.bytes.extend_from_slice(&ready);
             }
             let bytes = encoder.into_vec();
             println!("\n\nEncoded random as: {bytes:02x?}\n");

@@ -7,35 +7,33 @@ pub struct Millibits(u32);
 impl super::EntropyCoder for Millibits {
     fn encode_bits<const N: usize>(
         &mut self,
-        bits_with_probabilities: [(bool, super::model::Probability); N],
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
     ) {
-        for (bit, probability) in bits_with_probabilities {
-            *self += probability.millibits(bit);
+        for (bit, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
+            *self += ctx.probability().millibits(bit);
+            *ctx = ctx.adapt(bit);
         }
     }
 
     /// A whole tree symbol costs `-log2(width / M)` bits: one exact estimate
     /// for the symbol rather than separately-rounded per-bit estimates,
     /// matching what the single-step coders actually pay.
-    fn encode_atmost_tree<const MAX: usize>(
+    fn encode_atmost<const MAX: usize>(
         &mut self,
-        contexts: &mut [super::bit_context::BitContext; MAX],
-        value: usize,
+        ctx: &mut super::atmost::AtMostContext<MAX>,
+        value: super::atmost::AtMost<MAX>,
     ) {
-        use super::model::SymbolRange;
-        if MAX >= SymbolRange::M as usize {
-            return super::atmost::walks::encode_bitwise(self, contexts, value);
-        }
-        *self += Self::symbol_cost(super::atmost::walks::encode_walk(contexts, value));
+        super::atmost::walks::encode_symbol_or_bitwise(self, ctx, value)
     }
 }
 
-impl Millibits {
+impl super::model::SymbolCoder for Millibits {
     /// `-log2(width / M)` bits, in millibits.
-    fn symbol_cost(range: super::model::SymbolRange) -> Self {
+    fn encode_symbol(&mut self, range: super::model::SymbolRange) {
         use super::model::SymbolRange;
         let millibits = (SymbolRange::BITS as f64 - (range.width() as f64).log2()) * 1000.0;
-        Millibits(millibits.round() as u32)
+        *self += Millibits(millibits.round() as u32);
     }
 }
 
