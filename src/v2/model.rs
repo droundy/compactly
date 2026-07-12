@@ -14,7 +14,38 @@
 //! single load per node.
 
 use super::bit_context::BitContext;
+use super::{EntropyCoder, EntropyDecoder};
 use std::num::NonZeroU8;
+
+/// A coder with a whole-symbol primitive: it can code one [`SymbolRange`] in
+/// a single coding step (one renormalization) instead of one per tree level.
+/// `Raw` deliberately does not implement this — the coder traits' per-bit
+/// default bodies *are* its bit-packed format.
+///
+/// This is the coder's entire contribution to symbol coding; the tree shape,
+/// the walk schedule, and the `MAX` guards all live in `atmost::walks`.
+pub(crate) trait SymbolCoder: EntropyCoder {
+    /// Code one whole symbol occupying `range` of the total `M`.
+    fn encode_symbol(&mut self, range: SymbolRange);
+}
+
+/// The decode side of [`SymbolCoder`].
+pub(crate) trait SymbolDecoder: EntropyDecoder {
+    /// Whether this coder wants `atmost::walks::Walk::production` to
+    /// speculate on a non-power-of-two value count: whether spending ~2x the
+    /// instructions to fetch both candidate children before each bit
+    /// resolves pays off depends on how much latency the coder's own symbol
+    /// step can hide, so the choice is a measured per-coder policy, not a
+    /// per-type one (see the walk inventory in `atmost::walks`). A
+    /// power-of-two value count always speculates regardless of this flag —
+    /// its heap layout makes speculation nearly free.
+    const SPECULATES: bool;
+
+    /// One whole-symbol decode step: peek the coder state's current slot in
+    /// `[0, M)`, let `walk` recover the value and interval (adapting its
+    /// contexts), then advance and renormalize once for the whole symbol.
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize;
+}
 
 /// log2 of the number of slots a single bit is coded out of: probabilities
 /// are `prob / 256`.

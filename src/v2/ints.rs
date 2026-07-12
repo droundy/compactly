@@ -1,4 +1,4 @@
-use super::byte::UBits;
+use super::atmost::AtMost;
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
@@ -215,10 +215,11 @@ macro_rules! impl_compact {
     ($t:ident, $context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
-            // UBits<log2($bits)>: code = lz.saturating_sub(1), so lz=0 and lz=1 both map to
-            // code 0 (distinguished by lz_is_one), while lz=$bits maps to code $bits-1
-            // (all-TRUE, cheapest in fresh context) with no extra bool needed.
-            leading_zeros: <UBits<{ ($bits as u32).ilog2() as u8 }> as Encode>::Context,
+            // AtMost<$bits - 1>, i.e. log2($bits) bits: code = lz.saturating_sub(1), so
+            // lz=0 and lz=1 both map to code 0 (distinguished by lz_is_one), while
+            // lz=$bits maps to code $bits-1 (all-TRUE, cheapest in fresh context) with
+            // no extra bool needed.
+            leading_zeros: <AtMost<{ $bits - 1 }> as Encode>::Context,
             lz_is_one: <bool as Encode>::Context,
             // partial[lz][i]: context for bit i of the partial top byte, given lz leading zeros.
             // Only partial_bits = (sig_bits % 8) bits are used per lz, where sig_bits = $bits-1-lz.
@@ -240,9 +241,8 @@ macro_rules! impl_compact {
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let lz = value.leading_zeros() as usize;
                 // lz=0,1 → code 0 (+bool); lz=k≥2 → code k-1; lz=$bits → code $bits-1 (all-TRUE)
-                let afewbits_val = lz.saturating_sub(1) as u8;
-                UBits::<{ ($bits as u32).ilog2() as u8 }>::new(afewbits_val)
-                    .encode(writer, &mut ctx.leading_zeros);
+                let afewbits_val = lz.saturating_sub(1);
+                AtMost::<{ $bits - 1 }>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
                 if afewbits_val == 0 {
                     (lz == 1).encode(writer, &mut ctx.lz_is_one);
                 }
@@ -266,10 +266,10 @@ macro_rules! impl_compact {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                let afewbits_val = u8::from(UBits::<{ ($bits as u32).ilog2() as u8 }>::decode(
+                let afewbits_val = usize::from(AtMost::<{ $bits - 1 }>::decode(
                     reader,
                     &mut ctx.leading_zeros,
-                )?) as usize;
+                )?);
                 let lz = if afewbits_val == 0 {
                     if bool::decode(reader, &mut ctx.lz_is_one)? {
                         1
