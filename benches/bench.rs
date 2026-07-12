@@ -1,4 +1,3 @@
-#![cfg(all(feature = "v1", feature = "v2"))]
 use bincode1::{DefaultOptions, Options};
 use compactly::v2::Ans;
 use rand::{Rng, SeedableRng};

@@ -50,18 +50,27 @@ members = [
 [[bench]]
 name = "bench"
 harness = false
+required-features = ["v1", "v2"]
 
 [[bench]]
 name = "integers"
 harness = false
+required-features = ["v2"]
 
 [[bench]]
 name = "signed"
 harness = false
+required-features = ["v2"]
 
 [[bench]]
 name = "bytes"
 harness = false
+required-features = ["v2"]
+
+[[bench]]
+name = "atmost"
+harness = false
+required-features = ["v2"]
 
 # These binaries use the v2 API, so they cannot build without it.
 [[bin]]
