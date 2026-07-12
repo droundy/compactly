@@ -208,35 +208,17 @@ impl EncodingStrategy<String> for Compressible {
 
 #[test]
 fn size() {
-    use super::{encoded_bits, raw_bits};
+    use super::{assert_millibits, encoded_bits};
     use crate::Encoded;
 
-    raw_bits!("".to_string(), expect!["3 bits"]);
-    raw_bits!("a".to_string(), expect!["11 bits, entropy Millibits(7585)"]);
-    raw_bits!(
-        "A".to_string(),
-        expect!["11 bits, entropy Millibits(10085)"]
-    );
-    raw_bits!(
-        "É".to_string(),
-        expect!["19 bits, entropy Millibits(19993)"]
-    );
-    raw_bits!(
-        "😊".to_string(),
-        expect!["27 bits, entropy Millibits(27033)"]
-    );
-    raw_bits!(
-        "hello world".to_string(),
-        expect!["94 bits, entropy Millibits(60523)"]
-    );
-    raw_bits!(
-        "Hello world".to_string(),
-        expect!["94 bits, entropy Millibits(63037)"]
-    );
-    raw_bits!(
-        "hhhhhhhhhhh".to_string(),
-        expect!["94 bits, entropy Millibits(31614)"]
-    );
+    assert_millibits!("".to_string(), expect!["3 bits"]);
+    assert_millibits!("a".to_string(), expect!["Millibits(7593)"]);
+    assert_millibits!("A".to_string(), expect!["Millibits(10093)"]);
+    assert_millibits!("É".to_string(), expect!["Millibits(19992)"]);
+    assert_millibits!("😊".to_string(), expect!["Millibits(27038)"]);
+    assert_millibits!("hello world".to_string(), expect!["Millibits(60601)"]);
+    assert_millibits!("Hello world".to_string(), expect!["Millibits(63115)"]);
+    assert_millibits!("hhhhhhhhhhh".to_string(), expect!["Millibits(31709)"]);
 
     fn compare_small_bits(value: &str) -> String {
         println!("comparing {value:?}");

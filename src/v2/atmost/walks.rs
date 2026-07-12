@@ -40,7 +40,7 @@
 //! | [`uneven::for_value`] | every symbol coder's encode, other `MAX` | plain | as above |
 //! | [`uneven::from_slot`] | `Ans` decode; `Range` below [`SPECULATE_MIN_MAX`] | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
 //! | [`uneven::from_slot_speculating`] | `Range` decode at `MAX >= SPECULATE_MIN_MAX` | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions: −4…−17% for every value count ≥ 4 |
-//! | [`complete::encode_bitwise`] / [`uneven::encode_bitwise`] (and decode twins) | `Raw` always; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code — and `Raw`'s bit-packed format |
+//! | [`complete::encode_bitwise`] / [`uneven::encode_bitwise`] (and decode twins) | the default `encode_atmost_tree`/`decode_atmost_tree`; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
 use super::super::model::SymbolRange;
@@ -168,9 +168,9 @@ mod complete {
         (range, node - MAX)
     }
 
-    /// The per-bit walk over the same tree and contexts: the `Raw` coder's
-    /// format, and the fallback when the value count exceeds
-    /// [`SymbolRange::M`].
+    /// The per-bit walk over the same tree and contexts: the default
+    /// `encode_atmost_tree`/`decode_atmost_tree` format, and the fallback
+    /// when the value count exceeds [`SymbolRange::M`].
     #[inline]
     pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,
@@ -360,9 +360,9 @@ mod uneven {
         (range, accumulated_value)
     }
 
-    /// The per-bit walk over the same tree and contexts: the `Raw` coder's
-    /// format, and the fallback when the value count exceeds
-    /// [`SymbolRange::M`].
+    /// The per-bit walk over the same tree and contexts: the default
+    /// `encode_atmost_tree`/`decode_atmost_tree` format, and the fallback
+    /// when the value count exceeds [`SymbolRange::M`].
     #[inline]
     pub(super) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
         writer: &mut E,
@@ -463,11 +463,10 @@ pub(crate) fn decode_walk_speculating<const MAX: usize>(
     }
 }
 
-/// Code one symbol bit-by-bit: the default `encode_atmost_tree` (preserving
-/// `Raw`'s bit-packed format), and the fallback the symbol coders use when
-/// the value count exceeds [`SymbolRange::M`] (a whole-symbol interval
-/// cannot give every leaf a slot then). Same trees and context indexing as
-/// [`encode_walk`].
+/// Code one symbol bit-by-bit: the default `encode_atmost_tree`, and the
+/// fallback the symbol coders use when the value count exceeds
+/// [`SymbolRange::M`] (a whole-symbol interval cannot give every leaf a slot
+/// then). Same trees and context indexing as [`encode_walk`].
 #[inline]
 pub(crate) fn encode_bitwise<E: EntropyCoder, const MAX: usize>(
     writer: &mut E,

@@ -62,7 +62,7 @@ Both versions share the same overall design — only the entropy coder differs.
 **In `v2`** ([src/v2/mod.rs](src/v2/mod.rs)):
 - `Encode` — types that can be encoded; has an associated `Context` (the adaptive probability model) and `encode`/`decode` methods
 - `EncodingStrategy<T>` — alternate encodings for a type (e.g. `Small`, `LowCardinality`); plug-in strategies used via `#[compactly(Small)]` derive attributes
-- `EntropyCoder` — something that can accept bits with probabilities (`Range`, `Ans`, `Millibits`, `Raw` all implement this)
+- `EntropyCoder` — something that can accept bits with probabilities (`Range`, `Ans`, `Millibits` all implement this)
 - `EntropyDecoder` — the read side
 
 **In `v1`** ([src/v1/mod.rs](src/v1/mod.rs)):
@@ -79,14 +79,13 @@ Defined in [src/lib.rs](src/lib.rs) and implemented per-type across the `v1/` an
 
 ### Entropy coders in v2
 
-Four `EntropyCoder` implementations, each useful for different purposes:
+Three `EntropyCoder` implementations, each useful for different purposes:
 
 | Type | Purpose |
 |------|---------|
 | `Range` | Default encoder; arithmetic/range coding; what `v2::encode` uses |
 | `Ans` | ANS encoder; same interface, potentially faster |
 | `Millibits` | Size estimation only; does not produce bytes |
-| `Raw` | Bit-packing without probability weighting; useful for testing encoding shape |
 
 ### Derive macros
 

@@ -1,4 +1,4 @@
-use compactly::v2::{Ans, Raw};
+use compactly::v2::Ans;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
@@ -73,21 +73,6 @@ impl Encoding for CompactlyAns {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct CompactlyRaw;
-impl Encoding for CompactlyRaw {
-    const NAME: &str = "compactly-raw";
-    fn encode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(self, value: &T) -> Vec<u8> {
-        Raw::encode(value)
-    }
-    fn decode<T: compactly::v2::Encode + Serialize + DeserializeOwned>(
-        self,
-        bytes: &[u8],
-    ) -> Option<T> {
-        Raw::decode(bytes)
-    }
-}
-
 fn just_encode<T: Encodable>(e: impl Encoding, values: &[T]) {
     println!("encoding {}", e.name());
     let mut total_size = 0;
@@ -124,7 +109,7 @@ fn main() {
     // bench_all("suicide rates", &[suicide_rates]);
     // bench_all("suicide", &[comparison::suicides_per_million()]);
 
-    const POSSIBLE_ALGORITHMS: &[&str] = &["ans", "raw", "v1", "range"];
+    const POSSIBLE_ALGORITHMS: &[&str] = &["ans", "v1", "range"];
     let algorithm = std::env::args()
         .find(|a| POSSIBLE_ALGORITHMS.contains(&a.as_str()))
         .unwrap_or("ans".to_string());
@@ -136,7 +121,6 @@ fn main() {
     if std::env::args().any(|a| a == "decode") {
         match algorithm.as_str() {
             "ans" => just_decode(CompactlyAns, &values),
-            "raw" => just_decode(CompactlyRaw, &values),
             "v1" => just_decode(CompactlyV1, &values),
             "range" => just_decode(CompactlyRange, &values),
             _ => panic!("unrecognized algorithm"),
@@ -144,7 +128,6 @@ fn main() {
     } else {
         match algorithm.as_str() {
             "ans" => just_encode(CompactlyAns, &values),
-            "raw" => just_encode(CompactlyRaw, &values),
             "v1" => just_encode(CompactlyV1, &values),
             "range" => just_encode(CompactlyRange, &values),
             _ => panic!("unrecognized algorithm"),
