@@ -655,6 +655,29 @@ What the quiesced two-distribution run (bench-quiet.sh, CPU 2) settled:
   than neighboring `MAX = 40`) — smells like the known alignment/codegen
   scatter, treat that cell with suspicion.
 
+### Range's uneven speculation window is now depth-bounded (2026-07-12)
+Acting on the above: `Walk::production` picks `UnevenSpeculating` for
+`Range` only inside a measured window (`speculation_pays` in
+`src/v2/atmost/walks.rs`): `MAX >= 3` **and** (`tree_depth(MAX + 1) <= 6`
+**or** `MAX >= 700`, where the walk no longer fully unrolls and speculation
+measured faster again on both distributions). Since `Uneven` and
+`UnevenSpeculating` are bit-identical decode twins, the encoded format is
+unchanged; only `Range` decode speed for non-power-of-two value counts with
+35..=513 values is affected (derive enums of that size — the `usize`
+buckets are `MAX <= 31` and `u8`/strings are power-of-two counts).
+
+The post-change shootout run confirms the fix: every
+"production `UnevenSpeculating` loses to `Uneven`" finding in the 34..512
+band is gone, and plain `Uneven` is now marked production there. Residual
+exception, deliberately left plain: **`MAX = 48` reproducibly prefers
+speculation** (12–18% on both distributions, both coders' uneven walks) —
+its plain walk monomorphizes anomalously slowly (`MAX = 48` skewed decode
+~88/104 ns vs `MAX = 40`'s ~59/72 ns at the same batch size, consistent
+across two different binaries, so it is a codegen property of that
+monomorphization, not run-to-run scatter). A depth- or count-based rule
+can't capture one bad monomorphization; if `AtMost<48>`-sized enums ever
+matter, investigate that codegen instead of widening the window.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
