@@ -1,5 +1,5 @@
 use super::atmost::{walks, AtMost, AtMostContext};
-use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle, SHIFT};
+use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, SHIFT};
 use super::{EntropyCoder, EntropyDecoder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -304,6 +304,32 @@ impl Range {
         let mut reader = super::arith::Decoder::new(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
+    /// Whether `Range`'s decoder asks [`Walk::production`](super::Walk::production)
+    /// to speculate on a non-power-of-two value count (see
+    /// [`SymbolDecoder::SPECULATES`]). Benchmark support for
+    /// `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+    /// Encode `values` using an explicitly forced tree walk, bypassing
+    /// [`Walk::production`](super::Walk::production)'s usual choice for
+    /// `MAX`. `WHICH_WALK` indexes [`WALKS`](super::WALKS). Benchmark support
+    /// for `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub fn encode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+        values: &[super::AtMost<MAX>],
+    ) -> Vec<u8> {
+        walks::encode_atmost_batch::<Self, MAX, WHICH_WALK>(Self::default(), values).into_vec()
+    }
+    /// The decode side of [`Self::encode_atmost_batch`]: decode `n` values
+    /// with the same forced walk. Benchmark support for
+    /// `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub fn decode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+        bytes: &[u8],
+        n: usize,
+    ) -> Vec<super::AtMost<MAX>> {
+        walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::new(bytes), n)
+    }
     /// Convert the encoded value in to a `Vec` of bytes.
     #[inline]
     pub fn into_vec(mut self) -> Vec<u8> {
@@ -416,7 +442,7 @@ impl<'a> SymbolDecoder for Decoder<'a> {
     /// symbol step provides the latency shadow that absorbs the speculation's
     /// extra instructions (measured −4…−17% at value counts ≥ 4); see the
     /// walk inventory in `atmost::walks`.
-    const WALK: WalkStyle = WalkStyle::Speculating;
+    const SPECULATES: bool = true;
 
     /// Whole-symbol decode step, the inverse of `Range::encode_symbol`:
     /// recover the slot with one division, let `walk` recover the value and

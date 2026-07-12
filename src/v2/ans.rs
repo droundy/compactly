@@ -1,6 +1,6 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::bit_context::BitContext;
-use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle};
+use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
 use super::{EntropyCoder, EntropyDecoder};
 mod bytes;
 use bytes::Bytes;
@@ -89,6 +89,32 @@ impl Ans {
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
         let mut reader = Decoder::from(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
+    }
+    /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
+    /// to speculate on a non-power-of-two value count (see
+    /// [`SymbolDecoder::SPECULATES`]). Benchmark support for
+    /// `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+    /// Encode `values` using an explicitly forced tree walk, bypassing
+    /// [`Walk::production`](super::Walk::production)'s usual choice for
+    /// `MAX`. `WHICH_WALK` indexes [`WALKS`](super::WALKS). Benchmark support
+    /// for `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub fn encode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+        values: &[super::AtMost<MAX>],
+    ) -> Vec<u8> {
+        walks::encode_atmost_batch::<Self, MAX, WHICH_WALK>(Self::default(), values).into_vec()
+    }
+    /// The decode side of [`Self::encode_atmost_batch`]: decode `n` values
+    /// with the same forced walk. Benchmark support for
+    /// `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub fn decode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+        bytes: &[u8],
+        n: usize,
+    ) -> Vec<super::AtMost<MAX>> {
+        walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::from(bytes), n)
     }
     /// Benchmark helper: replay only the entropy-decode steps against
     /// `encoded`, using this op buffer (from encoding the same value) as an
@@ -303,7 +329,7 @@ impl<'a> SymbolDecoder for Decoder<'a> {
     /// `Ans` always takes the plain walk: its lean symbol step leaves
     /// speculative work exposed — measured slower at every value count
     /// (+4…+22%); see the walk inventory in `atmost::walks`.
-    const WALK: WalkStyle = WalkStyle::Plain;
+    const SPECULATES: bool = false;
 
     /// Whole-symbol decode step: peek the low [`SymbolRange::BITS`]
     /// bits of the state as the slot, let `walk` recover the value and

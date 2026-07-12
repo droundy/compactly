@@ -116,6 +116,8 @@ mod vecs;
 use crate::{LowCardinality, Small};
 pub use ans::Ans;
 pub use arith::Range;
+#[doc(hidden)] // benchmark-support surface for `benches/atmost.rs`; not part of the stable API
+pub use atmost::walks::{Walk, WALKS};
 pub use atmost::AtMost;
 pub use millibits::Millibits;
 pub use raw::Raw;
