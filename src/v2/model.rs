@@ -27,26 +27,17 @@ pub(crate) trait SymbolCoder: EntropyCoder {
     fn encode_symbol(&mut self, range: SymbolRange);
 }
 
-/// Which decode walk a [`SymbolDecoder`] wants (see the walk inventory in
-/// `atmost::walks`): whether spending ~2x the instructions to fetch both
-/// candidate children before each bit resolves pays off depends on how much
-/// latency the coder's own symbol step can hide, so the choice is a measured
-/// per-coder policy, not a per-type one.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WalkStyle {
-    /// Keep the serial dependency chain as lean as possible (`Ans`: its lean
-    /// symbol step leaves speculative work exposed — measured +4…+22% slower
-    /// at every value count).
-    Plain,
-    /// Speculate on both children (`Range`: its u64-division latency shadow
-    /// absorbs the extra instructions — measured −4…−17% at value counts ≥ 4).
-    Speculating,
-}
-
 /// The decode side of [`SymbolCoder`].
 pub(crate) trait SymbolDecoder: EntropyDecoder {
-    /// The measured walk policy for this coder.
-    const WALK: WalkStyle;
+    /// Whether this coder wants `atmost::walks::Walk::production` to
+    /// speculate on a non-power-of-two value count: whether spending ~2x the
+    /// instructions to fetch both candidate children before each bit
+    /// resolves pays off depends on how much latency the coder's own symbol
+    /// step can hide, so the choice is a measured per-coder policy, not a
+    /// per-type one (see the walk inventory in `atmost::walks`). A
+    /// power-of-two value count always speculates regardless of this flag —
+    /// its heap layout makes speculation nearly free.
+    const SPECULATES: bool;
 
     /// One whole-symbol decode step: peek the coder state's current slot in
     /// `[0, M)`, let `walk` recover the value and interval (adapting its

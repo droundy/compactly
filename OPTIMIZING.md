@@ -550,6 +550,62 @@ Two adjudications worth recording:
   neutralize it, so instruction counts + the same-workload/other-coder
   contrast are the tie-breakers, not the alignment rebuild.
 
+### `AtMost<MAX>` walk shootout tool (2026-07-12)
+
+The `MAX`-based cutoffs picking `complete`/`uneven` layout and
+plain/speculating decode (`SPECULATE_MIN_MAX`, the per-coder speculate flag)
+were baked in from earlier A/B sweeps on this machine and had no way to be
+re-measured off the beaten path — the old dispatch only ever called the walk
+it currently picks. Replaced the two-value `WalkStyle` enum and the scattered
+`is_power_of_two`/`SPECULATE_MIN_MAX` branches (`encode_walk`, `decode_walk`,
+`decode_walk_speculating`) with one `Walk` enum (`Complete`,
+`CompleteSpeculating`, `Uneven`, `UnevenSpeculating`, `CompleteBitwise`,
+`UnevenBitwise`) and a single `Walk::production::<MAX>(speculate)` resolver;
+production and the new shootout bench both go through the same
+`encode_atmost_walk`/`decode_atmost_walk` dispatch, called with a
+compile-time-constant `Walk` so it still folds to one branch per
+monomorphization (verified: all `walks.rs` bit-identity tests pass, full
+suite green, `cargo bench --bench bench` unmoved). Added a plain
+(non-speculating) `complete::from_slot` — previously `complete`'s decode was
+*always* speculative, so there was no baseline to compare it against; adding
+it surfaced a real latent bug (unconditional `contexts[0]` load panicking at
+`MAX == 0`, masked in production by the `MAX == 0` short-circuit upstream),
+now fixed with the same early-return `uneven::from_slot_speculating` already
+had.
+
+`benches/atmost.rs` (`cargo bench --bench atmost`) times every
+(coder × `MAX` × applicable `Walk`) for decode, and once per *distinct*
+encode implementation (`Walk::encode_with` maps a speculating walk to its
+plain twin, since they share one encode body — timing both would just be two
+noisy samples of the same code), via new `#[doc(hidden)]`
+`Range`/`Ans::{encode,decode}_atmost_batch::<MAX, WHICH_WALK>` methods
+(`WHICH_WALK` is a `const` generic indexing the `WALKS` array, so each forced
+walk is still branch-free — no runtime `Walk` dispatch anywhere, benchmark
+included), and marks the walk `Walk::production` currently picks. A walk
+that beats production's choice by ≥5% on the initial sweep is only
+*nominated*; it's re-timed against production 3 more times, alternating
+measurement order each round (cancels monotonic drift/thermal bias), and
+only reported as a confirmed finding if it wins every round with a ≥5%
+median margin — replacing an earlier version of this tool that reported any
+single-sample ≥10% gap directly, which couldn't tell a real effect from
+run-to-run noise.
+
+One full run's confirmed findings (single process, 3 in-process alternated
+rounds each — not yet cross-checked with `bench-quiet.sh` across separate
+invocations): `Range`'s `UnevenSpeculating` decode reproducibly *slower*
+than plain `Uneven` at `MAX` = 64, 128, 256, and 512 (18–23% slower) — the
+specific case the original version of this tool flagged at 64/128 on a
+single sample, now confirmed and widened. More surprising: at several `MAX`
+(3000, 4095, and the small power-of-two counts 7/15/31/63/127/255) `Ans`
+decode via the historical per-bit `*Bitwise` walk reproducibly *beat* the
+whole-symbol walk it's meant to replace by 20–36% — e.g. `MAX=4095`:
+`CompleteSpeculating` 186.8ns vs `CompleteBitwise` 123.5ns. That's enough
+walks and enough margin to not be a fluke of this run, but it contradicts
+the whole-symbol design's premise (one entropy-coder renormalization per
+symbol vs. one per bit), so it needs cross-process/quiesced confirmation and
+some investigation into *why* before anyone considers changing
+`Walk::production` on the strength of it.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
