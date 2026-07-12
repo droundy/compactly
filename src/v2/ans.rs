@@ -90,6 +90,12 @@ impl Ans {
         let mut reader = Decoder::from(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
+    /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
+    /// to speculate on a non-power-of-two value count (see
+    /// [`SymbolDecoder::SPECULATES`]). Benchmark support for
+    /// `benches/atmost.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
     /// Encode `values` using an explicitly forced tree walk, bypassing
     /// [`Walk::production`](super::Walk::production)'s usual choice for
     /// `MAX`. `WHICH_WALK` indexes [`WALKS`](super::WALKS). Benchmark support

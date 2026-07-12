@@ -217,6 +217,22 @@ impl Walk {
             Walk::UnevenBitwise => true,
         }
     }
+
+    /// The walk whose *encode* implementation this walk shares: a
+    /// speculating variant differs from its plain twin only on decode ([`Walk::production`]
+    /// never speculates on encode — see its `speculate` doc), so
+    /// [`encode_atmost_walk`] only has four distinct bodies, not six.
+    /// [`Walk::Complete`]/[`Walk::Uneven`]/the bitwise walks map to
+    /// themselves. Used by the shootout benchmark to avoid timing the same
+    /// encode code twice under two different walk names.
+    #[doc(hidden)]
+    pub const fn encode_with(self) -> Walk {
+        match self {
+            Walk::CompleteSpeculating => Walk::Complete,
+            Walk::UnevenSpeculating => Walk::Uneven,
+            other => other,
+        }
+    }
 }
 
 /// Every [`Walk`] variant, for the shootout benchmark to iterate. The
@@ -238,7 +254,10 @@ pub const WALKS: [Walk; 6] = [
 /// this with the constant [`Walk::production`] resolves for `MAX` (folding
 /// away every branch below but one — see the module doc's `inline(always)`
 /// note); the shootout benchmark calls it with a `const WHICH_WALK`-derived
-/// constant from [`WALKS`] for the same effect.
+/// constant from [`WALKS`] for the same effect. Dispatches on
+/// [`Walk::encode_with`], since a speculating walk shares its plain twin's
+/// encode body; the `unreachable!` arms are just `encode_with`'s codomain
+/// made explicit, so they always fold away at the (const) call sites here.
 #[inline(always)]
 pub(crate) fn encode_atmost_walk<C: SymbolCoder, const MAX: usize>(
     walk: Walk,
@@ -246,15 +265,14 @@ pub(crate) fn encode_atmost_walk<C: SymbolCoder, const MAX: usize>(
     ctx: &mut AtMostContext<MAX>,
     value: usize,
 ) {
-    match walk {
-        Walk::Complete | Walk::CompleteSpeculating => {
-            coder.encode_symbol(complete::for_value(&mut ctx.bits, value))
-        }
-        Walk::Uneven | Walk::UnevenSpeculating => {
-            coder.encode_symbol(uneven::for_value(&mut ctx.bits, value))
-        }
+    match walk.encode_with() {
+        Walk::Complete => coder.encode_symbol(complete::for_value(&mut ctx.bits, value)),
+        Walk::Uneven => coder.encode_symbol(uneven::for_value(&mut ctx.bits, value)),
         Walk::CompleteBitwise => complete::encode_bitwise(coder, &mut ctx.bits, value),
         Walk::UnevenBitwise => uneven::encode_bitwise(coder, &mut ctx.bits, value),
+        Walk::CompleteSpeculating | Walk::UnevenSpeculating => {
+            unreachable!("Walk::encode_with never returns a speculating variant")
+        }
     }
 }
 
@@ -879,11 +897,7 @@ mod tests {
             );
             let mut enc_ctx = contexts;
             let mut coder = crate::v2::Range::default();
-            if (MAX + 1).is_power_of_two() {
-                complete::encode_bitwise(&mut coder, &mut enc_ctx, value);
-            } else {
-                uneven::encode_bitwise(&mut coder, &mut enc_ctx, value);
-            }
+            encode_bitwise(&mut coder, &mut enc_ctx, value);
             assert_eq!(
                 enc_ctx, ref_ctx,
                 "bitwise encode must adapt like the reference for value {value}"
@@ -891,11 +905,7 @@ mod tests {
             let bytes = coder.into_vec();
             let mut decoder = crate::v2::arith::Decoder::new(&bytes);
             let mut dec_ctx = contexts;
-            let decoded = if (MAX + 1).is_power_of_two() {
-                complete::decode_bitwise(&mut decoder, &mut dec_ctx)
-            } else {
-                uneven::decode_bitwise(&mut decoder, &mut dec_ctx)
-            };
+            let decoded = decode_bitwise(&mut decoder, &mut dec_ctx);
             assert_eq!(decoded, value);
             assert_eq!(
                 dec_ctx, ref_ctx,
@@ -1062,6 +1072,61 @@ mod tests {
         check_walk_round_trips::<9>();
         check_walk_round_trips::<255>();
         check_walk_round_trips::<256>();
+    }
+
+    /// [`check_walk_round_trips`] drives everything through `Range`, so it
+    /// never exercises `Ans`'s decode path or the public
+    /// `encode_atmost_batch`/`decode_atmost_batch` methods the shootout
+    /// benchmark uses (previously only covered by the benchmark itself,
+    /// which doesn't run in CI). This round-trips a whole batch — forward
+    /// then reversed, so the adaptive contexts see real movement — through
+    /// both coders' batch methods for every applicable walk.
+    fn check_batch_round_trips<const MAX: usize, const WHICH_WALK: usize>() {
+        if !WALKS[WHICH_WALK].applies_to::<MAX>() {
+            return;
+        }
+        let values: Vec<AtMost<MAX>> = (0..=MAX).chain((0..=MAX).rev()).map(AtMost::new).collect();
+
+        let ans_bytes = crate::v2::Ans::encode_atmost_batch::<MAX, WHICH_WALK>(&values);
+        let ans_decoded =
+            crate::v2::Ans::decode_atmost_batch::<MAX, WHICH_WALK>(&ans_bytes, values.len());
+        assert_eq!(
+            ans_decoded, values,
+            "Ans batch round-trip failed for MAX={MAX}, {:?}",
+            WALKS[WHICH_WALK]
+        );
+
+        let range_bytes = crate::v2::Range::encode_atmost_batch::<MAX, WHICH_WALK>(&values);
+        let range_decoded =
+            crate::v2::Range::decode_atmost_batch::<MAX, WHICH_WALK>(&range_bytes, values.len());
+        assert_eq!(
+            range_decoded, values,
+            "Range batch round-trip failed for MAX={MAX}, {:?}",
+            WALKS[WHICH_WALK]
+        );
+    }
+
+    #[test]
+    fn every_applicable_walk_batch_round_trips() {
+        macro_rules! check_all_walks {
+            ($max:expr) => {
+                check_batch_round_trips::<$max, 0>();
+                check_batch_round_trips::<$max, 1>();
+                check_batch_round_trips::<$max, 2>();
+                check_batch_round_trips::<$max, 3>();
+                check_batch_round_trips::<$max, 4>();
+                check_batch_round_trips::<$max, 5>();
+            };
+        }
+        check_all_walks!(0);
+        check_all_walks!(1);
+        check_all_walks!(2);
+        check_all_walks!(3);
+        check_all_walks!(7);
+        check_all_walks!(8);
+        check_all_walks!(9);
+        check_all_walks!(255);
+        check_all_walks!(256);
     }
 
     #[test]

@@ -574,18 +574,37 @@ now fixed with the same early-return `uneven::from_slot_speculating` already
 had.
 
 `benches/atmost.rs` (`cargo bench --bench atmost`) times every
-(coder × `MAX` × applicable `Walk`) for encode and decode via new
-`#[doc(hidden)]` `Range`/`Ans::{encode,decode}_atmost_batch::<MAX,
-WHICH_WALK>` methods (`WHICH_WALK` is a `const` generic indexing the
-`WALKS` array, so each forced walk is still branch-free — no runtime `Walk`
-dispatch anywhere, benchmark included), and marks the walk `Walk::production`
-currently picks. One run on this (noisy) machine: most production choices
-land at/near the fastest option as expected, but `Range`'s
-`UnevenSpeculating` decode measured *slower* than plain `Uneven` at
-`MAX = 64` and `MAX = 128` specifically (other uneven `MAX` favored
-speculating as expected) — single run, not confirmed across quiesced A/B, but
-worth re-checking with `bench-quiet.sh` before trusting `SPECULATE_MIN_MAX`
-at those counts.
+(coder × `MAX` × applicable `Walk`) for decode, and once per *distinct*
+encode implementation (`Walk::encode_with` maps a speculating walk to its
+plain twin, since they share one encode body — timing both would just be two
+noisy samples of the same code), via new `#[doc(hidden)]`
+`Range`/`Ans::{encode,decode}_atmost_batch::<MAX, WHICH_WALK>` methods
+(`WHICH_WALK` is a `const` generic indexing the `WALKS` array, so each forced
+walk is still branch-free — no runtime `Walk` dispatch anywhere, benchmark
+included), and marks the walk `Walk::production` currently picks. A walk
+that beats production's choice by ≥5% on the initial sweep is only
+*nominated*; it's re-timed against production 3 more times, alternating
+measurement order each round (cancels monotonic drift/thermal bias), and
+only reported as a confirmed finding if it wins every round with a ≥5%
+median margin — replacing an earlier version of this tool that reported any
+single-sample ≥10% gap directly, which couldn't tell a real effect from
+run-to-run noise.
+
+One full run's confirmed findings (single process, 3 in-process alternated
+rounds each — not yet cross-checked with `bench-quiet.sh` across separate
+invocations): `Range`'s `UnevenSpeculating` decode reproducibly *slower*
+than plain `Uneven` at `MAX` = 64, 128, 256, and 512 (18–23% slower) — the
+specific case the original version of this tool flagged at 64/128 on a
+single sample, now confirmed and widened. More surprising: at several `MAX`
+(3000, 4095, and the small power-of-two counts 7/15/31/63/127/255) `Ans`
+decode via the historical per-bit `*Bitwise` walk reproducibly *beat* the
+whole-symbol walk it's meant to replace by 20–36% — e.g. `MAX=4095`:
+`CompleteSpeculating` 186.8ns vs `CompleteBitwise` 123.5ns. That's enough
+walks and enough margin to not be a fluke of this run, but it contradicts
+the whole-symbol design's premise (one entropy-coder renormalization per
+symbol vs. one per bit), so it needs cross-process/quiesced confirmation and
+some investigation into *why* before anyone considers changing
+`Walk::production` on the strength of it.
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
