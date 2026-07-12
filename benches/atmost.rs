@@ -1,6 +1,7 @@
 //! Shootout benchmark for `AtMost<MAX>` tree-walk strategies.
 //!
-//! Times every coder (`Ans`, `Range`) x value count (`MAX`) x applicable
+//! Times every distribution ([`Dist`]) x coder (`Ans`, `Range`) x value
+//! count (`MAX`) x applicable
 //! [`Walk`] for decode, and once per *distinct* encode implementation (a
 //! speculating walk shares its plain twin's encode body — see
 //! [`Walk::encode_with`] — so timing it a second time would just be two
@@ -11,20 +12,26 @@
 //! given `MAX` is marked with `*`; an encode row a walk shares with another
 //! (a speculating variant) prints `-` instead of a duplicate measurement.
 //!
-//! A walk that beats `Walk::production`'s choice on the initial sweep is
-//! only *nominated* (see [`NOMINATE_FRACTION`]), then re-timed against
-//! production [`CONFIRM_ROUNDS`] times, alternating which walk is measured
-//! first each round, before being reported as a confirmed finding — this
+//! A walk that beats `Walk::production`'s choice on the initial sweep of
+//! *either* distribution is only *nominated* (see [`NOMINATE_FRACTION`]),
+//! then re-timed against production [`CONFIRM_ROUNDS`] times per swept
+//! distribution, alternating which walk is measured first each round — this
 //! filters out what could otherwise have been a one-off noisy sample on this
-//! (often unquiesced) machine. See `bench-quiet.sh` in the repo root for a
-//! quieter setup.
+//! (often unquiesced) machine. Each confirmed finding reports its range of
+//! median margins across the distributions, so a walk that only wins on one
+//! kind of data shows up as a lopsided (or partly negative) range rather
+//! than as a clean win. See `bench-quiet.sh` in the repo root for a quieter
+//! setup.
 //!
 //! Uses the `#[doc(hidden)]` `encode_atmost_batch`/`decode_atmost_batch`
 //! benchmark-support methods on `Range`/`Ans`, which force a specific `Walk`
 //! (by indexing `WALKS` with a `const WHICH_WALK` generic) instead of going
 //! through `Walk::production`.
 //!
-//! Run with `cargo bench --bench atmost`.
+//! Run with `cargo bench --bench atmost`. Sweeps both [`Dist`]ributions by
+//! default; set `ATMOST_DIST=uniform` or `ATMOST_DIST=skewed` to sweep just
+//! one (halves the runtime, and lets separate quiesced processes measure the
+//! two distributions independently).
 
 use compactly::v2::{Ans, AtMost, Range, Walk, WALKS};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
@@ -44,6 +51,36 @@ const fn n_values(max: usize) -> usize {
     }
 }
 
+/// How the benchmark values are distributed over `0..=MAX`. The walks'
+/// relative speed depends on the data: uniform values keep every context at
+/// 50/50 (no adaptation, maximum entropy) and make the walk path
+/// branch-unpredictable — the best case for the latency-hiding speculating
+/// walks — while production data (string bytes, length buckets, enum
+/// discriminants) concentrates on a few values, so contexts adapt hard and
+/// the hardware branch predictor learns the walk path on its own. A finding
+/// is only trustworthy if it holds on the distribution shaped like the
+/// workload it would affect.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Dist {
+    Uniform,
+    /// `floor((MAX + 1) * u^8)` for uniform `u`: value 0 takes ~50% of the
+    /// mass at `MAX = 255` (like a dominant char or enum variant), with a
+    /// heavy tail that still reaches every value.
+    Skewed,
+}
+
+impl Dist {
+    fn sample<const MAX: usize>(self, rng: &mut SmallRng) -> AtMost<MAX> {
+        AtMost::new(match self {
+            Dist::Uniform => rng.gen_range(0..=MAX),
+            Dist::Skewed => {
+                let u: f64 = rng.gen();
+                (((MAX + 1) as f64 * u.powi(8)) as usize).min(MAX)
+            }
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Timing {
     /// `None` for a walk whose encode implementation is shared with another
@@ -53,22 +90,21 @@ struct Timing {
     decode_ns: f64,
 }
 
-fn gen_values<const MAX: usize>(rng: &mut SmallRng, n: usize) -> Vec<AtMost<MAX>> {
-    (0..n)
-        .map(|_| AtMost::new(rng.gen_range(0..=MAX)))
-        .collect()
+fn gen_values<const MAX: usize>(dist: Dist, rng: &mut SmallRng, n: usize) -> Vec<AtMost<MAX>> {
+    (0..n).map(|_| dist.sample::<MAX>(rng)).collect()
 }
 
 /// Time one encode function, in ns/value. A fresh batch is generated for
 /// every timed iteration (untimed by `bench_gen_env`), so branch prediction
 /// can't learn a fixed sequence.
 fn bench_encode<const MAX: usize>(
+    dist: Dist,
     rng: &mut SmallRng,
     encode: fn(&[AtMost<MAX>]) -> Vec<u8>,
 ) -> f64 {
     let n = n_values(MAX);
     bench_gen_env(
-        || gen_values::<MAX>(rng, n),
+        || gen_values::<MAX>(dist, rng, n),
         |values: &mut Vec<AtMost<MAX>>| encode(values.as_slice()),
     )
     .ns_per_iter
@@ -78,6 +114,7 @@ fn bench_encode<const MAX: usize>(
 /// Time one decode function, in ns/value. Every decode is checked to
 /// round-trip.
 fn bench_decode<const MAX: usize>(
+    dist: Dist,
     rng: &mut SmallRng,
     encode: fn(&[AtMost<MAX>]) -> Vec<u8>,
     decode: fn(&[u8], usize) -> Vec<AtMost<MAX>>,
@@ -85,7 +122,7 @@ fn bench_decode<const MAX: usize>(
     let n = n_values(MAX);
     bench_gen_env(
         || {
-            let values = gen_values::<MAX>(rng, n);
+            let values = gen_values::<MAX>(dist, rng, n);
             let bytes = encode(&values);
             (values, bytes)
         },
@@ -105,6 +142,7 @@ fn bench_decode<const MAX: usize>(
 /// [`Walk::encode_with`] — a speculating walk shares its plain twin's encode
 /// body, so timing it separately would just double-count the same code.
 fn bench_walk<const MAX: usize, const WHICH_WALK: usize>(
+    dist: Dist,
     rng: &mut SmallRng,
 ) -> Option<(Walk, Timing, Timing)> {
     let walk = WALKS[WHICH_WALK];
@@ -112,16 +150,18 @@ fn bench_walk<const MAX: usize, const WHICH_WALK: usize>(
         return None;
     }
     let time_encode = walk.encode_with() == walk;
-    let ans_encode_ns =
-        time_encode.then(|| bench_encode::<MAX>(rng, Ans::encode_atmost_batch::<MAX, WHICH_WALK>));
+    let ans_encode_ns = time_encode
+        .then(|| bench_encode::<MAX>(dist, rng, Ans::encode_atmost_batch::<MAX, WHICH_WALK>));
     let ans_decode_ns = bench_decode::<MAX>(
+        dist,
         rng,
         Ans::encode_atmost_batch::<MAX, WHICH_WALK>,
         Ans::decode_atmost_batch::<MAX, WHICH_WALK>,
     );
     let range_encode_ns = time_encode
-        .then(|| bench_encode::<MAX>(rng, Range::encode_atmost_batch::<MAX, WHICH_WALK>));
+        .then(|| bench_encode::<MAX>(dist, rng, Range::encode_atmost_batch::<MAX, WHICH_WALK>));
     let range_decode_ns = bench_decode::<MAX>(
+        dist,
         rng,
         Range::encode_atmost_batch::<MAX, WHICH_WALK>,
         Range::decode_atmost_batch::<MAX, WHICH_WALK>,
@@ -139,24 +179,36 @@ fn bench_walk<const MAX: usize, const WHICH_WALK: usize>(
     ))
 }
 
+/// One distribution's initial-sweep timings for a (production, challenger)
+/// pair.
+#[derive(Clone, Copy)]
+struct DistMargin {
+    dist: Dist,
+    production_ns: f64,
+    better_ns: f64,
+}
+
+impl DistMargin {
+    /// Fraction by which the challenger beat production (negative if it
+    /// lost).
+    fn margin(&self) -> f64 {
+        (self.production_ns - self.better_ns) / self.production_ns
+    }
+}
+
 /// One walk that beat production's choice by at least [`NOMINATE_FRACTION`]
-/// on the initial (single-sample) sweep — a *candidate*, not yet a confirmed
-/// finding; see [`confirm_finding`].
+/// on the initial (single-sample) sweep of at least one distribution — a
+/// *candidate*, not yet a confirmed finding; see [`confirm_finding`].
+/// `sweep` holds the pair's timings on *every* swept distribution, so the
+/// confirmation pass can report the full cross-distribution range.
 #[derive(Clone)]
 struct Finding {
     max: usize,
     coder: &'static str,
     metric: &'static str,
     production: Walk,
-    production_ns: f64,
     better: Walk,
-    better_ns: f64,
-}
-
-impl Finding {
-    fn pct_faster(&self) -> f64 {
-        100.0 * (self.production_ns - self.better_ns) / self.production_ns
-    }
+    sweep: Vec<DistMargin>,
 }
 
 /// A walk is *nominated* if it beats production's choice by at least this
@@ -167,49 +219,67 @@ impl Finding {
 /// eagerly costs a few extra reruns rather than a false result.
 const NOMINATE_FRACTION: f64 = 0.05;
 
-/// Time and print every applicable [`Walk`] for one `MAX`, appending a
-/// [`Finding`] for each (coder, metric) where some walk beats the one
-/// [`Walk::production`] actually picked by at least [`NOMINATE_FRACTION`].
-fn bench_one_max<const MAX: usize>(rng: &mut SmallRng, findings: &mut Vec<Finding>) {
-    println!("\nMAX = {MAX} (values 0..={MAX}, {} possible)", MAX + 1);
-    println!(
-        "{:<22} {:>11} {:>11}   {:>11} {:>11}",
-        "walk", "ans enc", "ans dec", "range enc", "range dec"
-    );
-
-    let mut results: Vec<(Walk, Timing, Timing)> = Vec::new();
-    collect_walk::<MAX, 0>(rng, &mut results);
-    collect_walk::<MAX, 1>(rng, &mut results);
-    collect_walk::<MAX, 2>(rng, &mut results);
-    collect_walk::<MAX, 3>(rng, &mut results);
-    collect_walk::<MAX, 4>(rng, &mut results);
-    collect_walk::<MAX, 5>(rng, &mut results);
-
+/// Time and print every applicable [`Walk`] for one `MAX` on every swept
+/// distribution, appending a [`Finding`] for each (coder, metric, walk)
+/// where the walk beats the one [`Walk::production`] actually picked by at
+/// least [`NOMINATE_FRACTION`] on at least one distribution.
+fn bench_one_max<const MAX: usize>(dists: &[Dist], findings: &mut Vec<Finding>) {
     let ans_production = Walk::production::<MAX>(Ans::SPECULATES);
     let range_production = Walk::production::<MAX>(Range::SPECULATES);
 
-    for (walk, ans, range) in &results {
+    let mut ans_by_dist: Vec<(Dist, Vec<(Walk, Timing)>)> = Vec::new();
+    let mut range_by_dist: Vec<(Dist, Vec<(Walk, Timing)>)> = Vec::new();
+    for &dist in dists {
+        let mut rng = SmallRng::seed_from_u64(sweep_seed(MAX, dist));
+        println!(
+            "\nMAX = {MAX} (values 0..={MAX}, {} possible), {dist:?}",
+            MAX + 1
+        );
         println!(
             "{:<22} {:>11} {:>11}   {:>11} {:>11}",
-            format!("{walk:?}"),
-            fmt_ns(
-                ans_production.map(Walk::encode_with) == Some(*walk),
-                ans.encode_ns
-            ),
-            fmt_ns(ans_production == Some(*walk), Some(ans.decode_ns)),
-            fmt_ns(
-                range_production.map(Walk::encode_with) == Some(*walk),
-                range.encode_ns
-            ),
-            fmt_ns(range_production == Some(*walk), Some(range.decode_ns)),
+            "walk", "ans enc", "ans dec", "range enc", "range dec"
         );
+
+        let mut results: Vec<(Walk, Timing, Timing)> = Vec::new();
+        collect_walk::<MAX, 0>(dist, &mut rng, &mut results);
+        collect_walk::<MAX, 1>(dist, &mut rng, &mut results);
+        collect_walk::<MAX, 2>(dist, &mut rng, &mut results);
+        collect_walk::<MAX, 3>(dist, &mut rng, &mut results);
+        collect_walk::<MAX, 4>(dist, &mut rng, &mut results);
+        collect_walk::<MAX, 5>(dist, &mut rng, &mut results);
+
+        for (walk, ans, range) in &results {
+            println!(
+                "{:<22} {:>11} {:>11}   {:>11} {:>11}",
+                format!("{walk:?}"),
+                fmt_ns(
+                    ans_production.map(Walk::encode_with) == Some(*walk),
+                    ans.encode_ns
+                ),
+                fmt_ns(ans_production == Some(*walk), Some(ans.decode_ns)),
+                fmt_ns(
+                    range_production.map(Walk::encode_with) == Some(*walk),
+                    range.encode_ns
+                ),
+                fmt_ns(range_production == Some(*walk), Some(range.decode_ns)),
+            );
+        }
+
+        ans_by_dist.push((dist, results.iter().map(|(w, ans, _)| (*w, *ans)).collect()));
+        range_by_dist.push((
+            dist,
+            results.iter().map(|(w, _, range)| (*w, *range)).collect(),
+        ));
     }
 
-    let ans_timings: Vec<(Walk, Timing)> = results.iter().map(|(w, ans, _)| (*w, *ans)).collect();
-    let range_timings: Vec<(Walk, Timing)> =
-        results.iter().map(|(w, _, range)| (*w, *range)).collect();
-    record_findings::<MAX>("ans", ans_production, &ans_timings, findings);
-    record_findings::<MAX>("range", range_production, &range_timings, findings);
+    record_findings::<MAX>("ans", ans_production, &ans_by_dist, findings);
+    record_findings::<MAX>("range", range_production, &range_by_dist, findings);
+}
+
+/// Deterministic per-(`MAX`, distribution) seed for the initial sweep, so a
+/// rerun reproduces the same value batches.
+fn sweep_seed(max: usize, dist: Dist) -> u64 {
+    0xC0FFEE ^ max as u64 ^ ((dist as u64) << 32)
 }
 
 /// Render one table cell: `-` when there's no measurement (a shared encode
@@ -225,77 +295,102 @@ fn fmt_ns(marked: bool, ns: Option<f64>) -> String {
 /// `WHICH_WALK` must be a `const` generic (not a runtime loop variable), so
 /// callers unroll the six indices into [`WALKS`] explicitly.
 fn collect_walk<const MAX: usize, const WHICH_WALK: usize>(
+    dist: Dist,
     rng: &mut SmallRng,
     results: &mut Vec<(Walk, Timing, Timing)>,
 ) {
-    if let Some(result) = bench_walk::<MAX, WHICH_WALK>(rng) {
+    if let Some(result) = bench_walk::<MAX, WHICH_WALK>(dist, rng) {
         results.push(result);
     }
 }
 
-/// For one coder's walk timings, nominate a decode finding (comparing every
-/// walk's decode) and an encode finding (comparing only the walks that
-/// actually timed an encode — see [`Timing::encode_ns`] — against
+/// For one coder's per-distribution walk timings, nominate decode findings
+/// (comparing every walk's decode) and encode findings (comparing only the
+/// walks that actually timed an encode — see [`Timing::encode_ns`] — against
 /// `production`'s canonical encode walk, [`Walk::encode_with`]).
 fn record_findings<const MAX: usize>(
     coder: &'static str,
     production: Option<Walk>,
-    timings: &[(Walk, Timing)],
+    per_dist: &[(Dist, Vec<(Walk, Timing)>)],
     findings: &mut Vec<Finding>,
 ) {
     let Some(production) = production else {
         return;
     };
-    record_metric::<MAX>(
-        coder,
-        "decode",
-        production,
-        timings.iter().map(|(w, t)| (*w, t.decode_ns)),
-        findings,
-    );
-    record_metric::<MAX>(
-        coder,
-        "encode",
-        production.encode_with(),
-        timings
-            .iter()
-            .filter_map(|(w, t)| t.encode_ns.map(|ns| (*w, ns))),
-        findings,
-    );
+    let decode: Vec<(Dist, Vec<(Walk, f64)>)> = per_dist
+        .iter()
+        .map(|(dist, timings)| {
+            (
+                *dist,
+                timings.iter().map(|(w, t)| (*w, t.decode_ns)).collect(),
+            )
+        })
+        .collect();
+    record_metric::<MAX>(coder, "decode", production, &decode, findings);
+    let encode: Vec<(Dist, Vec<(Walk, f64)>)> = per_dist
+        .iter()
+        .map(|(dist, timings)| {
+            (
+                *dist,
+                timings
+                    .iter()
+                    .filter_map(|(w, t)| t.encode_ns.map(|ns| (*w, ns)))
+                    .collect(),
+            )
+        })
+        .collect();
+    record_metric::<MAX>(coder, "encode", production.encode_with(), &encode, findings);
 }
 
-/// Find the fastest walk in `metrics` and, if it isn't `production` and beats
-/// it by at least [`NOMINATE_FRACTION`], append a [`Finding`].
+/// Find each distribution's fastest walk and, for every one that isn't
+/// `production` and beats it by at least [`NOMINATE_FRACTION`] on its
+/// nominating distribution, append one [`Finding`] carrying the pair's
+/// sweep timings on *all* distributions (so the summary can report the
+/// cross-distribution range).
 fn record_metric<const MAX: usize>(
     coder: &'static str,
     metric: &'static str,
     production: Walk,
-    metrics: impl Iterator<Item = (Walk, f64)>,
+    per_dist: &[(Dist, Vec<(Walk, f64)>)],
     findings: &mut Vec<Finding>,
 ) {
-    let mut production_ns = None;
-    let mut best: Option<(Walk, f64)> = None;
-    for (walk, ns) in metrics {
-        if walk == production {
-            production_ns = Some(ns);
-        }
-        match &mut best {
-            Some((_, best_ns)) if *best_ns <= ns => {}
-            _ => best = Some((walk, ns)),
+    let ns_of = |timings: &[(Walk, f64)], walk: Walk| {
+        timings.iter().find(|(w, _)| *w == walk).map(|&(_, ns)| ns)
+    };
+    let mut challengers: Vec<Walk> = Vec::new();
+    for (_, timings) in per_dist {
+        let Some(production_ns) = ns_of(timings, production) else {
+            continue;
+        };
+        let Some(&(best_walk, best_ns)) = timings.iter().min_by(|(_, a), (_, b)| a.total_cmp(b))
+        else {
+            continue;
+        };
+        if best_walk != production
+            && best_ns < production_ns * (1.0 - NOMINATE_FRACTION)
+            && !challengers.contains(&best_walk)
+        {
+            challengers.push(best_walk);
         }
     }
-    let (Some(production_ns), Some((best_walk, best_ns))) = (production_ns, best) else {
-        return;
-    };
-    if best_walk != production && best_ns < production_ns * (1.0 - NOMINATE_FRACTION) {
+    for better in challengers {
+        let sweep: Vec<DistMargin> = per_dist
+            .iter()
+            .filter_map(|(dist, timings)| {
+                Some(DistMargin {
+                    dist: *dist,
+                    production_ns: ns_of(timings, production)?,
+                    better_ns: ns_of(timings, better)?,
+                })
+            })
+            .collect();
         findings.push(Finding {
             max: MAX,
             coder,
             metric,
             production,
-            production_ns,
-            better: best_walk,
-            better_ns: best_ns,
+            better,
+            sweep,
         });
     }
 }
@@ -309,7 +404,12 @@ fn record_metric<const MAX: usize>(
 /// Power-of-two boundaries (1, 3, 7, 15, 31, 63, 127 are MAX+1 == power of
 /// two) and the `SPECULATE_MIN_MAX = 3` cutoff are covered on both sides;
 /// coverage above 512 is sparse and non-power-of-two (plus one large power
-/// of two, 2048). `AtMostContext::<MAX>`'s compile-time context seeding is
+/// of two, 2048). The cluster at 33/34/40/48 brackets the uneven tree's
+/// worst-case-depth step from 6 to 7 (`tree_depth(35)` is the first 7), where
+/// a 2026-07-12 quiesced run showed Range's `UnevenSpeculating` decode
+/// flipping from winner (MAX <= 32) to 19-24% loser (MAX = 64..=512) — the
+/// speculating walk's unroll grows with worst-case depth, so these points
+/// test whether the flip follows the depth step or the value count. `AtMostContext::<MAX>`'s compile-time context seeding is
 /// `O(MAX)` tree nodes, which trips rustc's `long_running_const_eval` lint
 /// (deny by default) somewhere around `MAX ~ 4200` — well short of
 /// `SymbolRange::M` (65536) — so 4095 is the practical ceiling for
@@ -329,6 +429,10 @@ macro_rules! for_each_max {
         $mac!(17, $($arg),*);
         $mac!(31, $($arg),*);
         $mac!(32, $($arg),*);
+        $mac!(33, $($arg),*);
+        $mac!(34, $($arg),*);
+        $mac!(40, $($arg),*);
+        $mac!(48, $($arg),*);
         $mac!(63, $($arg),*);
         $mac!(64, $($arg),*);
         $mac!(127, $($arg),*);
@@ -350,15 +454,23 @@ macro_rules! for_each_max {
 /// reported as a confirmed finding rather than possible noise.
 const CONFIRM_ROUNDS: usize = 3;
 
-enum Confirmation {
-    Confirmed { median_margin: f64 },
-    NotReproduced,
+/// The rerun verdict for one distribution of a nominated pair.
+struct DistConfirmation {
+    dist: Dist,
+    /// Median signed margin across the rerun rounds (negative: the
+    /// challenger lost).
+    median_margin: f64,
+    /// The challenger won every round with a median of at least
+    /// [`NOMINATE_FRACTION`] — the same bar the old single-distribution
+    /// confirmation used.
+    reproduced: bool,
 }
 
 /// Time a single (coder, metric, walk) combination once, `which_walk` being
 /// a runtime index into [`WALKS`] dispatched to the `const` generic via a
 /// `0..6` match (the const generic can't take a runtime value directly).
 fn time_one<const MAX: usize>(
+    dist: Dist,
     rng: &mut SmallRng,
     coder: &'static str,
     metric: &'static str,
@@ -368,17 +480,19 @@ fn time_one<const MAX: usize>(
         ($which:expr) => {
             match (coder, metric) {
                 ("ans", "encode") => {
-                    bench_encode::<MAX>(rng, Ans::encode_atmost_batch::<MAX, $which>)
+                    bench_encode::<MAX>(dist, rng, Ans::encode_atmost_batch::<MAX, $which>)
                 }
                 ("ans", "decode") => bench_decode::<MAX>(
+                    dist,
                     rng,
                     Ans::encode_atmost_batch::<MAX, $which>,
                     Ans::decode_atmost_batch::<MAX, $which>,
                 ),
                 ("range", "encode") => {
-                    bench_encode::<MAX>(rng, Range::encode_atmost_batch::<MAX, $which>)
+                    bench_encode::<MAX>(dist, rng, Range::encode_atmost_batch::<MAX, $which>)
                 }
                 ("range", "decode") => bench_decode::<MAX>(
+                    dist,
                     rng,
                     Range::encode_atmost_batch::<MAX, $which>,
                     Range::decode_atmost_batch::<MAX, $which>,
@@ -399,10 +513,14 @@ fn time_one<const MAX: usize>(
 }
 
 /// Re-time `finding`'s (production, challenger) pair [`CONFIRM_ROUNDS`]
-/// times, alternating measurement order each round. Confirmed iff the
-/// challenger wins every round; the reported margin is the median across
-/// rounds.
-fn confirm_finding_at<const MAX: usize>(rng: &mut SmallRng, finding: &Finding) -> Confirmation {
+/// times on every distribution the sweep covered, alternating measurement
+/// order each round. Every distribution's median (signed) margin is
+/// reported, so the summary can show the full cross-distribution range even
+/// where the challenger lost.
+fn confirm_finding_at<const MAX: usize>(
+    rng: &mut SmallRng,
+    finding: &Finding,
+) -> Vec<DistConfirmation> {
     let production_idx = WALKS
         .iter()
         .position(|w| *w == finding.production)
@@ -411,35 +529,43 @@ fn confirm_finding_at<const MAX: usize>(rng: &mut SmallRng, finding: &Finding) -
         .iter()
         .position(|w| *w == finding.better)
         .expect("a Finding's challenger walk must be in WALKS");
-    let mut margins = Vec::with_capacity(CONFIRM_ROUNDS);
-    for round in 0..CONFIRM_ROUNDS {
-        let (production_ns, better_ns) = if round % 2 == 0 {
-            let p = time_one::<MAX>(rng, finding.coder, finding.metric, production_idx);
-            let b = time_one::<MAX>(rng, finding.coder, finding.metric, better_idx);
-            (p, b)
-        } else {
-            let b = time_one::<MAX>(rng, finding.coder, finding.metric, better_idx);
-            let p = time_one::<MAX>(rng, finding.coder, finding.metric, production_idx);
-            (p, b)
-        };
-        if better_ns >= production_ns {
-            return Confirmation::NotReproduced;
-        }
-        margins.push((production_ns - better_ns) / production_ns);
-    }
-    margins.sort_by(f64::total_cmp);
-    let median_margin = margins[margins.len() / 2];
-    if median_margin >= NOMINATE_FRACTION {
-        Confirmation::Confirmed { median_margin }
-    } else {
-        Confirmation::NotReproduced
-    }
+    finding
+        .sweep
+        .iter()
+        .map(|sweep| {
+            let dist = sweep.dist;
+            let mut won_every_round = true;
+            let mut margins = Vec::with_capacity(CONFIRM_ROUNDS);
+            for round in 0..CONFIRM_ROUNDS {
+                let (production_ns, better_ns) = if round % 2 == 0 {
+                    let p =
+                        time_one::<MAX>(dist, rng, finding.coder, finding.metric, production_idx);
+                    let b = time_one::<MAX>(dist, rng, finding.coder, finding.metric, better_idx);
+                    (p, b)
+                } else {
+                    let b = time_one::<MAX>(dist, rng, finding.coder, finding.metric, better_idx);
+                    let p =
+                        time_one::<MAX>(dist, rng, finding.coder, finding.metric, production_idx);
+                    (p, b)
+                };
+                won_every_round &= better_ns < production_ns;
+                margins.push((production_ns - better_ns) / production_ns);
+            }
+            margins.sort_by(f64::total_cmp);
+            let median_margin = margins[margins.len() / 2];
+            DistConfirmation {
+                dist,
+                median_margin,
+                reproduced: won_every_round && median_margin >= NOMINATE_FRACTION,
+            }
+        })
+        .collect()
 }
 
 /// Dispatch `finding.max` (a runtime value) back to the `const` generic
 /// [`confirm_finding_at`] expects, via [`for_each_max`]'s single literal
 /// list.
-fn confirm_finding(rng: &mut SmallRng, finding: &Finding) -> Confirmation {
+fn confirm_finding(rng: &mut SmallRng, finding: &Finding) -> Vec<DistConfirmation> {
     macro_rules! arm {
         ($max:literal, $rng:expr, $finding:expr) => {
             if $finding.max == $max {
@@ -451,22 +577,66 @@ fn confirm_finding(rng: &mut SmallRng, finding: &Finding) -> Confirmation {
     unreachable!("MAX {} not in the benched set", finding.max)
 }
 
-fn print_findings_summary(confirmed: &mut [(Finding, f64)], not_reproduced: &[Finding]) {
+/// Render per-distribution margins as an ascending range, e.g.
+/// `"19% (Uniform) .. 41% (Skewed)"` (a single-distribution run collapses to
+/// one entry). A `?` after the percentage marks a distribution where the
+/// rerun did not reproduce the win.
+fn fmt_margin_range(mut entries: Vec<(Dist, f64, bool)>) -> String {
+    entries.sort_by(|(_, a, _), (_, b, _)| a.total_cmp(b));
+    entries
+        .iter()
+        .map(|(dist, margin, reproduced)| {
+            format!(
+                "{:.0}%{} ({dist:?})",
+                margin * 100.0,
+                if *reproduced { "" } else { "?" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" .. ")
+}
+
+fn print_findings_summary(
+    confirmed: &mut [(Finding, Vec<DistConfirmation>)],
+    not_reproduced: &[(Finding, Vec<DistConfirmation>)],
+) {
     println!(
-        "\n=== Summary: confirmed findings (nominated at >= {:.0}%, reproduced across {CONFIRM_ROUNDS} alternated rerun rounds) ===",
+        "\n=== Summary: confirmed findings (nominated at >= {:.0}% on some distribution, \
+         reproduced across {CONFIRM_ROUNDS} alternated rerun rounds; margins are rerun \
+         medians, `?` marks a distribution that did not reproduce the win) ===",
         NOMINATE_FRACTION * 100.0,
     );
+    let rerun_range = |confirmations: &[DistConfirmation]| {
+        fmt_margin_range(
+            confirmations
+                .iter()
+                .map(|c| (c.dist, c.median_margin, c.reproduced))
+                .collect(),
+        )
+    };
     if confirmed.is_empty() {
         println!("(none confirmed)");
     } else {
-        confirmed.sort_by(|(a, a_margin), (b, b_margin)| {
-            a.coder.cmp(b.coder).then(b_margin.total_cmp(a_margin))
+        let best = |confirmations: &[DistConfirmation]| {
+            confirmations
+                .iter()
+                .map(|c| c.median_margin)
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        confirmed.sort_by(|(a, a_conf), (b, b_conf)| {
+            a.coder
+                .cmp(b.coder)
+                .then(best(b_conf).total_cmp(&best(a_conf)))
         });
-        for (f, margin) in confirmed.iter() {
+        for (f, confirmations) in confirmed.iter() {
             println!(
-                "MAX={:<6} {:<5} {:<6}: production {:?} ({:.1}ns) vs {:?} ({:.1}ns) — median {:.0}% faster over {CONFIRM_ROUNDS} alternated rounds",
-                f.max, f.coder, f.metric, f.production, f.production_ns, f.better, f.better_ns,
-                margin * 100.0,
+                "MAX={:<6} {:<5} {:<6}: production {:?} vs {:?} — faster by {}",
+                f.max,
+                f.coder,
+                f.metric,
+                f.production,
+                f.better,
+                rerun_range(confirmations),
             );
         }
     }
@@ -475,11 +645,18 @@ fn print_findings_summary(confirmed: &mut [(Finding, f64)], not_reproduced: &[Fi
             "\n--- nominated but not reproduced under rerun (likely noise): {} ---",
             not_reproduced.len()
         );
-        for f in not_reproduced {
+        for (f, confirmations) in not_reproduced {
+            let sweep_range =
+                fmt_margin_range(f.sweep.iter().map(|s| (s.dist, s.margin(), true)).collect());
             println!(
-                "MAX={:<6} {:<5} {:<6}: production {:?} ({:.1}ns) vs {:?} ({:.1}ns) — nominated {:.0}% faster on the initial sweep",
-                f.max, f.coder, f.metric, f.production, f.production_ns, f.better, f.better_ns,
-                f.pct_faster(),
+                "MAX={:<6} {:<5} {:<6}: production {:?} vs {:?} — sweep said {}, rerun said {}",
+                f.max,
+                f.coder,
+                f.metric,
+                f.production,
+                f.better,
+                sweep_range,
+                rerun_range(confirmations),
             );
         }
     }
@@ -493,23 +670,28 @@ fn main() {
     );
     let mut findings: Vec<Finding> = Vec::new();
     macro_rules! sweep {
-        ($max:literal, $findings:expr) => {{
+        ($max:literal, $dists:expr, $findings:expr) => {{
             const MAX: usize = $max;
-            let mut rng = SmallRng::seed_from_u64(0xC0FFEE ^ MAX as u64);
-            bench_one_max::<MAX>(&mut rng, $findings);
+            bench_one_max::<MAX>($dists, $findings);
         }};
     }
-    for_each_max!(sweep, &mut findings);
+    let dists: &[Dist] = match std::env::var("ATMOST_DIST").as_deref() {
+        Ok("uniform") => &[Dist::Uniform],
+        Ok("skewed") => &[Dist::Skewed],
+        Ok(other) => panic!("ATMOST_DIST must be `uniform` or `skewed`, not {other:?}"),
+        Err(_) => &[Dist::Uniform, Dist::Skewed],
+    };
+    for_each_max!(sweep, dists, &mut findings);
 
-    let mut confirmed: Vec<(Finding, f64)> = Vec::new();
-    let mut not_reproduced: Vec<Finding> = Vec::new();
+    let mut confirmed: Vec<(Finding, Vec<DistConfirmation>)> = Vec::new();
+    let mut not_reproduced: Vec<(Finding, Vec<DistConfirmation>)> = Vec::new();
     for finding in &findings {
         let mut rng = SmallRng::seed_from_u64(0xC0FFEE ^ finding.max as u64 ^ 0x5EED);
-        match confirm_finding(&mut rng, finding) {
-            Confirmation::Confirmed { median_margin } => {
-                confirmed.push((finding.clone(), median_margin))
-            }
-            Confirmation::NotReproduced => not_reproduced.push(finding.clone()),
+        let confirmations = confirm_finding(&mut rng, finding);
+        if confirmations.iter().any(|c| c.reproduced) {
+            confirmed.push((finding.clone(), confirmations));
+        } else {
+            not_reproduced.push((finding.clone(), confirmations));
         }
     }
     print_findings_summary(&mut confirmed, &not_reproduced);
