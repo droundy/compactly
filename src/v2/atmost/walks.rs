@@ -1,11 +1,11 @@
 //! The tree walks behind [`AtMost<MAX>`](super::AtMost): an implementation
-//! detail of `AtMost`, hidden behind the coder traits' `encode_atmost_tree`/
-//! `decode_atmost_tree` methods.
+//! detail of `AtMost`, hidden behind the coder traits' `encode_atmost`/
+//! `decode_atmost` methods.
 //!
-//! The `AtMost<MAX>` code (and through it `u8` / `UBits<N>`, whose
-//! power-of-two-count trees are the balanced special case) walks a binary
-//! search tree of adaptive [`BitContext`]s, historically paying one coder
-//! step (one renormalization) per bit. [`SymbolRange`] lets a coder pay a
+//! The `AtMost<MAX>` code (and through it `u8`, whose power-of-two-count
+//! tree is the balanced special case) walks a binary search tree of adaptive
+//! [`BitContext`]s, historically paying one coder step (one renormalization)
+//! per bit. [`SymbolRange`] lets a coder pay a
 //! *single* step for the whole symbol: the tree walk builds one cumulative
 //! sub-interval of the fixed total `M = 1 << 16`, touching and adapting
 //! exactly the same contexts in the same order as the per-bit walk, and the
@@ -43,8 +43,59 @@
 //! | [`complete::encode_bitwise`] / [`uneven::encode_bitwise`] (and decode twins) | the default `encode_atmost_tree`/`decode_atmost_tree`; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
-use super::super::model::SymbolRange;
+use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange, WalkStyle};
 use super::super::{EntropyCoder, EntropyDecoder};
+use super::{AtMost, AtMostContext};
+
+/// The whole-symbol `encode_atmost` shared by every [`SymbolCoder`]: the
+/// symbol/bitwise guards live here, exactly once. A single-valued
+/// `AtMost<0>` costs nothing; a value count beyond [`SymbolRange::M`] cannot
+/// give every leaf a slot, so it falls back to the per-bit walk; everything
+/// else is one tree walk plus one [`SymbolCoder::encode_symbol`] step.
+///
+/// `inline(always)`: this is a thin dispatch layer, and the walk must fuse
+/// into the coder's symbol step (measured +13% instructions on `AtMost<7>`
+/// decode when the compiler outlined the equivalent decode layer).
+#[inline(always)]
+pub(crate) fn encode_symbol_or_bitwise<C: SymbolCoder, const MAX: usize>(
+    coder: &mut C,
+    ctx: &mut AtMostContext<MAX>,
+    value: AtMost<MAX>,
+) {
+    let value = usize::from(value);
+    if MAX == 0 {
+        // Nothing to code: the one possible value carries no information.
+    } else if MAX >= SymbolRange::M as usize {
+        encode_bitwise(coder, &mut ctx.bits, value)
+    } else {
+        coder.encode_symbol(encode_walk(&mut ctx.bits, value))
+    }
+}
+
+/// The decode side of [`encode_symbol_or_bitwise`], with the same guards;
+/// the walk schedule comes from the coder's measured [`SymbolDecoder::WALK`]
+/// policy (const, so the branch folds away per coder). `inline(always)` as
+/// on the encode side.
+#[inline(always)]
+pub(crate) fn decode_symbol_or_bitwise<D: SymbolDecoder, const MAX: usize>(
+    reader: &mut D,
+    ctx: &mut AtMostContext<MAX>,
+) -> AtMost<MAX> {
+    let value = if MAX == 0 {
+        0
+    } else if MAX >= SymbolRange::M as usize {
+        decode_bitwise(reader, &mut ctx.bits)
+    } else {
+        let contexts = &mut ctx.bits;
+        reader.decode_symbol_step(|slot| match D::WALK {
+            WalkStyle::Plain => decode_walk(contexts, slot),
+            WalkStyle::Speculating => decode_walk_speculating(contexts, slot),
+        })
+    };
+    // Every walk returns a value in 0..=MAX by construction.
+    debug_assert!(value <= MAX);
+    AtMost(value)
+}
 
 /// Where the [`AtMost`](super::AtMost) binary-search tree cuts an
 /// interval of `i` possible values: the largest power of two below `i` (so
@@ -182,9 +233,7 @@ mod complete {
         let mut node = 0usize;
         for i in (0..n_bits).rev() {
             let bit = (value >> i) & 1 == 1;
-            let context = &mut contexts[node];
-            writer.encode_bit(context.probability(), bit);
-            *context = context.adapt(bit);
+            writer.encode_bit(&mut contexts[node], bit);
             node = (node << 1) + 1 + bit as usize;
         }
     }
@@ -376,9 +425,7 @@ mod uneven {
             let value_considered = half(possible_values_left);
             let split = accumulated_value + value_considered;
             let bit = value >= split;
-            let context = &mut contexts[split - 1];
-            writer.encode_bit(context.probability(), bit);
-            *context = context.adapt(bit);
+            writer.encode_bit(&mut contexts[split - 1], bit);
             if bit {
                 accumulated_value = split;
                 possible_values_left -= value_considered;
@@ -463,7 +510,7 @@ pub(crate) fn decode_walk_speculating<const MAX: usize>(
     }
 }
 
-/// Code one symbol bit-by-bit: the default `encode_atmost_tree`, and the
+/// Code one symbol bit-by-bit: the default `encode_atmost`, and the
 /// fallback the symbol coders use when the value count exceeds
 /// [`SymbolRange::M`] (a whole-symbol interval cannot give every leaf a slot
 /// then). Same trees and context indexing as [`encode_walk`].

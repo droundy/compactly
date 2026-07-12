@@ -506,6 +506,50 @@ the strings runs):
   instruction counts as layout noise, and use the forced-alignment rebuild
   to adjudicate before believing any delta there.**
 
+### v2 abstraction cleanup, Wave 2 (2026-07-11)
+
+Structural refactor, all bitstream-preserving (zero expect churn): `AtMost`
+became a first-class coder primitive (`encode_atmost`/`decode_atmost` taking
+`AtMostContext<MAX>`/`AtMost<MAX>`), the triplicated symbol/bitwise guards
+collapsed into one `walks::{encode,decode}_symbol_or_bitwise` behind the
+internal `SymbolCoder`/`SymbolDecoder` traits, `encode_bits` gained the
+context array so the coder adapts on both sides (mirror of `decode_bits`),
+and `UBits<N>` was deleted in favor of `AtMost<2^N − 1>`. A/B was
+wave-1-branch vs wave-2-branch, both `--release`, pinned core, min of 3,
+tightly interleaved.
+
+Real, instruction-backed wins (these are the point of the UBits removal —
+one fewer wrapper monomorphization and inlined `adapt` in the hot loops):
+
+- strings decode **Ans −5.96%** (−2.38% insns), **Range −4.70%** (−1.24%).
+- enums encode **Ans −4.78%** (−1.23% insns), **Range −2.77%** (cycles only).
+- strings encode **Ans −0.62%** (−0.58% insns); the hot `Vec<String>`
+  Sorted-encode loop lost 61 instructions including **5 calls**.
+
+Two adjudications worth recording:
+
+- **`inline(always)` on the dispatch layer is load-bearing.** With a plain
+  `#[inline]`, the compiler outlined `decode_symbol_or_bitwise` for the
+  `AtMost<7>` Ans path, costing +13% instructions / ~+8% cycles on that one
+  monomorphization (uless-8-ans). Forcing the inline restored fusion into the
+  coder's symbol step (instruction counts back to identical, delta −0.01%).
+  The uless ladder deltas that remained (uless-3 +2.05%/+0.94%, uless-8-ans
+  +1.77%) all had identical instruction counts and **collapsed under the
+  forced-alignment rebuild** (→ −0.31%, −0.43%, −0.01%): layout noise per the
+  rule above.
+- **`just-compress-strings range` shows +5.58% and it is NOT the coder.** It
+  is the one delta that did *not* collapse under forced alignment — but it is
+  construction noise, not a regression: the Range symbol-encode machine code
+  is byte-identical (wave-1 `write_symbol` == wave-2 `SymbolCoder::encode_symbol`,
+  399 insns each), the whole binary has **203 fewer** instructions, the hot
+  Sorted-encode function is **61 smaller**, and the **Ans twin of the exact
+  same workload is a −0.62% win**. A real coder regression would move the Ans
+  side too. This is the BTreeMap-insert/`memcmp`/`String` construction floor
+  (measured 4–6% between builds differing only in compactly code); on this
+  workload it is stable per binary-pair and forced-alignment does not fully
+  neutralize it, so instruction counts + the same-workload/other-coder
+  contrast are the tie-breakers, not the alignment rebuild.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 

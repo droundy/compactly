@@ -161,14 +161,14 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     type Context = AtMostContext<MAX>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_atmost_tree(&mut ctx.bits, self.0)
+        writer.encode_atmost(ctx, *self)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        Ok(Self(reader.decode_atmost_tree(&mut ctx.bits)))
+        Ok(reader.decode_atmost(ctx))
     }
 }
 
@@ -197,6 +197,28 @@ fn size() {
     test_urange::<254>();
     test_urange::<255>();
     test_urange::<256>();
+
+    // A power-of-two value count costs exactly log2(MAX + 1) bits for every
+    // value, at any adaptation state (each level's split is a plain learned
+    // probability over a balanced tree).
+    fn exact_bits<const MAX: usize>(bits: usize) {
+        for i in 0..=MAX {
+            let v = AtMost::<MAX>::new(i);
+            assert_eq!(
+                super::Encode::millibits(&v),
+                super::Millibits::bits(bits),
+                "AtMost::<{MAX}>::new({i}) should cost exactly {bits} bits"
+            );
+        }
+    }
+    exact_bits::<1>(1);
+    exact_bits::<3>(2);
+    exact_bits::<7>(3);
+    exact_bits::<15>(4);
+    exact_bits::<31>(5);
+    exact_bits::<63>(6);
+    exact_bits::<127>(7);
+    exact_bits::<255>(8);
 
     expect!["2"].assert_eq(&estimated_bits!(AtMost::<2>::try_from(0).unwrap()));
     expect!["2"].assert_eq(&estimated_bits!(AtMost::<2>::try_from(1).unwrap()));
