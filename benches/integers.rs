@@ -1,6 +1,7 @@
 use bincode::config::standard;
 use compactly::v2::{Ans, Range};
-use compactly::{Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
+use compactly::{Encoded, Gamma, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
+use rand::distributions::{Distribution, Standard};
 use rand::{Rng, SeedableRng};
 use scaling::bench_gen_env;
 
@@ -37,6 +38,64 @@ impl_log_uniform!(usize);
 
 fn gen_log_uniform_vec<T: LogUniform, R: Rng>(rng: &mut R, n: usize) -> Vec<T> {
     (0..n).map(|_| T::gen_log_uniform(rng)).collect()
+}
+
+// ---------- uniform (genuinely incompressible) data generation ----------
+//
+// Unlike `LogUniform` (which weights every bit-length bucket equally),
+// plain uniform bits weight large-magnitude buckets far more heavily —
+// this is the distribution `Gamma`'s seed is tuned for, and the one where
+// `Small`'s flat seed pays its ~log2(bits) extra fresh-context bits.
+
+fn gen_uniform_vec<T, R: Rng>(rng: &mut R, n: usize) -> Vec<T>
+where
+    Standard: Distribution<T>,
+{
+    (0..n).map(|_| rng.gen()).collect()
+}
+
+// ---------- skewed-small data generation ----------
+//
+// A true geometric distribution over bit-length (repeated Bernoulli trials
+// with "continue growing" probability `p`, capped at `bits`), then a
+// uniformly random value within that bit-length — i.e. most values are
+// small, with a long thin tail, unlike the single-repeated-constant worst
+// case below. `bit_length = 0` (probability `1-p`) means the value 0;
+// `bit_length = k` (probability `(1-p)*p^k`) means a value with its
+// highest set bit at position `k-1`, i.e. in `[2^(k-1), 2^k)`.
+
+trait SkewedSmall: Copy + Ord + 'static {
+    fn gen_skewed_small<R: Rng>(rng: &mut R, p: f64) -> Self;
+}
+
+macro_rules! impl_skewed_small {
+    ($T:ty) => {
+        impl SkewedSmall for $T {
+            fn gen_skewed_small<R: Rng>(rng: &mut R, p: f64) -> Self {
+                let bits = <$T>::BITS;
+                let mut bit_length = 0u32;
+                while bit_length < bits && rng.gen_bool(p) {
+                    bit_length += 1;
+                }
+                if bit_length == 0 {
+                    0
+                } else {
+                    let high_bit = (1 as $T) << (bit_length - 1);
+                    let mask = high_bit - 1;
+                    high_bit | (rng.gen::<$T>() & mask)
+                }
+            }
+        }
+    };
+}
+
+impl_skewed_small!(u16);
+impl_skewed_small!(u32);
+impl_skewed_small!(u64);
+impl_skewed_small!(usize);
+
+fn gen_skewed_small_vec<T: SkewedSmall, R: Rng>(rng: &mut R, n: usize, p: f64) -> Vec<T> {
+    (0..n).map(|_| T::gen_skewed_small(rng, p)).collect()
 }
 
 // ---------- benchmarking infrastructure ----------
@@ -129,6 +188,7 @@ macro_rules! add_compactly_algos {
     ($algos:ident, $T:ty) => {
         add_strategy!($algos, $T, "norm", Encoded<Vec<$T>, Values<Normal>>);
         add_strategy!($algos, $T, "sml", Encoded<Vec<$T>, Values<Small>>);
+        add_strategy!($algos, $T, "gma", Encoded<Vec<$T>, Values<Gamma>>);
         add_strategy!($algos, $T, "srt", Encoded<Vec<$T>, Values<Sorted>>);
         add_strategy!($algos, $T, "low", Encoded<Vec<$T>, LowCardinality>);
         add_strategy!($algos, $T, "inc", Encoded<Vec<$T>, Values<Incompressible>>);
@@ -145,10 +205,30 @@ macro_rules! benchmark_int_type {
             s.sort();
             s
         };
+        // Genuinely incompressible: the case Gamma's seed targets directly
+        // (goal: match Normal's ~bits-per-value cost, beat Small's).
+        let uniform_data: Vec<$T> = gen_uniform_vec(&mut $rng, N);
+        // Most values small with a long thin tail: the case that tests
+        // real-world adaptation speed, distinct from the constant-repeat
+        // worst case below.
+        let skewed_small_data: Vec<$T> = gen_skewed_small_vec(&mut $rng, N, 0.8);
+        // Worst case for Gamma: many repeats of one small constant, making
+        // the known fresh-cost trade-off (Gamma's prior is biased *away*
+        // from small values) visible at bench scale.
+        let repeated_small_data: Vec<$T> = vec![1 as $T; N];
 
         for (variant, data) in [
             (format!("u{bits} random ({N} values)"), &random_data),
             (format!("u{bits} sorted ({N} values)"), &sorted_data),
+            (format!("u{bits} uniform bits ({N} values)"), &uniform_data),
+            (
+                format!("u{bits} skewed small ({N} values)"),
+                &skewed_small_data,
+            ),
+            (
+                format!("u{bits} repeated small const ({N} values)"),
+                &repeated_small_data,
+            ),
         ] {
             let mut algos: Vec<Algo<$T>> = Vec::new();
 

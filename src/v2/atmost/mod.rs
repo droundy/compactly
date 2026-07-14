@@ -1,3 +1,4 @@
+pub(crate) mod geometric;
 pub(crate) mod walks;
 
 use super::bit_context::BitContext;

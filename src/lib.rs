@@ -141,6 +141,23 @@ pub struct Normal;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Small;
 
+/// EXPERIMENTAL: like [`Small`], but its internal "how many leading zero
+/// bits" sub-context is seeded to match a uniform-random-bits prior (an
+/// Elias-gamma-style prior) instead of `Small`'s flat, count-based prior. A
+/// *fresh* context costs about as many bits as [`Normal`] for an
+/// arbitrary/incompressible integer — `Small` costs several bits more,
+/// since its balanced-tree seed treats every bit-length as equally likely
+/// regardless of how likely each one actually is for a uniformly random
+/// value — while still sharing one adaptive tree across all magnitudes,
+/// unlike `Normal`'s independent per-bit-position contexts.
+///
+/// Hidden pending benchmark results validating it against `Small` and
+/// `Normal` on realistic data (see `benches/integers.rs`) — not yet part of
+/// the stable API surface.
+#[doc(hidden)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Gamma;
+
 /// A strategy for encoding values that are particularly compressible.
 ///
 /// For instance, this will attempt to apply Lz77-like encoding to strings.

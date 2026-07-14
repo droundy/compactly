@@ -1,6 +1,7 @@
-use super::atmost::AtMost;
+use super::atmost::geometric::geometric_seeded;
+use super::atmost::{AtMost, AtMostContext};
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
-use crate::{Incompressible, Sorted};
+use crate::{Gamma, Incompressible, Sorted};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -307,6 +308,53 @@ impl_compact!(u64, U64Compact, 64);
 impl_compact!(u32, U32Compact, 32);
 impl_compact!(u16, U16Compact, 16);
 
+// `Gamma`: reuses `Small`'s exact encode/decode logic (there is exactly one
+// compiled copy, called from both strategies) via a context that wraps
+// `Small`'s own context type and only overrides its `Default`, seeding the
+// leading-zero-count sub-context with `geometric_seeded` instead of the
+// flat, count-based `AtMostContext::SEEDED`. See `atmost::geometric` for
+// why: a fresh `Gamma` context costs close to `$bits` bits for an
+// arbitrary/incompressible value (matching `Normal`), rather than `Small`'s
+// flat `log2($bits)`-bits-extra fresh cost.
+macro_rules! impl_compact_geometric {
+    ($t:ident, $context:ident, $geo_context:ident, $bits:literal) => {
+        #[derive(Clone)]
+        pub struct $geo_context($context);
+
+        impl Default for $geo_context {
+            fn default() -> Self {
+                Self($context {
+                    leading_zeros: AtMostContext {
+                        bits: geometric_seeded::<{ $bits - 1 }>(),
+                    },
+                    lz_is_one: Default::default(),
+                    partial: [[Default::default(); 8]; $bits],
+                })
+            }
+        }
+
+        impl EncodingStrategy<$t> for Gamma {
+            type Context = $geo_context;
+            #[inline]
+            fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
+                Small::encode(value, writer, &mut ctx.0)
+            }
+            #[inline]
+            fn decode<D: EntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$t, std::io::Error> {
+                Small::decode(reader, &mut ctx.0)
+            }
+        }
+    };
+}
+
+impl_compact_geometric!(u128, U128Compact, U128GeoCompact, 128);
+impl_compact_geometric!(u64, U64Compact, U64GeoCompact, 64);
+impl_compact_geometric!(u32, U32Compact, U32GeoCompact, 32);
+impl_compact_geometric!(u16, U16Compact, U16GeoCompact, 16);
+
 #[test]
 fn compact_u16() {
     use super::estimated_bits;
@@ -359,6 +407,142 @@ fn compact_u32() {
             super::encode(&Encoded::<_, Small>::new(i)),
             super::encode_with(Small, &i)
         );
+    }
+}
+
+// expect-test needs each `expect![...]` on its own literal source line to
+// patch it via UPDATE_EXPECT, so (as with compact_u16/compact_u32 above)
+// these are hand-written per width rather than macro-generated.
+
+#[test]
+fn geometric_u16() {
+    use super::estimated_bits;
+    use crate::{Encoded, Gamma, Normal, Small};
+
+    // Goal: fresh cost for an arbitrary/incompressible value should be
+    // close to Normal's (16 bits), not Small's (which pays several extra
+    // bits for its flat, count-based seed).
+    expect!["17"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u16::MAX)));
+    expect!["16"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u16::MAX)));
+    expect!["20"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u16::MAX)));
+
+    // Known trade-off: a fresh Gamma context is seeded toward large
+    // magnitudes (the entropy-optimal prior for a uniform value), so 0/1
+    // should cost noticeably more than Small's flat seed. Recorded
+    // honestly, not asserted in a particular direction.
+    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u16)));
+    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u16)));
+    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u16)));
+    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u16)));
+
+    // Adapted regime: many repeats of one small value through a shared
+    // context, to see how quickly Gamma's adaptation catches up with
+    // Small's already-favorable starting point.
+    expect!["35"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u16); 19]));
+    expect!["17"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 19]));
+    expect!["61"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u16); 200]));
+    expect!["30"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 200]));
+
+    // Round-trip correctness across the small-value range, via both encode
+    // call paths (mirrors compact_u32's existing check).
+    for i in 0_u16..4096 {
+        assert_eq!(
+            super::encode(&Encoded::<_, Gamma>::new(i)),
+            super::encode_with(Gamma, &i)
+        );
+        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
+        let decoded = super::decode::<Encoded<u16, Gamma>>(&encoded).unwrap();
+        assert_eq!(decoded.value(), i);
+    }
+}
+
+#[test]
+fn geometric_u32() {
+    use super::estimated_bits;
+    use crate::{Encoded, Gamma, Normal, Small};
+
+    expect!["33"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u32::MAX)));
+    expect!["32"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u32::MAX)));
+    expect!["37"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u32::MAX)));
+
+    expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u32)));
+    expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u32)));
+    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u32)));
+    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u32)));
+
+    expect!["43"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u32); 19]));
+    expect!["21"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 19]));
+    expect!["75"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u32); 200]));
+    expect!["38"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 200]));
+
+    for i in 0_u32..4096 {
+        assert_eq!(
+            super::encode(&Encoded::<_, Gamma>::new(i)),
+            super::encode_with(Gamma, &i)
+        );
+        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
+        let decoded = super::decode::<Encoded<u32, Gamma>>(&encoded).unwrap();
+        assert_eq!(decoded.value(), i);
+    }
+}
+
+#[test]
+fn geometric_u64() {
+    use super::estimated_bits;
+    use crate::{Encoded, Gamma, Normal, Small};
+
+    expect!["66"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u64::MAX)));
+    expect!["64"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u64::MAX)));
+    expect!["70"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u64::MAX)));
+
+    expect!["10"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u64)));
+    expect!["10"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u64)));
+    expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u64)));
+    expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u64)));
+
+    expect!["51"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u64); 19]));
+    expect!["26"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u64); 19]));
+    expect!["88"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u64); 200]));
+    expect!["45"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u64); 200]));
+
+    for i in 0_u64..4096 {
+        assert_eq!(
+            super::encode(&Encoded::<_, Gamma>::new(i)),
+            super::encode_with(Gamma, &i)
+        );
+        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
+        let decoded = super::decode::<Encoded<u64, Gamma>>(&encoded).unwrap();
+        assert_eq!(decoded.value(), i);
+    }
+}
+
+#[test]
+fn geometric_u128() {
+    use super::estimated_bits;
+    use crate::{Encoded, Gamma, Normal, Small};
+
+    expect!["130"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u128::MAX)));
+    expect!["128"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u128::MAX)));
+    expect!["135"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u128::MAX)));
+
+    expect!["11"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u128)));
+    expect!["11"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u128)));
+    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u128)));
+    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u128)));
+
+    expect!["55"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u128); 19]));
+    expect!["30"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u128); 19]));
+    expect!["96"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u128); 200]));
+    expect!["53"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u128); 200]));
+
+    for i in 0_u128..4096 {
+        assert_eq!(
+            super::encode(&Encoded::<_, Gamma>::new(i)),
+            super::encode_with(Gamma, &i)
+        );
+        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
+        let decoded = super::decode::<Encoded<u128, Gamma>>(&encoded).unwrap();
+        assert_eq!(decoded.value(), i);
     }
 }
 
