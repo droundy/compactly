@@ -51,3 +51,15 @@ jobs:
             without opening new threads for issues already tracked in
             existing ones.
 
+            Finish with a summary comment. Use
+            `gh pr comment --edit-last --create-if-none` so there is
+            only ever one summary, updated in place on each push. It
+            must contain:
+
+            1. A short summary of what the PR does, plus a risk level
+               (low / medium / high) with a one-line justification.
+            2. "Remaining issues": a checkbox list with one item per
+               finding — "- [ ]" while open, "- [x]" once fixed —
+               covering both existing review threads and this review's
+               new findings. If nothing is open, say so.
+
