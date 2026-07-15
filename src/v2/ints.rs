@@ -258,8 +258,7 @@ macro_rules! impl_compact {
                     leading_zeros: AtMostContext {
                         bits: geometric_seeded::<{ $bits - 1 }>(),
                     },
-                    lz_is_one: Default::default(),
-                    partial: [[Default::default(); 8]; $bits],
+                    ..$context::default()
                 })
             }
         }
