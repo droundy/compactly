@@ -149,6 +149,38 @@ fn size_u128() {
     expect!["58"].assert_eq(&estimated_bits!([1_u128; 19]));
 }
 
+#[test]
+fn default_encoding_roundtrips_every_leading_zero_depth() {
+    // `compact_u32`'s dense `0..4096` loop only compares two encode paths
+    // (it never decodes) and only touches leading-zero counts near the
+    // top of the range. Round-trip one representative value per possible
+    // `leading_zeros()` count instead, through the actual default `Encode`
+    // (`super::encode`/`super::decode`, not `Encoded<_, Small>`) — this
+    // touches every leaf `geometric_seeded`'s stack walk produces, so a
+    // bug isolated to one split can't hide behind the point-probe tests.
+    macro_rules! check {
+        ($t:ty, $bits:literal) => {
+            for lz in 0..=$bits {
+                let v: $t = if lz == $bits {
+                    0
+                } else {
+                    1 << ($bits - 1 - lz)
+                };
+                assert_eq!(
+                    super::decode::<$t>(&super::encode(&v)),
+                    Some(v),
+                    "{}::leading_zeros() == {lz}",
+                    stringify!($t),
+                );
+            }
+        };
+    }
+    check!(u16, 16);
+    check!(u32, 32);
+    check!(u64, 64);
+    check!(u128, 128);
+}
+
 macro_rules! impl_compact {
     ($t:ident, $context:ident, $default_context:ident, $bits:literal) => {
         #[derive(Clone)]
