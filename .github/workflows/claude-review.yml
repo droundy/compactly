@@ -23,10 +23,12 @@ jobs:
 
       # claude-code-action is called directly (rather than via the
       # drillan/claude-pr-reviewer wrapper) so we control the whole prompt
-      # and can see Claude's output in the run log. In CI every tool call
-      # not matched by --allowedTools is silently denied, so the tool list
-      # must cover everything the prompt asks for: Task for the
-      # pr-review-toolkit agents, git for reading history, Write so the
+      # and its inputs — e.g. set show_full_output: true here when the
+      # review misbehaves, to get the full transcript in the run log. In CI
+      # every tool call not matched by --allowedTools is silently denied,
+      # so the tool list must cover everything the prompt asks for: Task
+      # for the pr-review-toolkit agents, git/cargo/python3 so the reviewer
+      # can read history and empirically verify findings, Write so the
       # comment body can go through --body-file instead of shell quoting
       # (command substitution in --body "$(...)" is auto-denied), and the
       # mcp__github_inline_comment tool, which claude-code-action only
@@ -34,14 +36,13 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          show_full_output: true
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git
           plugins: |
             pr-review-toolkit@claude-code-plugins
           claude_args: |
             --model claude-sonnet-5
-            --allowedTools "Task,Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob,Write,TodoWrite,mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Task,Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(cargo check:*),Bash(cargo build:*),Bash(cargo test:*),Bash(python3:*),Bash(cat:*),Bash(wc:*),Read,Grep,Glob,Write,TodoWrite,mcp__github_inline_comment__create_inline_comment"
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -60,6 +61,12 @@ jobs:
             Never end your turn before the summary comment below has been
             posted — if agents fail or time out, post the summary anyway
             with whatever findings you have.
+
+            You may run cargo (check/build/test) and python3 to verify
+            findings empirically. Put any scratch files inside the repo
+            checkout (writes elsewhere are blocked) and leave them there:
+            the runner is ephemeral and deleting files is blocked, so
+            cleanup attempts only waste turns.
 
             Before reviewing, list this PR's review threads:
 
