@@ -11,8 +11,17 @@ jobs:
   wait:
     runs-on: ubuntu-latest
     # The labeled trigger exists only for review-now; other labels don't
-    # start a review.
-    if: github.event.action != 'labeled' || github.event.label.name == 'review-now'
+    # start a review. While the avoid-review label is on the PR, pushes
+    # trigger no reviews at all (to conserve session credits) — except
+    # that explicitly adding review-now is an unambiguous request and
+    # overrides it for one review. Removing avoid-review does not itself
+    # trigger a review; the next push (or review-now) resumes reviews,
+    # incrementally covering everything since the last one.
+    if: >-
+      github.event.action == 'labeled'
+      && github.event.label.name == 'review-now'
+      || github.event.action != 'labeled'
+      && !contains(github.event.pull_request.labels.*.name, 'avoid-review')
     concurrency:
       group: claude-review-wait-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -44,10 +53,13 @@ jobs:
       id-token: write
     steps:
       # After a 4-hour sleep (or a queue behind another review) this run
-      # may have nothing left to do: the PR may be closed, a newer push
-      # may have its own queued run, or this exact head may already have
-      # been reviewed (e.g. a review-now run raced a sleeping one). Skip
-      # the expensive part rather than asking the model to figure it out.
+      # may have nothing left to do: the PR may be closed, avoid-review
+      # may have been added while this run slept, a newer push may have
+      # its own queued run, or this exact head may already have been
+      # reviewed (e.g. a review-now run raced a sleeping one). Skip the
+      # expensive part rather than asking the model to figure it out.
+      # (A run from the review-now labeled event ignores avoid-review:
+      # an explicit request overrides the standing suppression.)
       - name: Decide whether this review is still needed
         id: pre
         env:
@@ -57,8 +69,12 @@ jobs:
           pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}")
           state=$(jq -r .state <<<"$pr")
           head=$(jq -r .head.sha <<<"$pr")
+          avoid=$(jq -r '[.labels[].name] | contains(["avoid-review"])' <<<"$pr")
           if [ "$state" != "open" ]; then
             echo "PR is $state; nothing to review"
+            proceed=false
+          elif [ "$avoid" = "true" ] && [ '${{ github.event.action }}' != 'labeled' ]; then
+            echo "avoid-review label is set; skipping to conserve credits"
             proceed=false
           elif [ "$head" != "${{ github.event.pull_request.head.sha }}" ]; then
             echo "Head moved on to $head; the newer push's run will review it"
