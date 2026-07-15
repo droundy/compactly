@@ -23,10 +23,11 @@ jobs:
     steps:
       # Batches bursts of pushes into a single review (each push cancels
       # the sleeping run via the concurrency group) and gives the Claude
-      # session allotment time to reset. Adding the review-now label skips
-      # the wait.
+      # session allotment time to reset. While the review-now label is on
+      # the PR, every push is reviewed immediately; remove the label to
+      # restore the batching delay.
       - name: Wait for the dust to settle
-        if: github.event.action != 'labeled'
+        if: github.event.action != 'labeled' && !contains(github.event.pull_request.labels.*.name, 'review-now')
         run: sleep 14400
 
       # Nothing cancels a sleeping run when its PR is merged or closed.
