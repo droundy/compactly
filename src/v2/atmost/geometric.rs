@@ -48,21 +48,27 @@ const fn weight_range(bits: usize, start: usize, count: usize) -> u128 {
     sum
 }
 
-/// Uniform right-shift applied to every weight before it reaches
-/// `seed_context`'s `u64` arithmetic (`seed_err` computes `p*(lo+hi)` and
-/// `256*lo`, `p <= 255`). Leaf `0` always dominates any range containing
-/// it — its own weight already exceeds the sum of every other leaf
-/// combined — so the largest possible weight in a `bits`-wide tree is
-/// always on the order of `3·2^(bits-2)`. Shifting that down to land
-/// around `2^40` leaves ample headroom in `u64::MAX` (~`2^64`). A uniform
-/// shift preserves every ratio `lo/(lo+hi)` up to rounding, which is all
-/// `seed_context` uses.
-const fn shift_for(bits: usize) -> u32 {
-    if bits <= 42 {
-        0
-    } else {
-        (bits - 42) as u32
-    }
+/// Right-shift needed to bring `v` down to around `2^40`, so it and its
+/// sibling both fit `seed_context`'s `u64` arithmetic (`seed_err` computes
+/// `p*(lo+hi)` and `256*lo`, `p <= 255`) with ample headroom under
+/// `u64::MAX` (~`2^64`).
+///
+/// This is computed **per split**, from that split's own `lo`/`hi`
+/// magnitude, rather than once from `bits`. `leaf_weight` shrinks by
+/// roughly half per leaf index, so a shift sized only for the root's
+/// dominant leaf-0 weight rounds every deep node (the "many leading
+/// zeros"/small-value end of the tree) down to `0`, silently collapsing
+/// the intended geometric bias to `seed_context`'s flat default there. A
+/// per-node shift preserves the ratio `lo/(lo+hi)` to full `u64`
+/// precision at every node, not just the root.
+///
+/// `v` is always `>= 1` here — every `leaf_weight` is `>= 1`, and
+/// `weight_range` sums at least one term whenever `geometric_seeded`'s
+/// loop guard (`len > 1`) holds — so `v.leading_zeros()` is always
+/// well-defined.
+const fn shift_for_value(v: u128) -> u32 {
+    let bit_length = 128 - v.leading_zeros();
+    bit_length.saturating_sub(40)
 }
 
 /// The geometric-prior analogue of [`super::AtMostContext::SEEDED`]: the
@@ -80,7 +86,6 @@ const fn shift_for(bits: usize) -> u32 {
 pub(crate) const fn geometric_seeded<const MAX: usize>() -> [BitContext; MAX] {
     let bits = MAX + 1;
     let mut bits_ctx = [BitContext::True0False0; MAX];
-    let shift = shift_for(bits);
     // Same bound as AtMostContext::SEEDED: intervals shrink by at least
     // 1/4 per level, so 192 covers any possible `usize` MAX.
     let mut stack = [(0usize, 0usize); 192];
@@ -92,8 +97,11 @@ pub(crate) const fn geometric_seeded<const MAX: usize>() -> [BitContext; MAX] {
         if len > 1 {
             let vc = half(len);
             let split = start + vc;
-            let lo = (weight_range(bits, start, vc) >> shift) as u64;
-            let hi = (weight_range(bits, split, len - vc) >> shift) as u64;
+            let lo_full = weight_range(bits, start, vc);
+            let hi_full = weight_range(bits, split, len - vc);
+            let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
+            let lo = (lo_full >> shift) as u64;
+            let hi = (hi_full >> shift) as u64;
             bits_ctx[split - 1] = seed_context(lo, hi);
             stack[top] = (start, vc);
             stack[top + 1] = (split, len - vc);
@@ -168,5 +176,21 @@ mod tests {
             geometric_seeded::<127>()[128 / 2 - 1],
             AtMostContext::<127>::SEEDED[128 / 2 - 1]
         );
+    }
+
+    #[test]
+    fn deep_nodes_keep_geometric_bias() {
+        // Regression test for the precision collapse a single global
+        // `shift_for(bits)` used to cause: with the old root-sized shift
+        // (22 for bits=64), any node whose weight came from leaves with
+        // `i > 40` (`lz > 41`, values below ~2^23) rounded both `lo` and
+        // `hi` to 0, so `seed_context(0, 0)` silently fell back to the
+        // unbiased `BitContext::True0False0` instead of the intended
+        // geometric bias - exactly the region that distinguishes small
+        // values from each other. With a per-node shift, deep splits like
+        // leaf index 50 (single-leaf weight `2^12 = 4096`, well below the
+        // old flat threshold of `2^22`) retain their bias.
+        let seeded = geometric_seeded::<63>();
+        assert_ne!(seeded[50], BitContext::True0False0);
     }
 }

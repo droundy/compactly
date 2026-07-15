@@ -93,8 +93,8 @@ fn size_u64() {
     expect!["10"].assert_eq(&estimated_bits!(0_u64));
     expect!["10"].assert_eq(&estimated_bits!(1_u64));
     expect!["17"].assert_eq(&estimated_bits!(255_u64));
-    expect!["18"].assert_eq(&estimated_bits!(256_u64));
-    expect!["28"].assert_eq(&estimated_bits!(1_000_000_u64));
+    expect!["17"].assert_eq(&estimated_bits!(256_u64));
+    expect!["29"].assert_eq(&estimated_bits!(1_000_000_u64));
     expect!["66"].assert_eq(&estimated_bits!(u64::MAX));
     expect!["83"].assert_eq(&estimated_bits!([0_u64; 128]));
     expect!["16"].assert_eq(&estimated_bits!([1_u64; 2]));
@@ -144,9 +144,9 @@ fn size_u128() {
     use super::estimated_bits;
     expect!["11"].assert_eq(&estimated_bits!(0_u128));
     expect!["11"].assert_eq(&estimated_bits!(1_u128));
-    expect!["18"].assert_eq(&estimated_bits!(255_u128));
+    expect!["19"].assert_eq(&estimated_bits!(255_u128));
     expect!["130"].assert_eq(&estimated_bits!(u128::MAX));
-    expect!["55"].assert_eq(&estimated_bits!([1_u128; 19]));
+    expect!["58"].assert_eq(&estimated_bits!([1_u128; 19]));
 }
 
 macro_rules! impl_compact {
