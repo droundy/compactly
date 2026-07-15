@@ -24,8 +24,10 @@ jobs:
       # Batches bursts of pushes into a single review (each push cancels
       # the sleeping run via the concurrency group) and gives the Claude
       # session allotment time to reset. While the review-now label is on
-      # the PR, every push is reviewed immediately; remove the label to
-      # restore the batching delay.
+      # the PR, every push is reviewed immediately; the label is removed
+      # automatically once a review completes, restoring the batching
+      # delay (so a stale label can't silently make every push a
+      # full-price immediate review).
       - name: Wait for the dust to settle
         if: github.event.action != 'labeled' && !contains(github.event.pull_request.labels.*.name, 'review-now')
         run: sleep 14400
@@ -195,3 +197,15 @@ jobs:
             cat
             printf '\n_Approximate review cost: $%.2f_\n' "$cost"
           } | gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@-
+
+      # review-now is a one-shot switch: leaving it on would silently turn
+      # every push into a full-price immediate review, so drop it once a
+      # review has completed. Removing an absent label 404s — ignore it.
+      - name: Remove the review-now label
+        if: steps.state.outputs.open == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/${{ github.event.pull_request.number }}/labels/review-now" \
+            2>/dev/null || true
