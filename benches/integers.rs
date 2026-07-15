@@ -1,6 +1,6 @@
 use bincode::config::standard;
 use compactly::v2::{Ans, Range};
-use compactly::{Encoded, Gamma, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
+use compactly::{Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, SeedableRng};
 use scaling::bench_gen_env;
@@ -44,8 +44,9 @@ fn gen_log_uniform_vec<T: LogUniform, R: Rng>(rng: &mut R, n: usize) -> Vec<T> {
 //
 // Unlike `LogUniform` (which weights every bit-length bucket equally),
 // plain uniform bits weight large-magnitude buckets far more heavily —
-// this is the distribution `Gamma`'s seed is tuned for, and the one where
-// `Small`'s flat seed pays its ~log2(bits) extra fresh-context bits.
+// this is the distribution the default `Normal` encoding's geometric seed is
+// tuned for, and the one where `Small`'s flat seed pays its ~log2(bits) extra
+// fresh-context bits.
 
 fn gen_uniform_vec<T, R: Rng>(rng: &mut R, n: usize) -> Vec<T>
 where
@@ -188,7 +189,6 @@ macro_rules! add_compactly_algos {
     ($algos:ident, $T:ty) => {
         add_strategy!($algos, $T, "norm", Encoded<Vec<$T>, Values<Normal>>);
         add_strategy!($algos, $T, "sml", Encoded<Vec<$T>, Values<Small>>);
-        add_strategy!($algos, $T, "gma", Encoded<Vec<$T>, Values<Gamma>>);
         add_strategy!($algos, $T, "srt", Encoded<Vec<$T>, Values<Sorted>>);
         add_strategy!($algos, $T, "low", Encoded<Vec<$T>, LowCardinality>);
         add_strategy!($algos, $T, "inc", Encoded<Vec<$T>, Values<Incompressible>>);
@@ -205,16 +205,17 @@ macro_rules! benchmark_int_type {
             s.sort();
             s
         };
-        // Genuinely incompressible: the case Gamma's seed targets directly
-        // (goal: match Normal's ~bits-per-value cost, beat Small's).
+        // Genuinely incompressible: the case the default `Normal` geometric
+        // seed targets directly (goal: ~bits per value, beating `Small`).
         let uniform_data: Vec<$T> = gen_uniform_vec(&mut $rng, N);
         // Most values small with a long thin tail: the case that tests
         // real-world adaptation speed, distinct from the constant-repeat
         // worst case below.
         let skewed_small_data: Vec<$T> = gen_skewed_small_vec(&mut $rng, N, 0.8);
-        // Worst case for Gamma: many repeats of one small constant, making
-        // the known fresh-cost trade-off (Gamma's prior is biased *away*
-        // from small values) visible at bench scale.
+        // Worst case for the default's geometric seed: many repeats of one
+        // small constant, making the known fresh-cost trade-off (the prior is
+        // biased *away* from small values, unlike `Small`'s) visible at bench
+        // scale.
         let repeated_small_data: Vec<$T> = vec![1 as $T; N];
 
         for (variant, data) in [

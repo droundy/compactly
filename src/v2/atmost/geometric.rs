@@ -3,12 +3,13 @@
 //! `bits`-bit value, rather than [`super::AtMostContext::SEEDED`]'s flat
 //! per-leaf-count prior.
 //!
-//! Used by the `Gamma` encoding strategy (`src/v2/ints.rs`): it reuses
+//! Used by the default integer `Encode` (`src/v2/ints.rs`): it reuses
 //! `Small`'s exact leading-zero-count encoding, but wants a *fresh* context
-//! to cost close to `bits` bits for an arbitrary/incompressible value
-//! (matching `Normal`) rather than `Small`'s flat `log2(bits)`-bits-extra
-//! cost. That requires seeding each node so its split matches the relative
-//! population of `bits`-bit values on either side, not the leaf count.
+//! to cost close to `bits` bits for an arbitrary/incompressible value (as a
+//! plain literal encoding would) rather than `Small`'s flat
+//! `log2(bits)`-bits-extra cost. That requires seeding each node so its split
+//! matches the relative population of `bits`-bit values on either side, not
+//! the leaf count.
 
 use super::walks::half;
 use super::{seed_context, BitContext};

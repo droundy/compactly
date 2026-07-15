@@ -1,7 +1,7 @@
 use super::atmost::geometric::geometric_seeded;
 use super::atmost::{AtMost, AtMostContext};
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
-use crate::{Gamma, Incompressible, Sorted};
+use crate::{Incompressible, Sorted};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -10,93 +10,6 @@ macro_rules! impl_uint {
     ($t:ident, $mod:ident, $bits:literal) => {
         mod $mod {
             use super::*;
-
-            #[derive(Clone)]
-            pub struct Context {
-                // leading_zero[i]: context for whether bit i is the first 1 bit (true) or still a
-                // leading zero (false). Only indices 8..$bits are used; indices 0..8 belong to u8_ctx.
-                leading_zero: [<bool as Encode>::Context; $bits],
-                // Used for values < 256 (lz >= $bits-8): the low 8 bits are encoded as a u8.
-                u8_ctx: <u8 as Encode>::Context,
-                // partial[lz][i]: context for bit i of the partial byte above the full incompressible
-                // bytes, conditioned on the leading-zero count lz. Only used when lz < $bits-8.
-                partial: [[<bool as Encode>::Context; 8]; $bits],
-            }
-            impl Default for Context {
-                #[inline]
-                fn default() -> Self {
-                    Self {
-                        leading_zero: [Default::default(); $bits],
-                        u8_ctx: Default::default(),
-                        partial: [[Default::default(); 8]; $bits],
-                    }
-                }
-            }
-
-            impl Encode for $t {
-                type Context = Context;
-                #[inline]
-                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                    let lz = self.leading_zeros() as usize;
-                    if lz >= $bits - 8 {
-                        // value < 256: signal via $bits-8 leading-zero bits then delegate to u8
-                        for i in (8..$bits).rev() {
-                            false.encode(writer, &mut ctx.leading_zero[i]);
-                        }
-                        (*self as u8).encode(writer, &mut ctx.u8_ctx);
-                        return;
-                    }
-                    // value >= 256: encode `lz` leading-zero bits then the first-1 bit
-                    for i in ($bits - lz..$bits).rev() {
-                        false.encode(writer, &mut ctx.leading_zero[i]);
-                    }
-                    true.encode(writer, &mut ctx.leading_zero[$bits - 1 - lz]);
-                    // The remaining sig_bits bits below the leading 1
-                    let sig_bits = $bits - 1 - lz;
-                    let full_bytes = sig_bits / 8;
-                    let partial_bits = sig_bits % 8;
-                    let value_bytes = self.to_le_bytes();
-                    if full_bytes > 0 {
-                        writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
-                    }
-                    for i in 0..partial_bits {
-                        let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
-                        bit.encode(writer, &mut ctx.partial[lz][i]);
-                    }
-                }
-                #[inline]
-                fn decode<D: EntropyDecoder>(
-                    reader: &mut D,
-                    ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
-                    let mut lz = 0usize;
-                    loop {
-                        if lz >= $bits - 8 {
-                            let v = u8::decode(reader, &mut ctx.u8_ctx)?;
-                            return Ok(v as $t);
-                        }
-                        if bool::decode(reader, &mut ctx.leading_zero[$bits - 1 - lz])? {
-                            break; // found the first 1 bit at position $bits-1-lz
-                        }
-                        lz += 1;
-                    }
-                    let sig_bits = $bits - 1 - lz;
-                    let full_bytes = sig_bits / 8;
-                    let partial_bits = sig_bits % 8;
-                    let mut value_bytes = [0u8; std::mem::size_of::<$t>()];
-                    if full_bytes > 0 {
-                        reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
-                    }
-                    for i in 0..partial_bits {
-                        if bool::decode(reader, &mut ctx.partial[lz][i])? {
-                            value_bytes[full_bytes] |= 1 << i;
-                        }
-                    }
-                    // Restore the implicit leading 1 at position partial_bits within the partial byte
-                    value_bytes[full_bytes] |= 1 << partial_bits;
-                    Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
-                }
-            }
 
             #[derive(Default, Clone)]
             pub struct SortedContext {
@@ -167,53 +80,77 @@ impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
 
+// The default integer `Encode` is now variable-length (the geometric-seeded
+// `Small` algorithm), so a fresh context costs ~`bits` bits for an
+// arbitrary/incompressible value but far fewer for small values — unlike the
+// old fixed per-bit-position encoding, where every value in a range cost the
+// same. These tests therefore probe individual representative values rather
+// than asserting a whole range shares one size.
+
 #[test]
 fn size_u64() {
-    use super::{assert_bits_all, estimated_bits};
-    assert_bits_all!(0..256_u64, expect!["64"]);
-    assert_bits_all!(256..768_u64, expect!["64"]);
-    assert_bits_all!(768..1024_u64, expect!["64"]);
-    expect!["64"].assert_eq(&estimated_bits!(1_000_000_u64));
-    expect!["64"].assert_eq(&estimated_bits!(u64::MAX));
-    expect!["428"].assert_eq(&estimated_bits!([0_u64; 128]));
-    expect!["101"].assert_eq(&estimated_bits!([1_u64; 2]));
-    expect!["274"].assert_eq(&estimated_bits!([1_u64; 19]));
-    expect!["305"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["10"].assert_eq(&estimated_bits!(0_u64));
+    expect!["10"].assert_eq(&estimated_bits!(1_u64));
+    expect!["17"].assert_eq(&estimated_bits!(255_u64));
+    expect!["18"].assert_eq(&estimated_bits!(256_u64));
+    expect!["28"].assert_eq(&estimated_bits!(1_000_000_u64));
+    expect!["66"].assert_eq(&estimated_bits!(u64::MAX));
+    expect!["83"].assert_eq(&estimated_bits!([0_u64; 128]));
+    expect!["16"].assert_eq(&estimated_bits!([1_u64; 2]));
+    expect!["51"].assert_eq(&estimated_bits!([1_u64; 19]));
+    expect!["61"].assert_eq(&estimated_bits!([
         0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
 
 #[test]
 fn size_u32() {
-    use super::{assert_bits_all, estimated_bits};
-    expect!["32"].assert_eq(&estimated_bits!(u32::MAX));
-    expect!["215"].assert_eq(&estimated_bits!([0_u32; 128]));
-    expect!["3125"].assert_eq(&estimated_bits!([u32::MAX; 128]));
-    expect!["51"].assert_eq(&estimated_bits!([1_u32; 2]));
-    expect!["137"].assert_eq(&estimated_bits!([1_u32; 19]));
-    expect!["155"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["8"].assert_eq(&estimated_bits!(0_u32));
+    expect!["8"].assert_eq(&estimated_bits!(1_u32));
+    expect!["16"].assert_eq(&estimated_bits!(255_u32));
+    expect!["16"].assert_eq(&estimated_bits!(256_u32));
+    expect!["26"].assert_eq(&estimated_bits!(1_000_000_u32));
+    expect!["33"].assert_eq(&estimated_bits!(u32::MAX));
+    expect!["70"].assert_eq(&estimated_bits!([0_u32; 128]));
+    expect!["3148"].assert_eq(&estimated_bits!([u32::MAX; 128]));
+    expect!["14"].assert_eq(&estimated_bits!([1_u32; 2]));
+    expect!["43"].assert_eq(&estimated_bits!([1_u32; 19]));
+    expect!["53"].assert_eq(&estimated_bits!([
         0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
-    assert_bits_all!(0..32768_u32, expect!["32"]);
-    assert_bits_all!(999_990_u32..1_000_000, expect!["32"]);
 }
 
 #[test]
 fn size_u16() {
-    use super::{assert_bits_all, estimated_bits};
-    assert_bits_all!(0..21845_u16, expect!["16"]);
-    expect!["16"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["108"].assert_eq(&estimated_bits!([0_u16; 128]));
-    expect!["1077"].assert_eq(&estimated_bits!([u16::MAX; 128]));
-    expect!["25"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["69"].assert_eq(&estimated_bits!([1_u16; 19]));
-    expect!["80"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["7"].assert_eq(&estimated_bits!(0_u16));
+    expect!["7"].assert_eq(&estimated_bits!(1_u16));
+    expect!["13"].assert_eq(&estimated_bits!(255_u16));
+    expect!["13"].assert_eq(&estimated_bits!(256_u16));
+    expect!["17"].assert_eq(&estimated_bits!(u16::MAX));
+    expect!["58"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["1095"].assert_eq(&estimated_bits!([u16::MAX; 128]));
+    expect!["11"].assert_eq(&estimated_bits!([1_u16; 2]));
+    expect!["35"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["44"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
 
+#[test]
+fn size_u128() {
+    use super::estimated_bits;
+    expect!["11"].assert_eq(&estimated_bits!(0_u128));
+    expect!["11"].assert_eq(&estimated_bits!(1_u128));
+    expect!["18"].assert_eq(&estimated_bits!(255_u128));
+    expect!["130"].assert_eq(&estimated_bits!(u128::MAX));
+    expect!["55"].assert_eq(&estimated_bits!([1_u128; 19]));
+}
+
 macro_rules! impl_compact {
-    ($t:ident, $context:ident, $bits:literal) => {
+    ($t:ident, $context:ident, $default_context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
             // AtMost<$bits - 1>, i.e. log2($bits) bits: code = lz.saturating_sub(1), so
@@ -300,28 +237,22 @@ macro_rules! impl_compact {
                 Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
             }
         }
-    };
-}
 
-impl_compact!(u128, U128Compact, 128);
-impl_compact!(u64, U64Compact, 64);
-impl_compact!(u32, U32Compact, 32);
-impl_compact!(u16, U16Compact, 16);
-
-// `Gamma`: reuses `Small`'s exact encode/decode logic (there is exactly one
-// compiled copy, called from both strategies) via a context that wraps
-// `Small`'s own context type and only overrides its `Default`, seeding the
-// leading-zero-count sub-context with `geometric_seeded` instead of the
-// flat, count-based `AtMostContext::SEEDED`. See `atmost::geometric` for
-// why: a fresh `Gamma` context costs close to `$bits` bits for an
-// arbitrary/incompressible value (matching `Normal`), rather than `Small`'s
-// flat `log2($bits)`-bits-extra fresh cost.
-macro_rules! impl_compact_geometric {
-    ($t:ident, $context:ident, $geo_context:ident, $bits:literal) => {
+        // The default `Encode` for `$t` reuses `Small`'s exact encode/decode
+        // logic (there is exactly one compiled copy, shared by both) via a
+        // context that wraps `Small`'s own context type and only overrides
+        // its `Default`: the leading-zero-count sub-context is seeded with a
+        // geometric (Elias-gamma) prior — `geometric_seeded` — instead of the
+        // flat, count-based `AtMostContext::SEEDED`. See `atmost::geometric`
+        // for why: a fresh context then costs close to `$bits` bits for an
+        // arbitrary/incompressible value (as a plain literal encoding would),
+        // while `Small`'s flat seed pays ~`log2($bits)` extra fresh bits. Both
+        // share one adaptive tree, so this default still learns skewed
+        // distributions quickly, unlike a fixed per-bit-position encoding.
         #[derive(Clone)]
-        pub struct $geo_context($context);
+        pub struct $default_context($context);
 
-        impl Default for $geo_context {
+        impl Default for $default_context {
             fn default() -> Self {
                 Self($context {
                     leading_zeros: AtMostContext {
@@ -333,11 +264,11 @@ macro_rules! impl_compact_geometric {
             }
         }
 
-        impl EncodingStrategy<$t> for Gamma {
-            type Context = $geo_context;
+        impl Encode for $t {
+            type Context = $default_context;
             #[inline]
-            fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
-                Small::encode(value, writer, &mut ctx.0)
+            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                Small::encode(self, writer, &mut ctx.0)
             }
             #[inline]
             fn decode<D: EntropyDecoder>(
@@ -350,10 +281,10 @@ macro_rules! impl_compact_geometric {
     };
 }
 
-impl_compact_geometric!(u128, U128Compact, U128GeoCompact, 128);
-impl_compact_geometric!(u64, U64Compact, U64GeoCompact, 64);
-impl_compact_geometric!(u32, U32Compact, U32GeoCompact, 32);
-impl_compact_geometric!(u16, U16Compact, U16GeoCompact, 16);
+impl_compact!(u128, U128Compact, U128Default, 128);
+impl_compact!(u64, U64Compact, U64Default, 64);
+impl_compact!(u32, U32Compact, U32Default, 32);
+impl_compact!(u16, U16Compact, U16Default, 16);
 
 #[test]
 fn compact_u16() {
@@ -407,142 +338,6 @@ fn compact_u32() {
             super::encode(&Encoded::<_, Small>::new(i)),
             super::encode_with(Small, &i)
         );
-    }
-}
-
-// expect-test needs each `expect![...]` on its own literal source line to
-// patch it via UPDATE_EXPECT, so (as with compact_u16/compact_u32 above)
-// these are hand-written per width rather than macro-generated.
-
-#[test]
-fn geometric_u16() {
-    use super::estimated_bits;
-    use crate::{Encoded, Gamma, Normal, Small};
-
-    // Goal: fresh cost for an arbitrary/incompressible value should be
-    // close to Normal's (16 bits), not Small's (which pays several extra
-    // bits for its flat, count-based seed).
-    expect!["17"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u16::MAX)));
-    expect!["16"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u16::MAX)));
-    expect!["20"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u16::MAX)));
-
-    // Known trade-off: a fresh Gamma context is seeded toward large
-    // magnitudes (the entropy-optimal prior for a uniform value), so 0/1
-    // should cost noticeably more than Small's flat seed. Recorded
-    // honestly, not asserted in a particular direction.
-    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u16)));
-    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u16)));
-    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u16)));
-    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u16)));
-
-    // Adapted regime: many repeats of one small value through a shared
-    // context, to see how quickly Gamma's adaptation catches up with
-    // Small's already-favorable starting point.
-    expect!["35"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u16); 19]));
-    expect!["17"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 19]));
-    expect!["61"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u16); 200]));
-    expect!["30"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 200]));
-
-    // Round-trip correctness across the small-value range, via both encode
-    // call paths (mirrors compact_u32's existing check).
-    for i in 0_u16..4096 {
-        assert_eq!(
-            super::encode(&Encoded::<_, Gamma>::new(i)),
-            super::encode_with(Gamma, &i)
-        );
-        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
-        let decoded = super::decode::<Encoded<u16, Gamma>>(&encoded).unwrap();
-        assert_eq!(decoded.value(), i);
-    }
-}
-
-#[test]
-fn geometric_u32() {
-    use super::estimated_bits;
-    use crate::{Encoded, Gamma, Normal, Small};
-
-    expect!["33"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u32::MAX)));
-    expect!["32"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u32::MAX)));
-    expect!["37"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u32::MAX)));
-
-    expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u32)));
-    expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u32)));
-    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u32)));
-    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u32)));
-
-    expect!["43"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u32); 19]));
-    expect!["21"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 19]));
-    expect!["75"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u32); 200]));
-    expect!["38"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u32); 200]));
-
-    for i in 0_u32..4096 {
-        assert_eq!(
-            super::encode(&Encoded::<_, Gamma>::new(i)),
-            super::encode_with(Gamma, &i)
-        );
-        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
-        let decoded = super::decode::<Encoded<u32, Gamma>>(&encoded).unwrap();
-        assert_eq!(decoded.value(), i);
-    }
-}
-
-#[test]
-fn geometric_u64() {
-    use super::estimated_bits;
-    use crate::{Encoded, Gamma, Normal, Small};
-
-    expect!["66"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u64::MAX)));
-    expect!["64"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u64::MAX)));
-    expect!["70"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u64::MAX)));
-
-    expect!["10"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u64)));
-    expect!["10"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u64)));
-    expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u64)));
-    expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u64)));
-
-    expect!["51"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u64); 19]));
-    expect!["26"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u64); 19]));
-    expect!["88"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u64); 200]));
-    expect!["45"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u64); 200]));
-
-    for i in 0_u64..4096 {
-        assert_eq!(
-            super::encode(&Encoded::<_, Gamma>::new(i)),
-            super::encode_with(Gamma, &i)
-        );
-        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
-        let decoded = super::decode::<Encoded<u64, Gamma>>(&encoded).unwrap();
-        assert_eq!(decoded.value(), i);
-    }
-}
-
-#[test]
-fn geometric_u128() {
-    use super::estimated_bits;
-    use crate::{Encoded, Gamma, Normal, Small};
-
-    expect!["130"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(u128::MAX)));
-    expect!["128"].assert_eq(&estimated_bits!(Encoded::<_, Normal>::new(u128::MAX)));
-    expect!["135"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u128::MAX)));
-
-    expect!["11"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(0_u128)));
-    expect!["11"].assert_eq(&estimated_bits!(Encoded::<_, Gamma>::new(1_u128)));
-    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u128)));
-    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u128)));
-
-    expect!["55"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u128); 19]));
-    expect!["30"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u128); 19]));
-    expect!["96"].assert_eq(&estimated_bits!([Encoded::<_, Gamma>::new(1_u128); 200]));
-    expect!["53"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u128); 200]));
-
-    for i in 0_u128..4096 {
-        assert_eq!(
-            super::encode(&Encoded::<_, Gamma>::new(i)),
-            super::encode_with(Gamma, &i)
-        );
-        let encoded = super::encode(&Encoded::<_, Gamma>::new(i));
-        let decoded = super::decode::<Encoded<u128, Gamma>>(&encoded).unwrap();
-        assert_eq!(decoded.value(), i);
     }
 }
 
