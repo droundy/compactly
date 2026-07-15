@@ -16,12 +16,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: drillan/claude-pr-reviewer@v1
+      # claude-code-action is called directly (rather than via the
+      # drillan/claude-pr-reviewer wrapper) so we control the whole prompt
+      # and can see Claude's output in the run log. In CI every tool call
+      # not matched by --allowedTools is silently denied, so the tool list
+      # must cover everything the prompt asks for: Task for the
+      # pr-review-toolkit agents, git for reading history, Write so the
+      # comment body can go through --body-file instead of shell quoting
+      # (command substitution in --body "$(...)" is auto-denied), and the
+      # mcp__github_inline_comment tool, which claude-code-action only
+      # installs when it appears in allowedTools.
+      - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          anthropic_model: claude-sonnet-5
-          allowed_tools: "Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Read,Grep,Glob"
-          custom_prompt: |
+          show_full_output: true
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-code.git
+          plugins: |
+            pr-review-toolkit@claude-code-plugins
+          claude_args: |
+            --model claude-sonnet-5
+            --allowedTools "Task,Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Grep,Glob,Write,TodoWrite,mcp__github_inline_comment__create_inline_comment"
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Please review this PR comprehensively.
+            Use the pr-review-toolkit agents to check:
+            - Code quality and style (code-reviewer)
+            - Test coverage (pr-test-analyzer)
+            - Error handling (silent-failure-hunter)
+            - Type design (type-design-analyzer)
+            - Comment accuracy (comment-analyzer)
+
             Before reviewing, list this PR's review threads:
 
             gh api graphql -f query='
@@ -51,10 +78,14 @@ jobs:
             without opening new threads for issues already tracked in
             existing ones.
 
-            Finish with a summary comment. Use
-            `gh pr comment --edit-last --create-if-none` so there is
-            only ever one summary, updated in place on each push. It
-            must contain:
+            Post each new finding on a specific code line with the
+            mcp__github_inline_comment__create_inline_comment tool.
+
+            Finish with a summary comment. Write the comment body to a
+            file and post it with
+            `gh pr comment --edit-last --create-if-none --body-file <file>`
+            so there is only ever one summary, updated in place on each
+            push, and no shell-quoting problems. It must contain:
 
             1. A short summary of what the PR does, plus a risk level
                (low / medium / high) with a one-line justification.
@@ -63,3 +94,4 @@ jobs:
                covering both existing review threads and this review's
                new findings. If nothing is open, say so.
 
+            Write all reviews in English.
