@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+# A new push should supersede the still-running review of the old head.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -48,6 +53,13 @@ jobs:
             - Error handling (silent-failure-hunter)
             - Type design (type-design-analyzer)
             - Comment accuracy (comment-analyzer)
+
+            This is a headless one-shot run: the process exits the moment
+            you end your turn, killing any background work. Launch every
+            agent with run_in_background: false and wait for its result.
+            Never end your turn before the summary comment below has been
+            posted — if agents fail or time out, post the summary anyway
+            with whatever findings you have.
 
             Before reviewing, list this PR's review threads:
 
