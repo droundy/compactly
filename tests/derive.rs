@@ -197,7 +197,7 @@ fn fancy_enum() {
         B { big: bool },
     }
 
-    assert_bits!(B::A { age: 51 }, expect!["v1: 65 bits, v2: 15 bits"]);
+    assert_bits!(B::A { age: 51 }, expect!["v1: 65 bits, v2: 16 bits"]);
     assert_bits!(B::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 }
 
@@ -219,14 +219,14 @@ fn low_cardinality() {
         value: u64,
     }
 
-    assert_bits!(Data { value: 51 }, expect!["v1: 65 bits, v2: 15 bits"]);
+    assert_bits!(Data { value: 51 }, expect!["v1: 65 bits, v2: 16 bits"]);
     assert_bits!(
         Data { value: u64::MAX },
         expect!["v1: 65 bits, v2: 67 bits"]
     );
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
-        expect!["v1: 8379 bits, v2: 8293 bits"]
+        expect!["v1: 8379 bits, v2: 8319 bits"]
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(
@@ -234,7 +234,7 @@ fn low_cardinality() {
             .map(|v| v % 3)
             .map(|value| Data { value })
             .collect::<Vec<_>>(),
-        expect!["v1: 1903 bits, v2: 1796 bits"]
+        expect!["v1: 1903 bits, v2: 1804 bits"]
     );
 }
 

@@ -12,7 +12,7 @@
 //! the leaf count.
 
 use super::walks::half;
-use super::{seed_context, BitContext};
+use super::{node_index, seed_context, BitContext};
 
 /// Weight of `AtMost<bits-1>` leaf `i` (i.e. `afewbits_val == i` in
 /// `Small`'s encoding) under a uniformly-distributed `bits`-bit magnitude:
@@ -73,10 +73,15 @@ const fn shift_for_value(v: u128) -> u32 {
 
 /// The geometric-prior analogue of [`super::AtMostContext::SEEDED`]: the
 /// identical stack-based tree walk (same `half()` splits, so the exact
-/// same tree topology and thus fully compatible with `AtMost`'s existing
-/// encode/decode/walk machinery), but each node's seed comes from the
-/// relative population of `bits`-bit values on either side of the split,
-/// instead of the raw leaf count.
+/// same tree topology), but each node's seed comes from the relative
+/// population of `bits`-bit values on either side of the split, instead of
+/// the raw leaf count. Compatibility with `AtMost`'s existing
+/// encode/decode/walk machinery requires writing each seed to the same
+/// array slot the walk itself reads for that node — `node_index` (shared
+/// with `SEEDED`) picks that slot; sharing the split topology alone is not
+/// sufficient, since the walk indexes contexts by a different scheme
+/// (heap order) than the naive `split - 1` this stack walk visits nodes
+/// in whenever `bits` is a power of two, which is every current caller.
 ///
 /// `MAX` here is `AtMost<MAX>`'s own `MAX` (i.e. `$bits - 1`, matching
 /// `AtMostContext<MAX>`'s array size) rather than `$bits` itself — `bits`
@@ -102,7 +107,7 @@ pub(crate) const fn geometric_seeded<const MAX: usize>() -> [BitContext; MAX] {
             let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
             let lo = (lo_full >> shift) as u64;
             let hi = (hi_full >> shift) as u64;
-            bits_ctx[split - 1] = seed_context(lo, hi);
+            bits_ctx[node_index::<MAX>(start, len)] = seed_context(lo, hi);
             stack[top] = (start, vc);
             stack[top + 1] = (split, len - vc);
             top += 2;
@@ -157,40 +162,32 @@ mod tests {
         // Guard against accidentally wiring the flat (Small) seed instead
         // of the geometric one: at the root node, a uniform magnitude
         // heavily favors "no leading zeros," so the geometric seed's root
-        // context must differ from the balanced-tree default. The root
-        // node for a power-of-two `bits` (= MAX + 1) lives at index
-        // bits/2 - 1 (split = half(bits) = bits/2).
+        // context must differ from the balanced-tree default. Every `MAX`
+        // here has a power-of-two `bits = MAX + 1`, so the root (covering
+        // the whole `0..bits` interval) lives at heap index 0 —
+        // `node_index::<MAX>(0, bits)` — matching `walks::complete`'s
+        // indexing, not the old split-order `bits/2 - 1`.
+        assert_ne!(geometric_seeded::<15>()[0], AtMostContext::<15>::SEEDED[0]);
+        assert_ne!(geometric_seeded::<31>()[0], AtMostContext::<31>::SEEDED[0]);
+        assert_ne!(geometric_seeded::<63>()[0], AtMostContext::<63>::SEEDED[0]);
         assert_ne!(
-            geometric_seeded::<15>()[16 / 2 - 1],
-            AtMostContext::<15>::SEEDED[16 / 2 - 1]
-        );
-        assert_ne!(
-            geometric_seeded::<31>()[32 / 2 - 1],
-            AtMostContext::<31>::SEEDED[32 / 2 - 1]
-        );
-        assert_ne!(
-            geometric_seeded::<63>()[64 / 2 - 1],
-            AtMostContext::<63>::SEEDED[64 / 2 - 1]
-        );
-        assert_ne!(
-            geometric_seeded::<127>()[128 / 2 - 1],
-            AtMostContext::<127>::SEEDED[128 / 2 - 1]
+            geometric_seeded::<127>()[0],
+            AtMostContext::<127>::SEEDED[0]
         );
     }
 
     #[test]
     fn deep_nodes_keep_geometric_bias() {
         // Regression test for the precision collapse a single global
-        // `shift_for(bits)` used to cause: with the old root-sized shift
-        // (22 for bits=64), any node whose weight came from leaves with
-        // `i > 40` (`lz > 41`, values below ~2^23) rounded both `lo` and
-        // `hi` to 0, so `seed_context(0, 0)` silently fell back to the
-        // unbiased `BitContext::True0False0` instead of the intended
-        // geometric bias - exactly the region that distinguishes small
-        // values from each other. With a per-node shift, deep splits like
-        // leaf index 50 (single-leaf weight `2^12 = 4096`, well below the
-        // old flat threshold of `2^22`) retain their bias.
+        // `shift_for(bits)` used to cause (fixed separately from the R8
+        // indexing bug this module's other test guards): a node whose
+        // weight came from leaves with large leading-zero counts (small
+        // magnitudes) used to round to `0/0` and silently collapse to the
+        // unbiased default. For `bits=64`, the split isolating leaf 60
+        // from leaf 61 (weights `4` and `2` — clearly unequal, so a
+        // correct seed must be non-default) lives at heap index
+        // `node_index::<63>(60, 2) == 61`.
         let seeded = geometric_seeded::<63>();
-        assert_ne!(seeded[50], BitContext::True0False0);
+        assert_ne!(seeded[61], BitContext::True0False0);
     }
 }

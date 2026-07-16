@@ -90,16 +90,16 @@ impl_uint!(u16, u16_mod, 16);
 #[test]
 fn size_u64() {
     use super::estimated_bits;
-    expect!["10"].assert_eq(&estimated_bits!(0_u64));
-    expect!["10"].assert_eq(&estimated_bits!(1_u64));
-    expect!["17"].assert_eq(&estimated_bits!(255_u64));
-    expect!["17"].assert_eq(&estimated_bits!(256_u64));
+    expect!["13"].assert_eq(&estimated_bits!(0_u64));
+    expect!["13"].assert_eq(&estimated_bits!(1_u64));
+    expect!["19"].assert_eq(&estimated_bits!(255_u64));
+    expect!["19"].assert_eq(&estimated_bits!(256_u64));
     expect!["29"].assert_eq(&estimated_bits!(1_000_000_u64));
     expect!["66"].assert_eq(&estimated_bits!(u64::MAX));
-    expect!["83"].assert_eq(&estimated_bits!([0_u64; 128]));
-    expect!["16"].assert_eq(&estimated_bits!([1_u64; 2]));
-    expect!["51"].assert_eq(&estimated_bits!([1_u64; 19]));
-    expect!["61"].assert_eq(&estimated_bits!([
+    expect!["129"].assert_eq(&estimated_bits!([0_u64; 128]));
+    expect!["22"].assert_eq(&estimated_bits!([1_u64; 2]));
+    expect!["76"].assert_eq(&estimated_bits!([1_u64; 19]));
+    expect!["91"].assert_eq(&estimated_bits!([
         0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
@@ -107,17 +107,17 @@ fn size_u64() {
 #[test]
 fn size_u32() {
     use super::estimated_bits;
-    expect!["8"].assert_eq(&estimated_bits!(0_u32));
-    expect!["8"].assert_eq(&estimated_bits!(1_u32));
+    expect!["11"].assert_eq(&estimated_bits!(0_u32));
+    expect!["11"].assert_eq(&estimated_bits!(1_u32));
     expect!["16"].assert_eq(&estimated_bits!(255_u32));
     expect!["16"].assert_eq(&estimated_bits!(256_u32));
     expect!["26"].assert_eq(&estimated_bits!(1_000_000_u32));
     expect!["33"].assert_eq(&estimated_bits!(u32::MAX));
-    expect!["70"].assert_eq(&estimated_bits!([0_u32; 128]));
+    expect!["103"].assert_eq(&estimated_bits!([0_u32; 128]));
     expect!["3148"].assert_eq(&estimated_bits!([u32::MAX; 128]));
-    expect!["14"].assert_eq(&estimated_bits!([1_u32; 2]));
-    expect!["43"].assert_eq(&estimated_bits!([1_u32; 19]));
-    expect!["53"].assert_eq(&estimated_bits!([
+    expect!["18"].assert_eq(&estimated_bits!([1_u32; 2]));
+    expect!["61"].assert_eq(&estimated_bits!([1_u32; 19]));
+    expect!["73"].assert_eq(&estimated_bits!([
         0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
@@ -125,16 +125,16 @@ fn size_u32() {
 #[test]
 fn size_u16() {
     use super::estimated_bits;
-    expect!["7"].assert_eq(&estimated_bits!(0_u16));
-    expect!["7"].assert_eq(&estimated_bits!(1_u16));
-    expect!["13"].assert_eq(&estimated_bits!(255_u16));
-    expect!["13"].assert_eq(&estimated_bits!(256_u16));
+    expect!["8"].assert_eq(&estimated_bits!(0_u16));
+    expect!["8"].assert_eq(&estimated_bits!(1_u16));
+    expect!["14"].assert_eq(&estimated_bits!(255_u16));
+    expect!["14"].assert_eq(&estimated_bits!(256_u16));
     expect!["17"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["58"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["77"].assert_eq(&estimated_bits!([0_u16; 128]));
     expect!["1095"].assert_eq(&estimated_bits!([u16::MAX; 128]));
-    expect!["11"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["35"].assert_eq(&estimated_bits!([1_u16; 19]));
-    expect!["44"].assert_eq(&estimated_bits!([
+    expect!["14"].assert_eq(&estimated_bits!([1_u16; 2]));
+    expect!["46"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["56"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
@@ -142,11 +142,11 @@ fn size_u16() {
 #[test]
 fn size_u128() {
     use super::estimated_bits;
-    expect!["11"].assert_eq(&estimated_bits!(0_u128));
-    expect!["11"].assert_eq(&estimated_bits!(1_u128));
-    expect!["19"].assert_eq(&estimated_bits!(255_u128));
+    expect!["15"].assert_eq(&estimated_bits!(0_u128));
+    expect!["15"].assert_eq(&estimated_bits!(1_u128));
+    expect!["21"].assert_eq(&estimated_bits!(255_u128));
     expect!["130"].assert_eq(&estimated_bits!(u128::MAX));
-    expect!["58"].assert_eq(&estimated_bits!([1_u128; 19]));
+    expect!["91"].assert_eq(&estimated_bits!([1_u128; 19]));
 }
 
 #[test]
@@ -370,6 +370,71 @@ fn compact_u32() {
             super::encode_with(Small, &i)
         );
     }
+}
+
+#[test]
+fn normal_u32() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["10752 mb"].assert_eq(&0_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&1_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&2_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&3_u32.millibits().to_string());
+    expect!["10820 mb"].assert_eq(&4_u32.millibits().to_string());
+    expect!["12371 mb"].assert_eq(&8_u32.millibits().to_string());
+    expect!["12378 mb"].assert_eq(&16_u32.millibits().to_string());
+    expect!["12382 mb"].assert_eq(&(1u32 << 5).millibits().to_string());
+    expect!["16371 mb"].assert_eq(&(1u32 << 7).millibits().to_string());
+    expect!["16382 mb"].assert_eq(&(1u32 << 9).millibits().to_string());
+    expect!["18040 mb"].assert_eq(&(1u32 << 11).millibits().to_string());
+    expect!["24378 mb"].assert_eq(&(1u32 << 16).millibits().to_string());
+    expect!["30034 mb"].assert_eq(&(1u32 << 24).millibits().to_string());
+    expect!["31966 mb"].assert_eq(&(1u32 << 28).millibits().to_string());
+    expect!["33293 mb"].assert_eq(&(1u32 << 31).millibits().to_string());
+    expect!["33293 mb"].assert_eq(&u32::MAX.millibits().to_string());
+}
+
+#[test]
+fn normal_u16() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["8206 mb"].assert_eq(&0_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&1_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&2_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&3_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&4_u16.millibits().to_string());
+    expect!["9781 mb"].assert_eq(&8_u16.millibits().to_string());
+    expect!["9775 mb"].assert_eq(&16_u16.millibits().to_string());
+    expect!["9777 mb"].assert_eq(&(1u16 << 5).millibits().to_string());
+    expect!["13781 mb"].assert_eq(&(1u16 << 7).millibits().to_string());
+    expect!["13777 mb"].assert_eq(&(1u16 << 9).millibits().to_string());
+    expect!["15715 mb"].assert_eq(&(1u16 << 11).millibits().to_string());
+    expect!["16383 mb"].assert_eq(&(1u16 << 13).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&(1u16 << 15).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&u16::MAX.millibits().to_string());
+}
+
+#[test]
+fn normal_u64() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["13193 mb"].assert_eq(&0_u64.millibits().to_string());
+    expect!["13193 mb"].assert_eq(&1_u64.millibits().to_string());
+    expect!["13300 mb"].assert_eq(&2_u64.millibits().to_string());
+    expect!["14956 mb"].assert_eq(&(1u64 << 5).millibits().to_string());
+    expect!["18830 mb"].assert_eq(&(1u64 << 7).millibits().to_string());
+    expect!["18956 mb"].assert_eq(&(1u64 << 9).millibits().to_string());
+    expect!["20625 mb"].assert_eq(&(1u64 << 11).millibits().to_string());
+    expect!["26956 mb"].assert_eq(&(1u64 << 16).millibits().to_string());
+    expect!["32634 mb"].assert_eq(&(1u64 << 24).millibits().to_string());
+    expect!["34294 mb"].assert_eq(&(1u64 << 28).millibits().to_string());
+    expect!["42830 mb"].assert_eq(&(1u64 << 31).millibits().to_string());
+    expect!["50294 mb"].assert_eq(&(1u64 << 45).millibits().to_string());
+    expect!["62294 mb"].assert_eq(&(1u64 << 57).millibits().to_string());
+    expect!["65553 mb"].assert_eq(&u64::MAX.millibits().to_string());
 }
 
 macro_rules! impl_signed {
