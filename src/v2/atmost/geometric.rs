@@ -59,8 +59,13 @@ const fn weight_range(bits: usize, start: usize, count: usize) -> u128 {
 /// dominant leaf-0 weight rounds every deep node (the "many leading
 /// zeros"/small-value end of the tree) down to `0`, silently collapsing
 /// the intended geometric bias to `seed_context`'s flat default there. A
-/// per-node shift preserves the ratio `lo/(lo+hi)` to full `u64`
-/// precision at every node, not just the root.
+/// per-node shift preserves the ratio `lo/(lo+hi)` far more precisely
+/// than that at every node — though at the widest magnitude gaps (e.g.
+/// the `bits=128` root split, where `lo`/`hi` differ by ~65 bits) the
+/// smaller side can still round to exactly `0`. That's harmless there:
+/// the true ratio already exceeds what `seed_context`'s ~8-bit-resolution
+/// `BitContext` states can represent, so rounding to `0` picks the same
+/// maximally-skewed state a tiny nonzero value would.
 ///
 /// `v` is always `>= 1` here — every `leaf_weight` is `>= 1`, and
 /// `weight_range` sums at least one term whenever `geometric_seeded`'s
