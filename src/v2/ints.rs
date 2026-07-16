@@ -1,4 +1,5 @@
-use super::atmost::AtMost;
+use super::atmost::geometric::geometric_seeded;
+use super::atmost::{AtMost, AtMostContext};
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
@@ -9,93 +10,6 @@ macro_rules! impl_uint {
     ($t:ident, $mod:ident, $bits:literal) => {
         mod $mod {
             use super::*;
-
-            #[derive(Clone)]
-            pub struct Context {
-                // leading_zero[i]: context for whether bit i is the first 1 bit (true) or still a
-                // leading zero (false). Only indices 8..$bits are used; indices 0..8 belong to u8_ctx.
-                leading_zero: [<bool as Encode>::Context; $bits],
-                // Used for values < 256 (lz >= $bits-8): the low 8 bits are encoded as a u8.
-                u8_ctx: <u8 as Encode>::Context,
-                // partial[lz][i]: context for bit i of the partial byte above the full incompressible
-                // bytes, conditioned on the leading-zero count lz. Only used when lz < $bits-8.
-                partial: [[<bool as Encode>::Context; 8]; $bits],
-            }
-            impl Default for Context {
-                #[inline]
-                fn default() -> Self {
-                    Self {
-                        leading_zero: [Default::default(); $bits],
-                        u8_ctx: Default::default(),
-                        partial: [[Default::default(); 8]; $bits],
-                    }
-                }
-            }
-
-            impl Encode for $t {
-                type Context = Context;
-                #[inline]
-                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                    let lz = self.leading_zeros() as usize;
-                    if lz >= $bits - 8 {
-                        // value < 256: signal via $bits-8 leading-zero bits then delegate to u8
-                        for i in (8..$bits).rev() {
-                            false.encode(writer, &mut ctx.leading_zero[i]);
-                        }
-                        (*self as u8).encode(writer, &mut ctx.u8_ctx);
-                        return;
-                    }
-                    // value >= 256: encode `lz` leading-zero bits then the first-1 bit
-                    for i in ($bits - lz..$bits).rev() {
-                        false.encode(writer, &mut ctx.leading_zero[i]);
-                    }
-                    true.encode(writer, &mut ctx.leading_zero[$bits - 1 - lz]);
-                    // The remaining sig_bits bits below the leading 1
-                    let sig_bits = $bits - 1 - lz;
-                    let full_bytes = sig_bits / 8;
-                    let partial_bits = sig_bits % 8;
-                    let value_bytes = self.to_le_bytes();
-                    if full_bytes > 0 {
-                        writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
-                    }
-                    for i in 0..partial_bits {
-                        let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
-                        bit.encode(writer, &mut ctx.partial[lz][i]);
-                    }
-                }
-                #[inline]
-                fn decode<D: EntropyDecoder>(
-                    reader: &mut D,
-                    ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
-                    let mut lz = 0usize;
-                    loop {
-                        if lz >= $bits - 8 {
-                            let v = u8::decode(reader, &mut ctx.u8_ctx)?;
-                            return Ok(v as $t);
-                        }
-                        if bool::decode(reader, &mut ctx.leading_zero[$bits - 1 - lz])? {
-                            break; // found the first 1 bit at position $bits-1-lz
-                        }
-                        lz += 1;
-                    }
-                    let sig_bits = $bits - 1 - lz;
-                    let full_bytes = sig_bits / 8;
-                    let partial_bits = sig_bits % 8;
-                    let mut value_bytes = [0u8; std::mem::size_of::<$t>()];
-                    if full_bytes > 0 {
-                        reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
-                    }
-                    for i in 0..partial_bits {
-                        if bool::decode(reader, &mut ctx.partial[lz][i])? {
-                            value_bytes[full_bytes] |= 1 << i;
-                        }
-                    }
-                    // Restore the implicit leading 1 at position partial_bits within the partial byte
-                    value_bytes[full_bytes] |= 1 << partial_bits;
-                    Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
-                }
-            }
 
             #[derive(Default, Clone)]
             pub struct SortedContext {
@@ -166,53 +80,123 @@ impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
 
+// The default integer `Encode` is now variable-length (the geometric-seeded
+// `Small` algorithm), so a fresh context costs ~`bits` bits for an
+// arbitrary/incompressible value but far fewer for small values — unlike the
+// old fixed per-bit-position encoding, where every value in a range cost the
+// same. These tests therefore probe individual representative values rather
+// than asserting a whole range shares one size.
+
 #[test]
 fn size_u64() {
-    use super::{assert_bits_all, estimated_bits};
-    assert_bits_all!(0..256_u64, expect!["64"]);
-    assert_bits_all!(256..768_u64, expect!["64"]);
-    assert_bits_all!(768..1024_u64, expect!["64"]);
-    expect!["64"].assert_eq(&estimated_bits!(1_000_000_u64));
-    expect!["64"].assert_eq(&estimated_bits!(u64::MAX));
-    expect!["428"].assert_eq(&estimated_bits!([0_u64; 128]));
-    expect!["101"].assert_eq(&estimated_bits!([1_u64; 2]));
-    expect!["274"].assert_eq(&estimated_bits!([1_u64; 19]));
-    expect!["305"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["13"].assert_eq(&estimated_bits!(0_u64));
+    expect!["13"].assert_eq(&estimated_bits!(1_u64));
+    expect!["19"].assert_eq(&estimated_bits!(255_u64));
+    expect!["19"].assert_eq(&estimated_bits!(256_u64));
+    expect!["29"].assert_eq(&estimated_bits!(1_000_000_u64));
+    expect!["66"].assert_eq(&estimated_bits!(u64::MAX));
+    expect!["129"].assert_eq(&estimated_bits!([0_u64; 128]));
+    expect!["22"].assert_eq(&estimated_bits!([1_u64; 2]));
+    expect!["76"].assert_eq(&estimated_bits!([1_u64; 19]));
+    expect!["91"].assert_eq(&estimated_bits!([
         0_u64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
 
 #[test]
 fn size_u32() {
-    use super::{assert_bits_all, estimated_bits};
-    expect!["32"].assert_eq(&estimated_bits!(u32::MAX));
-    expect!["215"].assert_eq(&estimated_bits!([0_u32; 128]));
-    expect!["3125"].assert_eq(&estimated_bits!([u32::MAX; 128]));
-    expect!["51"].assert_eq(&estimated_bits!([1_u32; 2]));
-    expect!["137"].assert_eq(&estimated_bits!([1_u32; 19]));
-    expect!["155"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["11"].assert_eq(&estimated_bits!(0_u32));
+    expect!["11"].assert_eq(&estimated_bits!(1_u32));
+    expect!["16"].assert_eq(&estimated_bits!(255_u32));
+    expect!["16"].assert_eq(&estimated_bits!(256_u32));
+    expect!["26"].assert_eq(&estimated_bits!(1_000_000_u32));
+    expect!["33"].assert_eq(&estimated_bits!(u32::MAX));
+    expect!["103"].assert_eq(&estimated_bits!([0_u32; 128]));
+    expect!["3148"].assert_eq(&estimated_bits!([u32::MAX; 128]));
+    expect!["18"].assert_eq(&estimated_bits!([1_u32; 2]));
+    expect!["61"].assert_eq(&estimated_bits!([1_u32; 19]));
+    expect!["73"].assert_eq(&estimated_bits!([
         0_u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
-    assert_bits_all!(0..32768_u32, expect!["32"]);
-    assert_bits_all!(999_990_u32..1_000_000, expect!["32"]);
 }
 
 #[test]
 fn size_u16() {
-    use super::{assert_bits_all, estimated_bits};
-    assert_bits_all!(0..21845_u16, expect!["16"]);
-    expect!["16"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["108"].assert_eq(&estimated_bits!([0_u16; 128]));
-    expect!["1077"].assert_eq(&estimated_bits!([u16::MAX; 128]));
-    expect!["25"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["69"].assert_eq(&estimated_bits!([1_u16; 19]));
-    expect!["80"].assert_eq(&estimated_bits!([
+    use super::estimated_bits;
+    expect!["8"].assert_eq(&estimated_bits!(0_u16));
+    expect!["8"].assert_eq(&estimated_bits!(1_u16));
+    expect!["14"].assert_eq(&estimated_bits!(255_u16));
+    expect!["14"].assert_eq(&estimated_bits!(256_u16));
+    expect!["17"].assert_eq(&estimated_bits!(u16::MAX));
+    expect!["77"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["1095"].assert_eq(&estimated_bits!([u16::MAX; 128]));
+    expect!["14"].assert_eq(&estimated_bits!([1_u16; 2]));
+    expect!["46"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["56"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
 
+#[test]
+fn size_u128() {
+    use super::estimated_bits;
+    expect!["15"].assert_eq(&estimated_bits!(0_u128));
+    expect!["15"].assert_eq(&estimated_bits!(1_u128));
+    expect!["21"].assert_eq(&estimated_bits!(255_u128));
+    expect!["130"].assert_eq(&estimated_bits!(u128::MAX));
+    expect!["91"].assert_eq(&estimated_bits!([1_u128; 19]));
+}
+
+#[test]
+fn default_encoding_roundtrips_every_leading_zero_depth() {
+    // `compact_u32`'s dense `0..4096` loop only compares two encode paths
+    // (it never decodes) and only touches leading-zero counts near the
+    // top of the range. Round-trip representative values per possible
+    // `leading_zeros()` count instead, through the actual default `Encode`
+    // (`super::encode`/`super::decode`, not `Encoded<_, Small>`) — this
+    // touches every leaf `geometric_seeded`'s stack walk produces, so a
+    // bug isolated to one split can't hide behind the point-probe tests.
+    // At each depth, check all-zero, all-one, and alternating mantissas
+    // (not just the all-zero minimum of that depth's range) so a bug
+    // isolated to one mantissa bit position — e.g. an off-by-one in the
+    // `partial[lz][i]` loop or a byte-boundary mistake in
+    // `value_bytes[full_bytes]` — can't hide behind an all-zero payload.
+    macro_rules! check {
+        ($t:ty, $bits:literal) => {
+            for lz in 0..=$bits {
+                if lz == $bits {
+                    assert_eq!(super::decode::<$t>(&super::encode(&(0 as $t))), Some(0));
+                    continue;
+                }
+                let msb_pos = $bits - 1 - lz;
+                let leading: $t = 1 << msb_pos;
+                let mantissa_mask: $t = if msb_pos == 0 { 0 } else { (1 << msb_pos) - 1 };
+                for mantissa in [
+                    0,
+                    mantissa_mask,
+                    0xAAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_u128 as $t & mantissa_mask,
+                ] {
+                    let v = leading | mantissa;
+                    assert_eq!(
+                        super::decode::<$t>(&super::encode(&v)),
+                        Some(v),
+                        "{}::leading_zeros() == {lz}, mantissa = {mantissa:#x}",
+                        stringify!($t),
+                    );
+                }
+            }
+        };
+    }
+    check!(u16, 16);
+    check!(u32, 32);
+    check!(u64, 64);
+    check!(u128, 128);
+}
+
 macro_rules! impl_compact {
-    ($t:ident, $context:ident, $bits:literal) => {
+    ($t:ident, $context:ident, $default_context:ident, $bits:literal) => {
         #[derive(Clone)]
         pub struct $context {
             // AtMost<$bits - 1>, i.e. log2($bits) bits: code = lz.saturating_sub(1), so
@@ -299,13 +283,53 @@ macro_rules! impl_compact {
                 Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
             }
         }
+
+        // The default `Encode` for `$t` reuses `Small`'s exact encode/decode
+        // logic (there is exactly one compiled copy, shared by both) via a
+        // context that wraps `Small`'s own context type and only overrides
+        // its `Default`: the leading-zero-count sub-context is seeded with a
+        // geometric (Elias-gamma) prior — `geometric_seeded` — instead of the
+        // flat, count-based `AtMostContext::SEEDED`. See `atmost::geometric`
+        // for why: a fresh context then costs close to `$bits` bits for an
+        // arbitrary/incompressible value (as a plain literal encoding would),
+        // while `Small`'s flat seed pays ~`log2($bits)` extra fresh bits. Both
+        // share one adaptive tree, so this default still learns skewed
+        // distributions quickly, unlike a fixed per-bit-position encoding.
+        #[derive(Clone)]
+        pub struct $default_context($context);
+
+        impl Default for $default_context {
+            fn default() -> Self {
+                Self($context {
+                    leading_zeros: AtMostContext {
+                        bits: geometric_seeded::<{ $bits - 1 }>(),
+                    },
+                    ..$context::default()
+                })
+            }
+        }
+
+        impl Encode for $t {
+            type Context = $default_context;
+            #[inline]
+            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                Small::encode(self, writer, &mut ctx.0)
+            }
+            #[inline]
+            fn decode<D: EntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$t, std::io::Error> {
+                Small::decode(reader, &mut ctx.0)
+            }
+        }
     };
 }
 
-impl_compact!(u128, U128Compact, 128);
-impl_compact!(u64, U64Compact, 64);
-impl_compact!(u32, U32Compact, 32);
-impl_compact!(u16, U16Compact, 16);
+impl_compact!(u128, U128Compact, U128Default, 128);
+impl_compact!(u64, U64Compact, U64Default, 64);
+impl_compact!(u32, U32Compact, U32Default, 32);
+impl_compact!(u16, U16Compact, U16Default, 16);
 
 #[test]
 fn compact_u16() {
@@ -360,6 +384,129 @@ fn compact_u32() {
             super::encode_with(Small, &i)
         );
     }
+}
+
+#[test]
+fn normal_u32() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["10752 mb"].assert_eq(&0_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&1_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&2_u32.millibits().to_string());
+    expect!["10791 mb"].assert_eq(&3_u32.millibits().to_string());
+    expect!["10820 mb"].assert_eq(&4_u32.millibits().to_string());
+    expect!["12371 mb"].assert_eq(&8_u32.millibits().to_string());
+    expect!["12378 mb"].assert_eq(&16_u32.millibits().to_string());
+    expect!["12382 mb"].assert_eq(&(1u32 << 5).millibits().to_string());
+    expect!["16371 mb"].assert_eq(&(1u32 << 7).millibits().to_string());
+    expect!["16382 mb"].assert_eq(&(1u32 << 9).millibits().to_string());
+    expect!["18040 mb"].assert_eq(&(1u32 << 11).millibits().to_string());
+    expect!["24378 mb"].assert_eq(&(1u32 << 16).millibits().to_string());
+    expect!["30034 mb"].assert_eq(&(1u32 << 24).millibits().to_string());
+    expect!["31966 mb"].assert_eq(&(1u32 << 28).millibits().to_string());
+    expect!["33293 mb"].assert_eq(&(1u32 << 31).millibits().to_string());
+    expect!["33293 mb"].assert_eq(&u32::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["10820 mb"].assert_eq(&5_u32.millibits().to_string());
+    expect!["12376 mb"].assert_eq(&100_u32.millibits().to_string());
+    expect!["18036 mb"].assert_eq(&12345_u32.millibits().to_string());
+    expect!["26037 mb"].assert_eq(&1_000_000_u32.millibits().to_string());
+    expect!["32293 mb"].assert_eq(&0x5A5A5A5A_u32.millibits().to_string());
+    expect!["33293 mb"].assert_eq(&3_000_000_000_u32.millibits().to_string());
+}
+
+#[test]
+fn normal_u16() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["8206 mb"].assert_eq(&0_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&1_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&2_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&3_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&4_u16.millibits().to_string());
+    expect!["9781 mb"].assert_eq(&8_u16.millibits().to_string());
+    expect!["9775 mb"].assert_eq(&16_u16.millibits().to_string());
+    expect!["9777 mb"].assert_eq(&(1u16 << 5).millibits().to_string());
+    expect!["13781 mb"].assert_eq(&(1u16 << 7).millibits().to_string());
+    expect!["13777 mb"].assert_eq(&(1u16 << 9).millibits().to_string());
+    expect!["15715 mb"].assert_eq(&(1u16 << 11).millibits().to_string());
+    expect!["16383 mb"].assert_eq(&(1u16 << 13).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&(1u16 << 15).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&u16::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["8212 mb"].assert_eq(&5_u16.millibits().to_string());
+    expect!["9769 mb"].assert_eq(&100_u16.millibits().to_string());
+    expect!["16383 mb"].assert_eq(&12345_u16.millibits().to_string());
+    expect!["16034 mb"].assert_eq(&0x5A5A_u16.millibits().to_string());
+    expect!["17034 mb"].assert_eq(&54321_u16.millibits().to_string());
+}
+
+#[test]
+fn normal_u64() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen.
+    expect!["13193 mb"].assert_eq(&0_u64.millibits().to_string());
+    expect!["13193 mb"].assert_eq(&1_u64.millibits().to_string());
+    expect!["13300 mb"].assert_eq(&2_u64.millibits().to_string());
+    expect!["14956 mb"].assert_eq(&(1u64 << 5).millibits().to_string());
+    expect!["18830 mb"].assert_eq(&(1u64 << 7).millibits().to_string());
+    expect!["18956 mb"].assert_eq(&(1u64 << 9).millibits().to_string());
+    expect!["20625 mb"].assert_eq(&(1u64 << 11).millibits().to_string());
+    expect!["26956 mb"].assert_eq(&(1u64 << 16).millibits().to_string());
+    expect!["32634 mb"].assert_eq(&(1u64 << 24).millibits().to_string());
+    expect!["34294 mb"].assert_eq(&(1u64 << 28).millibits().to_string());
+    expect!["42830 mb"].assert_eq(&(1u64 << 31).millibits().to_string());
+    expect!["50294 mb"].assert_eq(&(1u64 << 45).millibits().to_string());
+    expect!["62294 mb"].assert_eq(&(1u64 << 57).millibits().to_string());
+    expect!["65553 mb"].assert_eq(&u64::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["13356 mb"].assert_eq(&5_u64.millibits().to_string());
+    expect!["20638 mb"].assert_eq(&12345_u64.millibits().to_string());
+    expect!["34295 mb"].assert_eq(&1_000_000_000_u64.millibits().to_string());
+    expect!["64553 mb"].assert_eq(&0x5A5A5A5A5A5A5A5A_u64.millibits().to_string());
+    expect!["65553 mb"].assert_eq(&18_000_000_000_000_000_000_u64.millibits().to_string());
+}
+
+#[test]
+fn normal_u128() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen. This is the Millibits-based coverage requested
+    // in place of more `estimated_bits!` point probes on `size_u128`.
+    expect!["15000 mb"].assert_eq(&0_u128.millibits().to_string());
+    expect!["15000 mb"].assert_eq(&1_u128.millibits().to_string());
+    expect!["15415 mb"].assert_eq(&2_u128.millibits().to_string());
+    expect!["17415 mb"].assert_eq(&(1u128 << 5).millibits().to_string());
+    expect!["21000 mb"].assert_eq(&(1u128 << 7).millibits().to_string());
+    expect!["21415 mb"].assert_eq(&(1u128 << 9).millibits().to_string());
+    expect!["23093 mb"].assert_eq(&(1u128 << 11).millibits().to_string());
+    expect!["29415 mb"].assert_eq(&(1u128 << 16).millibits().to_string());
+    expect!["35193 mb"].assert_eq(&(1u128 << 24).millibits().to_string());
+    expect!["45000 mb"].assert_eq(&(1u128 << 31).millibits().to_string());
+    expect!["52897 mb"].assert_eq(&(1u128 << 45).millibits().to_string());
+    expect!["64897 mb"].assert_eq(&(1u128 << 57).millibits().to_string());
+    expect!["77415 mb"].assert_eq(&(1u128 << 64).millibits().to_string());
+    expect!["96894 mb"].assert_eq(&(1u128 << 90).millibits().to_string());
+    expect!["114547 mb"].assert_eq(&(1u128 << 110).millibits().to_string());
+    expect!["129813 mb"].assert_eq(&(1u128 << 127).millibits().to_string());
+    expect!["129813 mb"].assert_eq(&u128::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["15678 mb"].assert_eq(&5_u128.millibits().to_string());
+    expect!["23219 mb"].assert_eq(&12345_u128.millibits().to_string());
+    expect!["36897 mb"].assert_eq(&1_000_000_000_u128.millibits().to_string());
+    expect!["128813 mb"].assert_eq(
+        &0x5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A_u128
+            .millibits()
+            .to_string(),
+    );
+    expect!["128813 mb"].assert_eq(&(u128::MAX / 3).millibits().to_string());
 }
 
 macro_rules! impl_signed {

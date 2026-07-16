@@ -1,3 +1,4 @@
+pub(crate) mod geometric;
 pub(crate) mod walks;
 
 use super::bit_context::BitContext;
@@ -90,8 +91,8 @@ impl<const MAX: usize> AtMostContext<MAX> {
     /// there would fight the adapted contexts forever; see
     /// `SymbolRange::split_reserving`). Balanced nodes seed to the ordinary
     /// default state, so for a power-of-two value count (every node
-    /// balanced) this is all-default whatever the indexing scheme, and
-    /// adaptation converges to the empirical distribution exactly as before.
+    /// balanced) this is all-default regardless, and adaptation converges
+    /// to the empirical distribution exactly as before.
     const SEEDED: [BitContext; MAX] = {
         let mut bits = [BitContext::True0False0; MAX];
         // Walk every internal node (start, len) of the tree; each visit pops
@@ -107,7 +108,7 @@ impl<const MAX: usize> AtMostContext<MAX> {
             if len > 1 {
                 let vc = half(len);
                 let split = start + vc;
-                bits[split - 1] = seed_context(vc as u64, (len - vc) as u64);
+                bits[node_index::<MAX>(start, len)] = seed_context(vc as u64, (len - vc) as u64);
                 stack[top] = (start, vc);
                 stack[top + 1] = (split, len - vc);
                 top += 2;
@@ -115,6 +116,21 @@ impl<const MAX: usize> AtMostContext<MAX> {
         }
         bits
     };
+}
+
+/// The array index of the node covering `start..start + len` of the tree
+/// over `MAX + 1` leaves, in whichever scheme this type's own doc comment
+/// requires: heap order for a power-of-two leaf count (matching
+/// `walks::complete`'s hot-path indexing), split order otherwise (matching
+/// `walks::uneven`). Shared by `SEEDED` and `geometric::geometric_seeded`
+/// so the two seedings can't independently drift out of sync with the walk
+/// that actually reads them.
+const fn node_index<const MAX: usize>(start: usize, len: usize) -> usize {
+    if (MAX + 1).is_power_of_two() {
+        (MAX + 1) / len - 1 + start / len
+    } else {
+        start + half(len) - 1
+    }
 }
 
 /// The lowest-count [`BitContext`] state whose probability best matches
