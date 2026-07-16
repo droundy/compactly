@@ -153,25 +153,39 @@ fn size_u128() {
 fn default_encoding_roundtrips_every_leading_zero_depth() {
     // `compact_u32`'s dense `0..4096` loop only compares two encode paths
     // (it never decodes) and only touches leading-zero counts near the
-    // top of the range. Round-trip one representative value per possible
+    // top of the range. Round-trip representative values per possible
     // `leading_zeros()` count instead, through the actual default `Encode`
     // (`super::encode`/`super::decode`, not `Encoded<_, Small>`) — this
     // touches every leaf `geometric_seeded`'s stack walk produces, so a
     // bug isolated to one split can't hide behind the point-probe tests.
+    // At each depth, check all-zero, all-one, and alternating mantissas
+    // (not just the all-zero minimum of that depth's range) so a bug
+    // isolated to one mantissa bit position — e.g. an off-by-one in the
+    // `partial[lz][i]` loop or a byte-boundary mistake in
+    // `value_bytes[full_bytes]` — can't hide behind an all-zero payload.
     macro_rules! check {
         ($t:ty, $bits:literal) => {
             for lz in 0..=$bits {
-                let v: $t = if lz == $bits {
-                    0
-                } else {
-                    1 << ($bits - 1 - lz)
-                };
-                assert_eq!(
-                    super::decode::<$t>(&super::encode(&v)),
-                    Some(v),
-                    "{}::leading_zeros() == {lz}",
-                    stringify!($t),
-                );
+                if lz == $bits {
+                    assert_eq!(super::decode::<$t>(&super::encode(&(0 as $t))), Some(0));
+                    continue;
+                }
+                let msb_pos = $bits - 1 - lz;
+                let leading: $t = 1 << msb_pos;
+                let mantissa_mask: $t = if msb_pos == 0 { 0 } else { (1 << msb_pos) - 1 };
+                for mantissa in [
+                    0,
+                    mantissa_mask,
+                    0xAAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_AAAA_u128 as $t & mantissa_mask,
+                ] {
+                    let v = leading | mantissa;
+                    assert_eq!(
+                        super::decode::<$t>(&super::encode(&v)),
+                        Some(v),
+                        "{}::leading_zeros() == {lz}, mantissa = {mantissa:#x}",
+                        stringify!($t),
+                    );
+                }
             }
         };
     }
