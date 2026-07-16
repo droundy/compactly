@@ -393,6 +393,14 @@ fn normal_u32() {
     expect!["31966 mb"].assert_eq(&(1u32 << 28).millibits().to_string());
     expect!["33293 mb"].assert_eq(&(1u32 << 31).millibits().to_string());
     expect!["33293 mb"].assert_eq(&u32::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["10820 mb"].assert_eq(&5_u32.millibits().to_string());
+    expect!["12376 mb"].assert_eq(&100_u32.millibits().to_string());
+    expect!["18036 mb"].assert_eq(&12345_u32.millibits().to_string());
+    expect!["26037 mb"].assert_eq(&1_000_000_u32.millibits().to_string());
+    expect!["32293 mb"].assert_eq(&0x5A5A5A5A_u32.millibits().to_string());
+    expect!["33293 mb"].assert_eq(&3_000_000_000_u32.millibits().to_string());
 }
 
 #[test]
@@ -414,6 +422,13 @@ fn normal_u16() {
     expect!["16383 mb"].assert_eq(&(1u16 << 13).millibits().to_string());
     expect!["17034 mb"].assert_eq(&(1u16 << 15).millibits().to_string());
     expect!["17034 mb"].assert_eq(&u16::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["8212 mb"].assert_eq(&5_u16.millibits().to_string());
+    expect!["9769 mb"].assert_eq(&100_u16.millibits().to_string());
+    expect!["16383 mb"].assert_eq(&12345_u16.millibits().to_string());
+    expect!["16034 mb"].assert_eq(&0x5A5A_u16.millibits().to_string());
+    expect!["17034 mb"].assert_eq(&54321_u16.millibits().to_string());
 }
 
 #[test]
@@ -435,6 +450,13 @@ fn normal_u64() {
     expect!["50294 mb"].assert_eq(&(1u64 << 45).millibits().to_string());
     expect!["62294 mb"].assert_eq(&(1u64 << 57).millibits().to_string());
     expect!["65553 mb"].assert_eq(&u64::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["13356 mb"].assert_eq(&5_u64.millibits().to_string());
+    expect!["20638 mb"].assert_eq(&12345_u64.millibits().to_string());
+    expect!["34295 mb"].assert_eq(&1_000_000_000_u64.millibits().to_string());
+    expect!["64553 mb"].assert_eq(&0x5A5A5A5A5A5A5A5A_u64.millibits().to_string());
+    expect!["65553 mb"].assert_eq(&18_000_000_000_000_000_000_u64.millibits().to_string());
 }
 
 macro_rules! impl_signed {
