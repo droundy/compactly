@@ -93,7 +93,16 @@ const fn shift_for_value(v: u128) -> u32 {
 /// (the actual integer width) is `MAX + 1`, computed internally, to avoid
 /// needing `$bits - 1` in a const-generic array-size position, which isn't
 /// allowed on stable Rust.
+///
+/// Requires `MAX < 128` (`bits <= 128`, i.e. width `u128` and narrower) —
+/// enforced by a `const` assert inside the function body, since
+/// `leaf_weight`'s arithmetic silently corrupts wider results instead of
+/// panicking.
 pub(crate) const fn geometric_seeded<const MAX: usize>() -> [BitContext; MAX] {
+    // leaf_weight(bits, 0) = 3 << (bits - 2) needs exactly `bits` bits to
+    // represent without silently dropping `3`'s top bit off the end of the
+    // u128 — so this only works for bits = MAX + 1 <= 128.
+    const { assert!(MAX < 128) };
     let bits = MAX + 1;
     let mut bits_ctx = [BitContext::True0False0; MAX];
     // Same bound as AtMostContext::SEEDED: intervals shrink by at least
