@@ -459,6 +459,42 @@ fn normal_u64() {
     expect!["65553 mb"].assert_eq(&18_000_000_000_000_000_000_u64.millibits().to_string());
 }
 
+#[test]
+fn normal_u128() {
+    // The goal of the "normal" encoding for integers is to always encode with
+    // the same total number of bits.  Adaption can then shift things based on
+    // what is actually seen. This is the Millibits-based coverage requested
+    // in place of more `estimated_bits!` point probes on `size_u128`.
+    expect!["15000 mb"].assert_eq(&0_u128.millibits().to_string());
+    expect!["15000 mb"].assert_eq(&1_u128.millibits().to_string());
+    expect!["15415 mb"].assert_eq(&2_u128.millibits().to_string());
+    expect!["17415 mb"].assert_eq(&(1u128 << 5).millibits().to_string());
+    expect!["21000 mb"].assert_eq(&(1u128 << 7).millibits().to_string());
+    expect!["21415 mb"].assert_eq(&(1u128 << 9).millibits().to_string());
+    expect!["23093 mb"].assert_eq(&(1u128 << 11).millibits().to_string());
+    expect!["29415 mb"].assert_eq(&(1u128 << 16).millibits().to_string());
+    expect!["35193 mb"].assert_eq(&(1u128 << 24).millibits().to_string());
+    expect!["45000 mb"].assert_eq(&(1u128 << 31).millibits().to_string());
+    expect!["52897 mb"].assert_eq(&(1u128 << 45).millibits().to_string());
+    expect!["64897 mb"].assert_eq(&(1u128 << 57).millibits().to_string());
+    expect!["77415 mb"].assert_eq(&(1u128 << 64).millibits().to_string());
+    expect!["96894 mb"].assert_eq(&(1u128 << 90).millibits().to_string());
+    expect!["114547 mb"].assert_eq(&(1u128 << 110).millibits().to_string());
+    expect!["129813 mb"].assert_eq(&(1u128 << 127).millibits().to_string());
+    expect!["129813 mb"].assert_eq(&u128::MAX.millibits().to_string());
+
+    // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
+    expect!["15678 mb"].assert_eq(&5_u128.millibits().to_string());
+    expect!["23219 mb"].assert_eq(&12345_u128.millibits().to_string());
+    expect!["36897 mb"].assert_eq(&1_000_000_000_u128.millibits().to_string());
+    expect!["128813 mb"].assert_eq(
+        &0x5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A_u128
+            .millibits()
+            .to_string(),
+    );
+    expect!["128813 mb"].assert_eq(&(u128::MAX / 3).millibits().to_string());
+}
+
 macro_rules! impl_signed {
     ($signed:ident, $unsigned:ident, $bits:literal, $mod:ident) => {
         mod $mod {
