@@ -24,13 +24,20 @@
 use super::walks::half;
 use super::{node_index, seed_context, BitContext};
 
-/// Weight of bit length `b` (in `0..=bits`) under the chosen prior, out of
-/// `2^bits` total: `bl = 0` covers the single value `0`, and `bl = b >= 1`
-/// covers the `2^(b-1)` values with their top bit at position `b - 1`.
-/// `mirror` reverses the weights end-for-end over `0..=bits`, making tiny
-/// bit lengths dominant instead of large ones.
-const fn bl_weight(bits: usize, mirror: bool, b: usize) -> u128 {
-    let b = if mirror { bits - b } else { b };
+/// Weight of bit length `b` under the chosen prior: `bl = 0` covers the
+/// single value `0`, and `bl = b >= 1` covers the `2^(b-1)` values with
+/// their top bit at position `b - 1` — summing to `2^max_bl` over
+/// `0..=max_bl`. Bit lengths past `max_bl` weigh `0`: for the unsigned
+/// types `max_bl` is the full width, but a *signed* type's magnitude
+/// (`abs_diff` from `0`/`-1`) is a uniform `(width-1)`-bit value coded
+/// through the unsigned type's tree, so its top bit length is impossible.
+/// `mirror` reverses the weights end-for-end over `0..=max_bl`, making
+/// tiny bit lengths dominant instead of large ones.
+const fn bl_weight(max_bl: usize, mirror: bool, b: usize) -> u128 {
+    if b > max_bl {
+        return 0;
+    }
+    let b = if mirror { max_bl - b } else { b };
     if b == 0 {
         1
     } else {
@@ -39,21 +46,23 @@ const fn bl_weight(bits: usize, mirror: bool, b: usize) -> u128 {
 }
 
 /// Weight of `blbl` leaf `c`: the summed [`bl_weight`] of every bit length
-/// whose own bit length is `c`, capped at `bits`. Leaf `0` is `bl = 0`
-/// (the value `0`), leaf `c` in `1..blbl_max` covers `bl` in
-/// `2^(c-1)..2^c`, and the top leaf `blbl_max` is exactly `bl = bits`
-/// (`bits` is a power of two, so it is the only valid bit length with that
-/// many bits — the encoding skips the `bl` mantissa there entirely).
-const fn blbl_weight(bits: usize, blbl_max: usize, mirror: bool, c: usize) -> u128 {
+/// whose own bit length is `c`. Leaf `0` is `bl = 0` (the value `0`), leaf
+/// `c` in `1..blbl_max` covers `bl` in `2^(c-1)..2^c`, and the top leaf
+/// `blbl_max` is exactly `bl = 2^(blbl_max-1)`, the tree's full width (a
+/// power of two, so it is the only valid bit length with that many bits —
+/// the encoding skips the `bl` offset there entirely). Under a capped
+/// prior (`max_bl` below the width) the top leaf's weight is `0`: still
+/// codable, just seeded maximally against.
+const fn blbl_weight(blbl_max: usize, max_bl: usize, mirror: bool, c: usize) -> u128 {
     if c == 0 {
-        bl_weight(bits, mirror, 0)
+        bl_weight(max_bl, mirror, 0)
     } else if c == blbl_max {
-        bl_weight(bits, mirror, bits)
+        bl_weight(max_bl, mirror, 1usize << (blbl_max - 1))
     } else {
         let mut sum = 0u128;
         let mut b = 1usize << (c - 1);
         while b < 1usize << c {
-            sum += bl_weight(bits, mirror, b);
+            sum += bl_weight(max_bl, mirror, b);
             b += 1;
         }
         sum
@@ -62,12 +71,13 @@ const fn blbl_weight(bits: usize, blbl_max: usize, mirror: bool, c: usize) -> u1
 
 /// Sum of [`blbl_weight`] over leaves `start..start + count`. Every range
 /// the tree walk ever sums is a *strict* subset of the `blbl_max + 1`
-/// leaves (a node's child interval), and each leaf weighs at least 1, so
-/// the sum stays at most `2^bits - 1` and cannot overflow the `u128` even
-/// at `bits = 128` (where the full-tree total, exactly `2^128`, would).
+/// leaves (a node's child interval), and only the top leaf can weigh `0`
+/// (under a capped prior), so the sum stays in `1..=2^max_bl - 1` for any
+/// interval a walk visits and cannot overflow the `u128` even at
+/// `max_bl = 128` (where the full-tree total, exactly `2^128`, would).
 const fn blbl_weight_range(
-    bits: usize,
     blbl_max: usize,
+    max_bl: usize,
     mirror: bool,
     start: usize,
     count: usize,
@@ -75,7 +85,7 @@ const fn blbl_weight_range(
     let mut sum = 0u128;
     let mut c = start;
     while c < start + count {
-        sum += blbl_weight(bits, blbl_max, mirror, c);
+        sum += blbl_weight(blbl_max, max_bl, mirror, c);
         c += 1;
     }
     sum
@@ -96,8 +106,11 @@ const fn blbl_weight_range(
 /// states can represent, so `0` picks the same maximally-skewed state a
 /// tiny nonzero value would.
 ///
-/// `v` is always `>= 1` here — every weight summed by the callers is
-/// `>= 1` — so `v.leading_zeros()` is always well-defined.
+/// The callers pass the *larger* of a split's two sides, so `v = 0` means
+/// both sides are zero (possible only under a capped prior, and only for
+/// splits no real walk seeds); shifting by `0` then hands
+/// `seed_context(0, 0)` its tie case, which keeps the unbiased default —
+/// harmless.
 const fn shift_for_value(v: u128) -> u32 {
     let bit_length = 128 - v.leading_zeros();
     bit_length.saturating_sub(40)
@@ -112,14 +125,15 @@ const fn shift_for_value(v: u128) -> u32 {
 /// itself reads for that node — `node_index` (shared with `SEEDED`) picks
 /// that slot, covering both the heap-order and split-order layouts.
 ///
-/// `bits` (the integer width this tree describes) is `1 << (BLBL_MAX - 1)`,
-/// computed internally: the width is a power of two for every integer type,
-/// and its bit length `bits + 1`... rather, the largest possible bit length
-/// is exactly `bits`, whose own bit length is `BLBL_MAX`.
+/// The tree geometry always covers the full width `1 << (BLBL_MAX - 1)`
+/// (the width is a power of two for every integer type, and its own bit
+/// length is `BLBL_MAX`); `max_bl` caps the *prior* below that — see
+/// [`bl_weight`] — for the signed types, whose magnitude never reaches the
+/// full width.
 pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
     mirror: bool,
+    max_bl: usize,
 ) -> [BitContext; BLBL_MAX] {
-    let bits = 1usize << (BLBL_MAX - 1);
     let mut ctxs = [BitContext::True0False0; BLBL_MAX];
     // The tree over BLBL_MAX + 1 <= 9 leaves is at most 4 deep; 64 slots is
     // far more stack than any walk can use.
@@ -132,8 +146,8 @@ pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
         if len > 1 {
             let vc = half(len);
             let split = start + vc;
-            let lo_full = blbl_weight_range(bits, BLBL_MAX, mirror, start, vc);
-            let hi_full = blbl_weight_range(bits, BLBL_MAX, mirror, split, len - vc);
+            let lo_full = blbl_weight_range(BLBL_MAX, max_bl, mirror, start, vc);
+            let hi_full = blbl_weight_range(BLBL_MAX, max_bl, mirror, split, len - vc);
             let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
             let lo = (lo_full >> shift) as u64;
             let hi = (hi_full >> shift) as u64;
@@ -154,15 +168,16 @@ pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
 /// conditional at every node, since the tree's per-prefix contexts are
 /// indexed the same way.
 ///
-/// A bucket that cannot occur for this width (its smallest bit length
-/// `MAX + 1` already reaches `bits`, which the top `blbl` code pins
-/// exactly) returns the flat default — which for a power-of-two value
-/// count is `AtMostContext`'s seeded default too, so nothing is lost.
+/// A bucket that cannot occur under this prior (its smallest bit length
+/// `MAX + 1` already reaches `max_bl` — for an uncapped prior that is the
+/// width itself, which the top `blbl` code pins exactly) returns the flat
+/// default — which for a power-of-two value count is `AtMostContext`'s
+/// seeded default too, so nothing is lost.
 pub(crate) const fn bl_offset_seeded<const MAX: usize>(
-    bits: usize,
     mirror: bool,
+    max_bl: usize,
 ) -> [BitContext; MAX] {
-    if MAX + 1 >= bits {
+    if MAX + 1 >= max_bl {
         return [BitContext::True0False0; MAX];
     }
     let mut ctxs = [BitContext::True0False0; MAX];
@@ -181,12 +196,12 @@ pub(crate) const fn bl_offset_seeded<const MAX: usize>(
             let mut lo_full = 0u128;
             let mut o = start;
             while o < split {
-                lo_full += bl_weight(bits, mirror, MAX + 1 + o);
+                lo_full += bl_weight(max_bl, mirror, MAX + 1 + o);
                 o += 1;
             }
             let mut hi_full = 0u128;
             while o < start + len {
-                hi_full += bl_weight(bits, mirror, MAX + 1 + o);
+                hi_full += bl_weight(max_bl, mirror, MAX + 1 + o);
                 o += 1;
             }
             let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
@@ -243,14 +258,23 @@ mod tests {
     #[test]
     fn blbl_weights_partition_bl_weights() {
         // Every bit length lands in exactly one blbl bucket, so the bucket
-        // weights must re-sum to the same total as the raw weights.
-        for (bits, blbl_max) in [(16usize, 5usize), (32, 6), (64, 7)] {
+        // weights must re-sum to the same total as the raw weights — both
+        // for the full-width priors and for the capped (signed-magnitude)
+        // ones, whose total is `2^max_bl`.
+        for (max_bl, blbl_max) in [
+            (16usize, 5usize),
+            (32, 6),
+            (64, 7),
+            (15, 5),
+            (31, 6),
+            (63, 7),
+        ] {
             for mirror in [false, true] {
-                let bucketed = blbl_weight_range(bits, blbl_max, mirror, 0, blbl_max + 1);
+                let bucketed = blbl_weight_range(blbl_max, max_bl, mirror, 0, blbl_max + 1);
                 assert_eq!(
                     bucketed,
-                    1u128 << bits,
-                    "blbl bucket weights for bits={bits} mirror={mirror} should partition the total"
+                    1u128 << max_bl,
+                    "blbl bucket weights for max_bl={max_bl} mirror={mirror} should partition the total"
                 );
             }
         }
@@ -264,8 +288,8 @@ mod tests {
         // lean toward the upper half (likely bit true); the mirrored prior
         // toward the lower (likely bit false); and both must differ from
         // the flat leaf-count seed.
-        let uniform = blbl_tree_seeded::<7>(false);
-        let tiny = blbl_tree_seeded::<7>(true);
+        let uniform = blbl_tree_seeded::<7>(false, 64);
+        let tiny = blbl_tree_seeded::<7>(true, 64);
         assert!(uniform[0].probability().likely_bit());
         assert!(!tiny[0].probability().likely_bit());
         assert_ne!(uniform[0], AtMostContext::<7>::SEEDED[0]);
@@ -276,8 +300,8 @@ mod tests {
         // so every node leans toward true; mirrored, toward false. Check
         // u64's bucket 6 (bit lengths 32..64) at the root and one deep
         // node.
-        let uniform_off = bl_offset_seeded::<31>(64, false);
-        let tiny_off = bl_offset_seeded::<31>(64, true);
+        let uniform_off = bl_offset_seeded::<31>(false, 64);
+        let tiny_off = bl_offset_seeded::<31>(true, 64);
         for node in [0usize, 1, 2, 30] {
             assert!(
                 uniform_off[node].probability().likely_bit(),
@@ -291,22 +315,43 @@ mod tests {
     }
 
     #[test]
+    fn capped_prior_shuns_the_impossible_top_code() {
+        // The signed-magnitude prior (max_bl = 63 on the u64 tree) gives
+        // the top blbl code — bit length 64, impossible for an i64
+        // magnitude — zero weight, so the final split separating codes
+        // {6} and {7} (heap node 6, covering leaves 6..8 of the complete
+        // 8-leaf tree) must lean hard toward false (the possible side),
+        // and the bucket-6 offset tree must still be seeded (bit lengths
+        // 32..63 are all real magnitudes).
+        let capped = blbl_tree_seeded::<7>(false, 63);
+        assert!(!capped[6].probability().likely_bit());
+        assert_ne!(
+            bl_offset_seeded::<31>(false, 63),
+            [BitContext::True0False0; 31]
+        );
+        // And the capped prior still totals 2^63 (checked in
+        // blbl_weights_partition_bl_weights), so the rest of the tree
+        // matches the unsigned lean.
+        assert!(capped[0].probability().likely_bit());
+    }
+
+    #[test]
     fn impossible_bucket_stays_flat() {
         // u64's would-be bucket 7 (bit lengths 64..128) can't occur — bit
         // length 64 is pinned by the top `blbl` code — so its tree must be
         // the flat default (which, for a power-of-two value count, is also
         // `AtMostContext`'s seeded default).
         assert_eq!(
-            bl_offset_seeded::<63>(64, false),
+            bl_offset_seeded::<63>(false, 64),
             [BitContext::True0False0; 63]
         );
         assert_eq!(
-            bl_offset_seeded::<63>(64, true),
+            bl_offset_seeded::<63>(true, 64),
             [BitContext::True0False0; 63]
         );
         // For u128 the same tree is a real bucket and must be seeded.
         assert_ne!(
-            bl_offset_seeded::<63>(128, false),
+            bl_offset_seeded::<63>(false, 128),
             [BitContext::True0False0; 63]
         );
     }

@@ -726,6 +726,25 @@ size. If encode on multi-magnitude `Range` data ever matters more,
 fusing the `blbl` + offset symbols into a single coder step is the next
 lever.
 
+**Signed integers (2026-07-17, same branch)**: the default signed
+`Encode` (previously a fixed-width per-bit path: sign + up to `bits-9`
+unary leading-zero bools + `u8` fallback) became sign +
+magnitude-through-the-same-hierarchy, with the prior *capped* at bit
+length `bits-1` (`seeded_capped` — an i64 magnitude is a uniform 63-bit
+value, so the top bit length gets zero prior weight). Fresh `0_i64`/-1:
+64 → **7 bits**; `0_i128`: 128 → 7; `MIN`/`MAX` pay ~+1 bit. Speed
+(quiesced `benches/signed.rs`, min of 2): **i64 encode −37% (Range) /
+−73% (Ans), decode −57% / −35%**; i32 −13…−57%; sizes equal or slightly
+better — the old path's up-to-56 sequential adaptive bools per value
+were the dominant cost. **Known trade at 16 bits**: u16/i16 decode is
++9…20% slower (i16 Ans random +40%) — the old u16 tree was a *complete*
+power-of-two `AtMost<15>` with the fast speculating walk (and old i16
+additionally shortcut through the optimized u8 byte tree), so the
+16-bit types gained least and lost most from the two-symbol split.
+Possible future fix: give 16-bit types a complete 8-leaf `blbl` tree
+(pad with impossible codes) or fuse the two symbols; left undone —
+16-bit fields are rare in the target workloads.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
