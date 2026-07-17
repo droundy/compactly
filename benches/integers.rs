@@ -310,6 +310,19 @@ fn main() {
         s.sort();
         s
     };
+    // The distribution `usize`'s tuned default `Encode` actually targets:
+    // real `usize`s are lengths/counts/indices, overwhelmingly small, not
+    // log-uniform across the whole magnitude range.
+    let skewed_small_usize: Vec<usize> = gen_skewed_small_vec(&mut rng, N, 0.8);
+    let repeated_small_usize: Vec<usize> = vec![1_usize; N];
     benchmark_usize(&format!("usize random ({N} values)"), &random_usize);
     benchmark_usize(&format!("usize sorted ({N} values)"), &sorted_usize);
+    benchmark_usize(
+        &format!("usize skewed small ({N} values)"),
+        &skewed_small_usize,
+    );
+    benchmark_usize(
+        &format!("usize repeated small const ({N} values)"),
+        &repeated_small_usize,
+    );
 }

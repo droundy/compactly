@@ -35,9 +35,9 @@ fn singlet_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple(usize);
 
-    assert_bits!(Tuple(0), expect!["v1: 3 bits, v2: 3 bits"]);
-    assert_bits!(Tuple(1), expect!["v1: 3 bits, v2: 3 bits"]);
-    assert_bits!(Tuple(2), expect!["v1: 3 bits, v2: 3 bits"]);
+    assert_bits!(Tuple(0), expect!["v1: 3 bits, v2: 1 bits"]);
+    assert_bits!(Tuple(1), expect!["v1: 3 bits, v2: 2 bits"]);
+    assert_bits!(Tuple(2), expect!["v1: 3 bits, v2: 4 bits"]);
 }
 
 #[test]
@@ -45,10 +45,10 @@ fn pair_tuple() {
     #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
     pub struct Tuple(usize, bool);
 
-    assert_bits!(Tuple(0, false), expect!["v1: 4 bits, v2: 4 bits"]);
-    assert_bits!(Tuple(1, true), expect!["v1: 4 bits, v2: 4 bits"]);
-    assert_bits!(Tuple(2, false), expect!["v1: 4 bits, v2: 4 bits"]);
-    assert_bits!(Tuple(2048, false), expect!["v1: 18 bits, v2: 18 bits"]);
+    assert_bits!(Tuple(0, false), expect!["v1: 4 bits, v2: 2 bits"]);
+    assert_bits!(Tuple(1, true), expect!["v1: 4 bits, v2: 3 bits"]);
+    assert_bits!(Tuple(2, false), expect!["v1: 4 bits, v2: 5 bits"]);
+    assert_bits!(Tuple(2048, false), expect!["v1: 18 bits, v2: 19 bits"]);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn record() {
             happy: false,
             age: 51
         },
-        expect!["v1: 16 bits, v2: 16 bits"]
+        expect!["v1: 16 bits, v2: 15 bits"]
     );
     assert_bits!(
         Tuple {
@@ -115,7 +115,7 @@ fn record() {
             happy: true,
             age: 51
         },
-        expect!["v1: 29 bits, v2: 29 bits"]
+        expect!["v1: 29 bits, v2: 31 bits"]
     );
 }
 
@@ -188,7 +188,7 @@ fn fancy_enum() {
         },
     }
 
-    assert_bits!(A::A { age: 51 }, expect!["v1: 12 bits, v2: 12 bits"]);
+    assert_bits!(A::A { age: 51 }, expect!["v1: 12 bits, v2: 11 bits"]);
     assert_bits!(A::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
@@ -197,7 +197,7 @@ fn fancy_enum() {
         B { big: bool },
     }
 
-    assert_bits!(B::A { age: 51 }, expect!["v1: 65 bits, v2: 16 bits"]);
+    assert_bits!(B::A { age: 51 }, expect!["v1: 65 bits, v2: 11 bits"]);
     assert_bits!(B::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 }
 
@@ -219,14 +219,14 @@ fn low_cardinality() {
         value: u64,
     }
 
-    assert_bits!(Data { value: 51 }, expect!["v1: 65 bits, v2: 16 bits"]);
+    assert_bits!(Data { value: 51 }, expect!["v1: 65 bits, v2: 11 bits"]);
     assert_bits!(
         Data { value: u64::MAX },
-        expect!["v1: 65 bits, v2: 67 bits"]
+        expect!["v1: 65 bits, v2: 66 bits"]
     );
     assert_bits!(
         (0..1024).map(|value| Data { value }).collect::<Vec<_>>(),
-        expect!["v1: 8379 bits, v2: 8319 bits"]
+        expect!["v1: 8379 bits, v2: 8320 bits"]
     );
     // With three options, it takes less than two bits per value:
     assert_bits!(

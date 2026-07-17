@@ -155,18 +155,18 @@ fn decimal_float() {
         )
     }
 
-    expect!["decimal: 16 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
-    expect!["decimal: 13 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
-    expect!["decimal: 16 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
-    expect!["decimal: 30 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
-    expect!["decimal: 67 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
-    expect!["decimal: 8 bits, binary: 7 bits"].assert_eq(&sizes(0.0));
-    expect!["decimal: 11 bits, binary: 10 bits"].assert_eq(&sizes(8.0));
-    expect!["decimal: 23 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
-    expect!["decimal: 24 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
+    expect!["decimal: 14 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
+    expect!["decimal: 9 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
+    expect!["decimal: 14 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
+    expect!["decimal: 31 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
+    expect!["decimal: 70 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
+    expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes(0.0));
+    expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes(8.0));
+    expect!["decimal: 24 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
+    expect!["decimal: 25 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
-    expect!["decimal: 38 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
-    expect!["decimal: 12 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
-    expect!["decimal: 7 bits, binary: 6 bits"].assert_eq(&sizes32(0.0));
+    expect!["decimal: 39 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
+    expect!["decimal: 9 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
+    expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes32(0.0));
     expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes32(8.0));
 }

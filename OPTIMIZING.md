@@ -678,6 +678,54 @@ monomorphization, not run-to-run scatter). A depth- or count-based rule
 can't capture one bad monomorphization; if `AtMost<48>`-sized enums ever
 matter, investigate that codegen instead of widening the window.
 
+### Hierarchical (Elias-delta-style) integer encoding + mirrored `usize` prior (2026-07-17)
+
+The default integer `Encode`/`Small` scheme was rebuilt around the value's
+*bit length* `bl` instead of one deep leading-zero tree
+(`src/v2/ints.rs`): one `AtMost<blbl_max>` symbol for
+`blbl = bit_length_of(bl)` (3-level complete tree for u64), then `bl`'s
+offset within its `blbl` bucket as a second per-bucket `AtMost` symbol,
+then the value mantissa as before. `usize`'s default `Encode` reuses the
+exact same compiled code via a `Default`-override context seeded from the
+*mirrored* prior (`mirror = true` in `src/v2/atmost/geometric.rs`) — tiny
+magnitudes dominant, matching real lengths/counts/indices — while
+`u16..u128`'s default keeps the uniform-value prior and `Small` stays
+flat-seeded.
+
+Why: the old 6-level `AtMost<63>` tree charged every u64/usize **6
+adaptive decisions** regardless of magnitude. Each fully-adapted decision
+floors at ~11.3 mb (`BitContext`'s 254/256 probability cap) and each
+fresh seeded node at ~0.26 bits (`seed_context`'s 4-observation cap), so
+tiny values — the overwhelmingly common case for `usize` — paid double
+what a 3-decision path needs. Measured (Millibits, exact):
+
+- Repeated-constant floor: 68 → **34 mb/element** (u64/usize value 1;
+  matches 3 × 11.3 exactly). Guarded by
+  `repeated_constant_floor_matches_shallow_path` in `usizes.rs`.
+- Fresh `usize` costs: 0 → **1.26 bits** (was 3.0), 1 → 2.26, 2-3 → 4.26,
+  monotone through the small range (guarded by
+  `mirrored_prior_cost_increases_through_the_common_range`).
+- Fresh `u64` (uniform prior): 0 → **6.2 bits** (was 13.2), `u64::MAX`
+  64.5 (was 65.6). `Small` fresh 0/1: 6 → **3 bits**.
+
+Speed (quiesced `benches/integers.rs` A/B vs main, min of 2, 8192 values):
+repeated-tiny-constant u64 decode **−55…−61%**, encode −28…−40%, encoded
+size halved (92 → 48 bits); `Ans` flat-to-better on the other
+distributions (skewed-small u64 decode −13%); `Range` pays **+7…14%** on
+multi-magnitude data (random/sorted) for the second symbol's division —
+`Ans`'s lean symbol step absorbs it.
+
+**Per-bit `bl`-mantissa was a measured dead end on encode**: the first
+iteration coded `bl`'s mantissa as adaptive bits (per-(bucket, position)
+contexts) instead of a per-bucket symbol, and encode measured **+20…40%**
+on mid/large values — ~5 extra buffered coder ops per value on `Ans` —
+while decode was flat-to-better. Converting the mantissa to one
+`AtMost` symbol per bucket (complete power-of-two trees, so they get the
+fast `CompleteSpeculating` walk) recovered nearly all of it at identical
+size. If encode on multi-magnitude `Range` data ever matters more,
+fusing the `blbl` + offset symbols into a single coder step is the next
+lever.
+
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 

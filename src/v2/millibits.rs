@@ -55,6 +55,12 @@ impl Millibits {
     pub(crate) fn as_bits(self) -> String {
         ((self.0 + 500) / 1000).to_string()
     }
+
+    /// The raw millibit count, for tests that do arithmetic on sizes.
+    #[cfg(test)]
+    pub(crate) fn as_millibits(self) -> u32 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for Millibits {

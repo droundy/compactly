@@ -87,12 +87,20 @@ impl<T: Encode> Encode for Box<T> {
 }
 #[test]
 fn size() {
-    use super::{assert_bits_all, estimated_bits};
+    use super::estimated_bits;
     expect!["3"].assert_eq(&estimated_bits!(Vec::<usize>::new()));
-    assert_bits_all!(0_usize..4, |value| vec![value], expect!["6"]);
-    expect!["6"].assert_eq(&estimated_bits!(dbg!((0_usize..1).collect::<Vec<_>>())));
-    expect!["10"].assert_eq(&estimated_bits!(dbg!((0_usize..2).collect::<Vec<_>>())));
-    expect!["59"].assert_eq(&estimated_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
+    // Unlike most fresh-context codes, `0..4` no longer costs the same
+    // number of bits for every value: `usize`'s default `Encode` is now
+    // deliberately skewed toward small magnitudes (see `tiny_seeded` in
+    // `usizes.rs`), so `vec![0]` should already read cheaper than
+    // `vec![3]` even before any adaptation.
+    expect!["4"].assert_eq(&estimated_bits!(vec![0_usize]));
+    expect!["5"].assert_eq(&estimated_bits!(vec![1_usize]));
+    expect!["7"].assert_eq(&estimated_bits!(vec![2_usize]));
+    expect!["7"].assert_eq(&estimated_bits!(vec![3_usize]));
+    expect!["4"].assert_eq(&estimated_bits!(dbg!((0_usize..1).collect::<Vec<_>>())));
+    expect!["8"].assert_eq(&estimated_bits!(dbg!((0_usize..2).collect::<Vec<_>>())));
+    expect!["55"].assert_eq(&estimated_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
 }
 
 pub struct Context<T, S: EncodingStrategy<T>> {

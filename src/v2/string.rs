@@ -254,7 +254,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8931 bits, small: 7113 bits"]
+    expect!["normal: 8930 bits, small: 7113 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());
@@ -273,16 +273,16 @@ fn size() {
         .assert_eq(&compare_small_bits("hello world hello wood"));
     expect!["normal: 110 bits, small: 98 bits"]
         .assert_eq(&compare_small_bits("hello world hello world"));
-    expect!["normal: 376 bits, small: 419 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 375 bits, small: 418 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
     ));
-    expect!["normal: 1497 bits, small: 835 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1497 bits, small: 832 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
     ));
-    expect!["normal: 1566 bits, small: 1005 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1566 bits, small: 1001 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
@@ -378,8 +378,8 @@ fn sorted() {
         crate::Encoded::new(strings.clone());
     use super::estimated_bits;
 
-    expect!["5934"].assert_eq(&estimated_bits!(strings.clone()));
-    expect!["4938"].assert_eq(&estimated_bits!(encoded_strings.clone()));
+    expect!["5933"].assert_eq(&estimated_bits!(strings.clone()));
+    expect!["4937"].assert_eq(&estimated_bits!(encoded_strings.clone()));
 }
 
 #[test]

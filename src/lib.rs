@@ -30,7 +30,7 @@
 //!
 //! let encoded: Vec<u8> = compactly::encode(&square);
 //! let encoded_bincode: Vec<u8> = bincode::encode_to_vec(&square, bincode::config::standard()).unwrap();
-//! assert_eq!(encoded.len(), encoded_bincode.len() / 10); // compactly encoded is less than 10% of bincode
+//! assert_eq!(encoded.len(), encoded_bincode.len() / 16); // compactly encoded is a small fraction of bincode
 //! ```
 //!
 //! # Using a stable format
