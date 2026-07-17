@@ -216,10 +216,98 @@ pub(crate) const fn bl_offset_seeded<const MAX: usize>(
     ctxs
 }
 
+/// Weight of `AtMost<bits-1>` leaf `i` (i.e. `afewbits_val == i` in the
+/// legacy single-tree leading-zero encoding still used by `u16`) under a
+/// uniformly-distributed `bits`-bit magnitude:
+///
+/// - leaf `0` covers `lz ∈ {0, 1}` (disambiguated separately by
+///   `lz_is_one`): weight `2^(bits-1) + 2^(bits-2) = 3·2^(bits-2)`.
+/// - leaf `i` for `1 <= i < bits-1` covers `lz == i+1`: weight
+///   `2^(bits-2-i)`.
+/// - leaf `bits-1` covers `lz == bits` (the single value `0`): weight `1`.
+///
+/// These sum to exactly `1u128 << bits`, the total count of `bits`-bit
+/// values.
+const fn lz_leaf_weight(bits: usize, i: usize) -> u128 {
+    if i == 0 {
+        3u128 << (bits - 2)
+    } else if i < bits - 1 {
+        1u128 << (bits - 2 - i)
+    } else {
+        1
+    }
+}
+
+/// Sum of [`lz_leaf_weight`] for `i` in `start..start+count`.
+const fn lz_weight_range(bits: usize, start: usize, count: usize) -> u128 {
+    let mut sum = 0u128;
+    let mut i = start;
+    while i < start + count {
+        sum += lz_leaf_weight(bits, i);
+        i += 1;
+    }
+    sum
+}
+
+/// Seeds for the legacy single-tree leading-zero-count encoding (the
+/// pre-hierarchy scheme, kept for `u16` — see `src/v2/ints.rs`): the
+/// identical stack-based walk as [`super::AtMostContext::SEEDED`], but
+/// each node's seed comes from the relative population of `bits`-bit
+/// values on either side of the split ([`lz_leaf_weight`]) instead of the
+/// raw leaf count, so a fresh context costs close to `bits` bits for an
+/// arbitrary/incompressible value.
+///
+/// `MAX` is `AtMost<MAX>`'s own `MAX` (i.e. `bits - 1`, matching
+/// `AtMostContext<MAX>`'s array size); `bits = MAX + 1` is computed
+/// internally. Requires `MAX < 128`, enforced by a `const` assert, since
+/// `lz_leaf_weight`'s arithmetic silently corrupts wider results instead
+/// of panicking.
+pub(crate) const fn geometric_seeded<const MAX: usize>() -> [BitContext; MAX] {
+    const { assert!(MAX < 128) };
+    let bits = MAX + 1;
+    let mut bits_ctx = [BitContext::True0False0; MAX];
+    // Same bound as AtMostContext::SEEDED: intervals shrink by at least
+    // 1/4 per level, so 192 covers any possible `usize` MAX.
+    let mut stack = [(0usize, 0usize); 192];
+    stack[0] = (0, bits);
+    let mut top = 1;
+    while top > 0 {
+        top -= 1;
+        let (start, len) = stack[top];
+        if len > 1 {
+            let vc = half(len);
+            let split = start + vc;
+            let lo_full = lz_weight_range(bits, start, vc);
+            let hi_full = lz_weight_range(bits, split, len - vc);
+            let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
+            let lo = (lo_full >> shift) as u64;
+            let hi = (hi_full >> shift) as u64;
+            bits_ctx[node_index::<MAX>(start, len)] = seed_context(lo, hi);
+            stack[top] = (start, vc);
+            stack[top + 1] = (split, len - vc);
+            top += 2;
+        }
+    }
+    bits_ctx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::v2::atmost::AtMostContext;
+
+    #[test]
+    fn legacy_lz_seeding_still_biased() {
+        // The legacy u16 path's seeds: weights must total the value count,
+        // the root must differ from the flat seed, and deep nodes must
+        // keep their bias (the per-node-shift property).
+        assert_eq!(lz_weight_range(16, 0, 16), 1u128 << 16);
+        assert_ne!(geometric_seeded::<15>()[0], AtMostContext::<15>::SEEDED[0]);
+        let seeded = geometric_seeded::<15>();
+        // The split isolating leaf 12 from leaf 13 (weights 4 and 2) lives
+        // at heap index node_index::<15>(12, 2) == 13.
+        assert_ne!(seeded[13], BitContext::True0False0);
+    }
 
     #[test]
     fn bl_weights_sum_to_total_range() {

@@ -1,4 +1,4 @@
-use super::atmost::geometric::{bl_offset_seeded, blbl_tree_seeded};
+use super::atmost::geometric::{bl_offset_seeded, blbl_tree_seeded, geometric_seeded};
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
@@ -127,16 +127,16 @@ fn size_u32() {
 #[test]
 fn size_u16() {
     use super::estimated_bits;
-    expect!["4"].assert_eq(&estimated_bits!(0_u16));
-    expect!["4"].assert_eq(&estimated_bits!(1_u16));
-    expect!["15"].assert_eq(&estimated_bits!(255_u16));
-    expect!["15"].assert_eq(&estimated_bits!(256_u16));
+    expect!["8"].assert_eq(&estimated_bits!(0_u16));
+    expect!["8"].assert_eq(&estimated_bits!(1_u16));
+    expect!["14"].assert_eq(&estimated_bits!(255_u16));
+    expect!["14"].assert_eq(&estimated_bits!(256_u16));
     expect!["17"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["33"].assert_eq(&estimated_bits!([0_u16; 128]));
-    expect!["1086"].assert_eq(&estimated_bits!([u16::MAX; 128]));
-    expect!["6"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["20"].assert_eq(&estimated_bits!([1_u16; 19]));
-    expect!["27"].assert_eq(&estimated_bits!([
+    expect!["77"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["1095"].assert_eq(&estimated_bits!([u16::MAX; 128]));
+    expect!["14"].assert_eq(&estimated_bits!([1_u16; 2]));
+    expect!["46"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["56"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
@@ -225,6 +225,14 @@ fn default_encoding_roundtrips_every_leading_zero_depth() {
 // fresh-context minimum (~0.26 bits per decision, `seed_context`'s
 // 4-observation cap) on the values that dominate real `usize` data.
 // Mid-size values instead pay one extra (shallow) coder step.
+//
+// `u16` deliberately does NOT use this macro: its old single-tree scheme
+// (below the invocations) is a *complete* power-of-two `AtMost<15>` that
+// takes the fast speculating walk in one coder step, and the hierarchy's
+// two-symbol split measured 9-20% slower decode there while the shallow
+// tree left little floor to win back. The wider types' trees are deep
+// enough (and, for the uneven u128 count, slow enough) that the hierarchy
+// wins.
 macro_rules! impl_compact {
     ($t:ident, $context:ident, $default_context:ident, $bits:literal, $blbl_max:literal) => {
         // $blbl_max must be the bit length of $bits itself, i.e. the
@@ -427,27 +435,135 @@ macro_rules! impl_compact {
 impl_compact!(u128, U128Compact, U128Default, 128, 8);
 impl_compact!(u64, U64Compact, U64Default, 64, 7);
 impl_compact!(u32, U32Compact, U32Default, 32, 6);
-impl_compact!(u16, U16Compact, U16Default, 16, 5);
+
+// `u16`'s legacy single-tree scheme (see the note above `impl_compact!`):
+// the leading-zero count through one complete `AtMost<15>` symbol —
+// `code = lz.saturating_sub(1)`, so lz=0 and lz=1 share code 0
+// (disambiguated by `lz_is_one`) while lz=16 maps to code 15 with no extra
+// bool — then the value mantissa exactly as the hierarchical scheme's.
+#[derive(Clone, Default)]
+pub struct U16Compact {
+    leading_zeros: <AtMost<15> as Encode>::Context,
+    lz_is_one: <bool as Encode>::Context,
+    /// `partial[lz][i]`: context for bit `i` of the partial top byte, given
+    /// `lz` leading zeros. Only `(15 - lz) % 8` bits are used per row.
+    partial: [[<bool as Encode>::Context; 8]; 16],
+}
+
+impl EncodingStrategy<u16> for Small {
+    type Context = U16Compact;
+    #[inline]
+    fn encode<E: EntropyCoder>(value: &u16, writer: &mut E, ctx: &mut Self::Context) {
+        let lz = value.leading_zeros() as usize;
+        let afewbits_val = lz.saturating_sub(1);
+        AtMost::<15>::new(afewbits_val).encode(writer, &mut ctx.leading_zeros);
+        if afewbits_val == 0 {
+            (lz == 1).encode(writer, &mut ctx.lz_is_one);
+        }
+        if lz >= 15 {
+            return;
+        }
+        let sig_bits = 15 - lz;
+        let full_bytes = sig_bits / 8;
+        let partial_bits = sig_bits % 8;
+        let value_bytes = value.to_le_bytes();
+        if full_bytes > 0 {
+            writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
+        }
+        for i in 0..partial_bits {
+            let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
+            bit.encode(writer, &mut ctx.partial[lz][i]);
+        }
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u16, std::io::Error> {
+        let afewbits_val = usize::from(AtMost::<15>::decode(reader, &mut ctx.leading_zeros)?);
+        let lz = if afewbits_val == 0 {
+            if bool::decode(reader, &mut ctx.lz_is_one)? {
+                1
+            } else {
+                0
+            }
+        } else {
+            afewbits_val + 1
+        };
+        if lz >= 15 {
+            return if lz == 16 { Ok(0) } else { Ok(1) };
+        }
+        let sig_bits = 15 - lz;
+        let full_bytes = sig_bits / 8;
+        let partial_bits = sig_bits % 8;
+        let mut value_bytes = [0u8; 2];
+        if full_bytes > 0 {
+            reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
+        }
+        for i in 0..partial_bits {
+            if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                value_bytes[full_bytes] |= 1 << i;
+            }
+        }
+        // Restore the implicit leading 1.
+        value_bytes[full_bytes] |= 1 << partial_bits;
+        Ok(u16::from_le_bytes(value_bytes))
+    }
+}
+
+/// The default `Encode` for `u16` reuses `Small`'s exact encode/decode
+/// logic via a context wrapper that only overrides `Default`: the
+/// leading-zero-count tree is seeded with the geometric prior
+/// (`geometric_seeded`), so a fresh context costs close to 16 bits for an
+/// arbitrary value while `Small`'s flat seed pays ~4 extra fresh bits.
+#[derive(Clone)]
+pub struct U16Default(U16Compact);
+
+impl Default for U16Default {
+    fn default() -> Self {
+        Self(U16Compact {
+            leading_zeros: AtMostContext {
+                bits: const { geometric_seeded::<15>() },
+            },
+            ..U16Compact::default()
+        })
+    }
+}
+
+impl Encode for u16 {
+    type Context = U16Default;
+    #[inline]
+    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(self, writer, &mut ctx.0)
+    }
+    #[inline]
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u16, std::io::Error> {
+        Small::decode(reader, &mut ctx.0)
+    }
+}
 
 #[test]
 fn compact_u16() {
     use super::estimated_bits;
     use crate::{Encoded, Small};
-    expect!["3"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u16)));
-    expect!["3"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u16)));
+    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_u16)));
+    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_u16)));
     expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(2_u16)));
     expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(3_u16)));
     expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(4_u16)));
     expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(5_u16)));
     expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(6_u16)));
     expect!["6"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(7_u16)));
-    expect!["8"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(8_u16)));
-    expect!["18"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u16::MAX)));
-    expect!["19"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(0_u16); 128]));
-    expect!["1090"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(u16::MAX); 128]));
-    expect!["4"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 2]));
-    expect!["12"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 19]));
-    expect!["18"].assert_eq(&estimated_bits!([
+    expect!["7"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(8_u16)));
+    expect!["20"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(u16::MAX)));
+    expect!["27"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(0_u16); 128]));
+    expect!["1104"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(u16::MAX); 128]));
+    expect!["6"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 2]));
+    expect!["17"].assert_eq(&estimated_bits!([Encoded::<_, Small>::new(1_u16); 19]));
+    expect!["24"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]
     .map(Encoded::<_, Small>::new)));
@@ -520,27 +636,27 @@ fn normal_u16() {
     // The goal of the "normal" encoding for integers is to always encode with
     // the same total number of bits.  Adaption can then shift things based on
     // what is actually seen.
-    expect!["3608 mb"].assert_eq(&0_u16.millibits().to_string());
-    expect!["3607 mb"].assert_eq(&1_u16.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&2_u16.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&3_u16.millibits().to_string());
-    expect!["8056 mb"].assert_eq(&4_u16.millibits().to_string());
-    expect!["10043 mb"].assert_eq(&8_u16.millibits().to_string());
-    expect!["10035 mb"].assert_eq(&16_u16.millibits().to_string());
-    expect!["10036 mb"].assert_eq(&(1u16 << 5).millibits().to_string());
-    expect!["15043 mb"].assert_eq(&(1u16 << 7).millibits().to_string());
-    expect!["15036 mb"].assert_eq(&(1u16 << 9).millibits().to_string());
-    expect!["16694 mb"].assert_eq(&(1u16 << 11).millibits().to_string());
-    expect!["16687 mb"].assert_eq(&(1u16 << 13).millibits().to_string());
-    expect!["16517 mb"].assert_eq(&(1u16 << 15).millibits().to_string());
-    expect!["16517 mb"].assert_eq(&u16::MAX.millibits().to_string());
+    expect!["8206 mb"].assert_eq(&0_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&1_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&2_u16.millibits().to_string());
+    expect!["8215 mb"].assert_eq(&3_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&4_u16.millibits().to_string());
+    expect!["9781 mb"].assert_eq(&8_u16.millibits().to_string());
+    expect!["9775 mb"].assert_eq(&16_u16.millibits().to_string());
+    expect!["9777 mb"].assert_eq(&(1u16 << 5).millibits().to_string());
+    expect!["13781 mb"].assert_eq(&(1u16 << 7).millibits().to_string());
+    expect!["13777 mb"].assert_eq(&(1u16 << 9).millibits().to_string());
+    expect!["15715 mb"].assert_eq(&(1u16 << 11).millibits().to_string());
+    expect!["16383 mb"].assert_eq(&(1u16 << 13).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&(1u16 << 15).millibits().to_string());
+    expect!["17034 mb"].assert_eq(&u16::MAX.millibits().to_string());
 
     // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
-    expect!["8056 mb"].assert_eq(&5_u16.millibits().to_string());
-    expect!["10028 mb"].assert_eq(&100_u16.millibits().to_string());
-    expect!["16687 mb"].assert_eq(&12345_u16.millibits().to_string());
-    expect!["16678 mb"].assert_eq(&0x5A5A_u16.millibits().to_string());
-    expect!["16517 mb"].assert_eq(&54321_u16.millibits().to_string());
+    expect!["8212 mb"].assert_eq(&5_u16.millibits().to_string());
+    expect!["9769 mb"].assert_eq(&100_u16.millibits().to_string());
+    expect!["16383 mb"].assert_eq(&12345_u16.millibits().to_string());
+    expect!["16034 mb"].assert_eq(&0x5A5A_u16.millibits().to_string());
+    expect!["17034 mb"].assert_eq(&54321_u16.millibits().to_string());
 }
 
 #[test]
@@ -607,63 +723,174 @@ fn normal_u128() {
     expect!["129714 mb"].assert_eq(&(u128::MAX / 3).millibits().to_string());
 }
 
+// The default-`Encode` half of `impl_signed!`, for the wide types: a sign
+// bit plus the magnitude (`abs_diff` from `0`/`-1`, a bijection onto
+// uniform `($bits - 1)`-bit values) through the same hierarchical encoding
+// as the unsigned default — with the prior capped one bit length below the
+// width, since the magnitude never reaches it. Same shape as `isize`
+// (`usizes.rs`), different prior.
+macro_rules! impl_signed_default_hierarchical {
+    ($signed:ident, $unsigned:ident, $bits:literal) => {
+        /// The unsigned hierarchical context the magnitude codes
+        /// through — the very type `Small<$unsigned>` uses.
+        type MagnitudeContext = <Small as EncodingStrategy<$unsigned>>::Context;
+
+        #[derive(Clone)]
+        pub struct NormalContext {
+            is_negative: <bool as Encode>::Context,
+            magnitude: MagnitudeContext,
+        }
+        impl Default for NormalContext {
+            fn default() -> Self {
+                Self {
+                    is_negative: Default::default(),
+                    magnitude: const { MagnitudeContext::seeded_capped(false, $bits - 1) },
+                }
+            }
+        }
+
+        impl Encode for $signed {
+            type Context = NormalContext;
+            #[inline]
+            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                let is_neg = *self < 0;
+                is_neg.encode(writer, &mut ctx.is_negative);
+                let mag: $unsigned = if is_neg {
+                    self.abs_diff(-1)
+                } else {
+                    self.abs_diff(0)
+                };
+                Small::encode(&mag, writer, &mut ctx.magnitude);
+            }
+            #[inline]
+            fn decode<D: EntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+                let mag: $unsigned = Small::decode(reader, &mut ctx.magnitude)?;
+                if is_neg {
+                    Ok(-1 - (mag as $signed))
+                } else {
+                    Ok(mag as $signed)
+                }
+            }
+        }
+    };
+}
+
+// The legacy default-`Encode` half of `impl_signed!`, kept for `i16` (see
+// the note above `impl_compact!` — the 16-bit types measured fastest on
+// their old paths): a fixed-width per-bit encoding — sign, then unary
+// adaptive leading-zero bits over the magnitude, with magnitudes below 256
+// finishing in the heavily-optimized `u8` byte tree.
+macro_rules! impl_signed_default_legacy {
+    ($signed:ident, $unsigned:ident, $bits:literal) => {
+        #[derive(Clone)]
+        pub struct NormalContext {
+            is_negative: <bool as Encode>::Context,
+            // Magnitude is in [0, 2^($bits-1)-1]: effectively a ($bits-1)-bit unsigned.
+            // The MSB of $unsigned is always 0, so we use $bits-1 leading_zero slots.
+            leading_zero: [<bool as Encode>::Context; $bits - 1],
+            u8_ctx: <u8 as Encode>::Context,
+            partial: [[<bool as Encode>::Context; 8]; $bits - 1],
+        }
+        impl Default for NormalContext {
+            fn default() -> Self {
+                Self {
+                    is_negative: Default::default(),
+                    leading_zero: [Default::default(); $bits - 1],
+                    u8_ctx: Default::default(),
+                    partial: [[Default::default(); 8]; $bits - 1],
+                }
+            }
+        }
+
+        impl Encode for $signed {
+            type Context = NormalContext;
+            #[inline]
+            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                let is_neg = *self < 0;
+                is_neg.encode(writer, &mut ctx.is_negative);
+                let mag: $unsigned = if is_neg {
+                    self.abs_diff(-1)
+                } else {
+                    self.abs_diff(0)
+                };
+                // Encode magnitude as a ($bits-1)-bit value.
+                // mag < 2^($bits-1) so mag.leading_zeros() >= 1; adjusted_lz = leading_zeros - 1.
+                const MBITS: usize = $bits - 1;
+                let lz = mag.leading_zeros() as usize - 1;
+                if lz >= MBITS - 8 {
+                    for i in (8..MBITS).rev() {
+                        false.encode(writer, &mut ctx.leading_zero[i]);
+                    }
+                    (mag as u8).encode(writer, &mut ctx.u8_ctx);
+                    return;
+                }
+                for i in (MBITS - lz..MBITS).rev() {
+                    false.encode(writer, &mut ctx.leading_zero[i]);
+                }
+                true.encode(writer, &mut ctx.leading_zero[MBITS - 1 - lz]);
+                let sig_bits = MBITS - 1 - lz;
+                let full_bytes = sig_bits / 8;
+                let partial_bits = sig_bits % 8;
+                let value_bytes = mag.to_le_bytes();
+                if full_bytes > 0 {
+                    writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
+                }
+                for i in 0..partial_bits {
+                    let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
+                    bit.encode(writer, &mut ctx.partial[lz][i]);
+                }
+            }
+            #[inline]
+            fn decode<D: EntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+                const MBITS: usize = $bits - 1;
+                let mut lz = 0usize;
+                let mag: $unsigned = loop {
+                    if lz >= MBITS - 8 {
+                        let v = u8::decode(reader, &mut ctx.u8_ctx)?;
+                        break v as $unsigned;
+                    }
+                    if bool::decode(reader, &mut ctx.leading_zero[MBITS - 1 - lz])? {
+                        let sig_bits = MBITS - 1 - lz;
+                        let full_bytes = sig_bits / 8;
+                        let partial_bits = sig_bits % 8;
+                        let mut value_bytes = [0u8; std::mem::size_of::<$unsigned>()];
+                        if full_bytes > 0 {
+                            reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
+                        }
+                        for i in 0..partial_bits {
+                            if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                                value_bytes[full_bytes] |= 1 << i;
+                            }
+                        }
+                        value_bytes[full_bytes] |= 1 << partial_bits;
+                        break $unsigned::from_le_bytes(value_bytes.try_into().unwrap());
+                    }
+                    lz += 1;
+                };
+                if is_neg {
+                    Ok(-1 - (mag as $signed))
+                } else {
+                    Ok(mag as $signed)
+                }
+            }
+        }
+    };
+}
+
 macro_rules! impl_signed {
-    ($signed:ident, $unsigned:ident, $bits:literal, $mod:ident) => {
+    ($signed:ident, $unsigned:ident, $bits:literal, $mod:ident, $default:ident) => {
         mod $mod {
             use super::*;
 
-            /// The unsigned hierarchical context the magnitude codes
-            /// through — the very type `Small<$unsigned>` uses.
-            type MagnitudeContext = <Small as EncodingStrategy<$unsigned>>::Context;
-
-            // The default signed `Encode` is a sign bit plus the magnitude
-            // (`abs_diff` from `0`/`-1`, a bijection onto uniform
-            // `($bits - 1)`-bit values) through the same hierarchical
-            // encoding as the unsigned default — with the prior capped one
-            // bit length below the width, since the magnitude never
-            // reaches it. Same shape as `isize` (`usizes.rs`), different
-            // prior.
-            #[derive(Clone)]
-            pub struct NormalContext {
-                is_negative: <bool as Encode>::Context,
-                magnitude: MagnitudeContext,
-            }
-            impl Default for NormalContext {
-                fn default() -> Self {
-                    Self {
-                        is_negative: Default::default(),
-                        magnitude: const { MagnitudeContext::seeded_capped(false, $bits - 1) },
-                    }
-                }
-            }
-
-            impl Encode for $signed {
-                type Context = NormalContext;
-                #[inline]
-                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                    let is_neg = *self < 0;
-                    is_neg.encode(writer, &mut ctx.is_negative);
-                    let mag: $unsigned = if is_neg {
-                        self.abs_diff(-1)
-                    } else {
-                        self.abs_diff(0)
-                    };
-                    Small::encode(&mag, writer, &mut ctx.magnitude);
-                }
-                #[inline]
-                fn decode<D: EntropyDecoder>(
-                    reader: &mut D,
-                    ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
-                    let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
-                    let mag: $unsigned = Small::decode(reader, &mut ctx.magnitude)?;
-                    if is_neg {
-                        Ok(-1 - (mag as $signed))
-                    } else {
-                        Ok(mag as $signed)
-                    }
-                }
-            }
+            $default!($signed, $unsigned, $bits);
 
             #[derive(Clone)]
             pub struct Context {
@@ -774,14 +1001,14 @@ macro_rules! impl_signed {
     };
 }
 
-impl_signed!(i128, u128, 128, mod_i128);
-impl_signed!(i16, u16, 16, mod_i16);
-impl_signed!(i32, u32, 32, mod_i32);
-impl_signed!(i64, u64, 64, mod_i64);
+impl_signed!(i128, u128, 128, mod_i128, impl_signed_default_hierarchical);
+impl_signed!(i16, u16, 16, mod_i16, impl_signed_default_legacy);
+impl_signed!(i32, u32, 32, mod_i32, impl_signed_default_hierarchical);
+impl_signed!(i64, u64, 64, mod_i64, impl_signed_default_hierarchical);
 
 #[test]
 fn signed() {
-    use super::{assert_millibits, estimated_bits};
+    use super::{assert_bits_all, assert_millibits, estimated_bits};
     use crate::{Encoded, Small};
     use std::collections::BTreeSet;
 
@@ -801,16 +1028,15 @@ fn signed() {
     expect!["33"].assert_eq(&estimated_bits!(i32::MIN));
     expect!["33"].assert_eq(&estimated_bits!(i32::MAX));
 
-    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_i16)));
-    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_i16)));
-    expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(-1_i16)));
-    expect!["21"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(i16::MAX)));
-    expect!["21"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(i16::MIN)));
-    expect!["5"].assert_eq(&estimated_bits!(0_i16));
-    expect!["5"].assert_eq(&estimated_bits!(-1_i16));
-    expect!["15"].assert_eq(&estimated_bits!(137_i16));
-    expect!["17"].assert_eq(&estimated_bits!(i16::MIN));
-    expect!["17"].assert_eq(&estimated_bits!(i16::MAX));
+    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_i16)));
+    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_i16)));
+    expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(-1_i16)));
+    expect!["20"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(i16::MAX)));
+    expect!["20"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(i16::MIN)));
+    // i16 keeps the legacy fixed-width default (see `impl_compact!`'s
+    // 16-bit note), so every value costs exactly 16 bits fresh.
+    assert_bits_all!([i16::MAX, 0, 1, 7, 137, i16::MAX - 1], expect!["16"]);
+    expect!["16"].assert_eq(&estimated_bits!(i16::MIN));
 
     expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_i64)));
     expect!["4"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_i64)));
@@ -830,7 +1056,7 @@ fn signed() {
 
     assert_millibits!(
         BTreeSet::from([-1i16, 0, 1, 2]),
-        expect!["Millibits(17174)"]
+        expect!["Millibits(21251)"]
     );
     assert_millibits!(
         BTreeSet::from([-1i64, 0, 1, 2]),
@@ -838,7 +1064,7 @@ fn signed() {
     );
     assert_millibits!(
         BTreeSet::from([i16::MIN, i16::MAX]),
-        expect!["Millibits(43420)"]
+        expect!["Millibits(45256)"]
     );
     assert_millibits!(
         BTreeSet::from([i64::MIN, i64::MAX]),

@@ -736,14 +736,19 @@ value, so the top bit length gets zero prior weight). Fresh `0_i64`/-1:
 (quiesced `benches/signed.rs`, min of 2): **i64 encode −37% (Range) /
 −73% (Ans), decode −57% / −35%**; i32 −13…−57%; sizes equal or slightly
 better — the old path's up-to-56 sequential adaptive bools per value
-were the dominant cost. **Known trade at 16 bits**: u16/i16 decode is
-+9…20% slower (i16 Ans random +40%) — the old u16 tree was a *complete*
-power-of-two `AtMost<15>` with the fast speculating walk (and old i16
-additionally shortcut through the optimized u8 byte tree), so the
-16-bit types gained least and lost most from the two-symbol split.
-Possible future fix: give 16-bit types a complete 8-leaf `blbl` tree
-(pad with impossible codes) or fuse the two symbols; left undone —
-16-bit fields are rare in the target workloads.
+were the dominant cost. **16-bit exception (resolved by keeping the old
+code)**: the hierarchy initially made u16/i16 decode +9…20% slower (i16
+Ans random +40%) — the old u16 tree was a *complete* power-of-two
+`AtMost<15>` with the fast speculating walk in one coder step (and old
+i16 additionally shortcut through the optimized u8 byte tree), so the
+16-bit types gained least from a shorter path and lost most to the
+two-symbol split. Both were **reverted to their legacy implementations**
+(plain `U16Compact` + `geometric_seeded` single tree;
+`impl_signed_default_legacy!` for i16), re-measured bit-identical in
+size and within noise in speed vs main, while u32/u64/u128/usize and all
+signed wide types keep the hierarchy. If 16-bit decode ever needs the
+shorter tiny-value path too, the candidates remain: pad the `blbl` tree
+to a complete 8 leaves, or fuse the two symbols into one coder step.
 
 ### Float bits: adaptive bits vs incompressible bytes (BIG finding)
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
