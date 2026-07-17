@@ -101,6 +101,58 @@ mod imp {
         }
     }
 
+    /// A frozen copy of the pre-dictionary `String` `LowCardinality`
+    /// encoding (the `impl_low_cardinality!(String, string)` macro
+    /// expansion this crate used before `String` was switched to share the
+    /// `Rc<str>` dictionary implementation): a plain content-addressed
+    /// cache -- one `is_cached` bit, then either an index or the full
+    /// string via `String`'s own char-by-char `Encode`. One allocation on
+    /// an encode-side miss (the `String` clone stored as the `HashMap`
+    /// key) and one more on a decode-side miss (`ctx.cache.push(value.clone())`).
+    #[derive(Clone, PartialEq)]
+    struct OldStyleString(String);
+
+    #[derive(Default, Clone)]
+    struct OldStyleStringContext {
+        cached: HashMap<String, usize>,
+        cache: Vec<String>,
+        is_cached: <bool as Encode>::Context,
+        string_ctx: <String as Encode>::Context,
+        index: <usize as Encode>::Context,
+    }
+
+    impl Encode for OldStyleString {
+        type Context = OldStyleStringContext;
+        fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+            let looked_up = ctx.cached.get(&self.0).copied();
+            looked_up.is_some().encode(writer, &mut ctx.is_cached);
+            if let Some(idx) = looked_up {
+                idx.encode(writer, &mut ctx.index)
+            } else {
+                ctx.cached.insert(self.0.clone(), ctx.cached.len());
+                self.0.encode(writer, &mut ctx.string_ctx)
+            }
+        }
+        fn decode<D: EntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+            if is_cached {
+                let idx = usize::decode(reader, &mut ctx.index)?;
+                ctx.cache
+                    .get(idx)
+                    .cloned()
+                    .map(OldStyleString)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+            } else {
+                let s = String::decode(reader, &mut ctx.string_ctx)?;
+                ctx.cache.push(s.clone());
+                Ok(OldStyleString(s))
+            }
+        }
+    }
+
     /// A frozen copy of the `BTreeMap`-based prefix/suffix `StringSet` +
     /// `ArcStrCacheContext` (i.e. the version with the O(1) exact-match
     /// `HashMap` fast path and the allocation-free suffix query, but
@@ -426,6 +478,10 @@ mod imp {
         }
     }
 
+    fn read_string_corpus(name: &str) -> Vec<String> {
+        read_corpus(name).iter().map(|s| s.to_string()).collect()
+    }
+
     /// Encode- or decode-only loop for `bench perf stat -e cpu_core/cycles/`:
     /// repeat the chosen operation with `black_box` so the compiler can't
     /// hoist it out, matching `just-compress-strings`/`just-decompress-strings`'s
@@ -455,6 +511,59 @@ mod imp {
                     total += std::hint::black_box(encode(&bt)).len();
                 }
                 println!("total encoded bytes {total}");
+            }
+            ("encode", "string-old") => {
+                let strs: Vec<OldStyleString> = read_string_corpus(corpus)
+                    .into_iter()
+                    .map(OldStyleString)
+                    .collect();
+                for _ in 0..iterations {
+                    total += std::hint::black_box(encode(&strs)).len();
+                }
+                println!("total encoded bytes {total}");
+            }
+            ("encode", "string-new") => {
+                let strs: Vec<compactly::Encoded<String, compactly::LowCardinality>> =
+                    read_string_corpus(corpus)
+                        .into_iter()
+                        .map(compactly::Encoded::new)
+                        .collect();
+                for _ in 0..iterations {
+                    total += std::hint::black_box(encode(&strs)).len();
+                }
+                println!("total encoded bytes {total}");
+            }
+            ("decode", "string-old") => {
+                let strs: Vec<OldStyleString> = read_string_corpus(corpus)
+                    .into_iter()
+                    .map(OldStyleString)
+                    .collect();
+                let encoded = encode(&strs);
+                println!("string-old encoded size {}", encoded.len());
+                for _ in 0..iterations {
+                    total += std::hint::black_box(decode::<Vec<OldStyleString>>(&encoded).unwrap())
+                        .len();
+                }
+                println!("total decoded {total}");
+            }
+            ("decode", "string-new") => {
+                let strs: Vec<compactly::Encoded<String, compactly::LowCardinality>> =
+                    read_string_corpus(corpus)
+                        .into_iter()
+                        .map(compactly::Encoded::new)
+                        .collect();
+                let encoded = encode(&strs);
+                println!("string-new encoded size {}", encoded.len());
+                for _ in 0..iterations {
+                    total += std::hint::black_box(
+                        decode::<Vec<compactly::Encoded<String, compactly::LowCardinality>>>(
+                            &encoded,
+                        )
+                        .unwrap(),
+                    )
+                    .len();
+                }
+                println!("total decoded {total}");
             }
             ("decode", "old") => {
                 let old: Vec<OldStyleArcStr> = ips.iter().cloned().map(OldStyleArcStr).collect();
@@ -496,7 +605,12 @@ mod imp {
             .map(String::as_str);
         let mode = args
             .iter()
-            .find(|a| a.as_str() == "old" || a.as_str() == "new" || a.as_str() == "btree")
+            .find(|a| {
+                matches!(
+                    a.as_str(),
+                    "old" | "new" | "btree" | "string-old" | "string-new"
+                )
+            })
             .map(String::as_str);
         let corpus = args
             .iter()

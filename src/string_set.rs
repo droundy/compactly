@@ -1,7 +1,10 @@
-//! An ordered set of `Arc<str>` with fast longest-common-prefix / suffix lookup.
+//! An ordered set of `Arc<str>`/`Rc<str>` with fast longest-common-prefix /
+//! suffix lookup.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::hash::Hash;
+use std::ops::Deref;
 
 mod treap;
 use treap::Treap;
@@ -20,26 +23,44 @@ pub struct Miss<'a> {
     pub suffix: Option<(usize, &'a str)>,
 }
 
-/// An ordered set of `Arc<str>` supporting O(1) exact-match lookups and
-/// O(log N) longest-common-prefix / longest-common-suffix search fused with
-/// insertion.
+/// An ordered set of ref-counted strings (`Arc<str>` or `Rc<str>`) supporting
+/// O(1) exact-match lookups and O(log N) longest-common-prefix /
+/// longest-common-suffix search fused with insertion.
 ///
 /// Strings are kept in insertion order (accessible via [`StringSet::iter`] or
 /// indexing), and are deduplicated: inserting a string that is already
 /// present returns the index of the existing entry.
-#[derive(Default, Clone)]
-pub struct StringSet {
-    strings: Vec<Arc<str>>,
-    exact: HashMap<Arc<str>, usize>,
+///
+/// Generic over the pointer type `P` (`Arc<str>` or `Rc<str>`) so `v2`'s
+/// dictionary-based `LowCardinality` encoding for `Arc<str>`/`Rc<str>`/
+/// `String` can share one implementation; see `src/v2/low_cardinality.rs`.
+#[derive(Clone)]
+pub struct StringSet<P> {
+    strings: Vec<P>,
+    exact: HashMap<P, usize>,
     /// Ordered by string content, for prefix search.
-    by_prefix: Treap<Arc<str>, usize>,
+    by_prefix: Treap<P, usize>,
     /// Keyed on each string's *reversed* bytes, so plain (forward) `Ord` on
     /// the key gives the same ordering as comparing the original strings
     /// from the end -- no custom `Ord` impl needed.
     by_suffix: Treap<Box<[u8]>, usize>,
 }
 
-impl StringSet {
+impl<P> Default for StringSet<P> {
+    fn default() -> Self {
+        Self {
+            strings: Vec::new(),
+            exact: HashMap::new(),
+            by_prefix: Treap::default(),
+            by_suffix: Treap::default(),
+        }
+    }
+}
+
+impl<P> StringSet<P>
+where
+    P: Clone + Ord + Hash + Borrow<str> + Deref<Target = str>,
+{
     /// Create an empty `StringSet`.
     #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn new() -> Self {
@@ -60,12 +81,12 @@ impl StringSet {
 
     /// Iterate over the strings in insertion order.
     #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<str>> {
+    pub fn iter(&self) -> impl Iterator<Item = &P> {
         self.strings.iter()
     }
 
     /// The string previously inserted at `index`, if any.
-    pub fn get(&self, index: usize) -> Option<&Arc<str>> {
+    pub fn get(&self, index: usize) -> Option<&P> {
         self.strings.get(index)
     }
 
@@ -82,7 +103,7 @@ impl StringSet {
     /// that the string is absent and wants the prefix/suffix match info
     /// too, since this method does a redundant exact-match check.
     #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
-    pub fn insert(&mut self, s: Arc<str>) -> usize {
+    pub fn insert(&mut self, s: P) -> usize {
         if let Some(idx) = self.get_exact(&s) {
             return idx;
         }
@@ -98,7 +119,7 @@ impl StringSet {
     ///
     /// The shared prefix/suffix are trimmed to the nearest `char` boundary,
     /// so they are always valid to slice `s` with.
-    pub fn insert_new<'a>(&mut self, s: &'a Arc<str>) -> Miss<'a> {
+    pub fn insert_new<'a>(&mut self, s: &'a P) -> Miss<'a> {
         let idx = self.strings.len();
         self.exact.insert(s.clone(), idx);
         let (prefix_pred, prefix_succ) = self.by_prefix.insert_and_find_neighbors(s.clone(), idx);
@@ -107,6 +128,7 @@ impl StringSet {
             .insert_and_find_neighbors(s.bytes().rev().collect(), idx);
         self.strings.push(s.clone());
 
+        let s: &str = s;
         let mut prefix: Option<(usize, usize)> = None; // (index, byte len)
         for cand in [prefix_pred, prefix_succ].into_iter().flatten() {
             let len = common_prefix_len(s, &self.strings[cand]);
@@ -138,7 +160,7 @@ impl StringSet {
     /// already deduplicated, so the index is known to be correct and in
     /// order without a lookup. Unlike `insert`, this does not check for or
     /// skip duplicates.
-    pub fn push(&mut self, s: Arc<str>) -> usize {
+    pub fn push(&mut self, s: P) -> usize {
         let idx = self.strings.len();
         self.strings.push(s);
         idx
@@ -173,8 +195,9 @@ fn common_suffix_len(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    fn set(strings: &[&str]) -> StringSet {
+    fn set(strings: &[&str]) -> StringSet<Arc<str>> {
         let mut s = StringSet::new();
         for &string in strings {
             s.insert(Arc::from(string));
@@ -184,7 +207,7 @@ mod tests {
 
     #[test]
     fn empty_set_returns_none() {
-        let s = StringSet::new();
+        let s: StringSet<Arc<str>> = StringSet::new();
         assert_eq!(s.get_exact("anything"), None);
     }
 
@@ -247,7 +270,7 @@ mod tests {
 
     #[test]
     fn duplicate_insert_returns_existing_index() {
-        let mut s = StringSet::new();
+        let mut s: StringSet<Arc<str>> = StringSet::new();
         let i1 = s.insert(Arc::from("hello"));
         let i2 = s.insert(Arc::from("hello"));
         assert_eq!(i1, i2);
@@ -280,13 +303,25 @@ mod tests {
     }
 
     #[test]
+    fn works_with_rc_str() {
+        use std::rc::Rc;
+        let mut s: StringSet<Rc<str>> = StringSet::new();
+        s.insert(Rc::from("hello world"));
+        let query: Rc<str> = Rc::from("hello there");
+        let miss = s.insert_new(&query);
+        let (_idx, prefix) = miss.prefix.unwrap();
+        assert_eq!(prefix, "hello ");
+    }
+
+    #[test]
     fn many_inserts_find_correct_neighbors() {
         // A larger, less contrived check: build up a dictionary of numeric
         // strings inserted in a scrambled (non-sorted) order, and confirm
         // every miss's reported prefix/suffix match is truly the best one
         // among *all* prior entries, checked by brute force.
+        use std::sync::Arc;
         let mut inserted: Vec<Arc<str>> = Vec::new();
-        let mut s = StringSet::new();
+        let mut s: StringSet<Arc<str>> = StringSet::new();
         // A simple LCG to scramble insertion order deterministically.
         let mut state: u64 = 0x2545F4914F6CDD1D;
         let mut next = || {
