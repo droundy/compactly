@@ -38,7 +38,8 @@ pub struct Card {
     artist: Option<Arc<str>>,
     #[compactly(LowCardinality)]
     artistIds: Option<Vec<Arc<str>>>,
-    asciiName: Option<String>,
+    #[compactly(LowCardinality)]
+    asciiName: Option<Arc<str>>,
     attractionLights: Option<Vec<usize>>,
     #[compactly(LowCardinality)]
     availability: Vec<Arc<str>>,
@@ -46,7 +47,8 @@ pub struct Card {
     boosterTypes: Option<Vec<Arc<str>>>,
     #[compactly(LowCardinality)]
     borderColor: Arc<str>,
-    cardParts: Option<Vec<String>>,
+    #[compactly(LowCardinality)]
+    cardParts: Option<Vec<Arc<str>>>,
     #[compactly(LowCardinality)]
     colorIdentity: Vec<Arc<str>>,
     #[compactly(LowCardinality)]
@@ -57,7 +59,8 @@ pub struct Card {
     convertedManaCost: usize,
     #[compactly(LowCardinality)]
     defense: Option<Arc<str>>,
-    duelDeck: Option<String>,
+    #[compactly(LowCardinality)]
+    duelDeck: Option<Arc<str>>,
     edhrecRank: Option<usize>,
     // edhrecSaltiness: Option<usize>,
     #[compactly(Small)]

@@ -1,15 +1,28 @@
 //! An ordered set of `Arc<str>` with fast longest-common-prefix / suffix lookup.
-//!
-//! Not yet consumed elsewhere in the crate, hence `allow(dead_code)` below.
-#![allow(dead_code)]
 
-use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::ops::Bound;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-/// An ordered set of `Arc<str>` supporting O(log N) longest-common-prefix and
-/// longest-common-suffix lookups against a query string.
+mod treap;
+use treap::Treap;
+
+/// The result of a miss in [`StringSet::insert_new`]: the newly assigned
+/// index, plus the best prefix and best suffix match (if any) against the
+/// dictionary's existing members.
+pub struct Miss<'a> {
+    /// The index newly assigned to the inserted string.
+    pub index: usize,
+    /// The dictionary member sharing the longest prefix with the inserted
+    /// string, and that shared prefix (a slice of the inserted string).
+    pub prefix: Option<(usize, &'a str)>,
+    /// The dictionary member sharing the longest suffix with the inserted
+    /// string, and that shared suffix (a slice of the inserted string).
+    pub suffix: Option<(usize, &'a str)>,
+}
+
+/// An ordered set of `Arc<str>` supporting O(1) exact-match lookups and
+/// O(log N) longest-common-prefix / longest-common-suffix search fused with
+/// insertion.
 ///
 /// Strings are kept in insertion order (accessible via [`StringSet::iter`] or
 /// indexing), and are deduplicated: inserting a string that is already
@@ -17,44 +30,36 @@ use std::sync::Arc;
 #[derive(Default, Clone)]
 pub struct StringSet {
     strings: Vec<Arc<str>>,
-    by_prefix: BTreeMap<Arc<str>, usize>,
-    by_suffix: BTreeMap<SuffixKey, usize>,
-}
-
-/// Wrapper giving `Arc<str>` a reverse-byte-order `Ord`, so a `BTreeMap`
-/// keyed on this type is ordered by suffix instead of by prefix.
-#[derive(Clone, Eq, PartialEq)]
-struct SuffixKey(Arc<str>);
-
-impl Ord for SuffixKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.bytes().rev().cmp(other.0.bytes().rev())
-    }
-}
-
-impl PartialOrd for SuffixKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+    exact: HashMap<Arc<str>, usize>,
+    /// Ordered by string content, for prefix search.
+    by_prefix: Treap<Arc<str>, usize>,
+    /// Keyed on each string's *reversed* bytes, so plain (forward) `Ord` on
+    /// the key gives the same ordering as comparing the original strings
+    /// from the end -- no custom `Ord` impl needed.
+    by_suffix: Treap<Box<[u8]>, usize>,
 }
 
 impl StringSet {
     /// Create an empty `StringSet`.
+    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The number of distinct strings in the set.
+    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn len(&self) -> usize {
         self.strings.len()
     }
 
     /// Whether the set contains no strings.
+    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn is_empty(&self) -> bool {
         self.strings.is_empty()
     }
 
     /// Iterate over the strings in insertion order.
+    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn iter(&self) -> impl Iterator<Item = &Arc<str>> {
         self.strings.iter()
     }
@@ -64,75 +69,79 @@ impl StringSet {
         self.strings.get(index)
     }
 
+    /// O(1) exact-match lookup: the index of `query`, if it's in the set.
+    pub fn get_exact(&self, query: &str) -> Option<usize> {
+        self.exact.get(query).copied()
+    }
+
     /// Insert a string into the set, returning its index.
     ///
     /// If the string is already present, this is a no-op and returns the
-    /// index of the existing entry.
+    /// index of the existing entry. Prefer [`StringSet::insert_new`] when
+    /// the caller has already confirmed (e.g. via [`StringSet::get_exact`])
+    /// that the string is absent and wants the prefix/suffix match info
+    /// too, since this method does a redundant exact-match check.
+    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
     pub fn insert(&mut self, s: Arc<str>) -> usize {
-        if let Some(&idx) = self.by_prefix.get(s.as_ref()) {
+        if let Some(idx) = self.get_exact(&s) {
             return idx;
         }
+        self.insert_new(&s).index
+    }
+
+    /// Insert a string that is known not to already be in the set (callers
+    /// typically confirm via [`StringSet::get_exact`] first -- this method
+    /// does not check, and behavior is unspecified if `s` is already
+    /// present). Returns its new index plus the best prefix and suffix
+    /// matches against the dictionary's existing members, found in the same
+    /// tree walk that performs the insertion (see [`treap`] for how).
+    ///
+    /// The shared prefix/suffix are trimmed to the nearest `char` boundary,
+    /// so they are always valid to slice `s` with.
+    pub fn insert_new<'a>(&mut self, s: &'a Arc<str>) -> Miss<'a> {
         let idx = self.strings.len();
-        self.by_prefix.insert(s.clone(), idx);
-        self.by_suffix.insert(SuffixKey(s.clone()), idx);
+        self.exact.insert(s.clone(), idx);
+        let (prefix_pred, prefix_succ) = self.by_prefix.insert_and_find_neighbors(s.clone(), idx);
+        let (suffix_pred, suffix_succ) = self
+            .by_suffix
+            .insert_and_find_neighbors(s.bytes().rev().collect(), idx);
+        self.strings.push(s.clone());
+
+        let mut prefix: Option<(usize, usize)> = None; // (index, byte len)
+        for cand in [prefix_pred, prefix_succ].into_iter().flatten() {
+            let len = common_prefix_len(s, &self.strings[cand]);
+            if prefix.is_none_or(|(_, best_len)| len > best_len) {
+                prefix = Some((cand, len));
+            }
+        }
+        let mut suffix: Option<(usize, usize)> = None;
+        for cand in [suffix_pred, suffix_succ].into_iter().flatten() {
+            let len = common_suffix_len(s, &self.strings[cand]);
+            if suffix.is_none_or(|(_, best_len)| len > best_len) {
+                suffix = Some((cand, len));
+            }
+        }
+
+        Miss {
+            index: idx,
+            prefix: prefix.map(|(idx, len)| (idx, &s[..len])),
+            suffix: suffix.map(|(idx, len)| (idx, &s[s.len() - len..])),
+        }
+    }
+
+    /// Append a string for index-based retrieval only ([`StringSet::get`]),
+    /// without updating the exact/prefix/suffix search structures.
+    ///
+    /// Cheaper than [`StringSet::insert`]/[`StringSet::insert_new`] when the
+    /// caller only ever needs `get` -- e.g. reconstructing a dictionary
+    /// while decoding a value that some other (encode-side) `StringSet`
+    /// already deduplicated, so the index is known to be correct and in
+    /// order without a lookup. Unlike `insert`, this does not check for or
+    /// skip duplicates.
+    pub fn push(&mut self, s: Arc<str>) -> usize {
+        let idx = self.strings.len();
         self.strings.push(s);
         idx
-    }
-
-    /// Find the string in the set that shares the longest prefix with
-    /// `query`, returning its index and the shared prefix (a slice of
-    /// `query`).
-    ///
-    /// Returns `None` if the set is empty. The shared prefix is trimmed to
-    /// the nearest `char` boundary, so it is always valid to slice `query`
-    /// with it.
-    pub fn longest_common_prefix<'a>(&self, query: &'a str) -> Option<(usize, &'a str)> {
-        let mut best: Option<(usize, usize)> = None; // (index, byte len)
-        if let Some((k, &idx)) = self
-            .by_prefix
-            .range::<str, _>((Bound::Included(query), Bound::Unbounded))
-            .next()
-        {
-            let len = common_prefix_len(query, k);
-            best = Some((idx, len));
-        }
-        if let Some((k, &idx)) = self
-            .by_prefix
-            .range::<str, _>((Bound::Unbounded, Bound::Excluded(query)))
-            .next_back()
-        {
-            let len = common_prefix_len(query, k);
-            if best.is_none_or(|(_, best_len)| len > best_len) {
-                best = Some((idx, len));
-            }
-        }
-        best.map(|(idx, len)| (idx, &query[..len]))
-    }
-
-    /// Find the string in the set that shares the longest suffix with
-    /// `query`, returning its index and the shared suffix (a slice of
-    /// `query`).
-    ///
-    /// Returns `None` if the set is empty. The shared suffix is trimmed to
-    /// the nearest `char` boundary, so it is always valid to slice `query`
-    /// with it.
-    pub fn longest_common_suffix<'a>(&self, query: &'a str) -> Option<(usize, &'a str)> {
-        if self.strings.is_empty() {
-            return None;
-        }
-        let probe = SuffixKey(Arc::from(query));
-        let mut best: Option<(usize, usize)> = None; // (index, byte len)
-        if let Some((k, &idx)) = self.by_suffix.range(probe.clone()..).next() {
-            let len = common_suffix_len(query, &k.0);
-            best = Some((idx, len));
-        }
-        if let Some((k, &idx)) = self.by_suffix.range(..probe).next_back() {
-            let len = common_suffix_len(query, &k.0);
-            if best.is_none_or(|(_, best_len)| len > best_len) {
-                best = Some((idx, len));
-            }
-        }
-        best.map(|(idx, len)| (idx, &query[query.len() - len..]))
     }
 }
 
@@ -176,59 +185,64 @@ mod tests {
     #[test]
     fn empty_set_returns_none() {
         let s = StringSet::new();
-        assert_eq!(s.longest_common_prefix("anything"), None);
-        assert_eq!(s.longest_common_suffix("anything"), None);
+        assert_eq!(s.get_exact("anything"), None);
     }
 
     #[test]
-    fn exact_match_prefix_and_suffix() {
+    fn exact_match() {
         let s = set(&["hello", "world"]);
-        let (idx, prefix) = s.longest_common_prefix("hello").unwrap();
-        assert_eq!(idx, 0);
-        assert_eq!(prefix, "hello");
-        let (idx, suffix) = s.longest_common_suffix("world").unwrap();
-        assert_eq!(idx, 1);
-        assert_eq!(suffix, "world");
+        assert_eq!(s.get_exact("hello"), Some(0));
+        assert_eq!(s.get_exact("world"), Some(1));
+        assert_eq!(s.get_exact("goodbye"), None);
     }
 
     #[test]
     fn neighbor_case_prefix() {
-        let s = set(&["hello", "help"]);
-        let (_idx, prefix) = s.longest_common_prefix("helicopter").unwrap();
+        let mut s = set(&["hello", "help"]);
+        let query: Arc<str> = Arc::from("helicopter");
+        let miss = s.insert_new(&query);
+        let (_idx, prefix) = miss.prefix.unwrap();
         assert_eq!(prefix, "hel");
     }
 
     #[test]
     fn neighbor_case_suffix() {
         // reverse of the prefix case: shared trailing bytes
-        let s = set(&["stello", "istello"]);
-        let (_idx, suffix) = s.longest_common_suffix("nice_stello").unwrap();
+        let mut s = set(&["stello", "istello"]);
+        let query: Arc<str> = Arc::from("nice_stello");
+        let miss = s.insert_new(&query);
+        let (_idx, suffix) = miss.suffix.unwrap();
         assert_eq!(suffix, "stello");
     }
 
     #[test]
     fn query_shorter_than_stored() {
-        let s = set(&["hello world"]);
-        let (idx, prefix) = s.longest_common_prefix("hello").unwrap();
+        let mut s = set(&["hello world"]);
+        let query: Arc<str> = Arc::from("hello");
+        let miss = s.insert_new(&query);
+        let (idx, prefix) = miss.prefix.unwrap();
         assert_eq!(idx, 0);
         assert_eq!(prefix, "hello");
     }
 
     #[test]
     fn query_longer_than_stored_prefix_match() {
-        let s = set(&["hello"]);
-        let (idx, prefix) = s.longest_common_prefix("hello world").unwrap();
+        let mut s = set(&["hello"]);
+        let query: Arc<str> = Arc::from("hello world");
+        let miss = s.insert_new(&query);
+        let (idx, prefix) = miss.prefix.unwrap();
         assert_eq!(idx, 0);
         assert_eq!(prefix, "hello");
     }
 
     #[test]
     fn no_common_prefix_or_suffix() {
-        let s = set(&["zzz"]);
-        let (_idx, prefix) = s.longest_common_prefix("aaa").unwrap();
-        assert_eq!(prefix, "");
-        let (_idx, suffix) = s.longest_common_suffix("aaa").unwrap();
-        assert_eq!(suffix, "");
+        let mut s = set(&["zzz"]);
+        let query: Arc<str> = Arc::from("aaa");
+        let miss = s.insert_new(&query);
+        // A neighbor exists (the only entry), but shares zero bytes.
+        assert_eq!(miss.prefix, Some((0, "")));
+        assert_eq!(miss.suffix, Some((0, "")));
     }
 
     #[test]
@@ -244,18 +258,18 @@ mod tests {
     fn utf8_boundary_is_respected_for_prefix() {
         // "é" = 0xC3 0xA9, "è" = 0xC3 0xA8 -- share only the leading byte 0xC3,
         // which must not be sliced on its own.
-        let s = set(&["éxyz"]);
-        let (_idx, prefix) = s.longest_common_prefix("èabc").unwrap();
-        assert_eq!(prefix, "");
-        assert!(prefix.is_char_boundary(prefix.len()));
+        let mut s = set(&["éxyz"]);
+        let query: Arc<str> = Arc::from("èabc");
+        let miss = s.insert_new(&query);
+        assert_eq!(miss.prefix, Some((0, "")));
     }
 
     #[test]
     fn utf8_boundary_is_respected_for_suffix() {
-        let s = set(&["xyzé"]);
-        let (_idx, suffix) = s.longest_common_suffix("abcè").unwrap();
-        assert_eq!(suffix, "");
-        assert!(suffix.is_char_boundary(0));
+        let mut s = set(&["xyzé"]);
+        let query: Arc<str> = Arc::from("abcè");
+        let miss = s.insert_new(&query);
+        assert_eq!(miss.suffix, Some((0, "")));
     }
 
     #[test]
@@ -263,5 +277,47 @@ mod tests {
         let s = set(&["c", "a", "b"]);
         let v: Vec<&str> = s.iter().map(|s| s.as_ref()).collect();
         assert_eq!(v, vec!["c", "a", "b"]);
+    }
+
+    #[test]
+    fn many_inserts_find_correct_neighbors() {
+        // A larger, less contrived check: build up a dictionary of numeric
+        // strings inserted in a scrambled (non-sorted) order, and confirm
+        // every miss's reported prefix/suffix match is truly the best one
+        // among *all* prior entries, checked by brute force.
+        let mut inserted: Vec<Arc<str>> = Vec::new();
+        let mut s = StringSet::new();
+        // A simple LCG to scramble insertion order deterministically.
+        let mut state: u64 = 0x2545F4914F6CDD1D;
+        let mut next = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (state >> 33) as u32
+        };
+        let mut values: Vec<u32> = (0..500).collect();
+        for i in (1..values.len()).rev() {
+            let j = (next() as usize) % (i + 1);
+            values.swap(i, j);
+        }
+        for v in values {
+            let text = format!("item-{v:04}-suffix");
+            let arc: Arc<str> = Arc::from(text.as_str());
+            if s.get_exact(&arc).is_some() {
+                continue;
+            }
+            let miss = s.insert_new(&arc);
+
+            let mut brute_prefix = 0;
+            let mut brute_suffix = 0;
+            for existing in &inserted {
+                brute_prefix = brute_prefix.max(common_prefix_len(&arc, existing));
+                brute_suffix = brute_suffix.max(common_suffix_len(&arc, existing));
+            }
+            let got_prefix = miss.prefix.map(|(_, p)| p.len()).unwrap_or(0);
+            let got_suffix = miss.suffix.map(|(_, sfx)| sfx.len()).unwrap_or(0);
+            assert_eq!(got_prefix, brute_prefix, "prefix mismatch for {arc}");
+            assert_eq!(got_suffix, brute_suffix, "suffix mismatch for {arc}");
+
+            inserted.push(arc);
+        }
     }
 }
