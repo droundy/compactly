@@ -91,8 +91,9 @@ fn size() {
     expect!["3"].assert_eq(&estimated_bits!(Vec::<usize>::new()));
     // Unlike most fresh-context codes, `0..4` no longer costs the same
     // number of bits for every value: `usize`'s default `Encode` is now
-    // deliberately skewed toward small magnitudes (see `tiny_seeded` in
-    // `usizes.rs`), so `vec![0]` should already read cheaper than
+    // deliberately skewed toward small magnitudes (`UsizeContext` in
+    // `usizes.rs` seeds with `SeededDistribution::TinyNumbers`, from
+    // `atmost::geometric`), so `vec![0]` should already read cheaper than
     // `vec![3]` even before any adaptation.
     expect!["4"].assert_eq(&estimated_bits!(vec![0_usize]));
     expect!["5"].assert_eq(&estimated_bits!(vec![1_usize]));

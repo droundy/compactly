@@ -122,9 +122,10 @@ impl<const MAX: usize> AtMostContext<MAX> {
 /// over `MAX + 1` leaves, in whichever scheme this type's own doc comment
 /// requires: heap order for a power-of-two leaf count (matching
 /// `walks::complete`'s hot-path indexing), split order otherwise (matching
-/// `walks::uneven`). Shared by `SEEDED` and `geometric::geometric_seeded`
-/// so the two seedings can't independently drift out of sync with the walk
-/// that actually reads them.
+/// `walks::uneven`). Shared by every seeding that fills these trees —
+/// `SEEDED` and `geometric`'s `geometric_seeded`, `blbl_tree_seeded`, and
+/// `bl_offset_seeded` — so no seeding can independently drift out of sync
+/// with the walk that actually reads them.
 const fn node_index<const MAX: usize>(start: usize, len: usize) -> usize {
     if (MAX + 1).is_power_of_two() {
         (MAX + 1) / len - 1 + start / len

@@ -706,7 +706,8 @@ what a 3-decision path needs. Measured (Millibits, exact):
   monotone through the small range (guarded by
   `mirrored_prior_cost_increases_through_the_common_range`).
 - Fresh `u64` (uniform prior): 0 → **6.2 bits** (was 13.2), `u64::MAX`
-  64.5 (was 65.6). `Small` fresh 0/1: 6 → **3 bits**.
+  64.5 (was 65.6). `Small` fresh 0/1 (u64): 6 → **3 bits** (guarded by
+  the `Encoded::<_, Small>::new(0_u64)` probes in `usizes.rs`).
 
 Speed (quiesced `benches/integers.rs` A/B vs main, min of 2, 8192 values):
 repeated-tiny-constant u64 decode **−55…−61%**, encode −28…−40%, encoded
