@@ -1,5 +1,6 @@
 use crate::Sorted;
 
+use super::atmost::geometric::SeededDistribution;
 use super::ints::U64Compact;
 use super::{AtMost, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 
@@ -9,8 +10,8 @@ use expect_test::expect;
 /// `usize`'s default `Encode` reuses `u64`'s exact hierarchical
 /// bit-length encoding (`U64Compact`, the very struct `Small`'s `u64`
 /// strategy uses) via a context that only overrides `Default`: every
-/// sub-context is seeded from the *mirrored* prior (`mirror = true` in
-/// `atmost::geometric`), which favors tiny magnitudes exactly as strongly
+/// sub-context is seeded from the `SeededDistribution::TinyNumbers` prior
+/// (`atmost::geometric`), which favors tiny magnitudes exactly as strongly
 /// as `u64`'s own default favors large ones.
 ///
 /// `usize` values are overwhelmingly lengths, counts, and indices: `0`,
@@ -23,7 +24,7 @@ pub struct UsizeContext(U64Compact);
 
 impl Default for UsizeContext {
     fn default() -> Self {
-        Self(const { U64Compact::seeded(true) })
+        Self(const { U64Compact::seeded(SeededDistribution::TinyNumbers) })
     }
 }
 

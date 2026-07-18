@@ -4,17 +4,17 @@
 //! `bl`'s offset within its `blbl` bucket as one more `AtMost` symbol, then
 //! the value's own mantissa. The functions here compute compile-time seeds
 //! for the `blbl` tree ([`blbl_tree_seeded`]) and the per-bucket offset
-//! trees ([`bl_offset_seeded`]) under one of two priors:
+//! trees ([`bl_offset_seeded`]) under one of two priors ([`SeededDistribution`]):
 //!
-//! - `mirror = false`: a uniformly-random `bits`-bit value, where large
-//!   magnitudes dominate exponentially (bit length `b` covers `2^(b-1)`
-//!   values). A fresh context then costs close to `bits` bits for an
-//!   arbitrary/incompressible value, as a plain literal encoding would.
-//!   Used by the default `u16`/`u32`/`u64`/`u128` `Encode`.
-//! - `mirror = true`: the same weights reversed end-for-end over bit
-//!   length, so *tiny* magnitudes dominate exactly as strongly. Used by
-//!   `usize`'s default `Encode` (`src/v2/usizes.rs`): real `usize`s are
-//!   lengths, counts, and indices, overwhelmingly `0`/`1`/small.
+//! - [`SeededDistribution::NormalNumbers`]: a uniformly-random `bits`-bit
+//!   value, where large magnitudes dominate exponentially (bit length `b`
+//!   covers `2^(b-1)` values). A fresh context then costs close to `bits`
+//!   bits for an arbitrary/incompressible value, as a plain literal encoding
+//!   would. Used by the default `u16`/`u32`/`u64`/`u128` `Encode`.
+//! - [`SeededDistribution::TinyNumbers`]: the same weights reversed
+//!   end-for-end over bit length, so *tiny* magnitudes dominate exactly as
+//!   strongly. Used by `usize`'s default `Encode` (`src/v2/usizes.rs`): real
+//!   `usize`s are lengths, counts, and indices, overwhelmingly `0`/`1`/small.
 //!
 //! `Small` uses the same encoding with no seeding at all (flat
 //! [`super::AtMostContext::SEEDED`] tree, 50/50 mantissa bits), which is
@@ -24,6 +24,19 @@
 use super::walks::half;
 use super::{node_index, seed_context, BitContext};
 
+/// Which prior seeds a hierarchical integer context: which end of the
+/// bit-length range dominates. See the module doc comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SeededDistribution {
+    /// Tiny magnitudes dominate (the mirrored prior): `usize`'s default,
+    /// since real `usize`s are lengths, counts, and indices.
+    TinyNumbers,
+    /// Large magnitudes dominate exponentially, matching a
+    /// uniformly-random `bits`-bit value: the default prior for
+    /// `u16`/`u32`/`u64`/`u128`/the signed types.
+    NormalNumbers,
+}
+
 /// Weight of bit length `b` under the chosen prior: `bl = 0` covers the
 /// single value `0`, and `bl = b >= 1` covers the `2^(b-1)` values with
 /// their top bit at position `b - 1` — summing to `2^max_bl` over
@@ -31,13 +44,17 @@ use super::{node_index, seed_context, BitContext};
 /// types `max_bl` is the full width, but a *signed* type's magnitude
 /// (`abs_diff` from `0`/`-1`) is a uniform `(width-1)`-bit value coded
 /// through the unsigned type's tree, so its top bit length is impossible.
-/// `mirror` reverses the weights end-for-end over `0..=max_bl`, making
-/// tiny bit lengths dominant instead of large ones.
-const fn bl_weight(max_bl: usize, mirror: bool, b: usize) -> u128 {
+/// [`SeededDistribution::TinyNumbers`] reverses the weights end-for-end
+/// over `0..=max_bl`, making tiny bit lengths dominant instead of large
+/// ones.
+const fn bl_weight(max_bl: usize, dist: SeededDistribution, b: usize) -> u128 {
     if b > max_bl {
         return 0;
     }
-    let b = if mirror { max_bl - b } else { b };
+    let b = match dist {
+        SeededDistribution::TinyNumbers => max_bl - b,
+        SeededDistribution::NormalNumbers => b,
+    };
     if b == 0 {
         1
     } else {
@@ -53,16 +70,16 @@ const fn bl_weight(max_bl: usize, mirror: bool, b: usize) -> u128 {
 /// the encoding skips the `bl` offset there entirely). Under a capped
 /// prior (`max_bl` below the width) the top leaf's weight is `0`: still
 /// codable, just seeded maximally against.
-const fn blbl_weight(blbl_max: usize, max_bl: usize, mirror: bool, c: usize) -> u128 {
+const fn blbl_weight(blbl_max: usize, max_bl: usize, dist: SeededDistribution, c: usize) -> u128 {
     if c == 0 {
-        bl_weight(max_bl, mirror, 0)
+        bl_weight(max_bl, dist, 0)
     } else if c == blbl_max {
-        bl_weight(max_bl, mirror, 1usize << (blbl_max - 1))
+        bl_weight(max_bl, dist, 1usize << (blbl_max - 1))
     } else {
         let mut sum = 0u128;
         let mut b = 1usize << (c - 1);
         while b < 1usize << c {
-            sum += bl_weight(max_bl, mirror, b);
+            sum += bl_weight(max_bl, dist, b);
             b += 1;
         }
         sum
@@ -78,14 +95,14 @@ const fn blbl_weight(blbl_max: usize, max_bl: usize, mirror: bool, c: usize) -> 
 const fn blbl_weight_range(
     blbl_max: usize,
     max_bl: usize,
-    mirror: bool,
+    dist: SeededDistribution,
     start: usize,
     count: usize,
 ) -> u128 {
     let mut sum = 0u128;
     let mut c = start;
     while c < start + count {
-        sum += blbl_weight(blbl_max, max_bl, mirror, c);
+        sum += blbl_weight(blbl_max, max_bl, dist, c);
         c += 1;
     }
     sum
@@ -131,7 +148,7 @@ const fn shift_for_value(v: u128) -> u32 {
 /// [`bl_weight`] — for the signed types, whose magnitude never reaches the
 /// full width.
 pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
-    mirror: bool,
+    dist: SeededDistribution,
     max_bl: usize,
 ) -> [BitContext; BLBL_MAX] {
     let mut ctxs = [BitContext::True0False0; BLBL_MAX];
@@ -146,8 +163,8 @@ pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
         if len > 1 {
             let vc = half(len);
             let split = start + vc;
-            let lo_full = blbl_weight_range(BLBL_MAX, max_bl, mirror, start, vc);
-            let hi_full = blbl_weight_range(BLBL_MAX, max_bl, mirror, split, len - vc);
+            let lo_full = blbl_weight_range(BLBL_MAX, max_bl, dist, start, vc);
+            let hi_full = blbl_weight_range(BLBL_MAX, max_bl, dist, split, len - vc);
             let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
             let lo = (lo_full >> shift) as u64;
             let hi = (hi_full >> shift) as u64;
@@ -169,12 +186,14 @@ pub(crate) const fn blbl_tree_seeded<const BLBL_MAX: usize>(
 /// indexed the same way.
 ///
 /// A bucket that cannot occur under this prior (its smallest bit length
-/// `MAX + 1` already reaches `max_bl` — for an uncapped prior that is the
-/// width itself, which the top `blbl` code pins exactly) returns the flat
-/// default — which for a power-of-two value count is `AtMostContext`'s
-/// seeded default too, so nothing is lost.
+/// `MAX + 1` already reaches `max_bl`) returns the flat default — which
+/// for a power-of-two value count is `AtMostContext`'s seeded default too,
+/// so nothing is lost. Since each width's context now only carries the
+/// buckets it can reach (see `impl_compact!` in `ints.rs`), no production
+/// seeding hits this case; the guard stays so a mis-matched `MAX`/`max_bl`
+/// pair degrades to flat instead of seeding garbage.
 pub(crate) const fn bl_offset_seeded<const MAX: usize>(
-    mirror: bool,
+    dist: SeededDistribution,
     max_bl: usize,
 ) -> [BitContext; MAX] {
     if MAX + 1 >= max_bl {
@@ -196,12 +215,12 @@ pub(crate) const fn bl_offset_seeded<const MAX: usize>(
             let mut lo_full = 0u128;
             let mut o = start;
             while o < split {
-                lo_full += bl_weight(max_bl, mirror, MAX + 1 + o);
+                lo_full += bl_weight(max_bl, dist, MAX + 1 + o);
                 o += 1;
             }
             let mut hi_full = 0u128;
             while o < start + len {
-                hi_full += bl_weight(max_bl, mirror, MAX + 1 + o);
+                hi_full += bl_weight(max_bl, dist, MAX + 1 + o);
                 o += 1;
             }
             let shift = shift_for_value(if lo_full > hi_full { lo_full } else { hi_full });
@@ -316,26 +335,32 @@ mod tests {
         // two halves, mirroring how the walk itself only ever sums strict
         // subsets of the leaves.
         for bits in [16usize, 32, 64] {
-            for mirror in [false, true] {
+            for dist in [
+                SeededDistribution::NormalNumbers,
+                SeededDistribution::TinyNumbers,
+            ] {
                 let mut total = 0u128;
                 for b in 0..=bits {
-                    total += bl_weight(bits, mirror, b);
+                    total += bl_weight(bits, dist, b);
                 }
                 assert_eq!(
                     total,
                     1u128 << bits,
-                    "bit-length weights for bits={bits} mirror={mirror} should sum to the total value count"
+                    "bit-length weights for bits={bits} dist={dist:?} should sum to the total value count"
                 );
             }
         }
-        for mirror in [false, true] {
+        for dist in [
+            SeededDistribution::NormalNumbers,
+            SeededDistribution::TinyNumbers,
+        ] {
             let mut total_low = 0u128;
             for b in 0..=64 {
-                total_low += bl_weight(128, mirror, b);
+                total_low += bl_weight(128, dist, b);
             }
             let mut total_high = 0u128;
             for b in 65..=128 {
-                total_high += bl_weight(128, mirror, b);
+                total_high += bl_weight(128, dist, b);
             }
             // The two halves together are exactly 2^128; check via the
             // complement to avoid forming 2^128 itself.
@@ -357,12 +382,15 @@ mod tests {
             (31, 6),
             (63, 7),
         ] {
-            for mirror in [false, true] {
-                let bucketed = blbl_weight_range(blbl_max, max_bl, mirror, 0, blbl_max + 1);
+            for dist in [
+                SeededDistribution::NormalNumbers,
+                SeededDistribution::TinyNumbers,
+            ] {
+                let bucketed = blbl_weight_range(blbl_max, max_bl, dist, 0, blbl_max + 1);
                 assert_eq!(
                     bucketed,
                     1u128 << max_bl,
-                    "blbl bucket weights for max_bl={max_bl} mirror={mirror} should partition the total"
+                    "blbl bucket weights for max_bl={max_bl} dist={dist:?} should partition the total"
                 );
             }
         }
@@ -376,8 +404,8 @@ mod tests {
         // lean toward the upper half (likely bit true); the mirrored prior
         // toward the lower (likely bit false); and both must differ from
         // the flat leaf-count seed.
-        let uniform = blbl_tree_seeded::<7>(false, 64);
-        let tiny = blbl_tree_seeded::<7>(true, 64);
+        let uniform = blbl_tree_seeded::<7>(SeededDistribution::NormalNumbers, 64);
+        let tiny = blbl_tree_seeded::<7>(SeededDistribution::TinyNumbers, 64);
         assert!(uniform[0].probability().likely_bit());
         assert!(!tiny[0].probability().likely_bit());
         assert_ne!(uniform[0], AtMostContext::<7>::SEEDED[0]);
@@ -388,8 +416,8 @@ mod tests {
         // so every node leans toward true; mirrored, toward false. Check
         // u64's bucket 6 (bit lengths 32..64) at the root and one deep
         // node.
-        let uniform_off = bl_offset_seeded::<31>(false, 64);
-        let tiny_off = bl_offset_seeded::<31>(true, 64);
+        let uniform_off = bl_offset_seeded::<31>(SeededDistribution::NormalNumbers, 64);
+        let tiny_off = bl_offset_seeded::<31>(SeededDistribution::TinyNumbers, 64);
         for node in [0usize, 1, 2, 30] {
             assert!(
                 uniform_off[node].probability().likely_bit(),
@@ -411,10 +439,10 @@ mod tests {
         // 8-leaf tree) must lean hard toward false (the possible side),
         // and the bucket-6 offset tree must still be seeded (bit lengths
         // 32..63 are all real magnitudes).
-        let capped = blbl_tree_seeded::<7>(false, 63);
+        let capped = blbl_tree_seeded::<7>(SeededDistribution::NormalNumbers, 63);
         assert!(!capped[6].probability().likely_bit());
         assert_ne!(
-            bl_offset_seeded::<31>(false, 63),
+            bl_offset_seeded::<31>(SeededDistribution::NormalNumbers, 63),
             [BitContext::True0False0; 31]
         );
         // And the capped prior still totals 2^63 (checked in
@@ -426,20 +454,22 @@ mod tests {
     #[test]
     fn impossible_bucket_stays_flat() {
         // u64's would-be bucket 7 (bit lengths 64..128) can't occur — bit
-        // length 64 is pinned by the top `blbl` code — so its tree must be
-        // the flat default (which, for a power-of-two value count, is also
-        // `AtMostContext`'s seeded default).
+        // length 64 is pinned by the top `blbl` code — so seeding it must
+        // return the flat default (which, for a power-of-two value count,
+        // is also `AtMostContext`'s seeded default). No production context
+        // carries such a bucket anymore (`impl_compact!` only emits
+        // reachable ones); this pins the defensive guard's behavior.
         assert_eq!(
-            bl_offset_seeded::<63>(false, 64),
+            bl_offset_seeded::<63>(SeededDistribution::NormalNumbers, 64),
             [BitContext::True0False0; 63]
         );
         assert_eq!(
-            bl_offset_seeded::<63>(true, 64),
+            bl_offset_seeded::<63>(SeededDistribution::TinyNumbers, 64),
             [BitContext::True0False0; 63]
         );
         // For u128 the same tree is a real bucket and must be seeded.
         assert_ne!(
-            bl_offset_seeded::<63>(false, 128),
+            bl_offset_seeded::<63>(SeededDistribution::NormalNumbers, 128),
             [BitContext::True0False0; 63]
         );
     }

@@ -1,4 +1,6 @@
-use super::atmost::geometric::{bl_offset_seeded, blbl_tree_seeded, geometric_seeded};
+use super::atmost::geometric::{
+    bl_offset_seeded, blbl_tree_seeded, geometric_seeded, SeededDistribution,
+};
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
@@ -234,25 +236,38 @@ fn default_encoding_roundtrips_every_leading_zero_depth() {
 // enough (and, for the uneven u128 count, slow enough) that the hierarchy
 // wins.
 macro_rules! impl_compact {
-    ($t:ident, $context:ident, $default_context:ident, $bits:literal, $blbl_max:literal) => {
-        // $blbl_max must be the bit length of $bits itself, i.e. the
-        // largest possible `blbl` code.
-        const _: () = assert!((1usize << ($blbl_max - 1)) == $bits);
+    ($t:ident, $context:ident, $default_context:ident, $bits:literal, $blbl_max:literal,
+     { $($code:literal => $bucket:ident: $max:literal),* $(,)? }) => {
+        const _: () = {
+            // $blbl_max must be the bit length of $bits itself, i.e. the
+            // largest possible `blbl` code.
+            assert!((1usize << ($blbl_max - 1)) == $bits);
+            // The bucket list must be exactly the reachable codes
+            // `2..$blbl_max` in order (codes 0, 1, and $blbl_max pin `bl`
+            // with no offset), each coding offsets `0..2^(code-1)` — so a
+            // wider type can't silently alias two bucket widths onto one
+            // field, and a missing bucket fails here instead of at
+            // `unreachable!()` in `encode`.
+            let codes = [$($code),*];
+            assert!(codes.len() == $blbl_max - 2);
+            let mut i = 0;
+            while i < codes.len() {
+                assert!(codes[i] == i + 2);
+                i += 1;
+            }
+            $(assert!((1usize << ($code - 1)) == $max + 1);)*
+        };
 
         #[derive(Clone)]
         pub struct $context {
             /// One tree symbol for `blbl` in `0..=$blbl_max`.
             blbl: <AtMost<$blbl_max> as Encode>::Context,
             /// Per-bucket offset trees: bucket `c` holds bit lengths
-            /// `2^(c-1)..2^c`, and `o<c>` codes `bl - 2^(c-1)`. Buckets
-            /// past this type's width exist as fields (the macro emits one
-            /// fixed shape) but are never touched by `encode`/`decode`.
-            o2: <AtMost<1> as Encode>::Context,
-            o3: <AtMost<3> as Encode>::Context,
-            o4: <AtMost<7> as Encode>::Context,
-            o5: <AtMost<15> as Encode>::Context,
-            o6: <AtMost<31> as Encode>::Context,
-            o7: <AtMost<63> as Encode>::Context,
+            /// `2^(c-1)..2^c`, and `o<c>` codes `bl - 2^(c-1)`. Only the
+            /// buckets this width can reach (`c` in `2..$blbl_max`) exist;
+            /// the invocation lists them and the `const` assert above
+            /// checks the list.
+            $($bucket: <AtMost<$max> as Encode>::Context,)*
             /// `partial[lz][i]`: context for bit `i` of the value's partial
             /// top byte, given `lz = $bits - bl` leading zeros. Only
             /// `(bl - 1) % 8` bits are used per row.
@@ -262,12 +277,7 @@ macro_rules! impl_compact {
             fn default() -> Self {
                 Self {
                     blbl: Default::default(),
-                    o2: Default::default(),
-                    o3: Default::default(),
-                    o4: Default::default(),
-                    o5: Default::default(),
-                    o6: Default::default(),
-                    o7: Default::default(),
+                    $($bucket: Default::default(),)*
                     partial: [[Default::default(); 8]; $bits],
                 }
             }
@@ -275,15 +285,14 @@ macro_rules! impl_compact {
 
         impl $context {
             /// A context seeded from one of the two priors in
-            /// `atmost::geometric`: `mirror = false` matches a
+            /// `atmost::geometric`: `NormalNumbers` matches a
             /// uniformly-random `$t` (large magnitudes dominant — the
-            /// default `Encode`'s prior), `mirror = true` reverses it so
+            /// default `Encode`'s prior), `TinyNumbers` reverses it so
             /// tiny magnitudes dominate (`usize`'s prior; see
             /// `usizes.rs`). `Small` itself uses the flat `Default`
-            /// instead. Impossible buckets seed flat (see
-            /// `bl_offset_seeded`), so one fixed shape serves every width.
-            pub(crate) const fn seeded(mirror: bool) -> Self {
-                Self::seeded_capped(mirror, $bits)
+            /// instead.
+            pub(crate) const fn seeded(dist: SeededDistribution) -> Self {
+                Self::seeded_capped(dist, $bits)
             }
 
             /// [`Self::seeded`] with the prior capped at bit length
@@ -292,29 +301,19 @@ macro_rules! impl_compact {
             /// magnitude — a uniform `($bits - 1)`-bit value — through
             /// this very context type, so its prior caps one below the
             /// width.
-            pub(crate) const fn seeded_capped(mirror: bool, max_bl: usize) -> Self {
+            pub(crate) const fn seeded_capped(dist: SeededDistribution, max_bl: usize) -> Self {
+                // A cap past the width would silently degrade the prior
+                // rather than error (the weight math saturates), so catch
+                // misuse here; every caller is `const`, making this a
+                // compile-time check.
+                assert!(max_bl <= $bits);
                 Self {
                     blbl: AtMostContext {
-                        bits: blbl_tree_seeded::<$blbl_max>(mirror, max_bl),
+                        bits: blbl_tree_seeded::<$blbl_max>(dist, max_bl),
                     },
-                    o2: AtMostContext {
-                        bits: bl_offset_seeded::<1>(mirror, max_bl),
-                    },
-                    o3: AtMostContext {
-                        bits: bl_offset_seeded::<3>(mirror, max_bl),
-                    },
-                    o4: AtMostContext {
-                        bits: bl_offset_seeded::<7>(mirror, max_bl),
-                    },
-                    o5: AtMostContext {
-                        bits: bl_offset_seeded::<15>(mirror, max_bl),
-                    },
-                    o6: AtMostContext {
-                        bits: bl_offset_seeded::<31>(mirror, max_bl),
-                    },
-                    o7: AtMostContext {
-                        bits: bl_offset_seeded::<63>(mirror, max_bl),
-                    },
+                    $($bucket: AtMostContext {
+                        bits: bl_offset_seeded::<$max>(dist, max_bl),
+                    },)*
                     partial: [[BitContext::True0False0; 8]; $bits],
                 }
             }
@@ -325,17 +324,15 @@ macro_rules! impl_compact {
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                 let bl = ($bits - value.leading_zeros()) as usize;
-                let blbl = if bl == 0 { 0 } else { bl.ilog2() as usize + 1 };
+                // `bl`'s own bit length; this form maps 0 → 0 without the
+                // branch an `ilog2` (which panics on zero) would need.
+                let blbl = (usize::BITS - bl.leading_zeros()) as usize;
                 AtMost::<$blbl_max>::new(blbl).encode(writer, &mut ctx.blbl);
                 if (2..$blbl_max).contains(&blbl) {
                     let offset = bl - (1 << (blbl - 1));
                     match blbl {
-                        2 => AtMost::<1>::new(offset).encode(writer, &mut ctx.o2),
-                        3 => AtMost::<3>::new(offset).encode(writer, &mut ctx.o3),
-                        4 => AtMost::<7>::new(offset).encode(writer, &mut ctx.o4),
-                        5 => AtMost::<15>::new(offset).encode(writer, &mut ctx.o5),
-                        6 => AtMost::<31>::new(offset).encode(writer, &mut ctx.o6),
-                        _ => AtMost::<63>::new(offset).encode(writer, &mut ctx.o7),
+                        $($code => AtMost::<$max>::new(offset).encode(writer, &mut ctx.$bucket),)*
+                        _ => unreachable!(),
                     }
                 }
                 if bl < 2 {
@@ -366,12 +363,8 @@ macro_rules! impl_compact {
                     $bits
                 } else {
                     let offset = match blbl {
-                        2 => usize::from(AtMost::<1>::decode(reader, &mut ctx.o2)?),
-                        3 => usize::from(AtMost::<3>::decode(reader, &mut ctx.o3)?),
-                        4 => usize::from(AtMost::<7>::decode(reader, &mut ctx.o4)?),
-                        5 => usize::from(AtMost::<15>::decode(reader, &mut ctx.o5)?),
-                        6 => usize::from(AtMost::<31>::decode(reader, &mut ctx.o6)?),
-                        _ => usize::from(AtMost::<63>::decode(reader, &mut ctx.o7)?),
+                        $($code => usize::from(AtMost::<$max>::decode(reader, &mut ctx.$bucket)?),)*
+                        _ => unreachable!(),
                     };
                     (1usize << (blbl - 1)) + offset
                 };
@@ -411,7 +404,7 @@ macro_rules! impl_compact {
 
         impl Default for $default_context {
             fn default() -> Self {
-                Self(const { $context::seeded(false) })
+                Self(const { $context::seeded(SeededDistribution::NormalNumbers) })
             }
         }
 
@@ -432,9 +425,12 @@ macro_rules! impl_compact {
     };
 }
 
-impl_compact!(u128, U128Compact, U128Default, 128, 8);
-impl_compact!(u64, U64Compact, U64Default, 64, 7);
-impl_compact!(u32, U32Compact, U32Default, 32, 6);
+impl_compact!(u128, U128Compact, U128Default, 128, 8,
+    { 2 => o2: 1, 3 => o3: 3, 4 => o4: 7, 5 => o5: 15, 6 => o6: 31, 7 => o7: 63 });
+impl_compact!(u64, U64Compact, U64Default, 64, 7,
+    { 2 => o2: 1, 3 => o3: 3, 4 => o4: 7, 5 => o5: 15, 6 => o6: 31 });
+impl_compact!(u32, U32Compact, U32Default, 32, 6,
+    { 2 => o2: 1, 3 => o3: 3, 4 => o4: 7, 5 => o5: 15 });
 
 // `u16`'s legacy single-tree scheme (see the note above `impl_compact!`):
 // the leading-zero count through one complete `AtMost<15>` symbol —
@@ -744,7 +740,12 @@ macro_rules! impl_signed_default_hierarchical {
             fn default() -> Self {
                 Self {
                     is_negative: Default::default(),
-                    magnitude: const { MagnitudeContext::seeded_capped(false, $bits - 1) },
+                    magnitude: const {
+                        MagnitudeContext::seeded_capped(
+                            SeededDistribution::NormalNumbers,
+                            $bits - 1,
+                        )
+                    },
                 }
             }
         }
