@@ -770,6 +770,13 @@ macro_rules! impl_signed_default_hierarchical {
             ) -> Result<Self, std::io::Error> {
                 let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
                 let mag: $unsigned = Small::decode(reader, &mut ctx.magnitude)?;
+                // The capped prior only *biases* against magnitudes past
+                // the signed range — a malformed stream can still decode
+                // one, and `mag as $signed` would quietly wrap it into a
+                // plausible value (or overflow the `-1 - mag` below).
+                if mag > $signed::MAX as $unsigned {
+                    return Err(std::io::Error::other("signed magnitude out of range"));
+                }
                 if is_neg {
                     Ok(-1 - (mag as $signed))
                 } else {
@@ -1071,6 +1078,21 @@ fn signed() {
         BTreeSet::from([i64::MIN, i64::MAX]),
         expect!["Millibits(142256)"]
     );
+}
+
+#[test]
+fn signed_decode_rejects_out_of_range_magnitude() {
+    // The capped prior only seeds *against* magnitude bit length 64 — it
+    // cannot forbid it, so a malformed stream can carry a magnitude past
+    // `i64::MAX`. Build exactly such a stream (sign `false`, then
+    // `u64::MAX` through the very context the `i64` decoder uses); decode
+    // must fail rather than wrap the magnitude into a plausible value.
+    let mut writer = super::Range::default();
+    let mut sign = <bool as Encode>::Context::default();
+    false.encode(&mut writer, &mut sign);
+    let mut mag = U64Compact::seeded_capped(SeededDistribution::NormalNumbers, 63);
+    Small::encode(&u64::MAX, &mut writer, &mut mag);
+    assert_eq!(super::decode::<i64>(&writer.into_vec()), None);
 }
 
 #[test]

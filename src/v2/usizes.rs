@@ -315,10 +315,24 @@ fn correctness() {
     }
 }
 
-#[derive(Default, Clone)]
+/// `isize`'s default `Encode`: sign + magnitude like the wide signed types
+/// (`impl_signed_default_hierarchical!` in `ints.rs`), but under `usize`'s
+/// tiny-numbers prior — and, like them, with the magnitude's prior capped
+/// one bit length below the width, since an `isize` magnitude (`abs_diff`
+/// from `0`/`-1`) never reaches a full 64-bit length.
+#[derive(Clone)]
 pub struct IsizeContext {
     is_negative: <bool as Encode>::Context,
-    magnitude: <usize as Encode>::Context,
+    magnitude: U64Compact,
+}
+
+impl Default for IsizeContext {
+    fn default() -> Self {
+        Self {
+            is_negative: Default::default(),
+            magnitude: const { U64Compact::seeded_capped(SeededDistribution::TinyNumbers, 63) },
+        }
+    }
 }
 
 impl Encode for isize {
@@ -332,7 +346,7 @@ impl Encode for isize {
         } else {
             self.abs_diff(0)
         };
-        mag.encode(writer, &mut ctx.magnitude);
+        Small::encode(&(mag as u64), writer, &mut ctx.magnitude);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -340,7 +354,13 @@ impl Encode for isize {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
-        let mag = usize::decode(reader, &mut ctx.magnitude)?;
+        let mag: u64 = Small::decode(reader, &mut ctx.magnitude)?;
+        // The capped prior only *biases* against magnitudes past the
+        // signed range — a malformed stream can still decode one, and
+        // `mag as isize` would quietly wrap it into a plausible value.
+        if mag > isize::MAX as u64 {
+            return Err(std::io::Error::other("signed magnitude out of range"));
+        }
         if is_neg {
             Ok(-1 - mag as isize)
         } else {
@@ -424,6 +444,34 @@ impl EncodingStrategy<isize> for Sorted {
         ctx.previous = Some(out);
         Ok(out)
     }
+}
+
+#[test]
+fn isize_size() {
+    // Pins `isize`'s default fresh costs under the width-capped
+    // tiny-numbers prior (magnitude prior capped at bit length 63, like
+    // the wide signed types in `ints.rs`).
+    use super::assert_millibits;
+    assert_millibits!(0_isize, expect!["Millibits(2256)"]);
+    assert_millibits!(1_isize, expect!["Millibits(3264)"]);
+    assert_millibits!(-1_isize, expect!["Millibits(2256)"]);
+    assert_millibits!(137_isize, expect!["Millibits(12286)"]);
+    assert_millibits!(isize::MAX, expect!["Millibits(79226)"]);
+    assert_millibits!(isize::MIN, expect!["Millibits(79226)"]);
+}
+
+#[test]
+fn isize_decode_rejects_out_of_range_magnitude() {
+    // Same guard as `signed_decode_rejects_out_of_range_magnitude` in
+    // `ints.rs`: a malformed stream carrying a magnitude past `isize::MAX`
+    // (built through the very context the decoder uses) must fail to
+    // decode rather than wrap into a plausible value.
+    let mut writer = super::Range::default();
+    let mut sign = <bool as Encode>::Context::default();
+    false.encode(&mut writer, &mut sign);
+    let mut mag = U64Compact::seeded_capped(SeededDistribution::TinyNumbers, 63);
+    Small::encode(&u64::MAX, &mut writer, &mut mag);
+    assert_eq!(super::decode::<isize>(&writer.into_vec()), None);
 }
 
 #[test]
