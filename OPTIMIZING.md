@@ -687,7 +687,8 @@ The default integer `Encode`/`Small` scheme was rebuilt around the value's
 offset within its `blbl` bucket as a second per-bucket `AtMost` symbol,
 then the value mantissa as before. `usize`'s default `Encode` reuses the
 exact same compiled code via a `Default`-override context seeded from the
-*mirrored* prior (`mirror = true` in `src/v2/atmost/geometric.rs`) — tiny
+*mirrored* prior (`SeededDistribution::TinyNumbers` in
+`src/v2/atmost/geometric.rs`) — tiny
 magnitudes dominant, matching real lengths/counts/indices — while
 `u16..u128`'s default keeps the uniform-value prior and `Small` stays
 flat-seeded.

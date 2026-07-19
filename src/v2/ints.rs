@@ -773,7 +773,7 @@ macro_rules! impl_signed_default_hierarchical {
                 // The capped prior only *biases* against magnitudes past
                 // the signed range — a malformed stream can still decode
                 // one, and `mag as $signed` would quietly wrap it into a
-                // plausible value (or overflow the `-1 - mag` below).
+                // plausible value.
                 if mag > $signed::MAX as $unsigned {
                     return Err(std::io::Error::other("signed magnitude out of range"));
                 }
@@ -1082,17 +1082,30 @@ fn signed() {
 
 #[test]
 fn signed_decode_rejects_out_of_range_magnitude() {
-    // The capped prior only seeds *against* magnitude bit length 64 — it
-    // cannot forbid it, so a malformed stream can carry a magnitude past
-    // `i64::MAX`. Build exactly such a stream (sign `false`, then
-    // `u64::MAX` through the very context the `i64` decoder uses); decode
-    // must fail rather than wrap the magnitude into a plausible value.
-    let mut writer = super::Range::default();
-    let mut sign = <bool as Encode>::Context::default();
-    false.encode(&mut writer, &mut sign);
-    let mut mag = U64Compact::seeded_capped(SeededDistribution::NormalNumbers, 63);
-    Small::encode(&u64::MAX, &mut writer, &mut mag);
-    assert_eq!(super::decode::<i64>(&writer.into_vec()), None);
+    // The capped prior only seeds *against* the magnitude bit length past
+    // the signed range — it cannot forbid it, so a malformed stream can
+    // carry a magnitude past `MAX`. Build exactly such a stream for every
+    // hierarchical signed width (sign `false`, then the unsigned `MAX`
+    // through the very context that width's decoder uses); decode must
+    // fail rather than wrap the magnitude into a plausible value.
+    macro_rules! check {
+        ($signed:ty, $mag_context:ident, $mag_max:expr, $bits:literal) => {{
+            let mut writer = super::Range::default();
+            let mut sign = <bool as Encode>::Context::default();
+            false.encode(&mut writer, &mut sign);
+            let mut mag = $mag_context::seeded_capped(SeededDistribution::NormalNumbers, $bits - 1);
+            Small::encode(&$mag_max, &mut writer, &mut mag);
+            assert_eq!(
+                super::decode::<$signed>(&writer.into_vec()),
+                None,
+                "decoding an out-of-range {} magnitude must fail",
+                stringify!($signed),
+            );
+        }};
+    }
+    check!(i32, U32Compact, u32::MAX, 32);
+    check!(i64, U64Compact, u64::MAX, 64);
+    check!(i128, U128Compact, u128::MAX, 128);
 }
 
 #[test]
