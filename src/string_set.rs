@@ -2,6 +2,7 @@
 //! suffix lookup.
 
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -37,12 +38,14 @@ pub struct Miss<'a> {
 pub struct StringSet<P> {
     strings: Vec<P>,
     exact: HashMap<P, usize>,
-    /// Ordered by string content, for prefix search.
-    by_prefix: Treap<P, usize>,
-    /// Keyed on each string's *reversed* bytes, so plain (forward) `Ord` on
-    /// the key gives the same ordering as comparing the original strings
-    /// from the end -- no custom `Ord` impl needed.
-    by_suffix: Treap<Box<[u8]>, usize>,
+    /// Ordered by string content, for prefix search. The treap stores no
+    /// keys of its own -- entry `i` is `strings[i]`, compared through a
+    /// closure at insert time (see [`treap`]).
+    by_prefix: Treap,
+    /// Ordered by the strings' *reversed* bytes ([`rev_cmp`]), for suffix
+    /// search -- same index-keyed scheme, so no reversed copy of any
+    /// string is ever materialized.
+    by_suffix: Treap,
 }
 
 impl<P> Default for StringSet<P> {
@@ -129,10 +132,21 @@ where
             self.exact.insert(s.clone(), idx).is_none(),
             "StringSet::insert_new called with a string already in the set"
         );
-        let (prefix_pred, prefix_succ) = self.by_prefix.insert_and_find_neighbors(s.clone(), idx);
+        // The treaps identify entries by index (see [`treap`]): entry `i`
+        // is `strings[i]`, which holds only if every string was added via
+        // this method -- never mix `insert_new` and `push` on one set.
+        debug_assert!(
+            self.by_prefix.len() == idx && self.by_suffix.len() == idx,
+            "StringSet::insert_new called on a set that was built with push"
+        );
+        let query: &str = s;
+        let strings = &self.strings;
+        let (prefix_pred, prefix_succ) = self
+            .by_prefix
+            .insert_and_find_neighbors(|i| query.cmp(&strings[i]));
         let (suffix_pred, suffix_succ) = self
             .by_suffix
-            .insert_and_find_neighbors(s.bytes().rev().collect(), idx);
+            .insert_and_find_neighbors(|i| rev_cmp(query, &strings[i]));
         self.strings.push(s.clone());
 
         let s: &str = s;
@@ -165,12 +179,47 @@ where
     /// while decoding a value that some other (encode-side) `StringSet`
     /// already deduplicated, so the index is known to be correct and in
     /// order without a lookup. Unlike `insert`, this does not check for or
-    /// skip duplicates.
+    /// skip duplicates. A set built with `push` must never be handed to
+    /// [`StringSet::insert_new`], which requires the treaps' entry indices
+    /// to match the string indices.
     pub fn push(&mut self, s: P) -> usize {
         let idx = self.strings.len();
         self.strings.push(s);
         idx
     }
+}
+
+/// Compare `a` and `b` as if their byte sequences were reversed
+/// (last byte first), without materializing the reversal; `Equal` only for
+/// identical strings. This is the suffix treap's ordering: it clusters
+/// strings sharing long suffixes, so a new string's reversed-order
+/// neighbors are its best suffix-match candidates.
+fn rev_cmp(a: &str, b: &str) -> Ordering {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    // Compare 8-byte blocks walking back from the end. A little-endian load
+    // of such a block places the string's *later* bytes in *more*
+    // significant positions, so a plain integer compare orders the block
+    // exactly like the reversed byte sequence.
+    while i + 8 <= n {
+        let av = u64::from_le_bytes(a[a.len() - i - 8..a.len() - i].try_into().unwrap());
+        let bv = u64::from_le_bytes(b[b.len() - i - 8..b.len() - i].try_into().unwrap());
+        if av != bv {
+            return av.cmp(&bv);
+        }
+        i += 8;
+    }
+    while i < n {
+        let av = a[a.len() - 1 - i];
+        let bv = b[b.len() - 1 - i];
+        if av != bv {
+            return av.cmp(&bv);
+        }
+        i += 1;
+    }
+    a.len().cmp(&b.len())
 }
 
 /// The length in bytes of the longest common prefix of `a` and `b`, trimmed
