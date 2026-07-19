@@ -330,7 +330,7 @@ fn size() {
             "farewell sweet world! 😊",
         ]),
     );
-    expect!["normal: Millibits(474216) (474 bits), small: Millibits(413459) (414 bits)"].assert_eq(
+    expect!["normal: Millibits(474215) (474 bits), small: Millibits(413454) (414 bits)"].assert_eq(
         &compare_vecs(&[
             "The quick brown fox jumps over the lazy dog.",
             "The",

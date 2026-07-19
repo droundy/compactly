@@ -34,51 +34,35 @@ pub struct Set {
     Debug, Serialize, Deserialize, compactly::v1::Encode, compactly::v2::Encode, Clone, PartialEq,
 )]
 pub struct Card {
-    #[compactly(LowCardinality)]
     artist: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     artistIds: Option<Vec<Arc<str>>>,
-    asciiName: Option<String>,
+    asciiName: Option<Arc<str>>,
     attractionLights: Option<Vec<usize>>,
-    #[compactly(LowCardinality)]
     availability: Vec<Arc<str>>,
-    #[compactly(LowCardinality)]
     boosterTypes: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     borderColor: Arc<str>,
-    cardParts: Option<Vec<String>>,
-    #[compactly(LowCardinality)]
+    cardParts: Option<Vec<Arc<str>>>,
     colorIdentity: Vec<Arc<str>>,
-    #[compactly(LowCardinality)]
     colorIndicator: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     colors: Vec<Arc<str>>,
     #[compactly(Small)]
     convertedManaCost: usize,
-    #[compactly(LowCardinality)]
     defense: Option<Arc<str>>,
-    duelDeck: Option<String>,
+    duelDeck: Option<Arc<str>>,
     edhrecRank: Option<usize>,
     // edhrecSaltiness: Option<usize>,
     #[compactly(Small)]
     faceConvertedManaCost: Option<usize>,
-    #[compactly(LowCardinality)]
     faceFlavorName: Option<Arc<str>>,
     #[compactly(Small)]
     faceManaValue: Option<usize>,
-    #[compactly(LowCardinality)]
     faceName: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     finishes: Vec<Arc<str>>,
-    #[compactly(LowCardinality)]
     flavorName: Option<Arc<str>>,
     #[compactly(Compressible)]
     flavorText: Option<String>,
-    #[compactly(LowCardinality)]
     frameEffects: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     frameVersion: Arc<str>,
-    #[compactly(LowCardinality)]
     hand: Option<Arc<str>>,
     hasAlternativeDeckLimit: Option<bool>,
     hasContentWarning: Option<bool>,
@@ -98,19 +82,13 @@ pub struct Card {
     isStorySpotlight: Option<bool>,
     isTextless: Option<bool>,
     isTimeshifted: Option<bool>,
-    #[compactly(LowCardinality)]
     keywords: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     language: Arc<str>,
-    #[compactly(LowCardinality)]
     layout: Arc<str>,
     leadershipSkills: Option<LeadershipSkills>,
     // legalities: Legalities;
-    #[compactly(LowCardinality)]
     life: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     loyalty: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     manaCost: Option<Arc<str>>,
     #[compactly(Small)]
     manaValue: usize,
@@ -118,52 +96,35 @@ pub struct Card {
     name: String,
     #[compactly(Compressible)]
     number: String,
-    #[compactly(LowCardinality)]
     originalPrintings: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     originalReleaseDate: Option<Arc<str>>,
     #[compactly(Compressible)]
     originalText: Option<String>,
-    #[compactly(LowCardinality)]
     originalType: Option<Arc<str>>,
     otherFaceIds: Option<Vec<String>>,
-    #[compactly(LowCardinality)]
     power: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     printings: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     promoTypes: Option<Vec<Arc<str>>>,
     // purchaseUrls: PurchaseUrls;
-    #[compactly(LowCardinality)]
     rarity: Arc<str>,
     // relatedCards?: RelatedCards;
-    #[compactly(LowCardinality)]
     rebalancedPrintings: Option<Vec<Arc<str>>>,
     // rulings?: Rulings[];
     // securityStamp: Option<String>,
-    #[compactly(LowCardinality)]
     setCode: Arc<str>,
-    #[compactly(LowCardinality)]
     side: Option<Arc<str>>,
     #[compactly(Compressible)]
     signature: Option<String>,
     // sourceProducts?: SourceProducts;
-    #[compactly(LowCardinality)]
     subsets: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     subtypes: Vec<Arc<str>>,
-    #[compactly(LowCardinality)]
     supertypes: Vec<Arc<str>>,
     #[compactly(Compressible)]
     text: Option<String>,
-    #[compactly(LowCardinality)]
     toughness: Option<Arc<str>>,
-    #[compactly(LowCardinality)]
     types: Vec<Arc<str>>,
     uuid: String,
-    #[compactly(LowCardinality)]
     variations: Option<Vec<Arc<str>>>,
-    #[compactly(LowCardinality)]
     watermark: Option<Arc<str>>,
 }
 

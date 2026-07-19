@@ -49,7 +49,6 @@ pub struct Meteorite {
     #[serde(alias = "mass (g)", default)]
     #[compactly(Decimal)]
     mass: f32,
-    #[compactly(LowCardinality)]
     recclass: Arc<str>,
     #[compactly(Decimal)]
     reclat: f32,
@@ -74,7 +73,6 @@ pub struct MeteoriteData {
     #[serde(alias = "mass (g)", default)]
     #[compactly(Decimal)]
     mass: f32,
-    #[compactly(LowCardinality)]
     recclass: Arc<str>,
     #[compactly(Decimal)]
     reclat: f32,
