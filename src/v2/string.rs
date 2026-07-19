@@ -141,20 +141,21 @@ impl EncodingStrategy<String> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let len: usize = Small::decode(reader, &mut ctx.len)?;
-        let mut out = String::new();
-        if ctx.previous.is_empty() {
-            out.reserve_exact(len);
-        } else {
+        if !ctx.previous.is_empty() {
             let shared_prefix = Small::decode(reader, &mut ctx.shared_prefix)?;
-            out.reserve_exact(shared_prefix + len);
-            out.extend(ctx.previous.chars().take(shared_prefix));
-            debug_assert!(shared_prefix <= ctx.previous.len());
+            // `shared_prefix` counts chars; the prefix's bytes are already in
+            // place in `previous`, so find where it ends and drop the rest.
+            let prefix_bytes = ctx
+                .previous
+                .char_indices()
+                .nth(shared_prefix)
+                .map_or(ctx.previous.len(), |(i, _)| i);
+            ctx.previous.truncate(prefix_bytes);
         }
         for _ in 0..len {
-            out.push(char::decode(reader, &mut ctx.chars)?);
+            ctx.previous.push(char::decode(reader, &mut ctx.chars)?);
         }
-        ctx.previous.clone_from(&out);
-        Ok(out)
+        Ok(ctx.previous.clone())
     }
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         if ctx.previous.is_empty() {

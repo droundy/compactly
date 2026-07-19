@@ -932,14 +932,13 @@ believing them — instruction-count changes included.
       returned value and the `old` entry.
     - length/back/offset are `Small` decodes — `decode_until_true`-shaped (#5).
 
-12. **`Sorted` strings decode** (`string.rs` `SortedContext::decode`) — three costs:
-    the `char` decode loop (helped by #2); `ctx.previous.clone_from(&out)` copies the
-    whole string into `previous` every call (needed for the next delta, but it's a
-    full copy per string); and `out.extend(ctx.previous.chars().take(shared_prefix))`
-    re-encodes the shared prefix char-by-char even though `previous` is already valid
-    UTF-8 — since `shared_prefix` is a char count on a char boundary, the prefix
-    *bytes* could be copied directly (find the byte offset of the `shared_prefix`-th
-    char, then `extend_from_slice`). Measure whether the byte-copy is worth it.
+12. ~~**`Sorted` strings decode** (`string.rs` `SortedContext::decode`)~~ —
+    DONE 2026-07-19 (see "Landed"): decode now builds in place in
+    `ctx.previous` (truncate to the prefix's byte offset + push the suffix +
+    return one clone), eliminating both the char-by-char prefix re-encode and
+    the `clone_from` copy. Strings decode **Ans −7.7%, Range −6.1%**. The
+    remaining cost of the three originally listed here is the `char` decode
+    loop itself.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
@@ -978,6 +977,19 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`Sorted` string decode builds in place (was TODO #12, 2026-07-19)** — the
+  decode paid two copies per string: re-encoding the shared prefix
+  char-by-char into a fresh `String`, then `clone_from`-ing the result back
+  into `ctx.previous` for the next delta. Now the string is built *in place*
+  in `ctx.previous`: truncate to the shared prefix's byte offset (a char
+  boundary, found by walking `char_indices` — no re-encode), push the decoded
+  suffix chars, return one exact-size clone. Also drops the per-call `String`
+  allocation (`previous`'s buffer is reused across the collection). Decode-side
+  value construction only — bitstream unchanged, zero snapshot churn.
+  Quiesced A/B (`just-decompress-strings`, min of 3 alternated pinned rounds,
+  spread ≤ 0.35%): decode **Ans 42.17 → 38.93 Gcycles = −7.7%, Range 46.37 →
+  43.57 = −6.1%** — large given >50% of the workload is `BTreeSet`
+  construction the change can't touch.
 - **`MAX = 1` codes as a plain bit, not a symbol (2026-07-19)** — acting on the
   walk shootout's distribution-robust finding above: `Walk::production` now
   resolves `MAX = 1` to `CompleteBitwise`, whose "walk" is a single ordinary
