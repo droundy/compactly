@@ -645,7 +645,8 @@ What the quiesced two-distribution run (bench-quiet.sh, CPU 2) settled:
   if anyone ever puts a multi-thousand-value `AtMost` on a hot path).
 - **Distribution-robust findings worth follow-up**: (1) `MAX = 1`'s symbol
   machinery is pure overhead — plain bit coding wins 5–36% across coders,
-  metrics, and distributions; (2) `Ans` decode at power-of-two `MAX` =
+  metrics, and distributions (DONE 2026-07-19 — see "Landed");
+  (2) `Ans` decode at power-of-two `MAX` =
   15/31/63 prefers `UnevenSpeculating` over production
   `CompleteSpeculating` on **both** distributions (7–23%), reopening the
   complete-vs-uneven layout question for mid-size trees (contradicts the
@@ -977,6 +978,33 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`MAX = 1` codes as a plain bit, not a symbol (2026-07-19)** — acting on the
+  walk shootout's distribution-robust finding above: `Walk::production` now
+  resolves `MAX = 1` to `CompleteBitwise`, whose "walk" is a single ordinary
+  `encode_bit`/`decode_bit` step — the symbol path's interval build and 16-bit
+  renormalization were pure overhead for a two-valued symbol (measured 5–36%
+  slower across both coders, both metrics, and both distributions). This is a
+  *format change* for `AtMost<1>` users (2-variant derive enums, the 2-value
+  offset buckets in the integer hierarchy, `usizes.rs`/`byte.rs` `b1` fields):
+  every churned size snapshot moved 1–5 *millibits smaller* (the bit step has
+  no reserve squeeze), and the `Ans` doctest's 5-value example grew 5 → 6
+  bytes (renormalization granularity on a tiny payload). **Fresh quiesced
+  shootout on the change** (in-process alternated rounds): old production →
+  `CompleteBitwise` at `MAX = 1` is decode **Ans −5/−6%, Range −22/−23%**,
+  encode **Ans −12/−29%, Range −14/−32%** (Skewed/Uniform), and no challenger
+  beat the new decode pick on either distribution. The only counter-signal is
+  Range *encode* via the `Uneven` symbol walk: 24% faster on Uniform but 37%
+  slower on Skewed (realistic data) — production stays bitwise. A macro A/B on
+  `benches/integers.rs` (3 alternated cross-binary rounds, min) showed u32
+  skewed-small Ans decode −5.4…−6.0% every round, but u64/usize skewed-small
+  moved +2…+7% while untouched control rows (u16 legacy, zstd/bincode/bitcode
+  references) scattered just as much — cross-binary layout noise; no reliable
+  macro signal either way, as expected for a code that is a small slice of
+  integer coding time. Same run's fresh follow-up lead: `MAX = 2` decode now
+  prefers the bitwise walk on **both** distributions (Ans 12–15%, Range
+  12–13%) — the old "tiny extreme" uniform-only finding reproduces on Skewed
+  too, making a `MAX = 2` bitwise route the next candidate change (validate on
+  `just-{de,}compress-enums`, the 3-variant enum workload).
 - **`Compressible` (Lz77) decode: skip `old_filter` upkeep (was TODO #11)** — the
   8 KiB 4-gram bitset maintained by `push_old` is read *only* by the encode-side
   match scan (`eager`/`eager_chunk`); decode never calls `eager`, so the per-byte
