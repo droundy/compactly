@@ -279,7 +279,13 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
             .dict
             .get(idx)
             .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix index"))?;
-        out.push_str(&entry[..prefix_len]);
+        // The wire-supplied length is unrelated to whatever entry the index
+        // resolved to, so slice fallibly: `get` rejects both out-of-bounds
+        // and non-char-boundary lengths.
+        let prefix = entry
+            .get(..prefix_len)
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix length"))?;
+        out.push_str(prefix);
     }
 
     let suffix_len = decode_match_len(reader, &mut ctx.suffix_len)?;
@@ -299,7 +305,14 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
             .dict
             .get(idx)
             .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix index"))?;
-        out.push_str(&entry[entry.len() - suffix_len..]);
+        // As with the prefix above: `checked_sub` rejects lengths longer
+        // than the entry, `get` rejects non-char-boundary starts.
+        let suffix = entry
+            .len()
+            .checked_sub(suffix_len)
+            .and_then(|start| entry.get(start..))
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix length"))?;
+        out.push_str(suffix);
     }
 
     let value = P::from_str(&out);
@@ -454,17 +467,33 @@ fn arc_str_prefix_suffix_round_trip() {
     // Prefix-only match.
     round_trip(vec![Arc::from("hello world"), Arc::from("hello there")]);
 
-    // Suffix-only match, and a query entirely a suffix of an existing entry
-    // (an exact-length-mismatch case that must not be mistaken for a cache hit).
+    // Queries that are prefixes/suffixes of existing entries but whose only
+    // matches have length 1, which is rejected as not worth encoding: these
+    // take the no-match wire path and must not be mistaken for cache hits.
     round_trip(vec![Arc::from("ab"), Arc::from("a"), Arc::from("b")]);
 
-    // Both prefix and suffix match, against different dictionary entries,
-    // plus an exact repeat mixed in.
+    // Suffix-only match, where the query is *entirely* a suffix of an
+    // existing entry (empty middle, and another exact-length-mismatch case
+    // that must not be mistaken for a cache hit).
+    round_trip(vec![Arc::from("xyzab"), Arc::from("ab")]);
+
+    // Prefix match plus an exact repeat mixed in ("hello there" shares the
+    // prefix "hello " with "hello world" but no suffix with anything).
     round_trip(vec![
         Arc::from("hello world"),
         Arc::from("goodbye world"),
         Arc::from("hello there"),
         Arc::from("hello world"),
+    ]);
+
+    // Both prefix and suffix match simultaneously, against *different*
+    // dictionary entries: "abcab" matches prefix "abc" of "abcxy" and
+    // suffix "cab" of "xxcab". 3 + 3 > len 5, so this also exercises the
+    // overlap adjustment (suffix trimmed to "ab") and an empty middle.
+    round_trip(vec![
+        Arc::from("abcxy"),
+        Arc::from("xxcab"),
+        Arc::from("abcab"),
     ]);
 
     // UTF-8 boundary case: dictionary entries share only a leading byte of a
@@ -483,6 +512,34 @@ fn arc_str_prefix_suffix_round_trip() {
         Arc::from(format!("{long_prefix}_one").as_str()),
         Arc::from(format!("{long_prefix}_two").as_str()),
     ]);
+
+    // Same for a shared suffix longer than u16::MAX bytes.
+    let long_suffix = "b".repeat(u16::MAX as usize + 1);
+    round_trip(vec![
+        Arc::from(format!("one_{long_suffix}").as_str()),
+        Arc::from(format!("two_{long_suffix}").as_str()),
+    ]);
+}
+
+/// Decoding corrupted bytes must fail cleanly (`Ok` with wrong contents or
+/// `Err`), never panic: regression test for unchecked wire-supplied
+/// prefix/suffix lengths being used to slice a dictionary entry.
+#[test]
+fn arc_str_corrupted_input_does_not_panic() {
+    let values: Vec<Arc<str>> = vec![
+        Arc::from("hello world"),
+        Arc::from("hello there"),
+        Arc::from("goodbye world"),
+        Arc::from("hello worldwide"),
+    ];
+    let encoded = super::encode(&values);
+    for byte in 0..encoded.len() {
+        for bit in 0..8 {
+            let mut corrupted = encoded.clone();
+            corrupted[byte] ^= 1 << bit;
+            let _ = super::decode::<Vec<Arc<str>>>(&corrupted);
+        }
+    }
 }
 
 #[test]

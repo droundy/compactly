@@ -9,12 +9,11 @@ use std::ops::Deref;
 mod treap;
 use treap::Treap;
 
-/// The result of a miss in [`StringSet::insert_new`]: the newly assigned
-/// index, plus the best prefix and best suffix match (if any) against the
-/// dictionary's existing members.
+/// The result of a miss in [`StringSet::insert_new`]: the best prefix and
+/// best suffix match (if any) against the dictionary's existing members.
+/// (The inserted string's newly assigned index is the set's length before
+/// the insertion, so it is not repeated here.)
 pub struct Miss<'a> {
-    /// The index newly assigned to the inserted string.
-    pub index: usize,
     /// The dictionary member sharing the longest prefix with the inserted
     /// string, and that shared prefix (a slice of the inserted string).
     pub prefix: Option<(usize, &'a str)>,
@@ -62,25 +61,25 @@ where
     P: Clone + Ord + Hash + Borrow<str> + Deref<Target = str>,
 {
     /// Create an empty `StringSet`.
-    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
+    #[cfg(test)] // exercised only by tests; production callers use get/get_exact/insert_new/push
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The number of distinct strings in the set.
-    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
+    #[cfg(test)] // exercised only by tests; production callers use get/get_exact/insert_new/push
     pub fn len(&self) -> usize {
         self.strings.len()
     }
 
     /// Whether the set contains no strings.
-    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
+    #[cfg(test)] // exercised only by tests; production callers use get/get_exact/insert_new/push
     pub fn is_empty(&self) -> bool {
         self.strings.is_empty()
     }
 
     /// Iterate over the strings in insertion order.
-    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
+    #[cfg(test)] // exercised only by tests; production callers use get/get_exact/insert_new/push
     pub fn iter(&self) -> impl Iterator<Item = &P> {
         self.strings.iter()
     }
@@ -102,26 +101,34 @@ where
     /// the caller has already confirmed (e.g. via [`StringSet::get_exact`])
     /// that the string is absent and wants the prefix/suffix match info
     /// too, since this method does a redundant exact-match check.
-    #[allow(dead_code)] // collection-API completeness; exercised by tests, not (yet) other callers
+    #[cfg(test)] // exercised only by tests; production callers use get/get_exact/insert_new/push
     pub fn insert(&mut self, s: P) -> usize {
         if let Some(idx) = self.get_exact(&s) {
             return idx;
         }
-        self.insert_new(&s).index
+        let idx = self.len();
+        self.insert_new(&s);
+        idx
     }
 
     /// Insert a string that is known not to already be in the set (callers
     /// typically confirm via [`StringSet::get_exact`] first -- this method
-    /// does not check, and behavior is unspecified if `s` is already
-    /// present). Returns its new index plus the best prefix and suffix
-    /// matches against the dictionary's existing members, found in the same
-    /// tree walk that performs the insertion (see [`treap`] for how).
+    /// panics if `s` is already present). Returns the best prefix and
+    /// suffix matches against the dictionary's existing members, found in
+    /// the same tree walk that performs the insertion (see [`treap`] for
+    /// how).
     ///
     /// The shared prefix/suffix are trimmed to the nearest `char` boundary,
     /// so they are always valid to slice `s` with.
     pub fn insert_new<'a>(&mut self, s: &'a P) -> Miss<'a> {
         let idx = self.strings.len();
-        self.exact.insert(s.clone(), idx);
+        // The hash-map insert reports a violated precondition for free, and
+        // catches it before the treaps (whose insert would corrupt or panic
+        // deeper in on a duplicate key) are touched.
+        assert!(
+            self.exact.insert(s.clone(), idx).is_none(),
+            "StringSet::insert_new called with a string already in the set"
+        );
         let (prefix_pred, prefix_succ) = self.by_prefix.insert_and_find_neighbors(s.clone(), idx);
         let (suffix_pred, suffix_succ) = self
             .by_suffix
@@ -145,7 +152,6 @@ where
         }
 
         Miss {
-            index: idx,
             prefix: prefix.map(|(idx, len)| (idx, &s[..len])),
             suffix: suffix.map(|(idx, len)| (idx, &s[s.len() - len..])),
         }
@@ -208,12 +214,14 @@ mod tests {
     #[test]
     fn empty_set_returns_none() {
         let s: StringSet<Arc<str>> = StringSet::new();
+        assert!(s.is_empty());
         assert_eq!(s.get_exact("anything"), None);
     }
 
     #[test]
     fn exact_match() {
         let s = set(&["hello", "world"]);
+        assert!(!s.is_empty());
         assert_eq!(s.get_exact("hello"), Some(0));
         assert_eq!(s.get_exact("world"), Some(1));
         assert_eq!(s.get_exact("goodbye"), None);
