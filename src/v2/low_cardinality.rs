@@ -432,10 +432,10 @@ fn low_cardinality() {
         .map(Encoded::<_, LowCardinality>::new)
         .collect::<Vec<_>>();
 
-    expect!["284775"].assert_eq(&estimated_bits!(v.clone()));
-    expect!["1673"].assert_eq(&estimated_bits!(low.clone()));
-    expect!["611"].assert_eq(&estimated_bits!(strings.clone().to_vec()));
-    expect!["612"].assert_eq(&estimated_bits!(strings
+    expect!["284762"].assert_eq(&estimated_bits!(v.clone()));
+    expect!["1669"].assert_eq(&estimated_bits!(low.clone()));
+    expect!["610"].assert_eq(&estimated_bits!(strings.clone().to_vec()));
+    expect!["611"].assert_eq(&estimated_bits!(strings
         .iter()
         .cloned()
         .map(Encoded::<_, LowCardinality>::new)
