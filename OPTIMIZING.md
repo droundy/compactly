@@ -799,6 +799,47 @@ things stand out that the float/IPv6 micro-work above never touched:
   15–50% anyway — see "Full comparison-suite A/B" above. The Lz77 match-search
   share, e.g. mtg's ~823 ms, is untouched and remains deprioritized.)
 
+### Arena treap with implicit keys: `StringSet` encode −23% (2026-07-19)
+
+Profiling `bench-arc-str encode new ipv4` (20629 distinct strings = 100%
+dictionary misses, the `StringSet` worst case) showed ~60% of encode in the
+treap machinery: the two `Treap::insert` walks (~33%), `memcmp` (~16%),
+malloc/free of the boxed nodes and the per-insert reversed `Box<[u8]>`
+suffix keys (~12%), and node drop glue — the actual entropy coding was only
+~15%. Rewrote `src/string_set/treap.rs` around that profile:
+
+- **Arena storage**: nodes in one `Vec`, linked by `u32` index — no
+  per-node allocation, one free for the whole tree.
+- **Implicit keys**: `StringSet` inserts entries in index order, so node
+  *n* IS string *n*; the treap stores no keys or values at all (12-byte
+  nodes: `u32` priority + 2 child links). Ordering comes from a comparison
+  closure over `StringSet.strings` — the prefix treap compares the strings
+  directly, and the suffix treap compares reversed bytes *on the fly*
+  (`rev_cmp`), eliminating the materialized reversed copy of every string.
+  (`rev_cmp` trick: a little-endian `u64` load of a block taken from the
+  string's *end* puts later bytes in more-significant positions, so plain
+  integer compares walk the reversal 8 bytes at a time.)
+
+Quiesced A/B (`bench perf stat`, min of 3 alternating rounds): encode
+**−23.1% cycles** (20.68 → 15.91 Gcycles, −7.6% instructions), encoded
+bytes verified identical (same total order ⇒ same neighbors ⇒ same
+stream), decode and the cache-hit path unchanged. Wall clock for the
+summary run: 63.6 → 46.1 ms (old dictionary-only encoding: 22.2 ms).
+
+**Measurement trap worth remembering**: the plain A/B showed decode
+"+5% cycles, +2.3% instructions" — *surviving* both the forced-alignment
+rebuild and `codegen-units=1`, on byte-identical input through
+byte-identical decode symbols. It was glibc **allocator-state luck**: in
+`bench-arc-str decode`, the setup encode runs in-process first, and what
+its context *frees* (41k boxed nodes + 20k reversed keys vs. two flat
+`Vec`s) shapes the tcache/bins that the decode loop's ~20k-per-iteration
+`String`/`Arc` mallocs then hit. Re-running with
+`GLIBC_TUNABLES=glibc.malloc.tcache_count=0` collapsed the delta to −0.6%
+(and `decode old`, whose path shares no changed code, was flat all along).
+When an in-process A/B has a *different-allocation-history phase before
+the timed loop*, adjudicate apparent deltas with the tcache knob before
+believing them — instruction-count changes included.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
