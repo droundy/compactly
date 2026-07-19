@@ -24,7 +24,7 @@ const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
 /// # Example
 /// ```
 /// let encoded: Vec<u8> = compactly::v2::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
-/// assert_eq!(encoded.len(), 5);
+/// assert_eq!(encoded.len(), 6);
 /// assert_eq!(compactly::v2::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]

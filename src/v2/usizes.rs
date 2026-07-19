@@ -167,10 +167,10 @@ fn size() {
     assert_millibits!(Encoded::<_, Small>::new(2_u64), expect!["5 bits"]);
     assert_millibits!(2_usize, expect!["Millibits(4256)"]);
     assert_millibits!(3_usize, expect!["Millibits(4256)"]);
-    assert_millibits!(4_usize, expect!["Millibits(6265)"]);
-    assert_millibits!(5_usize, expect!["Millibits(6265)"]);
-    assert_millibits!(6_usize, expect!["Millibits(6265)"]);
-    assert_millibits!(7_usize, expect!["Millibits(6265)"]);
+    assert_millibits!(4_usize, expect!["Millibits(6264)"]);
+    assert_millibits!(5_usize, expect!["Millibits(6264)"]);
+    assert_millibits!(6_usize, expect!["Millibits(6264)"]);
+    assert_millibits!(7_usize, expect!["Millibits(6264)"]);
     assert_millibits!(8_usize, expect!["Millibits(8161)"]);
     assert_millibits!(Encoded::<_, Small>::new(16_u64), expect!["9 bits"]);
     assert_millibits!(16_usize, expect!["Millibits(10169)"]);
@@ -265,8 +265,8 @@ fn small() {
     expect!["small: 3 bits, normal: Millibits(1256)"].assert_eq(&both_sizes(0));
     expect!["small: 3 bits, normal: Millibits(2264)"].assert_eq(&both_sizes(1));
     expect!["small: 4 bits, normal: Millibits(4256)"].assert_eq(&both_sizes(2));
-    expect!["small: 5 bits, normal: Millibits(6265)"].assert_eq(&both_sizes(4));
-    expect!["small: 5 bits, normal: Millibits(6265)"].assert_eq(&both_sizes(5));
+    expect!["small: 5 bits, normal: Millibits(6264)"].assert_eq(&both_sizes(4));
+    expect!["small: 5 bits, normal: Millibits(6264)"].assert_eq(&both_sizes(5));
     expect!["small: 7 bits, normal: Millibits(10169)"].assert_eq(&both_sizes(23));
     expect!["small: 8 bits, normal: Millibits(12168)"].assert_eq(&both_sizes(37));
     expect!["small: 8 bits, normal: Millibits(12168)"].assert_eq(&both_sizes(63));

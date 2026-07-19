@@ -603,8 +603,8 @@ fn normal_u32() {
     // what is actually seen.
     expect!["3608 mb"].assert_eq(&0_u32.millibits().to_string());
     expect!["3608 mb"].assert_eq(&1_u32.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&2_u32.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&3_u32.millibits().to_string());
+    expect!["8064 mb"].assert_eq(&2_u32.millibits().to_string());
+    expect!["8064 mb"].assert_eq(&3_u32.millibits().to_string());
     expect!["8056 mb"].assert_eq(&4_u32.millibits().to_string());
     expect!["10043 mb"].assert_eq(&8_u32.millibits().to_string());
     expect!["10035 mb"].assert_eq(&16_u32.millibits().to_string());
@@ -662,7 +662,7 @@ fn normal_u64() {
     // what is actually seen.
     expect!["6215 mb"].assert_eq(&0_u64.millibits().to_string());
     expect!["6214 mb"].assert_eq(&1_u64.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&2_u64.millibits().to_string());
+    expect!["8064 mb"].assert_eq(&2_u64.millibits().to_string());
     expect!["10036 mb"].assert_eq(&(1u64 << 5).millibits().to_string());
     expect!["19000 mb"].assert_eq(&(1u64 << 7).millibits().to_string());
     expect!["18993 mb"].assert_eq(&(1u64 << 9).millibits().to_string());
@@ -691,7 +691,7 @@ fn normal_u128() {
     // in place of more `estimated_bits!` point probes on `size_u128`.
     expect!["6215 mb"].assert_eq(&0_u128.millibits().to_string());
     expect!["6214 mb"].assert_eq(&1_u128.millibits().to_string());
-    expect!["8065 mb"].assert_eq(&2_u128.millibits().to_string());
+    expect!["8064 mb"].assert_eq(&2_u128.millibits().to_string());
     expect!["10036 mb"].assert_eq(&(1u128 << 5).millibits().to_string());
     expect!["19000 mb"].assert_eq(&(1u128 << 7).millibits().to_string());
     expect!["18993 mb"].assert_eq(&(1u128 << 9).millibits().to_string());
@@ -1064,11 +1064,11 @@ fn signed() {
 
     assert_millibits!(
         BTreeSet::from([-1i16, 0, 1, 2]),
-        expect!["Millibits(21251)"]
+        expect!["Millibits(21250)"]
     );
     assert_millibits!(
         BTreeSet::from([-1i64, 0, 1, 2]),
-        expect!["Millibits(18254)"]
+        expect!["Millibits(18253)"]
     );
     assert_millibits!(
         BTreeSet::from([i16::MIN, i16::MAX]),

@@ -42,7 +42,7 @@
 //! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
 //! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` outside the [`speculation_pays`] window | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
 //! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode inside the [`speculation_pays`] window | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions — while the unrolled walk stays shallow ([`SPECULATE_MAX_DEPTH`]) or the tree is too deep to unroll at all ([`SPECULATE_HUGE_MIN_MAX`]) |
-//! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M` | one coder step per bit | the historical per-bit code |
+//! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M`, or is 2 (`MAX = 1`, where the symbol step is pure overhead over a single bit step) | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
 use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange};
@@ -191,7 +191,8 @@ pub enum Walk {
     UnevenSpeculating,
     /// [`complete::encode_bitwise`] / [`complete::decode_bitwise`]: one
     /// coder step per bit, heap indexing. The symbol coders' fallback once a
-    /// power-of-two value count exceeds [`SymbolRange::M`].
+    /// power-of-two value count exceeds [`SymbolRange::M`], and their choice
+    /// at `MAX = 1`, where the "walk" is a single ordinary bit step.
     CompleteBitwise,
     /// [`uneven::encode_bitwise`] / [`uneven::decode_bitwise`]: one coder
     /// step per bit, split indexing. Same role as [`Walk::CompleteBitwise`]
@@ -216,6 +217,14 @@ impl Walk {
     pub const fn production<const MAX: usize>(speculate: bool) -> Option<Walk> {
         if MAX == 0 {
             None
+        } else if MAX == 1 {
+            // A two-valued symbol is a single bit, and the coders' bit step
+            // is strictly cheaper than a symbol step (8-bit vs 16-bit
+            // renormalization, no interval build). The 2026-07-12 quiesced
+            // two-distribution shootout measured plain bit coding 5-36%
+            // faster here across both coders, both metrics, and both
+            // distributions.
+            Some(Walk::CompleteBitwise)
         } else if MAX >= SymbolRange::M as usize {
             Some(if (MAX + 1).is_power_of_two() {
                 Walk::CompleteBitwise
