@@ -947,8 +947,23 @@ decodes, so a good hit rate is both smaller and faster.
   offset buckets in the integer hierarchy, `usizes.rs`/`byte.rs` `b1` fields):
   every churned size snapshot moved 1–5 *millibits smaller* (the bit step has
   no reserve squeeze), and the `Ans` doctest's 5-value example grew 5 → 6
-  bytes (renormalization granularity on a tiny payload). Not yet re-benchmarked
-  outside the shootout; the win is per the already-confirmed shootout numbers.
+  bytes (renormalization granularity on a tiny payload). **Fresh quiesced
+  shootout on the change** (in-process alternated rounds): old production →
+  `CompleteBitwise` at `MAX = 1` is decode **Ans −5/−6%, Range −22/−23%**,
+  encode **Ans −12/−29%, Range −14/−32%** (Skewed/Uniform), and no challenger
+  beat the new decode pick on either distribution. The only counter-signal is
+  Range *encode* via the `Uneven` symbol walk: 24% faster on Uniform but 37%
+  slower on Skewed (realistic data) — production stays bitwise. A macro A/B on
+  `benches/integers.rs` (3 alternated cross-binary rounds, min) showed u32
+  skewed-small Ans decode −5.4…−6.0% every round, but u64/usize skewed-small
+  moved +2…+7% while untouched control rows (u16 legacy, zstd/bincode/bitcode
+  references) scattered just as much — cross-binary layout noise; no reliable
+  macro signal either way, as expected for a code that is a small slice of
+  integer coding time. Same run's fresh follow-up lead: `MAX = 2` decode now
+  prefers the bitwise walk on **both** distributions (Ans 12–15%, Range
+  12–13%) — the old "tiny extreme" uniform-only finding reproduces on Skewed
+  too, making a `MAX = 2` bitwise route the next candidate change (validate on
+  `just-{de,}compress-enums`, the 3-variant enum workload).
 - **`Compressible` (Lz77) decode: skip `old_filter` upkeep (was TODO #11)** — the
   8 KiB 4-gram bitset maintained by `push_old` is read *only* by the encode-side
   match scan (`eager`/`eager_chunk`); decode never calls `eager`, so the per-byte
