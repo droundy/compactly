@@ -115,20 +115,18 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let len: usize = Small::decode(reader, &mut ctx.len)?;
-        let mut out = Vec::new();
-        if ctx.previous.is_empty() {
-            out.reserve_exact(len);
-        } else {
+        // Build in place in `ctx.previous` and return one exact-size clone —
+        // see the v2 twin of this impl.
+        if !ctx.previous.is_empty() {
             let shared_prefix: usize = Small::decode(reader, &mut ctx.shared_prefix)?;
-            out.reserve_exact(shared_prefix + len);
             debug_assert!(shared_prefix <= ctx.previous.len());
-            out.extend_from_slice(&ctx.previous[..shared_prefix]);
+            ctx.previous.truncate(shared_prefix);
         }
+        ctx.previous.reserve(len);
         for _ in 0..len {
-            out.push(T::decode(reader, &mut ctx.value)?);
+            ctx.previous.push(T::decode(reader, &mut ctx.value)?);
         }
-        ctx.previous = out.clone();
-        Ok(out)
+        Ok(ctx.previous.clone())
     }
     fn encode<W: std::io::Write>(
         value: &Vec<T>,
@@ -154,7 +152,7 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
                 b.encode(writer, &mut ctx.value)?;
             }
         }
-        ctx.previous = value.clone();
+        ctx.previous.clone_from(value);
         Ok(())
     }
     fn millibits(value: &Vec<T>, ctx: &mut Self::Context) -> Option<usize> {

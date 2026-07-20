@@ -1019,10 +1019,8 @@ came with numbers:
     bytes vs `3.0`'s 1). Float format change; both smaller and much faster
     on data containing negative whole values.
 
-15. **`Sorted<Vec<T>>` in-place `previous`** — `vecs.rs` still does
-    `ctx.previous = out.clone()` per collection (and `value.clone()` on
-    encode); apply the same truncate-and-extend fix that won
-    `Sorted<String>` −6…−8%.
+15. ~~**`Sorted<Vec<T>>` in-place `previous`**~~ — DONE 2026-07-19 (see
+    "Landed").
 
 16. ~~**Route `MAX = 2` through the bitwise walk**~~ — MEASURED DEAD END
     2026-07-20. The `MAX = 1` note's shootout lead (isolated-walk decode
@@ -1138,6 +1136,19 @@ decodes, so a good hit rate is both smaller and faster.
   79B/167B ≈ 120×** — the saturating memcpy. (Bidirectional `is_int`
   saturation was prototyped and dropped: neutral on realistic mixed-decimal
   columns, not worth the complexity.)
+- **`Sorted<Vec<T>>` builds in place (was TODO #15, 2026-07-19)** — the
+  generic sorted-`Vec` delta strategy (the per-element strategy inside
+  `BTreeSet<Vec<u8>>` and friends, and any `#[compactly(Sorted)]` `Vec`
+  field) now decodes into `ctx.previous`
+  (truncate to the shared prefix + push the suffix + return one exact-size
+  clone) instead of copying the prefix out and cloning the whole result
+  back, and encode keeps the buffer via `clone_from`. v2 + v1, decode-side
+  construction only — bitstream unchanged, zero snapshot churn. Same shape
+  as the `Sorted<String>` fix below (−6…−8% there); no dedicated benchmark
+  exercises this path, so it ships on tests + the string precedent rather
+  than a fresh A/B. Corrupt-stream nit: a `shared_prefix` beyond the
+  previous length now decodes leniently (truncate no-op) where the old
+  slice would panic.
 - **`Sorted` string decode builds in place (was TODO #12, 2026-07-19)** — the
   decode paid two copies per string: re-encoding the shared prefix
   char-by-char into a fresh `String`, then `clone_from`-ing the result back
