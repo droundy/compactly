@@ -1031,10 +1031,31 @@ came with numbers:
     encode); apply the same truncate-and-extend fix that won
     `Sorted<String>` −6…−8%.
 
-16. **Route `MAX = 2` through the bitwise walk** — the shootout lead
-    recorded under the `MAX = 1` landed note (decode 12–15% on both
-    distributions, both coders); validate on `just-{de,}compress-enums`
-    (3-variant enums) before shipping. Smallest-effort open item.
+16. ~~**Route `MAX = 2` through the bitwise walk**~~ — MEASURED DEAD END
+    2026-07-20. The `MAX = 1` note's shootout lead (isolated-walk decode
+    12–15% faster on both distributions, both coders) did **not** survive
+    validation on the real 3-variant-enum workload — the exact check the
+    lead itself called for. Quiesced `just-{de,}compress-enums` A/B
+    (`AtMost<2>` discriminant; min cycles, 3 alternated pinned rounds,
+    within-side spread ≤ 0.2%), bitwise vs the production symbol walk:
+
+    | workload   | symbol | bitwise | Δ         |
+    |------------|--------|---------|-----------|
+    | decode Ans | 6.47B  | 7.79B   | **+20.4%**|
+    | encode Ans | 8.64B  | 11.94B  | **+38.2%**|
+    | decode Range | 10.77B | 9.83B | −8.7%     |
+    | encode Range | 6.40B  | 7.75B | **+21.1%**|
+
+    A clear net loss on `Ans` (the focus coder, regressing in *both*
+    directions) plus `Range` encode, for a lone `Range`-decode win. Same
+    trap as the earlier `CompleteBitwise` finding: an isolated-walk lead on
+    tiny trees inverts once the real enum-match layer and skewed data are in
+    play (the shootout's own take-2 note already caught `CompleteBitwise`
+    doing this). The `Range`-decode-only win can't be captured without
+    threading the coder identity into the *format* choice (bitwise and
+    symbol are different bitstreams, unlike the speculate twins), which
+    would still cost `Range` encode +21%. Not worth it; `MAX = 2` stays a
+    symbol.
 
 17. **Partial-top-byte as one `AtMost` symbol per `lz` bucket** — the ≤7
     sequential adaptive bools in `Small<u64>`'s partial top byte
@@ -1141,7 +1162,10 @@ decodes, so a good hit rate is both smaller and faster.
   prefers the bitwise walk on **both** distributions (Ans 12–15%, Range
   12–13%) — the old "tiny extreme" uniform-only finding reproduces on Skewed
   too, making a `MAX = 2` bitwise route the next candidate change (validate on
-  `just-{de,}compress-enums`, the 3-variant enum workload).
+  `just-{de,}compress-enums`, the 3-variant enum workload). **UPDATE
+  2026-07-20: validated and REJECTED** — the enum-workload A/B reversed the
+  lead (Ans decode +20%, Ans/Range encode +21…38%); see TODO #16, now a
+  measured dead end.
 - **`Compressible` (Lz77) decode: skip `old_filter` upkeep (was TODO #11)** — the
   8 KiB 4-gram bitset maintained by `push_old` is read *only* by the encode-side
   match scan (`eager`/`eager_chunk`); decode never calls `eager`, so the per-byte
