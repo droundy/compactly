@@ -1002,16 +1002,9 @@ came with numbers:
     remaining cost of the three originally listed here is the `char` decode
     loop itself.
 
-13. **Bulk-build `BTreeSet`/`BTreeMap` on decode** — top-priority item from
-    the 2026-07-19 survey (measured −79% on construction, which is >50% of
-    the strings workload; see the survey note above — est. roughly −40% on
-    `just-decompress-strings` overall). Push decoded elements into a
-    `Vec::with_capacity(len)` and `.into_iter().collect()` instead of
-    per-element `insert`. Sites: `sets.rs` (`Values<Sorted>` / `Values<S>`
-    for `BTreeSet`, `CompactU64Set`), `maps.rs` (`Mapping` for `BTreeMap`).
-    No format change. Pin the corrupt-stream duplicate-key behavior with a
-    test (insert-loop keeps the last duplicate; sort + dedup may pick
-    differently).
+13. ~~**Bulk-build `BTreeSet`/`BTreeMap` on decode**~~ — DONE 2026-07-19
+    (see "Landed"): strings decode **Ans −57%, Range −49%**, beating the
+    survey's ~−40% estimate.
 
 14. **Fix the float `is_int` probe for negatives** — probe with the signed
     type (as `Decimal` already does) and route through `Small<i64>`/`<i32>`
@@ -1149,6 +1142,24 @@ decodes, so a good hit rate is both smaller and faster.
   than a fresh A/B. Corrupt-stream nit: a `shared_prefix` beyond the
   previous length now decodes leniently (truncate no-op) where the old
   slice would panic.
+- **Bulk-build `BTreeSet`/`BTreeMap` on decode (was TODO #13, 2026-07-19)** —
+  decode now stages elements in a `Vec` and `collect`s, letting std's
+  `FromIterator` bulk-build packed nodes from the sorted stream instead of
+  paying a per-element `insert` descent (with its tree-walk `memcmp`s and
+  node splits). Sites: `Values<S>` for `BTreeSet`, `CompactU64Set`, and
+  `Mapping` for `BTreeMap`, in both v2 and v1. Decode-side value
+  construction only — bitstream unchanged, zero snapshot churn; identical to
+  the old insert loop for every valid stream and for any key/element type
+  whose `Ord` agrees with its `Eq`. The two diverge only on a corrupt stream
+  carrying an Ord-equal run of a coarser-`Ord` type, where `collect` keeps
+  every Eq-distinct entry instead of deduping by `Ord` — not UB, which is
+  all decode promises for corrupt input (see the code comments and
+  `btreeset_bulk_build_keeps_ord_equal_dupes`). Quiesced A/B
+  (`just-decompress-strings`, 500×, min of 3 alternated pinned rounds,
+  within-side spread ≤ 0.1%): decode **Ans 19.70 → 8.43 Gcycles = −57.2%,
+  Range 20.80 → 10.54 = −49.3%** — the >50% construction share the
+  2026-07-19 survey profile identified, almost entirely gone. HashSet/
+  HashMap keep their insert loops (no sorted-input bulk build to exploit).
 - **`Sorted` string decode builds in place (was TODO #12, 2026-07-19)** — the
   decode paid two copies per string: re-encoding the shared prefix
   char-by-char into a fresh `String`, then `clone_from`-ing the result back

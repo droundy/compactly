@@ -122,18 +122,20 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         reader: &mut super::Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<u64>, std::io::Error> {
-        let mut out = BTreeSet::new();
         let len = usize::decode(reader, &mut ctx.size)?;
+        // Stage + collect: bulk-build from the sorted stream, as in
+        // `Values<S> for BTreeSet` below.
+        let mut values = Vec::with_capacity(len);
         if len > 0 {
             let mut prev = Small::decode(reader, &mut ctx.first)?;
-            out.insert(prev);
+            values.push(prev);
             for _ in 1..len {
                 let diff: u64 = Small::decode(reader, &mut ctx.diff)?;
                 prev += diff;
-                out.insert(prev);
+                values.push(prev);
             }
         }
-        Ok(out)
+        Ok(values.into_iter().collect())
     }
 }
 
@@ -162,11 +164,15 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut set = BTreeSet::new();
+        // Stage in a Vec: the elements arrive in sorted order, and
+        // `FromIterator` bulk-builds packed nodes from sorted input in O(n),
+        // much faster than per-element `insert` (see the v2 twin of this
+        // impl and OPTIMIZING.md's 2026-07-19 survey).
+        let mut values = Vec::with_capacity(len);
         for _ in 0..len {
-            set.insert(S::decode(reader, &mut ctx.values)?);
+            values.push(S::decode(reader, &mut ctx.values)?);
         }
-        Ok(set)
+        Ok(values.into_iter().collect())
     }
 }
 
