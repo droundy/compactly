@@ -1020,11 +1020,8 @@ came with numbers:
     test (insert-loop keeps the last duplicate; sort + dedup may pick
     differently).
 
-14. **Fix the float `is_int` probe for negatives** — probe with the signed
-    type (as `Decimal` already does) and route through `Small<i64>`/`<i32>`
-    so negative whole floats get the integer fast path (today `-3.0` is 9
-    bytes vs `3.0`'s 1). Float format change; both smaller and much faster
-    on data containing negative whole values.
+14. ~~**Fix the float `is_int` probe for negatives**~~ — DONE 2026-07-19
+    (see "Landed"): `-3.0` now 7 bits (was 65); positives pay +1 sign bit.
 
 15. **`Sorted<Vec<T>>` in-place `previous`** — `vecs.rs` still does
     `ctx.previous = out.clone()` per collection (and `value.clone()` on
@@ -1102,6 +1099,18 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Float `is_int` probe is signed (was TODO #14, 2026-07-19)** — v2 floats
+  probe whole-ness via `as i64`/`as i32` instead of the unsigned cast that
+  saturated every negative float to 0, and the integer fast path routes
+  through `Small<i64>`/`<i32>`. Negative whole values now take the integer
+  path: `-3.0` 65 → **7 bits**, `-1e6` 65 → 28; positive whole values pay
+  the sign bit (`0.0` 4 → 5 bits, `8.0` 9 → 10); non-integer floats are
+  bit-for-bit unchanged (random-float workload still 8.192 B/f). A v2
+  float format change (snapshot churn confined to `floats.rs`); v1 is a
+  stable format and keeps the unsigned probe. Whole floats in
+  `(i64::MAX, u64::MAX]` now fall to the raw path — a few bits on
+  astronomically rare values. Guarded by
+  `negative_whole_floats_take_the_integer_path`.
 - **`Sorted` string decode builds in place (was TODO #12, 2026-07-19)** — the
   decode paid two copies per string: re-encoding the shared prefix
   char-by-char into a fresh `String`, then `clone_from`-ing the result back

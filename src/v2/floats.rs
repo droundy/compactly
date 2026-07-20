@@ -9,7 +9,7 @@ macro_rules! impl_float {
         #[derive(Clone)]
         pub struct $context {
             is_int: <bool as Encode>::Context,
-            int_context: <Small as EncodingStrategy<$intty>>::Context,
+            int_context: <Small as EncodingStrategy<$sint>>::Context,
             context: [<bool as Encode>::Context; $bits],
         }
         impl Default for $context {
@@ -27,11 +27,14 @@ macro_rules! impl_float {
             type Context = $context;
             #[inline]
             fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                let intvalue = *self as $intty;
+                // Probe with the *signed* integer type: an unsigned cast
+                // saturates every negative float to 0, which would send
+                // negative whole values down the raw $bits-bit path.
+                let intvalue = *self as $sint;
                 let is_int = intvalue as $t == *self;
                 is_int.encode(writer, &mut ctx.is_int);
                 if is_int {
-                    <Small as EncodingStrategy<$intty>>::encode(
+                    <Small as EncodingStrategy<$sint>>::encode(
                         &intvalue,
                         writer,
                         &mut ctx.int_context,
@@ -51,7 +54,7 @@ macro_rules! impl_float {
             ) -> Result<Self, std::io::Error> {
                 if bool::decode(reader, &mut ctx.is_int)? {
                     let intvalue =
-                        <Small as EncodingStrategy<$intty>>::decode(reader, &mut ctx.int_context)?;
+                        <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int_context)?;
                     Ok(intvalue as $t)
                 } else {
                     // The $bits raw bits are independent (one context per position),
@@ -135,6 +138,19 @@ impl_float!(f64, u64, i64, F64Context, F64Decimal, 64);
 impl_float!(f32, u32, i32, F32Context, F32Decimal, 32);
 
 #[test]
+fn negative_whole_floats_take_the_integer_path() {
+    use super::estimated_bits;
+    // The `is_int` probe casts through the signed type; the old unsigned
+    // probe saturated negatives to 0, sending every negative whole value
+    // down the raw 64-bit path (-3.0 cost 65 bits).
+    expect!["7"].assert_eq(&estimated_bits!(-3.0_f64));
+    expect!["7"].assert_eq(&estimated_bits!(3.0_f64));
+    expect!["28"].assert_eq(&estimated_bits!(-1e6_f64));
+    expect!["7"].assert_eq(&estimated_bits!(-3.0_f32));
+    expect!["65"].assert_eq(&estimated_bits!(-0.5_f64));
+}
+
+#[test]
 fn decimal_float() {
     use crate::Encoded;
 
@@ -160,13 +176,13 @@ fn decimal_float() {
     expect!["decimal: 15 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
     expect!["decimal: 31 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
     expect!["decimal: 69 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
-    expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes(0.0));
-    expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes(8.0));
+    expect!["decimal: 5 bits, binary: 5 bits"].assert_eq(&sizes(0.0));
+    expect!["decimal: 10 bits, binary: 10 bits"].assert_eq(&sizes(8.0));
     expect!["decimal: 22 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
     expect!["decimal: 23 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
     expect!["decimal: 40 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
     expect!["decimal: 10 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
-    expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes32(0.0));
-    expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes32(8.0));
+    expect!["decimal: 5 bits, binary: 5 bits"].assert_eq(&sizes32(0.0));
+    expect!["decimal: 10 bits, binary: 10 bits"].assert_eq(&sizes32(8.0));
 }
