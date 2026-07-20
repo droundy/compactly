@@ -872,6 +872,35 @@ When an in-process A/B has a *different-allocation-history phase before
 the timed loop*, adjudicate apparent deltas with the tcache knob before
 believing them — instruction-count changes included.
 
+### Survey of remaining gaps (2026-07-19)
+
+A read-through of every `v2` type implementation plus fresh measurements,
+looking for paths that never got the optimization treatment. Three findings
+came with numbers:
+
+- **`BTreeSet`/`BTreeMap` decode builds the tree the slow way.** Profile of
+  `just-decompress-strings ans` (300×, pinned core 2): `BTreeMap::insert` +
+  `VacantEntry::insert_entry` 27.4%, `memcmp` 24.6%, malloc/free ~7% — i.e.
+  **>50% of the flagship string workload is `BTreeSet` construction**, vs
+  15.8% for the `MAX = 255` speculative walk and 16.6% for
+  `Small<usize>` + `Sorted` glue. Decoded elements arrive in sorted order,
+  and std's `FromIterator for BTreeSet/BTreeMap` sorts (O(n) compares on
+  pre-sorted input) then **bulk-builds** packed nodes with no per-insert
+  descent. Standalone A/B constructing the 38k meteorite-name set (min of 6
+  alternated rounds, quiesced): insert loop 4.53 s vs push-into-`Vec` +
+  `collect` 0.96 s = **−79% (4.7×)**. → TODO #13, the top-priority item.
+- **Negative whole floats never take the `is_int` fast path**: `floats.rs`
+  probes with `*self as u64`, which saturates every negative float to 0, so
+  `-3.0` encodes in 9 bytes where `3.0` takes 1 (verified against the real
+  library; likewise `-1e6` 9 bytes vs `1e6` 7). → TODO #14.
+- Confirmed still open / unchanged: the hybrid float split (TODO #7 — still
+  the largest float-decode lever, and it shrinks the only wide `decode_bits`
+  consumer, which caps what interleaved-rANS work can ever pay), the Lz77
+  decode allocations (TODO #11, two new bullets added), and
+  `Sorted<Vec<T>>`'s clone-per-collection in `vecs.rs`, which never got the
+  `Sorted<String>` in-place fix (→ TODO #15). Two stale TODOs retired
+  (#5, #10).
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
@@ -908,15 +937,10 @@ believing them — instruction-count changes included.
    (We rejected a slice-returning variant because it pushes a size check onto
    callers.)
 
-5. **`decode_until_true` entropy-decoder method** — a method for the
-   leading-zero search: decode bits with successive contexts until one comes up
-   `true`, returning the index, e.g.
-   `fn decode_until_true(&mut self, contexts: &mut [BitContext]) -> usize`.
-   This is the *dominant per-value loop* in integer decode and it is
-   data-dependent (you don't know the count up front), so the fixed-`N`
-   `decode_bits` batch can't cover it; a dedicated method lets the `Ans` decoder
-   keep coder state register-resident across the loop. Likely the biggest
-   integer-decode lever still available in the coder itself.
+5. ~~**`decode_until_true` entropy-decoder method**~~ — RETIRED 2026-07-19:
+   the leading-zero search loop this targeted no longer exists — the
+   hierarchical integer rework (2026-07-17) replaced it with `AtMost`
+   symbols. `plans/decode-until-true-integers.md` is obsolete with it.
 
 6. **Explore float entropy** — Try out different categories of floating point
    numbers and identify where the entropy is within the float.  e.g. for
@@ -947,8 +971,10 @@ believing them — instruction-count changes included.
    ceiling ~2%), and the `[0u8; 8]` buffer is register fodder. Integer decode
    is now coding-bound, not construction-bound.
 
-10. **Consider Elias Delta encoding** for Small integers — This might be a nice
-    alternative for `usize` and maybe even for `u32` and friends.
+10. ~~**Consider Elias Delta encoding** for Small integers~~ — DONE in spirit
+    2026-07-17: the hierarchical `blbl` + offset-symbol scheme *is* the
+    Elias-delta idea (see "Hierarchical (Elias-delta-style) integer
+    encoding" above).
 
 11. **`Compressible` (Lz77) decode** — decode is the wanted target here (encode is
     deprioritized, see findings). Per `Lz77::decode`:
@@ -965,7 +991,15 @@ believing them — instruction-count changes included.
       maintains the `old` deque without the filter loop. The `out.clone()` itself is
       still a per-string alloc+copy; consider sharing (`Rc`) the buffer between the
       returned value and the `old` entry.
-    - length/back/offset are `Small` decodes — `decode_until_true`-shaped (#5).
+    - **Each chunk's literal round-trips through a temp `Box<[u8]>`** (2026-07-19
+      survey): `Chunk::decode` decodes it, `Lz77::decode` `extend_from_slice`s it
+      into `out`, then frees it — decoding literal bytes straight into `out` drops
+      an alloc + copy + free per chunk.
+    - **The self-referential match copy is `out.push(out[i])` per byte**
+      (2026-07-19 survey) — per-byte bounds/capacity checks; use
+      `Vec::extend_from_within` (with an overlap fallback for run-length-style
+      matches) as in fast deflate decoders.
+    - length/back/offset are `Small` decodes (fine since the hierarchical rework).
 
 12. ~~**`Sorted` strings decode** (`string.rs` `SortedContext::decode`)~~ —
     DONE 2026-07-19 (see "Landed"): decode now builds in place in
@@ -974,6 +1008,62 @@ believing them — instruction-count changes included.
     the `clone_from` copy. Strings decode **Ans −7.7%, Range −6.1%**. The
     remaining cost of the three originally listed here is the `char` decode
     loop itself.
+
+13. **Bulk-build `BTreeSet`/`BTreeMap` on decode** — top-priority item from
+    the 2026-07-19 survey (measured −79% on construction, which is >50% of
+    the strings workload; see the survey note above — est. roughly −40% on
+    `just-decompress-strings` overall). Push decoded elements into a
+    `Vec::with_capacity(len)` and `.into_iter().collect()` instead of
+    per-element `insert`. Sites: `sets.rs` (`Values<Sorted>` / `Values<S>`
+    for `BTreeSet`, `CompactU64Set`), `maps.rs` (`Mapping` for `BTreeMap`).
+    No format change. Pin the corrupt-stream duplicate-key behavior with a
+    test (insert-loop keeps the last duplicate; sort + dedup may pick
+    differently).
+
+14. **Fix the float `is_int` probe for negatives** — probe with the signed
+    type (as `Decimal` already does) and route through `Small<i64>`/`<i32>`
+    so negative whole floats get the integer fast path (today `-3.0` is 9
+    bytes vs `3.0`'s 1). Float format change; both smaller and much faster
+    on data containing negative whole values.
+
+15. **`Sorted<Vec<T>>` in-place `previous`** — `vecs.rs` still does
+    `ctx.previous = out.clone()` per collection (and `value.clone()` on
+    encode); apply the same truncate-and-extend fix that won
+    `Sorted<String>` −6…−8%.
+
+16. **Route `MAX = 2` through the bitwise walk** — the shootout lead
+    recorded under the `MAX = 1` landed note (decode 12–15% on both
+    distributions, both coders); validate on `just-{de,}compress-enums`
+    (3-variant enums) before shipping. Smallest-effort open item.
+
+17. **Partial-top-byte as one `AtMost` symbol per `lz` bucket** — the ≤7
+    sequential adaptive bools in `Small<u64>`'s partial top byte
+    (`ints.rs` `partial[lz][i]`) have position-fixed contexts (independent
+    given `lz`); one symbol per bucket is the same format-level move that
+    won elsewhere, aimed at the now coding-bound integer decode. Caveat: on
+    uniform bits Ans's bitwise path can beat the symbol walk (walk-shootout
+    finding), so A/B on both `just-decompress` (random) and skewed data.
+    Related: fusing the `blbl` + offset symbols into one coder step (already
+    named above as the Range multi-magnitude lever).
+
+18. **Runtime-bounded dictionary-index symbols** — `LowCardinality` and
+    `DictContext` encode indices both sides know are `< dict.len()` as
+    general `Small<usize>` (bucket symbol + offset symbol + fallback); a
+    runtime-`max` variant of the `uneven` walk would code them in one
+    symbol with no probability mass wasted on impossible indices. Format
+    change; size and speed on every cache hit.
+
+19. **Decide the default-coder flip to `Ans`** — decode is uniformly
+    1.3–1.8× faster at equal size, and multisymbol fixed encode; the
+    remaining work is a decision plus format-stability bookkeeping, not
+    engineering.
+
+20. **Micro-nits from the survey**, worth doing opportunistically:
+    `String::encode` walks the string twice (`chars().count()`, then the
+    encode pass); `[T; N]::decode` round-trips through a heap `Vec`; the
+    remaining per-char construction cost on string decode
+    (`char::from_u32` + `push(char)`) — TODO #3's residue, which grows in
+    relative importance once #13 lands.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
