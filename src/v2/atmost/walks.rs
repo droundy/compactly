@@ -482,6 +482,14 @@ mod complete {
     /// just a select on the critical path. What [`Walk::production`] uses
     /// for every power-of-two value count, on both coders — see the module
     /// doc's walk inventory.
+    ///
+    /// Deliberately NOT `inline(always)`: inside the integer hierarchy's
+    /// heavily-inlined `Small::decode`, LLVM outlines the `MAX` = 15/31
+    /// monomorphizations (the mid/large `bl` offset buckets, ~12% of random
+    /// u64 decode cycles) — and that is the *faster* arrangement. Forcing
+    /// full fusion (measured 2026-07-19 via a raised inline threshold) made
+    /// `just-decompress` reproducibly ~1.1% slower; see the TODO #9 entry
+    /// in OPTIMIZING.md.
     #[inline]
     pub(super) fn from_slot_speculating<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
