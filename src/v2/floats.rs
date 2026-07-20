@@ -70,37 +70,51 @@ macro_rules! impl_float {
 
         #[derive(Clone, Default)]
         pub struct $decimal {
-            exponent: <Small as EncodingStrategy<i16>>::Context,
-            int: <Small as EncodingStrategy<$sint>>::Context,
             is_int: <bool as Encode>::Context,
             integer: <Small as EncodingStrategy<$sint>>::Context,
+            is_decimal: <bool as Encode>::Context,
+            mantissa: <Small as EncodingStrategy<i32>>::Context,
+            exponent: <Small as EncodingStrategy<i8>>::Context,
         }
         impl EncodingStrategy<$t> for Decimal {
             type Context = $decimal;
             fn encode<E: super::EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
-                // Reconstruct `int · 10^power`. For `|power| <= 22` the power of
-                // ten is exactly representable and the single mul/div is
-                // correctly rounded — identical to a decimal parse; only
-                // extreme powers (rare) fall back to the string parse.
-                fn decimal_value(int: $sint, power: i16) -> $t {
-                    // Correctly rounded only when `int` is exact as `$t`
-                    // (|int| < 2^MANTISSA_DIGITS) and `10^|power|` is exact
-                    // (|power| <= 22); the single mul/div then matches a decimal
-                    // parse. 17-digit mantissas and extreme powers parse instead.
-                    if (int.unsigned_abs() as u64) < (1u64 << <$t>::MANTISSA_DIGITS)
-                        && power.unsigned_abs() <= 22
-                    {
-                        let scale = (10.0 as $t).powi(power.unsigned_abs() as i32);
-                        if power < 0 {
-                            int as $t / scale
-                        } else {
-                            int as $t * scale
-                        }
+                // `value = ±mantissa · 10^power`, computed in f64 and narrowed:
+                // a `u32` mantissa (< 2^32) and `10^|power|` for `|power| <= 22`
+                // are both exact, so the mul/div is correctly rounded; the cast
+                // to `$t` is identity for f64 and correct-by-consistency for f32
+                // (encode's round-trip check and decode share this function).
+                fn decimal_value(mantissa: i32, power: i8) -> $t {
+                    let scale = 10f64.powi(power.unsigned_abs() as i32);
+                    let v = if power < 0 {
+                        mantissa as f64 / scale
                     } else {
-                        format!("{int}e{power}")
-                            .parse()
-                            .expect("bad decimal decode")
+                        mantissa as f64 * scale
+                    };
+                    v as $t
+                }
+
+                // Find the fewest decimal places whose rounded (signed) `i32`
+                // mantissa reconstructs `value` exactly (probing ±1 for the
+                // large-magnitude off-by-one). `None` — a value not representable
+                // as `d·10^p` with `d` in `i32` and `|p| <= 22` (17-digit
+                // mantissas, large integers with a positive power, extreme
+                // magnitudes) — takes the incompressible path, no string
+                // formatting anywhere.
+                fn to_decimal(value: $t) -> Option<(i32, i8)> {
+                    for places in 1..=22i8 {
+                        let scale = 10f64.powi(places as i32);
+                        let base = (value as f64 * scale).round();
+                        for cand in [base, base - 1.0, base + 1.0] {
+                            if (i32::MIN as f64..=i32::MAX as f64).contains(&cand) {
+                                let mantissa = cand as i32;
+                                if decimal_value(mantissa, -places) == value {
+                                    return Some((mantissa, -places));
+                                }
+                            }
+                        }
                     }
+                    None
                 }
 
                 let intvalue = *value as $sint;
@@ -111,80 +125,36 @@ macro_rules! impl_float {
                     return;
                 }
 
-                // Fast path: find the fewest decimal places whose rounded
-                // mantissa reconstructs `value` exactly, all in integer/`f64`
-                // arithmetic (no allocation). `value * 10^places` can round off
-                // by one at large magnitudes, so probe the neighbours too;
-                // `decimal_value` is the exact round-trip check.
-                let mut found = None;
-                for places in 1..=17i16 {
-                    let scale = (10.0 as $t).powi(places as i32);
-                    let base = (*value * scale).round();
-                    for cand in [base, base - 1.0, base + 1.0] {
-                        if cand.abs() < $sint::MAX as $t {
-                            let int = cand as $sint;
-                            if decimal_value(int, -places) == *value {
-                                found = Some((-places, int));
-                                break;
-                            }
-                        }
+                let decimal = to_decimal(*value);
+                decimal.is_some().encode(writer, &mut ctx.is_decimal);
+                match decimal {
+                    Some((mantissa, power)) => {
+                        <Small as EncodingStrategy<i32>>::encode(
+                            &mantissa,
+                            writer,
+                            &mut ctx.mantissa,
+                        );
+                        <Small as EncodingStrategy<i8>>::encode(&power, writer, &mut ctx.exponent);
                     }
-                    if found.is_some() {
-                        break;
+                    None => {
+                        // Not a short decimal — store the bits incompressibly.
+                        writer.encode_incompressible_bytes(&value.to_le_bytes());
                     }
                 }
-
-                // Fallback for what the fast path can't reach cheaply (large
-                // integers with a positive power, extreme magnitudes): the
-                // formatter's shortest decimal. Rare.
-                let (power, int) = found.unwrap_or_else(|| {
-                    let d = format!("{value}");
-                    if let Some((a, b)) = d.split_once('.') {
-                        (
-                            -(b.len() as i16),
-                            format!("{a}{b}")
-                                .parse::<$sint>()
-                                .expect("bad float {a}{b}"),
-                        )
-                    } else {
-                        let int = d.trim_end_matches('0');
-                        if int.is_empty() {
-                            (0, 0)
-                        } else {
-                            (
-                                (d.len() - int.len()) as i16,
-                                int.parse::<$sint>().expect("bad float trimzeros"),
-                            )
-                        }
-                    }
-                });
-                <Small as EncodingStrategy<i16>>::encode(&power, writer, &mut ctx.exponent);
-                <Small as EncodingStrategy<$sint>>::encode(&int, writer, &mut ctx.int);
             }
 
             fn decode<D: super::EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
-                fn decimal_value(int: $sint, power: i16) -> $t {
-                    // Correctly rounded only when `int` is exact as `$t`
-                    // (|int| < 2^MANTISSA_DIGITS) and `10^|power|` is exact
-                    // (|power| <= 22); the single mul/div then matches a decimal
-                    // parse. 17-digit mantissas and extreme powers parse instead.
-                    if (int.unsigned_abs() as u64) < (1u64 << <$t>::MANTISSA_DIGITS)
-                        && power.unsigned_abs() <= 22
-                    {
-                        let scale = (10.0 as $t).powi(power.unsigned_abs() as i32);
-                        if power < 0 {
-                            int as $t / scale
-                        } else {
-                            int as $t * scale
-                        }
+                fn decimal_value(mantissa: i32, power: i8) -> $t {
+                    let scale = 10f64.powi(power.unsigned_abs() as i32);
+                    let v = if power < 0 {
+                        mantissa as f64 / scale
                     } else {
-                        format!("{int}e{power}")
-                            .parse()
-                            .expect("bad decimal decode")
-                    }
+                        mantissa as f64 * scale
+                    };
+                    v as $t
                 }
 
                 if bool::decode(reader, &mut ctx.is_int)? {
@@ -192,9 +162,15 @@ macro_rules! impl_float {
                         <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.integer)?;
                     return Ok(intvalue as $t);
                 }
-                let power = <Small as EncodingStrategy<i16>>::decode(reader, &mut ctx.exponent)?;
-                let int = <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.int)?;
-                Ok(decimal_value(int, power))
+                if bool::decode(reader, &mut ctx.is_decimal)? {
+                    let mantissa =
+                        <Small as EncodingStrategy<i32>>::decode(reader, &mut ctx.mantissa)?;
+                    let power = <Small as EncodingStrategy<i8>>::decode(reader, &mut ctx.exponent)?;
+                    return Ok(decimal_value(mantissa, power));
+                }
+                let mut bytes = [0u8; $bits / 8];
+                reader.decode_incompressible_bytes(&mut bytes)?;
+                Ok($t::from_le_bytes(bytes))
             }
         }
     };
@@ -223,18 +199,18 @@ fn decimal_float() {
         )
     }
 
-    expect!["decimal: 15 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
-    expect!["decimal: 10 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
-    expect!["decimal: 15 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
+    expect!["decimal: 14 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
+    expect!["decimal: 9 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
+    expect!["decimal: 14 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
     expect!["decimal: 31 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
-    expect!["decimal: 69 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
+    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
     expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes(0.0));
     expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes(8.0));
-    expect!["decimal: 22 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
-    expect!["decimal: 23 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
+    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
+    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
     expect!["decimal: 40 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
-    expect!["decimal: 10 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
+    expect!["decimal: 9 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
     expect!["decimal: 5 bits, binary: 4 bits"].assert_eq(&sizes32(0.0));
     expect!["decimal: 10 bits, binary: 9 bits"].assert_eq(&sizes32(8.0));
 }
