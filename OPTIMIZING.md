@@ -753,7 +753,38 @@ signed wide types keep the hierarchy. If 16-bit decode ever needs the
 shorter tiny-value path too, the candidates remain: pad the `blbl` tree
 to a complete 8 leaves, or fuse the two symbols into one coder step.
 
-### Float bits: adaptive bits vs incompressible bytes (BIG finding)
+### Fresh `just-decompress` profile: the allocation story is over; forced walk fusion is a small LOSS (2026-07-19)
+
+Re-profiled `just-decompress` (random `Vec<u64>`, `Ans`) to validate TODO #9's
+"decode is dominated by `memmove`/`malloc`/`free`" claim, which predates the
+hierarchical integer rework. It no longer holds — that profile's allocation
+story belonged to the old `decode_incompressible_bytes`-heavy format:
+
+- **84.8%** self cycles in the one fully-inlined `Small::<u64>::decode`
+  (the two `AtMost` symbol decodes, the ≤7 partial-top-byte adaptive bits,
+  value assembly — i.e. coding work on the serial chain);
+- **12.1%** in the *outlined* speculative walk closures for `MAX` = 31/15
+  (the `bl` 33..64 / 17..32 offset buckets — random u64's hot buckets);
+- **2.1%** `__memmove_avx_unaligned_erms` (the ≤7-byte incompressible
+  mantissa copy per value); **`malloc`/`free` absent** above 0.5%; the
+  `[0u8; 8]` value buffer compiles to registers.
+
+**Forcing the outlined walks to fuse is a measured DEAD END.** LLVM outlines
+the `MAX` = 15/31 `from_slot_speculating` closures inside `Small::decode`
+(closures can't carry `inline(always)`; marking the walk fn itself
+`inline(always)` only inlines it *into* the still-outlined closure). A
+whole-program `--inline-threshold=2500` build that verifiably fused them
+(zero outlined walk symbols) decoded **~1.1% SLOWER**, reproducibly
+(125.16–125.35 → 126.56–126.80 Gcycles; 4 alternated order-flipped pinned
+rounds, within-side spread ≤ 0.15%). The naive reading of the Wave-2
+"`inline(always)` on the dispatch layer is load-bearing" lesson does NOT
+extend to the walk bodies: the *thin dispatch* must fuse (it did cost +13%
+instructions outlined), but the *fat walk body* is better outlined — the
+12% is real walk work, and keeping it out of line keeps the `Small::decode`
+hot loop compact. `from_slot_speculating`'s doc comment now records this;
+don't retry without new evidence. Consequences: TODO #9 is retired (below),
+and integer decode is now **coding-bound** — the remaining levers are format
+-level (fewer/cheaper symbols), not construction-level.
 `f64` decode, 100k floats × 1000 iters, pinned core (cycles):
 
 | data                         | adaptive bits        | incompressible bytes        |
@@ -908,9 +939,13 @@ believing them — instruction-count changes included.
 8. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
    per-bit path (float per-bit baseline was never cleanly measured).
 
-9. **Cut per-value allocation/zeroing** in decode — the largest cycle sink per
-   profiling (output `Vec` alloc, the `[0u8; 8]` value buffer zeroed per
-   integer). This is in `vecs.rs`/`ints.rs`/`mod.rs`, not the coder itself.
+9. ~~**Cut per-value allocation/zeroing** in decode~~ — RETIRED 2026-07-19:
+   the premise died with the hierarchical integer rework (see "Fresh
+   `just-decompress` profile" above). `malloc`/`free` no longer appear in the
+   profile at all, `memmove` is 2.1% (the ≤7-byte per-value
+   `decode_incompressible_bytes` copy — the only crumb left of this item,
+   ceiling ~2%), and the `[0u8; 8]` buffer is register fodder. Integer decode
+   is now coding-bound, not construction-bound.
 
 10. **Consider Elias Delta encoding** for Small integers — This might be a nice
     alternative for `usize` and maybe even for `u32` and friends.
