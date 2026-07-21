@@ -66,6 +66,14 @@ macro_rules! impl_float {
                 #[inline]
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     use super::super::bit_context::BitContext;
+                    // Once `is_raw` has saturated, every value is stored raw with
+                    // no selector — return immediately so no classification work
+                    // (`to_decimal`, etc.) is done past saturation.
+                    if ctx.is_raw == BitContext::SATURATED_TRUE {
+                        writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        return;
+                    }
+
                     let intvalue = *self as i64;
                     // Decimal first, so round/small integers *fold* their
                     // trailing zeros into the power (`5000 -> (5,3)`) and share a
@@ -78,10 +86,6 @@ macro_rules! impl_float {
                         None
                     };
 
-                    if ctx.is_raw == BitContext::SATURATED_TRUE {
-                        writer.encode_incompressible_bytes(&self.to_le_bytes());
-                        return;
-                    }
                     // `is_int` saturated: committed to the large-integer branch;
                     // anything else falls back to raw.
                     if ctx.is_int == BitContext::SATURATED_TRUE {
