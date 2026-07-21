@@ -106,18 +106,20 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<u64>, std::io::Error> {
-        let mut out = BTreeSet::new();
         let len = usize::decode(reader, &mut ctx.size)?;
+        // Stage + collect: bulk-build from the sorted stream, as in
+        // `Values<S> for BTreeSet` below.
+        let mut values = Vec::with_capacity(len);
         if len > 0 {
             let mut prev = Small::decode(reader, &mut ctx.first)?;
-            out.insert(prev);
+            values.push(prev);
             for _ in 1..len {
                 let diff: u64 = Small::decode(reader, &mut ctx.diff)?;
                 prev += diff;
-                out.insert(prev);
+                values.push(prev);
             }
         }
-        Ok(out)
+        Ok(values.into_iter().collect())
     }
 }
 
@@ -138,12 +140,98 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut set = BTreeSet::new();
+        // Stage in a Vec: the elements arrive in sorted order, and
+        // `FromIterator` bulk-builds packed nodes from sorted input in O(n) —
+        // measured ~4.7x faster than per-element `insert` on 38k strings
+        // (OPTIMIZING.md, 2026-07-19 survey). For any valid stream this is
+        // identical to the old insert loop: a `BTreeSet` never holds
+        // Ord-equal elements, so encode emits none and there is nothing to
+        // dedup. The two diverge only on a *corrupt* stream carrying an
+        // Ord-equal run of a type whose `Ord` is coarser than its `Eq`:
+        // `collect` keeps every Eq-distinct element (a technically-malformed
+        // set) where `insert` dedups by `Ord`. Decode makes no guarantee
+        // about corrupt input beyond not being UB, and this isn't; pinned by
+        // `btreeset_bulk_build_keeps_ord_equal_dupes` below.
+        let mut values = Vec::with_capacity(len);
         for _ in 0..len {
-            set.insert(S::decode(reader, &mut ctx.values)?);
+            values.push(S::decode(reader, &mut ctx.values)?);
         }
-        Ok(set)
+        Ok(values.into_iter().collect())
     }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OrdOnFirstField(i32, char);
+
+#[cfg(test)]
+impl PartialOrd for OrdOnFirstField {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+impl Ord for OrdOnFirstField {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+#[cfg(test)]
+impl Encode for OrdOnFirstField {
+    type Context = (<i32 as Encode>::Context, <char as Encode>::Context);
+    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+        self.0.encode(writer, &mut ctx.0);
+        self.1.encode(writer, &mut ctx.1);
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self(
+            i32::decode(reader, &mut ctx.0)?,
+            char::decode(reader, &mut ctx.1)?,
+        ))
+    }
+}
+
+#[test]
+fn btreeset_bulk_build_keeps_ord_equal_dupes() {
+    // `OrdOnFirstField`'s `Ord` only looks at field 0, so `.1` distinguishes
+    // values that compare Ord-equal. A genuine `BTreeSet<OrdOnFirstField>`
+    // can never hold two such elements (`insert` treats them as the same
+    // key), so build the raw decode stream by hand to simulate a
+    // corrupt/adversarial input carrying a duplicate run: `[(1, 'a'), (1,
+    // 'b')]`. This documents the one way the bulk-build decode differs from
+    // the old insert loop — a corrupt-input-only edge, not reachable from any
+    // valid stream.
+    let mut writer = super::Range::default();
+    let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
+    2_usize.encode(&mut writer, &mut ctx.len);
+    OrdOnFirstField(1, 'a').encode(&mut writer, &mut ctx.values);
+    OrdOnFirstField(1, 'b').encode(&mut writer, &mut ctx.values);
+    let bytes = writer.into_vec();
+
+    let mut reader = super::arith::Decoder::new(&bytes);
+    let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
+    let decoded = <Values<crate::Normal> as EncodingStrategy<BTreeSet<OrdOnFirstField>>>::decode(
+        &mut reader,
+        &mut ctx,
+    )
+    .unwrap();
+
+    // `collect`'s `FromIterator` keeps *every* Eq-distinct element of the
+    // Ord-equal run (a technically-malformed set of len 2); the old
+    // per-element `insert` loop would have kept only the first (len 1). Both
+    // are acceptable "garbage in" results for a corrupt stream.
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(
+        decoded,
+        [OrdOnFirstField(1, 'a'), OrdOnFirstField(1, 'b')]
+            .into_iter()
+            .collect()
+    );
 }
 
 impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {

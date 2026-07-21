@@ -129,14 +129,22 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         ctx: &mut Self::Context,
     ) -> Result<BTreeMap<K, V>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut map = BTreeMap::new();
+        // Stage + collect: the keys arrive in sorted order, and `FromIterator`
+        // bulk-builds packed nodes from sorted input in O(n) — see
+        // `Values<S> for BTreeSet` in sets.rs. Identical to the old insert
+        // loop for every valid stream (a `BTreeMap` has no duplicate keys to
+        // emit) and for any key whose `Ord` agrees with its `Eq`; the two
+        // diverge only on a corrupt stream carrying an Ord-equal key run of a
+        // coarse-`Ord` key type, where `collect` keeps every Eq-distinct
+        // entry. Not UB, which is all decode promises for corrupt input.
+        let mut pairs = Vec::with_capacity(len);
         for _ in 0..len {
-            map.insert(
+            pairs.push((
                 SK::decode(reader, &mut ctx.key)?,
                 SV::decode(reader, &mut ctx.value)?,
-            );
+            ));
         }
-        Ok(map)
+        Ok(pairs.into_iter().collect())
     }
 }
 
