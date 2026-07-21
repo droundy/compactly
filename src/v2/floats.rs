@@ -38,17 +38,20 @@ macro_rules! impl_float {
             // The default float encoding classifies each value into one of
             // three tiers behind two *saturating* selector bits:
             //   is_raw = true               -> raw (bits stored incompressibly)
-            //   is_raw = false, is_int=true -> whole integer, `Small<i64>`
             //   is_raw = false, is_int=false-> short decimal `mantissa·10^power`
-            // Each selector uses the `BitContext::SATURATED_TRUE` trick: once it
-            // has only ever been `true` up to the adaptation cap, both sides
-            // skip coding it and commit to that branch. So an all-raw column
-            // pays no per-value selector (decode is a bare memcpy), and an
-            // all-integer column pays no decimal cost at all — a value that
-            // would need the other branch after saturation falls back to raw
-            // (still exact). Decimals (`0.1`, prices, halves, quarters) that the
-            // old encoding stored raw now compress; only genuinely high-entropy
-            // mantissas and out-of-range magnitudes reach the raw tier.
+            //   is_raw = false, is_int=true -> large integer, `Small<i64>`
+            // The decimal tier is tried first (via `to_decimal`), so round and
+            // small integers *fold* their trailing zeros into the power and
+            // share a small, highly-compressible mantissa (`5000 -> (5,3)`) —
+            // this is what lets the default subsume the `Decimal` strategy. The
+            // integer tier catches only whole numbers too large for a decimal
+            // `i32` mantissa. Each selector uses `BitContext::SATURATED_TRUE`:
+            // once it has only ever been `true` up to the adaptation cap, both
+            // sides skip coding it and commit to that branch (a value that
+            // needs the other branch then falls back to raw, still exact). So an
+            // all-raw column pays no per-value selector and decodes as a bare
+            // memcpy. Only genuinely high-entropy mantissas and out-of-range
+            // magnitudes reach the raw tier.
             #[derive(Clone, Default)]
             pub struct FloatContext {
                 is_raw: <bool as Encode>::Context,
@@ -64,45 +67,43 @@ macro_rules! impl_float {
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     use super::super::bit_context::BitContext;
                     let intvalue = *self as i64;
-                    let is_int = intvalue as $t == *self;
+                    // Decimal first, so round/small integers *fold* their
+                    // trailing zeros into the power (`5000 -> (5,3)`) and share a
+                    // small, compressible mantissa. `Small<i64>` (`is_int`) is
+                    // only for large integers `to_decimal` can't fold to `i32`.
+                    let decimal = to_decimal(*self);
+                    let big_int = if decimal.is_none() && intvalue as $t == *self {
+                        Some(intvalue)
+                    } else {
+                        None
+                    };
 
-                    // `is_raw` saturated: every value so far was raw, so skip the
-                    // selector and store this one raw too.
                     if ctx.is_raw == BitContext::SATURATED_TRUE {
                         writer.encode_incompressible_bytes(&self.to_le_bytes());
                         return;
                     }
-                    // `is_int` saturated: committed to the integer branch. A
-                    // non-integer can't go there, so it takes the raw path.
+                    // `is_int` saturated: committed to the large-integer branch;
+                    // anything else falls back to raw.
                     if ctx.is_int == BitContext::SATURATED_TRUE {
-                        if is_int {
+                        if let Some(iv) = big_int {
                             false.encode(writer, &mut ctx.is_raw);
-                            <Small as EncodingStrategy<i64>>::encode(
-                                &intvalue,
-                                writer,
-                                &mut ctx.integer,
-                            );
+                            <Small as EncodingStrategy<i64>>::encode(&iv, writer, &mut ctx.integer);
                         } else {
                             true.encode(writer, &mut ctx.is_raw);
                             writer.encode_incompressible_bytes(&self.to_le_bytes());
                         }
                         return;
                     }
-                    // Neither saturated: classify into integer / decimal / raw.
-                    let decimal = if is_int { None } else { to_decimal(*self) };
-                    let is_raw = !is_int && decimal.is_none();
+                    let is_raw = decimal.is_none() && big_int.is_none();
                     is_raw.encode(writer, &mut ctx.is_raw);
                     if is_raw {
                         writer.encode_incompressible_bytes(&self.to_le_bytes());
                         return;
                     }
+                    let is_int = big_int.is_some();
                     is_int.encode(writer, &mut ctx.is_int);
-                    if is_int {
-                        <Small as EncodingStrategy<i64>>::encode(
-                            &intvalue,
-                            writer,
-                            &mut ctx.integer,
-                        );
+                    if let Some(iv) = big_int {
+                        <Small as EncodingStrategy<i64>>::encode(&iv, writer, &mut ctx.integer);
                     } else {
                         let (mantissa, power) = decimal.unwrap();
                         <Small as EncodingStrategy<i32>>::encode(
@@ -461,15 +462,15 @@ fn decimal_float() {
     expect!["decimal: 13 bits, binary: 14 bits"].assert_eq(&sizes(0.9));
     expect!["decimal: 30 bits, binary: 31 bits"].assert_eq(&sizes(128.332));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
-    expect!["decimal: 8 bits, binary: 6 bits"].assert_eq(&sizes(0.0));
-    expect!["decimal: 13 bits, binary: 11 bits"].assert_eq(&sizes(8.0));
+    expect!["decimal: 8 bits, binary: 9 bits"].assert_eq(&sizes(0.0));
+    expect!["decimal: 13 bits, binary: 14 bits"].assert_eq(&sizes(8.0));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
     expect!["decimal: 39 bits, binary: 40 bits"].assert_eq(&sizes32(1.0_f32.exp()));
     expect!["decimal: 8 bits, binary: 9 bits"].assert_eq(&sizes32(0.1));
-    expect!["decimal: 8 bits, binary: 6 bits"].assert_eq(&sizes32(0.0));
-    expect!["decimal: 13 bits, binary: 11 bits"].assert_eq(&sizes32(8.0));
+    expect!["decimal: 8 bits, binary: 9 bits"].assert_eq(&sizes32(0.0));
+    expect!["decimal: 13 bits, binary: 14 bits"].assert_eq(&sizes32(8.0));
 }
 
 #[test]
