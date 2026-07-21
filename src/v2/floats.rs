@@ -4,8 +4,11 @@ use crate::{Decimal, Small};
 #[cfg(test)]
 use expect_test::expect;
 
-/// `10^n` as `f64`, for `n` in `0..POW10.len()`, indexed by the (non-negative)
-/// magnitude of a decimal power.
+/// `10^n` as `f64`, indexed by the non-negative magnitude of a decimal power.
+///
+/// Sized to cover every `i8` magnitude: `power.unsigned_abs()` reaches 128 for
+/// `i8::MIN` (a value only a corrupt stream produces, but decode must not
+/// panic on it), and the search loops only index up to `i8::MAX` = 127.
 ///
 /// A decimal value is reconstructed as `mantissa * 10^n` or `mantissa / 10^n`,
 /// so `to_decimal`'s search and `decimal_value` (encode's round-trip checker
@@ -17,8 +20,8 @@ use expect_test::expect;
 /// decimals exact: `mantissa / 10^n` recovers a value produced as
 /// `k / 10^n` (e.g. a parsed price), where multiplying by a rounded `10^-n`
 /// would not.
-const POW10: [f64; 256] = {
-    let mut table = [1.0f64; 256];
+const POW10: [f64; 129] = {
+    let mut table = [1.0f64; 129];
     let mut i = 1;
     while i < table.len() {
         table[i] = table[i - 1] * 10.0;
