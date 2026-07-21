@@ -35,42 +35,82 @@ macro_rules! impl_float {
         mod $mod {
             use super::*;
 
-            #[derive(Clone)]
+            // The default float encoding classifies each value into one of
+            // three tiers behind two *saturating* selector bits:
+            //   is_raw = true               -> raw (bits stored incompressibly)
+            //   is_raw = false, is_int=true -> whole integer, `Small<i64>`
+            //   is_raw = false, is_int=false-> short decimal `mantissa·10^power`
+            // Each selector uses the `BitContext::SATURATED_TRUE` trick: once it
+            // has only ever been `true` up to the adaptation cap, both sides
+            // skip coding it and commit to that branch. So an all-raw column
+            // pays no per-value selector (decode is a bare memcpy), and an
+            // all-integer column pays no decimal cost at all — a value that
+            // would need the other branch after saturation falls back to raw
+            // (still exact). Decimals (`0.1`, prices, halves, quarters) that the
+            // old encoding stored raw now compress; only genuinely high-entropy
+            // mantissas and out-of-range magnitudes reach the raw tier.
+            #[derive(Clone, Default)]
             pub struct FloatContext {
+                is_raw: <bool as Encode>::Context,
                 is_int: <bool as Encode>::Context,
-                int_context: <Small as EncodingStrategy<$intty>>::Context,
-                context: [<bool as Encode>::Context; $bits],
-            }
-            impl Default for FloatContext {
-                #[inline]
-                fn default() -> Self {
-                    Self {
-                        is_int: Default::default(),
-                        int_context: Default::default(),
-                        context: [Default::default(); $bits],
-                    }
-                }
+                integer: <Small as EncodingStrategy<i64>>::Context,
+                mantissa: <Small as EncodingStrategy<i32>>::Context,
+                exponent: <Small as EncodingStrategy<i8>>::Context,
             }
 
             impl Encode for $t {
                 type Context = FloatContext;
                 #[inline]
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                    let intvalue = *self as $intty;
+                    use super::super::bit_context::BitContext;
+                    let intvalue = *self as i64;
                     let is_int = intvalue as $t == *self;
+
+                    // `is_raw` saturated: every value so far was raw, so skip the
+                    // selector and store this one raw too.
+                    if ctx.is_raw == BitContext::SATURATED_TRUE {
+                        writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        return;
+                    }
+                    // `is_int` saturated: committed to the integer branch. A
+                    // non-integer can't go there, so it takes the raw path.
+                    if ctx.is_int == BitContext::SATURATED_TRUE {
+                        if is_int {
+                            false.encode(writer, &mut ctx.is_raw);
+                            <Small as EncodingStrategy<i64>>::encode(
+                                &intvalue,
+                                writer,
+                                &mut ctx.integer,
+                            );
+                        } else {
+                            true.encode(writer, &mut ctx.is_raw);
+                            writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        }
+                        return;
+                    }
+                    // Neither saturated: classify into integer / decimal / raw.
+                    let decimal = if is_int { None } else { to_decimal(*self) };
+                    let is_raw = !is_int && decimal.is_none();
+                    is_raw.encode(writer, &mut ctx.is_raw);
+                    if is_raw {
+                        writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        return;
+                    }
                     is_int.encode(writer, &mut ctx.is_int);
                     if is_int {
-                        <Small as EncodingStrategy<$intty>>::encode(
+                        <Small as EncodingStrategy<i64>>::encode(
                             &intvalue,
                             writer,
-                            &mut ctx.int_context,
-                        )
+                            &mut ctx.integer,
+                        );
                     } else {
-                        // The $bits raw bits are independent (one context per position),
-                        // so encode them as a single batch.
-                        let bits = $intty::from_le_bytes(self.to_le_bytes());
-                        let values = std::array::from_fn::<_, $bits, _>(|i| (bits >> i) & 1 == 1);
-                        writer.encode_bits(&mut ctx.context, values);
+                        let (mantissa, power) = decimal.unwrap();
+                        <Small as EncodingStrategy<i32>>::encode(
+                            &mantissa,
+                            writer,
+                            &mut ctx.mantissa,
+                        );
+                        <Small as EncodingStrategy<i8>>::encode(&power, writer, &mut ctx.exponent);
                     }
                 }
                 #[inline]
@@ -78,23 +118,26 @@ macro_rules! impl_float {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<Self, std::io::Error> {
-                    if bool::decode(reader, &mut ctx.is_int)? {
-                        let intvalue = <Small as EncodingStrategy<$intty>>::decode(
-                            reader,
-                            &mut ctx.int_context,
-                        )?;
+                    use super::super::bit_context::BitContext;
+                    let raw = ctx.is_raw == BitContext::SATURATED_TRUE
+                        || bool::decode(reader, &mut ctx.is_raw)?;
+                    if raw {
+                        let mut bytes = [0u8; $bits / 8];
+                        reader.decode_incompressible_bytes(&mut bytes)?;
+                        return Ok($t::from_le_bytes(bytes));
+                    }
+                    let is_int = ctx.is_int == BitContext::SATURATED_TRUE
+                        || bool::decode(reader, &mut ctx.is_int)?;
+                    if is_int {
+                        let intvalue =
+                            <Small as EncodingStrategy<i64>>::decode(reader, &mut ctx.integer)?;
                         Ok(intvalue as $t)
                     } else {
-                        // The $bits raw bits are independent (one context per position),
-                        // so decode them as a single register-resident batch.
-                        let decoded = reader.decode_bits(&mut ctx.context);
-                        let mut bits: $intty = 0;
-                        for i in 0..$bits {
-                            if decoded[i] {
-                                bits |= (1 << i);
-                            }
-                        }
-                        Ok($t::from_le_bytes(bits.to_le_bytes()))
+                        let mantissa =
+                            <Small as EncodingStrategy<i32>>::decode(reader, &mut ctx.mantissa)?;
+                        let power =
+                            <Small as EncodingStrategy<i8>>::decode(reader, &mut ctx.exponent)?;
+                        Ok(decimal_value(mantissa, power))
                     }
                 }
             }
@@ -279,6 +322,120 @@ impl_float!(f64, u64, 64, f64_mod);
 impl_float!(f32, u32, 32, f32_mod);
 
 #[test]
+fn float_roundtrip() {
+    use super::{decode, encode};
+    // Exercises all three default-float tiers — integer, decimal, raw — plus
+    // negatives, subnormals, -0.0, inf/NaN, and pseudo-random full-mantissa
+    // values (which take the raw path).
+    let mut values: Vec<f64> = vec![
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        3.0,
+        -3.0,
+        8.0,
+        1e6,
+        -1e6,
+        1e15,
+        1e30,
+        0.1,
+        -0.1,
+        0.5,
+        -0.5,
+        0.25,
+        0.125,
+        1.5,
+        2.5,
+        1000.5,
+        1234.25,
+        -9999.75,
+        12.34,
+        128.332,
+        0.001,
+        1e-5,
+        12345678901234.0, // large int -> raw
+        f64::MIN_POSITIVE,
+        f64::MIN_POSITIVE / 2.0,
+        f64::from_bits(1),
+        std::f64::consts::PI,
+        std::f64::consts::E,
+        f64::MAX,
+        f64::MIN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    let mut x = 0x2545f4914f6cdd1du64;
+    for _ in 0..200 {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let b = if (x >> 52) & 0x7ff == 0x7ff {
+            x & !(1 << 52)
+        } else {
+            x
+        };
+        values.push(f64::from_bits(b));
+    }
+    for &v in &values {
+        let got: f64 = decode(&encode(&v)).unwrap();
+        // Value equality (exact for these); -0.0 collapses to +0.0 through the
+        // integer tier, as it always has. NaN is excluded from the set.
+        assert_eq!(got, v, "f64 {v} did not round-trip");
+    }
+    let f32s: Vec<f32> = vec![
+        0.0,
+        -0.0,
+        1.0,
+        -3.0,
+        8.0,
+        1e6,
+        0.1,
+        0.5,
+        0.25,
+        1.5,
+        -1234.25,
+        f32::MIN_POSITIVE,
+        f32::from_bits(1),
+        std::f32::consts::PI,
+        f32::MAX,
+        f32::MIN,
+    ];
+    for &v in &f32s {
+        let got: f32 = decode(&encode(&v)).unwrap();
+        assert_eq!(got, v, "f32 {v} did not round-trip");
+    }
+}
+
+#[test]
+fn float_saturation_roundtrip() {
+    use super::{decode, encode};
+    // A long run of one tier saturates its selector; values of another tier
+    // appended afterward must still round-trip (forced to raw once is_int has
+    // committed). Build Vecs so the whole stream shares adapting contexts.
+    fn check(values: Vec<f64>) {
+        let decoded: Vec<f64> = decode(&encode(&values)).unwrap();
+        assert_eq!(decoded.len(), values.len());
+        for (g, w) in decoded.iter().zip(&values) {
+            assert_eq!(g.to_bits(), w.to_bits());
+        }
+    }
+    // 300 integers (saturates is_int) then decimals + a raw value.
+    let mut ints: Vec<f64> = (0..300).map(|i| (i * 7 - 500) as f64).collect();
+    ints.extend_from_slice(&[0.5, 1.25, 0.1, std::f64::consts::PI, 42.0]);
+    check(ints);
+    // 300 high-entropy values (saturates is_raw) then structured ones.
+    let mut x = 0x9e3779b97f4a7c15u64;
+    let mut raws: Vec<f64> = (0..300)
+        .map(|_| {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            f64::from_bits(x)
+        })
+        .filter(|v| v.is_finite())
+        .collect();
+    raws.extend_from_slice(&[1.0, 0.5, 0.1, 100.0]);
+    check(raws);
+}
+
+#[test]
 fn decimal_float() {
     use crate::Encoded;
 
@@ -299,20 +456,20 @@ fn decimal_float() {
         )
     }
 
-    expect!["decimal: 13 bits, binary: 65 bits"].assert_eq(&sizes(1.1));
-    expect!["decimal: 8 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
-    expect!["decimal: 13 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
-    expect!["decimal: 30 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
+    expect!["decimal: 13 bits, binary: 14 bits"].assert_eq(&sizes(1.1));
+    expect!["decimal: 8 bits, binary: 9 bits"].assert_eq(&sizes(0.1));
+    expect!["decimal: 13 bits, binary: 14 bits"].assert_eq(&sizes(0.9));
+    expect!["decimal: 30 bits, binary: 31 bits"].assert_eq(&sizes(128.332));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
-    expect!["decimal: 8 bits, binary: 4 bits"].assert_eq(&sizes(0.0));
-    expect!["decimal: 13 bits, binary: 9 bits"].assert_eq(&sizes(8.0));
+    expect!["decimal: 8 bits, binary: 6 bits"].assert_eq(&sizes(0.0));
+    expect!["decimal: 13 bits, binary: 11 bits"].assert_eq(&sizes(8.0));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
     expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
-    expect!["decimal: 39 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
-    expect!["decimal: 8 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
-    expect!["decimal: 8 bits, binary: 4 bits"].assert_eq(&sizes32(0.0));
-    expect!["decimal: 13 bits, binary: 9 bits"].assert_eq(&sizes32(8.0));
+    expect!["decimal: 39 bits, binary: 40 bits"].assert_eq(&sizes32(1.0_f32.exp()));
+    expect!["decimal: 8 bits, binary: 9 bits"].assert_eq(&sizes32(0.1));
+    expect!["decimal: 8 bits, binary: 6 bits"].assert_eq(&sizes32(0.0));
+    expect!["decimal: 13 bits, binary: 11 bits"].assert_eq(&sizes32(8.0));
 }
 
 #[test]
