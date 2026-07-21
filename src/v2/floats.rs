@@ -31,7 +31,7 @@ const POW10: [f64; 129] = {
 };
 
 macro_rules! impl_float {
-    ($t:ident, $intty:ident, $sint:ident, $bits:literal, $mod:ident) => {
+    ($t:ident, $intty:ident, $bits:literal, $mod:ident) => {
         mod $mod {
             use super::*;
 
@@ -125,7 +125,7 @@ macro_rules! impl_float {
                 // Integral values that fit `i64`: strip trailing zeros with
                 // exact integer division — no float rounding, no ±1 probing.
                 // A large non-round integer (mantissa still `> i32` once the
-                // zeros are gone) returns `None` for the `is_int` fallback.
+                // zeros are gone) returns `None` for the incompressible path.
                 let as_i64 = as_f64 as i64;
                 if as_i64 as f64 == as_f64 {
                     let mut mantissa = as_i64;
@@ -186,8 +186,6 @@ macro_rules! impl_float {
 
             #[derive(Clone, Default)]
             pub struct DecimalContext {
-                is_int: <bool as Encode>::Context,
-                integer: <Small as EncodingStrategy<$sint>>::Context,
                 is_decimal: <bool as Encode>::Context,
                 mantissa: <Small as EncodingStrategy<i32>>::Context,
                 exponent: <Small as EncodingStrategy<i8>>::Context,
@@ -199,11 +197,12 @@ macro_rules! impl_float {
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    // Try the compact decimal form first so that round
-                    // integers fold their trailing zeros into the power
-                    // (e.g. `1e6 -> (1,6)`), giving small mantissas. The
-                    // integer fallback below is only for large non-round
-                    // integers that don't fit an `i32` mantissa.
+                    // Encode as `mantissa * 10^power` whenever the value is a
+                    // short decimal — round integers fold their trailing zeros
+                    // into the power (e.g. `1e6 -> (1,6)`), giving small
+                    // mantissas. Anything else (long mantissas, large non-round
+                    // integers, extreme magnitudes) stores its raw bits
+                    // incompressibly.
                     let decimal = to_decimal(*value);
                     decimal.is_some().encode(writer, &mut ctx.is_decimal);
                     if let Some((mantissa, power)) = decimal {
@@ -213,20 +212,7 @@ macro_rules! impl_float {
                             &mut ctx.mantissa,
                         );
                         <Small as EncodingStrategy<i8>>::encode(&power, writer, &mut ctx.exponent);
-                        return;
-                    }
-
-                    let intvalue = *value as $sint;
-                    let is_int = intvalue as $t == *value;
-                    is_int.encode(writer, &mut ctx.is_int);
-                    if is_int {
-                        <Small as EncodingStrategy<$sint>>::encode(
-                            &intvalue,
-                            writer,
-                            &mut ctx.integer,
-                        );
                     } else {
-                        // Not a short decimal — store the bits incompressibly.
                         writer.encode_incompressible_bytes(&value.to_le_bytes());
                     }
                 }
@@ -241,11 +227,6 @@ macro_rules! impl_float {
                         let power =
                             <Small as EncodingStrategy<i8>>::decode(reader, &mut ctx.exponent)?;
                         return Ok(decimal_value(mantissa, power));
-                    }
-                    if bool::decode(reader, &mut ctx.is_int)? {
-                        let intvalue =
-                            <Small as EncodingStrategy<$sint>>::decode(reader, &mut ctx.integer)?;
-                        return Ok(intvalue as $t);
                     }
                     let mut bytes = [0u8; $bits / 8];
                     reader.decode_incompressible_bytes(&mut bytes)?;
@@ -281,7 +262,7 @@ macro_rules! impl_float {
                     // `5e9` exceeds `i32` but folds to a one-digit mantissa.
                     assert_eq!(to_decimal(5e9), Some((5, 9)));
                     // Large non-round integers don't fit an `i32` mantissa and
-                    // fall through to `None` (the `is_int` fallback).
+                    // fall through to `None` (the incompressible path).
                     assert_eq!(to_decimal(12_345_678_901_234.0), None);
                     // `1e30` exceeds `i64`, so it takes the float positive-power
                     // path. The mult-built `POW10[30]` is 1 ULP below the true
@@ -294,8 +275,8 @@ macro_rules! impl_float {
         }
     };
 }
-impl_float!(f64, u64, i64, 64, f64_mod);
-impl_float!(f32, u32, i32, 32, f32_mod);
+impl_float!(f64, u64, 64, f64_mod);
+impl_float!(f32, u32, 32, f32_mod);
 
 #[test]
 fn decimal_float() {
@@ -322,11 +303,11 @@ fn decimal_float() {
     expect!["decimal: 8 bits, binary: 65 bits"].assert_eq(&sizes(0.1));
     expect!["decimal: 13 bits, binary: 65 bits"].assert_eq(&sizes(0.9));
     expect!["decimal: 30 bits, binary: 65 bits"].assert_eq(&sizes(128.332));
-    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
+    expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(1.0_f64.exp()));
     expect!["decimal: 8 bits, binary: 4 bits"].assert_eq(&sizes(0.0));
     expect!["decimal: 13 bits, binary: 9 bits"].assert_eq(&sizes(8.0));
-    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
-    expect!["decimal: 66 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
+    expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e200));
+    expect!["decimal: 65 bits, binary: 65 bits"].assert_eq(&sizes(8e300));
 
     expect!["decimal: 39 bits, binary: 33 bits"].assert_eq(&sizes32(1.0_f32.exp()));
     expect!["decimal: 8 bits, binary: 33 bits"].assert_eq(&sizes32(0.1));
