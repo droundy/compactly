@@ -47,12 +47,9 @@ pub struct Meteorite {
     #[compactly(Small)]
     year: u64,
     #[serde(alias = "mass (g)", default)]
-    #[compactly(Decimal)]
     mass: f32,
     recclass: Arc<str>,
-    #[compactly(Decimal)]
     reclat: f32,
-    #[compactly(Decimal)]
     reclong: f32,
 }
 
@@ -71,12 +68,9 @@ pub struct MeteoriteData {
     #[compactly(Small)]
     year: u64,
     #[serde(alias = "mass (g)", default)]
-    #[compactly(Decimal)]
     mass: f32,
     recclass: Arc<str>,
-    #[compactly(Decimal)]
     reclat: f32,
-    #[compactly(Decimal)]
     reclong: f32,
 }
 impl From<Meteorite> for MeteoriteData {

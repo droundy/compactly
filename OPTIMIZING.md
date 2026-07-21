@@ -942,23 +942,16 @@ came with numbers:
    hierarchical integer rework (2026-07-17) replaced it with `AtMost`
    symbols. `plans/decode-until-true-integers.md` is obsolete with it.
 
-6. **Explore float entropy** — Try out different categories of floating point
-   numbers and identify where the entropy is within the float.  e.g. for
-   integers, decimal numbers like 0.1 power of two fractions like 0.0125,
-   irrational numbers, etc.  We'd like to know if some of the bytes/bits are
-   usually random and whether there is a way to compress the compressible and
-   make the incompressible fast.
+6. ~~**Explore float entropy**~~ — DONE (see "Landed"): the default float
+   encoding now splits into integer / decimal / raw tiers.
 
-7. **Hybrid float encoding** — the likely best-of-both: adaptive-code the
-   structured high bits (sign + exponent) and store the ~random low mantissa as
-   incompressible bytes. Byte-aligned proposal for `f64`: adaptive top 16 bits
-   (sign+exp+top-4-mantissa), incompressible low 48 bits (6 bytes); analogous
-   for `f32` (top 16 adaptive, low 16 incompressible). Expectation: ~same
-   compression as today in both structured and random cases, but only ~16
-   adaptive bits + a memcpy to decode (≈4× faster, no compression harm). Decide
-   the exact split, then implement + measure both size and cycles.
-   - Alternatively, if the project is willing to accept the structured-data
-     compression cost, pure incompressible floats are a trivial ~53× decode win.
+7. ~~**Hybrid float encoding**~~ — SUPERSEDED (see "Landed"). The shipped
+   design isn't the adaptive-top-16 hybrid (measured a decode dead end — the
+   16 adaptive bits cost ~9–15× more than a memcpy for a size win only on
+   structured-magnitude data). Instead: a *decimal* tier (`mantissa·10^power`)
+   captures the common structured floats, and genuinely high-entropy values
+   go fully incompressible with a saturating selector that makes their decode
+   a bare memcpy.
 
 8. **Properly A/B the register-residency win** of `decode_bits::<N>` vs the
    per-bit path (float per-bit baseline was never cleanly measured).
@@ -1123,6 +1116,28 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Default float encoding: integer / decimal / raw behind saturating
+  selectors (was TODO #6/#7)** — the v2 default `Encode` for `f64`/`f32`
+  classifies each value into three tiers behind two selector bits:
+  `is_raw = true` → raw bits stored *incompressibly* (a memcpy on decode);
+  `is_raw = false, is_int = true` → whole integer via `Small<i64>`;
+  `is_raw = false, is_int = false` → short decimal `mantissa·10^power`
+  (reusing the merged `to_decimal`/`decimal_value`/`POW10` from the `Decimal`
+  strategy). Each selector uses `BitContext::SATURATED_TRUE` (a new
+  compile-time-computed associated const, the fixed point of `adapt(true)`):
+  once a column has only ever taken one branch up to the adaptation cap, both
+  sides skip coding the bit and commit to it — an all-raw column pays no
+  per-value selector and decodes as a bare memcpy; an all-integer column pays
+  no decimal cost. A value that needs the other branch after saturation falls
+  back to raw (still exact); `is_raw` only saturates toward raw, since the
+  structured branch has no universal escape. Sizes vs main (100k/category):
+  **2-decimal 7.111 → 2.195 B/f (−69%)**, **1.0+u/1e6 6.648 → 3.595 (−46%)**,
+  half-integers ~flat, random 8.191 → 8.000; fixed-exp 6.674 → 8.000 (+20%,
+  the accepted incompressible-raw-tier cost — the exponent is no longer
+  modeled). Random-float decode **657M/1.41B cycles (Ans/Range) vs main's
+  79B/167B ≈ 120×** — the saturating memcpy. (Bidirectional `is_int`
+  saturation was prototyped and dropped: neutral on realistic mixed-decimal
+  columns, not worth the complexity.)
 - **`Sorted` string decode builds in place (was TODO #12, 2026-07-19)** — the
   decode paid two copies per string: re-encoding the shared prefix
   char-by-char into a fresh `String`, then `clone_from`-ing the result back

@@ -257,6 +257,20 @@ static FUSED: [BitModel; BitContext::COUNT] = {
 };
 
 impl BitContext {
+    /// The maximally-confident-toward-`true` state: the fixed point of
+    /// `adapt(true)`, reached only after a long run of `true` outcomes with no
+    /// intervening `false`. Computed by iterating `adapt` (not a hardcoded
+    /// variant) so it survives a regeneration of `bit_context.rs`. Lets a
+    /// caller detect "this selector has only ever seen `true` up to the
+    /// adaptation cap" with a plain equality check.
+    pub const SATURATED_TRUE: Self = {
+        let mut s = BitContext::True0False0;
+        while s.adapt(true) as u16 != s as u16 {
+            s = s.adapt(true);
+        }
+        s
+    };
+
     /// This state's probability plus both `adapt` successors, in one load —
     /// the fused analogue of the generated `probability()`/`adapt()` tables.
     #[inline(always)]
