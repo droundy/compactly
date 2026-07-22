@@ -918,18 +918,28 @@ came with numbers:
    the "Tree-symbol decode … both DEAD ENDS" note above. The `decode_tree` API
    (per-bit default) landed; the coder-level overrides did not. The remaining
    hope for tree-decode speed is NOT coder plumbing but decoding fewer
-   bits/symbols (e.g. #3's ASCII fast-path, or the recent-values cache idea
-   below).
+   bits/symbols (the recent-values cache idea below; note #3's ASCII fast-path
+   was measured a dead end — the construction side it targeted is only ~0.5%).
 
-3. **ASCII fast-path for `String` decode** — text is almost all ASCII, yet each
-   char still pays the `is_ascii` bit, a `char::from_u32` validity check, and an
-   `out.push(char)` UTF-8 re-encode. Consider a per-string "all ASCII" flag (format
-   change, 1 bit/string) so an all-ASCII string decodes as a run of 7-bit
-   `Bits<128>` straight into the byte buffer, skipping the per-char branch and
-   `from_u32`. Measure the size cost vs the decode win; pairs naturally with #2.
-   (UPDATE 2026-07-04: the escaped-tree fusion above removed the `is_ascii`
-   *coder step*; the remaining upside here is the value-construction side —
-   bytes straight into the buffer instead of `char` round-trips.)
+3. ~~**ASCII fast-path for `String` decode**~~ — MEASURED DEAD END 2026-07-21.
+   The escaped-tree fusion already removed the `is_ascii` *coder step* (it's the
+   top bit of the `first` `u8` tree) and the ASCII decode branch already skips
+   `char::from_u32` (it returns `char::from(byte)` directly). That left only the
+   value-construction side: `char` materialization + `String::push`'s
+   `len_utf8` dispatch. Prototyped the **unsafe ceiling** of removing it —
+   `CharContext::decode_into` pushing ASCII bytes straight into the buffer via
+   `as_mut_vec`/`from_utf8_unchecked`, no re-validation — in both `String` and
+   `Sorted` decode. Quiesced `just-decompress-strings` (2000×, min of 3 stable
+   runs): **Ans −0.6%** (33.59B→33.38B), **Range −0.25%** (41.87B→41.77B). That
+   is the *ceiling*; decode is coding-bound (the `from_slot_speculating` tree
+   walk is 27% self-time) and allocation-bound (~14% `malloc`/`free` from the
+   per-string `.clone()` in `Sorted::decode` + the `BTreeSet` build), not
+   construction-bound. A *safe* version (this crate has zero `unsafe` in `src/`)
+   would have to add a `from_utf8` validation pass that erases even the 0.5%. Not
+   worth it, and not worth the format change of a per-string "all-ASCII" flag
+   either (#2's `AtMost<8>`→`<7>` is ≤1 tree level and one non-ASCII char voids
+   it). The real string-decode levers remain the per-string clone (Arc/Rc buffer
+   sharing, see #11) and fewer coding steps.
 
 4. **Const-generic incompressible read** for compile-time-known sizes
    (IP octets, single bytes): `decode_incompressible::<const N>() -> [u8; N]`
@@ -1006,11 +1016,13 @@ came with numbers:
     (see "Landed"): strings decode **Ans −57%, Range −49%**, beating the
     survey's ~−40% estimate.
 
-14. **Fix the float `is_int` probe for negatives** — probe with the signed
-    type (as `Decimal` already does) and route through `Small<i64>`/`<i32>`
-    so negative whole floats get the integer fast path (today `-3.0` is 9
-    bytes vs `3.0`'s 1). Float format change; both smaller and much faster
-    on data containing negative whole values.
+14. ~~**Fix the float `is_int` probe for negatives**~~ — NOT A BUG (checked
+    2026-07-21). The probe already uses signed types end to end: encode casts
+    `*self as i64` and `to_decimal` folds via `as_i64` into a *signed* `i32`
+    mantissa, so `to_decimal(-3.0) = Some((-3, 0))` takes the same decimal
+    fast path as `3.0`. Verified empirically: negative whole floats encode to
+    the same small size as their positive twins. The old "-3.0 is 9 bytes"
+    claim predated the signed rework and is stale.
 
 15. ~~**`Sorted<Vec<T>>` in-place `previous`**~~ — DONE 2026-07-19 (see
     "Landed").
