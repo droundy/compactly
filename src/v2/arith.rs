@@ -274,10 +274,12 @@ impl Range {
             self.bytes.push(b);
             self.entropy_written += 1;
             let slot = self.entropy_written % W_DELAY;
-            if !self.withheld[slot].is_empty() {
-                let run = std::mem::take(&mut self.withheld[slot]);
-                self.bytes.extend_from_slice(&run);
-            }
+            // Splice this slot's withheld run (a no-op copy when empty) and
+            // clear it for the next delay-cycle; `clear` keeps the allocation to
+            // reuse. `extend_from_slice` already fast-returns on an empty slice,
+            // so no guard is needed.
+            self.bytes.extend_from_slice(&self.withheld[slot]);
+            self.withheld[slot].clear();
         }
     }
 }
