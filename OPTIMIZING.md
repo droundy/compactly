@@ -1119,14 +1119,16 @@ came with numbers:
       `Small<usize>` that keeps the small-value tightness *without* the wasted
       bucket symbol on large values would let other `Small<usize>` callers get
       the same win.
-    - *Narrower backing int.* `usize`'s default backs onto `u64` (maximally
-      general), but Lz77 offsets are bounded by `BACK_WINDOW` (64 KiB) and
-      whole strings rarely exceed `u32`. Encoding the offset as `u32`
-      (`U32Compact`) uses a shorter length-of-length tree (`$blbl_max` 6 vs 7)
-      — plausibly recovering the ~0.25% the `usize` switch cost on redundant
-      data *and* shaving another symbol level. `back` is already `u8`; `count`
-      and the offsets are the candidates. Needs a `u32`-typed offset field and
-      a size/speed A/B.
+    - *Narrower backing int* — **MEASURED DEAD END 2026-07-21.** Tried `u32`
+      offsets (normal, `Small<u32>`, and a tiny-seeded `U32Compact`) against the
+      `usize` version. All cluster at ~622.4–622.5K / ~41.8B Ans, indistinguishable
+      from `usize` (622421): narrowing `u64`→`u32` reclaims **nothing**, because a
+      ≤ 64 KiB offset uses the same `blbl` depth at either width. The unique size
+      floor (620843) is `Small<usize>`'s bucket prefix — and that tightness IS the
+      extra symbol that makes it slow. So a real ~0.25%-size / ~5%-speed tradeoff,
+      no free lunch from narrowing. The only way to get both is the *faster
+      `Small<usize>`* redesign above (bucket-cheap small values, no wasted symbol
+      on large ones), which is a `Small<usize>` rework, not a type swap.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
