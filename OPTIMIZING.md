@@ -1110,6 +1110,24 @@ came with numbers:
     (`char::from_u32` + `push(char)`) — TODO #3's residue, which grows in
     relative importance once #13 lands.
 
+21. **A narrower / faster `Small<usize>`, and narrower Lz77 offsets** — two
+    related follow-ups to the `Small<usize>`→`usize` offset switch (Landed):
+    - *Faster `Small<usize>`.* `Small<usize>`'s bucket-prefix scheme
+      (`AtMost<7>` bucket then per-bucket offset, `usizes.rs`) spends an extra
+      symbol on every value ≥ 64 versus plain `usize`'s direct `U64Compact`.
+      The Lz77 switch dropped `Small<usize>` for that reason; a redesigned
+      `Small<usize>` that keeps the small-value tightness *without* the wasted
+      bucket symbol on large values would let other `Small<usize>` callers get
+      the same win.
+    - *Narrower backing int.* `usize`'s default backs onto `u64` (maximally
+      general), but Lz77 offsets are bounded by `BACK_WINDOW` (64 KiB) and
+      whole strings rarely exceed `u32`. Encoding the offset as `u32`
+      (`U32Compact`) uses a shorter length-of-length tree (`$blbl_max` 6 vs 7)
+      — plausibly recovering the ~0.25% the `usize` switch cost on redundant
+      data *and* shaving another symbol level. `back` is already `u8`; `count`
+      and the offsets are the candidates. Needs a `u32`-typed offset field and
+      a size/speed A/B.
+
 ## New strategy ideas (compression rate, often also decode speed)
 
 These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
@@ -1147,6 +1165,16 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
+  `Lz77`'s `count`, `offset`, and `self_offset` switched from
+  `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so
+  `Small<usize>` wasted an `AtMost<7>` bucket symbol before recursing into
+  `Small<u64>`; the default `usize` (tiny-seeded `U64Compact`) codes it
+  directly. Quiesced `just-decompress-compressible` (meteorite CSV, 300×):
+  decode **Ans −4.8%** (43.87B→41.77B), **Range −4.2%** (56.84B→54.47B). Size
+  is ~neutral (tiny inputs smaller via `count`; big redundant corpus +0.25%).
+  Follow-ups in TODO #21 (faster `Small<usize>`; `u32` offsets to reclaim the
+  0.25%). Format change (v2). `just-decompress-compressible` bench added.
 - **Default float encoding: integer / decimal / raw behind saturating
   selectors (was TODO #6/#7)** — the v2 default `Encode` for `f64`/`f32`
   classifies each value into three tiers behind two selector bits:
