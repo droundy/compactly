@@ -48,12 +48,19 @@ pub struct Lz77 {
     /// Bloom-style 4-gram filter over bytes in `old`. Bits are added on push_old and never
     /// removed — evictions cause false positives but never false negatives.
     old_filter: OldFilter,
-    count: <Small as EncodingStrategy<usize>>::Context,
+    count: <usize as Encode>::Context,
     literal: <Values<Normal> as EncodingStrategy<Vec<u8>>>::Context,
     back: <Small as EncodingStrategy<u8>>::Context,
-    /// We use small encoding for offset, because we expect often to see small strings in total.
-    offset: <Small as EncodingStrategy<usize>>::Context,
-    self_offset: <Small as EncodingStrategy<usize>>::Context,
+    /// The default `usize` encoding (tiny-seeded `U64Compact`) rather than
+    /// `Small<usize>`: a Lz77 offset is usually large, and `Small<usize>`
+    /// would spend an extra `AtMost<7>` bucket symbol before recursing into
+    /// `Small<u64>`, while the default codes it directly (measured ~4-5%
+    /// faster decode at ~neutral size). A `u32` offset would be tighter still
+    /// — offsets are bounded by `BACK_WINDOW` (64 KiB) and strings rarely
+    /// exceed `u32`, so `U32Compact`'s shorter length-of-length tree would fit
+    /// with bits to spare; see OPTIMIZING.md.
+    offset: <usize as Encode>::Context,
+    self_offset: <usize as Encode>::Context,
     length: <Small as EncodingStrategy<u8>>::Context,
 }
 
@@ -279,7 +286,7 @@ impl Lz77 {
 
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
         let chunks = self.eager(value);
-        Small::encode(&chunks.len(), writer, &mut self.count);
+        chunks.len().encode(writer, &mut self.count);
         for chunk in chunks {
             chunk.encode(writer, self);
             self.shift_chunk(&chunk);
@@ -291,7 +298,7 @@ impl Lz77 {
         &mut self,
         reader: &mut D,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let count = <Small as EncodingStrategy<usize>>::decode(reader, &mut self.count)?;
+        let count = usize::decode(reader, &mut self.count)?;
         let mut out = Vec::with_capacity(5 * count);
         for _ in 0..count {
             let chunk @ Chunk {
@@ -473,9 +480,9 @@ impl Encode for Chunk {
         if *length > 0 {
             Small::encode(back, writer, &mut ctx.back);
             if *back == 0 {
-                Small::encode(offset, writer, &mut ctx.self_offset);
+                offset.encode(writer, &mut ctx.self_offset);
             } else {
-                Small::encode(offset, writer, &mut ctx.offset);
+                offset.encode(writer, &mut ctx.offset);
             }
         }
     }
@@ -488,9 +495,9 @@ impl Encode for Chunk {
         if length > 0 {
             let back = Small::decode(reader, &mut ctx.back)?;
             let offset = if back == 0 {
-                <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.self_offset)?
+                usize::decode(reader, &mut ctx.self_offset)?
             } else {
-                <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.offset)?
+                usize::decode(reader, &mut ctx.offset)?
             };
             Ok(Chunk {
                 literal,
@@ -568,7 +575,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8986 bits, small: 7113 bits"]
+    expect!["normal: 8986 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());
@@ -583,7 +590,7 @@ fn size() {
         .millibits()
         .to_string(),
     );
-    expect!["13000 mb"].assert_eq(
+    expect!["11256 mb"].assert_eq(
         &Chunk {
             literal: Box::new([]),
             back: 0,
@@ -593,27 +600,27 @@ fn size() {
         .millibits()
         .to_string(),
     );
-    expect!["normal: 3 bits, small: 3 bits"].assert_eq(&compare_small_bits(b""));
-    expect!["normal: 11 bits, small: 17 bits"].assert_eq(&compare_small_bits(b"a"));
-    expect!["normal: 17 bits, small: 23 bits"].assert_eq(&compare_small_bits(b"aa"));
-    expect!["normal: 20 bits, small: 26 bits"].assert_eq(&compare_small_bits(b"aaa"));
-    expect!["normal: 24 bits, small: 30 bits"].assert_eq(&compare_small_bits(b"aaaa"));
+    expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(b""));
+    expect!["normal: 11 bits, small: 16 bits"].assert_eq(&compare_small_bits(b"a"));
+    expect!["normal: 17 bits, small: 22 bits"].assert_eq(&compare_small_bits(b"aa"));
+    expect!["normal: 20 bits, small: 25 bits"].assert_eq(&compare_small_bits(b"aaa"));
+    expect!["normal: 24 bits, small: 29 bits"].assert_eq(&compare_small_bits(b"aaaa"));
     expect!["normal: 31 bits, small: 37 bits"].assert_eq(&compare_small_bits(b"aaaaaaaa"));
-    expect!["normal: 36 bits, small: 42 bits"].assert_eq(&compare_small_bits(b"hello"));
-    expect!["normal: 122 bits, small: 116 bits"]
+    expect!["normal: 36 bits, small: 41 bits"].assert_eq(&compare_small_bits(b"hello"));
+    expect!["normal: 122 bits, small: 118 bits"]
         .assert_eq(&compare_small_bits(b"hello world hello wood"));
-    expect!["normal: 127 bits, small: 98 bits"]
+    expect!["normal: 127 bits, small: 100 bits"]
         .assert_eq(&compare_small_bits(b"hello world hello world"));
-    expect!["normal: 412 bits, small: 418 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 412 bits, small: 417 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
     ));
-    expect!["normal: 1539 bits, small: 832 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1539 bits, small: 836 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
     ));
-    expect!["normal: 1609 bits, small: 1001 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1609 bits, small: 1006 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
@@ -632,16 +639,16 @@ fn size() {
     expect!["165201 mb"].assert_eq(&s.millibits().to_string());
     expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
-    expect!["normal: Millibits(14000) (14 bits), small: Millibits(20000) (20 bits)"]
+    expect!["normal: Millibits(14000) (14 bits), small: Millibits(19264) (19 bits)"]
         .assert_eq(&compare_vecs(&[b"h"]));
-    expect!["normal: Millibits(76841) (77 bits), small: Millibits(82841) (83 bits)"]
+    expect!["normal: Millibits(76841) (77 bits), small: Millibits(82105) (82 bits)"]
         .assert_eq(&compare_vecs(&[b"hello world"]));
-    expect!["normal: Millibits(128206) (128 bits), small: Millibits(101770) (102 bits)"]
+    expect!["normal: Millibits(128206) (128 bits), small: Millibits(99082) (99 bits)"]
         .assert_eq(&compare_vecs(&[b"hello world", b"hello world"]));
-    expect!["normal: Millibits(172498) (173 bits), small: Millibits(112584) (113 bits)"].assert_eq(
+    expect!["normal: Millibits(172498) (173 bits), small: Millibits(109043) (109 bits)"].assert_eq(
         &compare_vecs(&[b"hello world", b"hello world", b"hello world"]),
     );
-    expect!["normal: Millibits(262517) (263 bits), small: Millibits(145803) (146 bits)"].assert_eq(
+    expect!["normal: Millibits(262517) (263 bits), small: Millibits(144296) (144 bits)"].assert_eq(
         &compare_vecs(&[
             b"hello world",
             b"hello world",
@@ -649,7 +656,7 @@ fn size() {
             b"hello world hello world",
         ]),
     );
-    expect!["normal: Millibits(496104) (496 bits), small: Millibits(413454) (414 bits)"].assert_eq(
+    expect!["normal: Millibits(496104) (496 bits), small: Millibits(423048) (423 bits)"].assert_eq(
         &compare_vecs(&[
             b"The quick brown fox jumps over the lazy dog.",
             b"The",

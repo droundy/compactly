@@ -1110,6 +1110,26 @@ came with numbers:
     (`char::from_u32` + `push(char)`) — TODO #3's residue, which grows in
     relative importance once #13 lands.
 
+21. **A narrower / faster `Small<usize>`, and narrower Lz77 offsets** — two
+    related follow-ups to the `Small<usize>`→`usize` offset switch (Landed):
+    - *Faster `Small<usize>`.* `Small<usize>`'s bucket-prefix scheme
+      (`AtMost<7>` bucket then per-bucket offset, `usizes.rs`) spends an extra
+      symbol on every value ≥ 64 versus plain `usize`'s direct `U64Compact`.
+      The Lz77 switch dropped `Small<usize>` for that reason; a redesigned
+      `Small<usize>` that keeps the small-value tightness *without* the wasted
+      bucket symbol on large values would let other `Small<usize>` callers get
+      the same win.
+    - *Narrower backing int* — **MEASURED DEAD END 2026-07-21.** Tried `u32`
+      offsets (normal, `Small<u32>`, and a tiny-seeded `U32Compact`) against the
+      `usize` version. All cluster at ~622.4–622.5K / ~41.8B Ans, indistinguishable
+      from `usize` (622421): narrowing `u64`→`u32` reclaims **nothing**, because a
+      ≤ 64 KiB offset uses the same `blbl` depth at either width. The unique size
+      floor (620843) is `Small<usize>`'s bucket prefix — and that tightness IS the
+      extra symbol that makes it slow. So a real ~0.25%-size / ~5%-speed tradeoff,
+      no free lunch from narrowing. The only way to get both is the *faster
+      `Small<usize>`* redesign above (bucket-cheap small values, no wasted symbol
+      on large ones), which is a `Small<usize>` rework, not a type swap.
+
 ## New strategy ideas (compression rate, often also decode speed)
 
 These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
@@ -1147,6 +1167,16 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
+  `Lz77`'s `count`, `offset`, and `self_offset` switched from
+  `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so
+  `Small<usize>` wasted an `AtMost<7>` bucket symbol before recursing into
+  `Small<u64>`; the default `usize` (tiny-seeded `U64Compact`) codes it
+  directly. Quiesced `just-decompress-compressible` (meteorite CSV, 300×):
+  decode **Ans −4.8%** (43.87B→41.77B), **Range −4.2%** (56.84B→54.47B). Size
+  is ~neutral (tiny inputs smaller via `count`; big redundant corpus +0.25%).
+  Follow-ups in TODO #21 (faster `Small<usize>`; `u32` offsets to reclaim the
+  0.25%). Format change (v2). `just-decompress-compressible` bench added.
 - **Default float encoding: integer / decimal / raw behind saturating
   selectors (was TODO #6/#7)** — the v2 default `Encode` for `f64`/`f32`
   classifies each value into three tiers behind two selector bits:
