@@ -979,13 +979,41 @@ came with numbers:
     Elias-delta idea (see "Hierarchical (Elias-delta-style) integer
     encoding" above).
 
-11. **`Compressible` (Lz77) decode** — decode is the wanted target here (encode is
-    deprioritized, see findings). Per `Lz77::decode`:
-    - **Literal bytes dominate.** Each chunk's literal is decoded as
-      `Values<Normal>` — i.e. every literal byte is a `u8` *tree* decode (8 dependent
-      bits), the same per-byte tree walk as #2. For low-redundancy strings, decode
-      time is mostly literals, so #2 (register-resident tree decode) is the main
-      lever for `Compressible` decode too.
+11. ~~**`Compressible` (Lz77) decode**~~ — **SKIP (decided 2026-07-21).** The
+    profile below shows the malloc/copy micro-opts this item lists are each
+    ≤ ~5% (near-zero on redundant data); the real cost is offset/back
+    `Small<usize>` decode (57%), whose hot inner loop is the `Small<u64>` /
+    `U64Compact` recursion that **#17** already targets. So the Lz77-decode win
+    is pursued through #17, not here. Kept for the record:
+
+    Decode is the wanted target here (encode is
+    deprioritized, see findings). **PROFILED 2026-07-21** with a new
+    `just-decompress-compressible` bench (the meteorite CSV, a redundant 3.5 MB
+    corpus, encoded 5.66× as one `Encoded<Vec<u8>, Compressible>`, decoded 300×
+    on `Ans`, quiesced). Self-time breakdown — the stale "literal bytes
+    dominate" premise is **wrong for redundant data**:
+
+    | cost | self-time |
+    |------|-----------|
+    | `Small<usize>::decode` (back/offset metadata) | **40%** |
+    | `Small<u8>::decode` (length) | 17% |
+    | `Lz77::decode` (the loop: extends, match copy, `out.clone`) | 14% |
+    | `from_slot_speculating` (all tree-walk coding, incl. literals) | 16% |
+    | `Box<[u8]>`/`Values<Normal>` literal decode | 4% |
+    | `memmove` (the extends) | 1.7% |
+    | `malloc`/`free` (temp `Box` + `out.clone`) | ~1.8% |
+
+    So on redundant data **back/offset `Small<usize>` decode dominates (57%)**,
+    because a back-reference `offset` is usually ≥ 64 and takes the bucket-7 path
+    that recurses into a *full* `Small<u64>` hierarchical decode — one per chunk.
+    The malloc/copy micro-opts below are each ≤ ~5% (some near-zero on this
+    corpus, where matches are `back != 0` and already use `extend_from_slice`).
+    The real Lz77-decode lever is **cheaper offset/back coding** (a format
+    change: a dedicated bounded/bucketed offset symbol, cf. #17/#18), not the
+    micro-opts. `#[compactly(Compressible)]`'s "literal bytes dominate" case
+    only holds for *low*-redundancy data, where the per-byte `u8` tree walk
+    (#2, measured marginal) is the cost — i.e. neither regime has a cheap win.
+    Per `Lz77::decode`, the micro-opts (small, safe, do them only opportunistically):
     - **`push_old(out.clone())` runs on decode** (`bytes.rs:316`): it clones the
       whole decoded output into the `old` deque *and* loops setting `old_filter`
       bits — but the filter is only read by encode-side matching, so on decode that

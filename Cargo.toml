@@ -125,3 +125,7 @@ required-features = ["v2"]
 name = "ans-encode-phases"
 required-features = ["v2"]
 
+
+[[bin]]
+name = "just-decompress-compressible"
+required-features = ["v2"]
