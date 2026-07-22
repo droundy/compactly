@@ -130,7 +130,12 @@ fn default_context_is_fifty_percent() {
 }
 
 /// A place where we can put bits where we have estimated the probabilities.
-pub trait EntropyCoder: Default {
+///
+/// `Default` is not a supertrait: a streaming coder such as
+/// [`RangeEncoder`](arith::RangeEncoder) owns its output sink and cannot be
+/// `Default`. The in-memory [`Self::encode`] constructor requires `Default`
+/// per-method instead. `Sized` is kept so the symbol walks can pass `self`.
+pub trait EntropyCoder: Sized {
     /// Encode `N` bits, each with its own independent adaptive context —
     /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
     /// context's probability and adapts it, so encode- and decode-side
@@ -154,7 +159,10 @@ pub trait EntropyCoder: Default {
     }
 
     /// Encode the `value` into a `Vec<u8>` of bytes.`
-    fn encode<T: Encode>(value: &T) -> Self {
+    fn encode<T: Encode>(value: &T) -> Self
+    where
+        Self: Default,
+    {
         let mut writer = Self::default();
         value.encode(&mut writer, &mut T::Context::default());
         writer
@@ -287,6 +295,30 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
     let mut reader = arith::Decoder::new(bytes);
     T::decode(&mut reader, &mut T::Context::default()).ok()
+}
+
+/// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
+/// as they are produced rather than buffering the whole compressed output. The
+/// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds
+/// peak memory, which matters when the value is a large fraction of RAM.
+/// `writer` is wrapped in a [`BufWriter`](std::io::BufWriter) internally.
+pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io::Result<()> {
+    let mut encoder = arith::RangeEncoder::new(std::io::BufWriter::new(writer));
+    value.encode(&mut encoder, &mut T::Context::default());
+    let buffered = encoder.finish()?;
+    // Surface a deferred flush error from the BufWriter, if any.
+    buffered.into_inner().map_err(|e| e.into_error())?;
+    Ok(())
+}
+
+/// Decode a value straight from a [`Read`](std::io::Read), pulling bytes on
+/// demand rather than requiring the whole compressed input in memory. Accepts
+/// the same bytes [`encode`]/[`encode_to`] produce. `reader` is wrapped in a
+/// [`BufReader`](std::io::BufReader) internally.
+pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
+    let mut decoder = arith::RangeDecoder::new(std::io::BufReader::new(reader));
+    let value = T::decode(&mut decoder, &mut T::Context::default())?;
+    decoder.into_result(value)
 }
 
 /// An encoding strategy for type `T`.

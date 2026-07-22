@@ -395,6 +395,134 @@ impl From<Range> for Vec<u8> {
     }
 }
 
+/// Streaming range encoder: the same coding and delay-interleave splice as
+/// [`Range`], but settled bytes are written to `W` as they emerge, so peak
+/// memory is bounded rather than the whole `Vec`. Produces **byte-identical**
+/// output to [`Range`] for the same value (enforced by
+/// `streaming_encode_matches_in_memory`). IO errors are latched and surfaced by
+/// [`RangeEncoder::finish`], keeping the infallible [`EntropyCoder`] hot path
+/// branch-free.
+pub struct RangeEncoder<W: std::io::Write> {
+    writer: W,
+    state: ArithState,
+    /// Count of entropy bytes written (excludes spliced runs) — schedules the
+    /// `W_DELAY` splice, exactly as [`Range::entropy_written`].
+    entropy_written: usize,
+    /// Ring of not-yet-spliced incompressible runs, identical scheme to
+    /// [`Range::withheld`].
+    withheld: [Vec<u8>; W_DELAY],
+    error: Option<std::io::Error>,
+}
+
+impl<W: std::io::Write> RangeEncoder<W> {
+    pub fn new(writer: W) -> Self {
+        Self {
+            writer,
+            state: ArithState::default(),
+            entropy_written: 0,
+            withheld: Default::default(),
+            error: None,
+        }
+    }
+
+    #[inline]
+    fn write_out(&mut self, bytes: &[u8]) {
+        if self.error.is_none() {
+            if let Err(e) = self.writer.write_all(bytes) {
+                self.error = Some(e);
+            }
+        }
+    }
+
+    /// The streaming twin of [`Range::push_entropy`]: write settled entropy
+    /// bytes, splicing each withheld run in as its target byte is written.
+    #[inline]
+    fn push_entropy(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_out(&[b]);
+            self.entropy_written += 1;
+            let slot = self.entropy_written % W_DELAY;
+            // Splice this slot's withheld run (a no-op write when empty) and
+            // clear it for reuse, matching `Range::push_entropy`. `write_all`
+            // fast-returns on an empty slice, so no guard is needed; the write
+            // is inlined (rather than `write_out`) to keep the `writer`,
+            // `error`, and `withheld` borrows disjoint.
+            if self.error.is_none() {
+                if let Err(e) = self.writer.write_all(&self.withheld[slot]) {
+                    self.error = Some(e);
+                }
+            }
+            self.withheld[slot].clear();
+        }
+    }
+
+    /// Finish encoding: append the coder's final byte and flush any tail runs
+    /// (the streaming twin of [`Range::into_vec`]), then return the sink or the
+    /// latched IO error.
+    pub fn finish(mut self) -> std::io::Result<W> {
+        let last = self.state.last_byte();
+        self.push_entropy(&[last]);
+        let mut remaining = self.withheld.iter().filter(|r| !r.is_empty()).count();
+        while remaining > 0 {
+            self.write_out(&[0]);
+            self.entropy_written += 1;
+            let slot = self.entropy_written % W_DELAY;
+            if !self.withheld[slot].is_empty() {
+                let run = std::mem::take(&mut self.withheld[slot]);
+                self.write_out(&run);
+                remaining -= 1;
+            }
+        }
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(self.writer),
+        }
+    }
+}
+
+impl<W: std::io::Write> EntropyCoder for RangeEncoder<W> {
+    #[inline]
+    fn encode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+        bits: [bool; N],
+    ) {
+        for (value, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
+            let ready = self.state.encode(ctx.probability(), value);
+            self.push_entropy(&ready);
+            *ctx = ctx.adapt(value);
+        }
+    }
+
+    #[inline]
+    fn encode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut AtMostContext<MAX>,
+        value: AtMost<MAX>,
+    ) {
+        walks::encode_symbol_or_bitwise(self, ctx, value)
+    }
+
+    #[inline]
+    fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        let slot = self.entropy_written % W_DELAY;
+        self.withheld[slot].extend_from_slice(bytes);
+    }
+}
+
+impl<W: std::io::Write> SymbolCoder for RangeEncoder<W> {
+    #[inline]
+    fn encode_symbol(&mut self, range: SymbolRange) {
+        while self.state.clamp_for_symbol() {
+            let ready = self.state.ready_bytes();
+            self.push_entropy(&ready);
+        }
+        self.state.narrow_symbol(range);
+        let ready = self.state.ready_bytes();
+        self.push_entropy(&ready);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder<'a> {
     /// The single flat delay-interleave stream: entropy bytes with each
@@ -537,6 +665,123 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         bytes.copy_from_slice(b);
         self.bytes = rest;
         Ok(())
+    }
+}
+
+/// Read one byte from `reader`; return 0 at a clean EOF (matching the slice
+/// decoder's zero-padding past the end), retry on `Interrupted`, and latch any
+/// other error into `error` (returning 0 so decoding can run to a validated
+/// stop rather than panicking mid-stream).
+#[inline]
+fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> u8 {
+    let mut buf = [0u8; 1];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => return 0,
+            Ok(_) => return buf[0],
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                if error.is_none() {
+                    *error = Some(e);
+                }
+                return 0;
+            }
+        }
+    }
+}
+
+/// Streaming range decoder: pulls bytes from `R` on demand rather than indexing
+/// a slice, so decoding a large value need not hold the whole compressed input
+/// in memory. Reads the same bytes [`Range`]/[`RangeEncoder`] produce and
+/// recovers identical values (the decode arithmetic is the slice decoder's; only
+/// the byte source differs). IO errors are latched and surfaced by
+/// [`RangeDecoder::into_result`]; a clean EOF yields zero bytes, which the
+/// higher-level `Encode::decode` validation catches.
+pub struct RangeDecoder<R: std::io::Read> {
+    reader: R,
+    state: ArithState,
+    value: u64,
+    error: Option<std::io::Error>,
+}
+
+impl<R: std::io::Read> RangeDecoder<R> {
+    pub fn new(mut reader: R) -> Self {
+        // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
+        let mut error = None;
+        let mut value = 0u64;
+        for _ in 0..8 {
+            value = (value << 8) + read_one_byte(&mut reader, &mut error) as u64;
+        }
+        Self {
+            reader,
+            state: ArithState::default(),
+            value,
+            error,
+        }
+    }
+
+    /// Pull `n` entropy bytes into the window.
+    #[inline]
+    fn refill(&mut self, n: usize) {
+        for _ in 0..n {
+            let byte = read_one_byte(&mut self.reader, &mut self.error);
+            self.value = (self.value << 8) + byte as u64;
+        }
+    }
+
+    /// Return `value` unless a read error was latched during decoding.
+    pub fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(value),
+        }
+    }
+}
+
+impl<R: std::io::Read> SymbolDecoder for RangeDecoder<R> {
+    const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+
+    #[inline]
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
+        while self.state.clamp_for_symbol() {
+            let n = self.state.consume_decoded_bytes();
+            self.refill(n);
+        }
+        let slot = self.state.symbol_slot(self.value);
+        let (range, decoded) = walk(slot);
+        self.state.narrow_symbol(range);
+        let n = self.state.consume_decoded_bytes();
+        self.refill(n);
+        decoded
+    }
+}
+
+impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
+    #[inline]
+    fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
+        walks::decode_symbol_or_bitwise(self, ctx)
+    }
+
+    #[inline]
+    fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> [bool; N] {
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let (out, sz) = self.state.decode(context.probability(), self.value);
+            self.refill(sz);
+            *context = context.adapt(out);
+            *b = out;
+        }
+        bits
+    }
+
+    #[inline]
+    fn decode_incompressible_bytes(&mut self, out: &mut [u8]) -> Result<(), std::io::Error> {
+        // By the W_DELAY splice the run sits at the reader cursor, so read it
+        // straight off. `read_exact` errors on a truncated stream.
+        self.reader.read_exact(out)
     }
 }
 
@@ -822,6 +1067,54 @@ mod tests {
             let encoded = super::super::encode(&items);
             let decoded: Vec<Item> = super::super::decode(&encoded).unwrap();
             assert_eq!(decoded, items, "trial {trial}");
+        }
+    }
+
+    /// The streaming and in-memory paths must be freely mix-and-matchable: the
+    /// byte stream is identical however it was produced, and either decoder
+    /// reads either encoder's output. Checks all four combinations on the same
+    /// adversarial coded+incompressible data as `delay_interleave...`.
+    #[test]
+    fn streaming_matches_in_memory() {
+        use crate::{Encoded, Incompressible};
+        type Item = (u8, Encoded<Vec<u8>, Incompressible>);
+        let mut x = 0xfeed_face_dead_beefu64;
+        let mut rng = || {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            x
+        };
+        for trial in 0..300u64 {
+            let n = (rng() % 60) as usize;
+            let mut items: Vec<Item> = Vec::new();
+            for i in 0..n {
+                let len = if trial % 3 == 0 {
+                    i % 21
+                } else {
+                    (rng() % 21) as usize
+                };
+                let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                items.push((rng() as u8, Encoded::new(run)));
+            }
+            if trial % 2 == 0 {
+                let len = (trial as usize % 12) + 1;
+                let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                items.push((rng() as u8, Encoded::new(run)));
+            }
+
+            let in_memory = super::super::encode(&items);
+
+            // encode_to (streaming) into a Vec must be byte-identical to encode.
+            let mut streamed = Vec::new();
+            super::super::encode_to(&items, &mut streamed).unwrap();
+            assert_eq!(streamed, in_memory, "trial {trial}: encode_to != encode");
+
+            // Every reader/writer pairing round-trips:
+            let d1: Vec<Item> = super::super::decode_from(in_memory.as_slice()).unwrap();
+            assert_eq!(d1, items, "trial {trial}: decode_from(encode)");
+            let d2: Vec<Item> = super::super::decode(&streamed).unwrap();
+            assert_eq!(d2, items, "trial {trial}: decode(encode_to)");
+            let d3: Vec<Item> = super::super::decode_from(streamed.as_slice()).unwrap();
+            assert_eq!(d3, items, "trial {trial}: decode_from(encode_to)");
         }
     }
 }
