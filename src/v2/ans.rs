@@ -14,8 +14,29 @@ impl From<Probability> for State {
     }
 }
 
-const MAGIC_HAS_INCOMPRESSIBLE: u8 = 137;
-const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
+/// Append `v` as an unsigned LEB128 varint (chunk framing).
+fn push_varint(out: &mut Vec<u8>, mut v: usize) {
+    while v >= 0x80 {
+        out.push((v as u8) | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+/// Read an unsigned LEB128 varint from the front of `bytes`, advancing it.
+fn read_varint(bytes: &mut &[u8]) -> usize {
+    let mut v = 0usize;
+    let mut shift = 0;
+    while let Some((&b, rest)) = bytes.split_first() {
+        *bytes = rest;
+        v |= ((b & 0x7f) as usize) << shift;
+        if b & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+    }
+    v
+}
 
 /// ANS entropy encoding.
 ///
@@ -24,7 +45,7 @@ const MAGIC_LACKS_INCOMPRESSIBLE: u8 = 173;
 /// # Example
 /// ```
 /// let encoded: Vec<u8> = compactly::v2::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
-/// assert_eq!(encoded.len(), 6);
+/// assert_eq!(encoded.len(), 9);
 /// assert_eq!(compactly::v2::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -157,16 +178,26 @@ impl Ans {
         }
         checksum
     }
-    /// Convert the encoded value in to a `Vec` of bytes.
+    /// Convert the encoded value into a `Vec` of bytes.
+    ///
+    /// The stream is a sequence of chunks; the in-memory path emits a single
+    /// **final** chunk (marked by an op-count of 0, meaning "decode until the
+    /// value is complete"). A chunk is
+    /// `[op-count][entropy-len][incompressible-len][entropy][incompressible]`,
+    /// all varints; `entropy` is the chunk's self-contained rANS stream (state
+    /// then body, in decode order) and `incompressible` its raw bytes. Streaming
+    /// will emit the same layout with real op-counts on the non-final chunks.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
+        // Reverse-encode the ops into the rANS entropy stream, then reverse so
+        // the decoder reads it front-to-back (state first, then body).
         let mut coder = Encoder::new();
-        let mut out = Vec::new();
+        let mut entropy = Vec::new();
         for op in self.ops.into_iter().rev() {
             match op {
                 Op::Bit(b, probability) => {
                     if let Some(byte) = coder.encode(b, probability) {
-                        out.push(byte);
+                        entropy.push(byte);
                     }
                 }
                 Op::Symbol {
@@ -177,37 +208,19 @@ impl Ans {
                         .state
                         .encode_symbol(start as State, width_minus_1 as State + 1);
                     coder.state = state;
-                    out.extend(bytes);
+                    entropy.extend(bytes);
                 }
             }
         }
-        out.extend(coder.finish_encoding());
+        entropy.extend(coder.finish_encoding());
+        entropy.reverse();
 
-        if !self.incompressible_bytes.is_empty() {
-            let mut len = self.incompressible_bytes.len();
-            // This is a funny tweak on LEB128.  We encode the length as 7-bit
-            // bytes that are encoded little-endian, but then reversed and
-            // decoded big-endian.  The "final" byte is indicated by the most
-            // significant bit being set.
-            out.push((len & 127) as u8 | 128);
-            len >>= 7;
-            while len > 0 {
-                out.push((len & 127) as u8);
-                len >>= 7;
-            }
-            out.push(MAGIC_HAS_INCOMPRESSIBLE);
-            out.reverse();
-            // Add the incompressible bytes in reverse at the end of the output, so
-            // that we can read them back without knowing how many incompressible
-            // bytes there are.
-            out.extend_from_slice(&self.incompressible_bytes);
-        } else {
-            let last = out.last().copied();
-            if last == Some(MAGIC_HAS_INCOMPRESSIBLE) || last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
-                out.push(MAGIC_LACKS_INCOMPRESSIBLE);
-            }
-            out.reverse();
-        }
+        let mut out = Vec::with_capacity(entropy.len() + self.incompressible_bytes.len() + 6);
+        push_varint(&mut out, 0); // op-count 0: the single, final chunk
+        push_varint(&mut out, entropy.len());
+        push_varint(&mut out, self.incompressible_bytes.len());
+        out.extend_from_slice(&entropy);
+        out.extend_from_slice(&self.incompressible_bytes);
         out
     }
 }
@@ -260,42 +273,29 @@ pub struct Decoder<'a> {
 
 impl<'a> From<&'a [u8]> for Decoder<'a> {
     #[inline(always)]
-    fn from(bytes: &'a [u8]) -> Self {
+    fn from(mut bytes: &'a [u8]) -> Self {
+        // Parse the (single, final) chunk frame; see `Ans::into_vec`.
+        let _op_count = read_varint(&mut bytes); // 0 for the final chunk
+        let entropy_len = read_varint(&mut bytes);
+        let incompressible_len = read_varint(&mut bytes);
+        let (entropy, rest) = bytes.split_at(entropy_len.min(bytes.len()));
+        let incompressible = &rest[..incompressible_len.min(rest.len())];
+
         let mut state: State = 0;
-        let first = bytes.first().copied();
-        let (bytes, incompressible) = if first == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
-            (&bytes[1..], [].as_slice())
-        } else if first == Some(MAGIC_HAS_INCOMPRESSIBLE) {
-            let mut bytes = &bytes[1..];
-            let mut incompressible_len = 0;
-            while let Some((&b, rest)) = bytes.split_first() {
-                bytes = rest;
-                incompressible_len = (incompressible_len << 7) | (b & 127) as usize;
-                if b & 127 != b {
-                    break;
-                }
-            }
-            bytes.split_at(bytes.len() - incompressible_len)
-        } else {
-            (bytes, [].as_slice())
-        };
-        if bytes.len() < STATE_BYTES {
-            for &b in bytes.iter() {
+        if entropy.len() < STATE_BYTES {
+            for &b in entropy.iter() {
                 state = state << 8 | State::from(b);
             }
-            let state = StateOnly { state };
             Self {
-                state,
+                state: StateOnly { state },
                 bytes: &[],
                 incompressible,
             }
         } else {
-            let state = State::from_be_bytes(bytes[0..STATE_BYTES].try_into().unwrap());
-            let bytes = &bytes[STATE_BYTES..];
-            let state = StateOnly { state };
+            let state = State::from_be_bytes(entropy[0..STATE_BYTES].try_into().unwrap());
             Self {
-                state,
-                bytes,
+                state: StateOnly { state },
+                bytes: &entropy[STATE_BYTES..],
                 incompressible,
             }
         }
@@ -601,7 +601,7 @@ fn ans_is_reasonable() {
     let data = vec![true; 1024 * 8];
     assert_eq!(super::Range::encode(&data).len(), 10);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
-    assert_eq!(Ans::encode(&data).len(), 18);
+    assert_eq!(Ans::encode(&data).len(), 19);
 }
 
 #[cfg(test)]

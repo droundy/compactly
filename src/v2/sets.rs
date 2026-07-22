@@ -275,7 +275,7 @@ fn btreeset() {
     expect!["159"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
         2_000_000_u64..2_002_048
     )));
-    expect!["159"].assert_eq(&encoded_bits!(
+    expect!["160"].assert_eq(&encoded_bits!(
         super::Ans,
         BTreeSet::from_iter(2_000_000_u64..2_002_048)
     ));
