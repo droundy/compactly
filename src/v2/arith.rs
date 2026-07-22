@@ -236,7 +236,11 @@ impl IntoIterator for Bytes {
 /// decode logic reaches that field. See plans/streaming-io-api.md.
 const W_DELAY: usize = 8;
 
-/// Use range coding to encode bits.
+/// The v2 range coder: arithmetic/range coding, with incompressible bytes
+/// delay-interleaved into a single flat stream. It is the coder behind
+/// [`encode`](super::encode)/[`decode`](super::decode) and
+/// [`encode_to`](super::encode_to)/[`decode_from`](super::decode_from), which
+/// produce identical bytes whether the value is buffered whole or streamed.
 ///
 /// # Example
 /// ```
@@ -244,11 +248,6 @@ const W_DELAY: usize = 8;
 /// assert_eq!(encoded.len(), 4);
 /// assert_eq!(compactly::v2::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
-/// The in-memory range coder for the v2 format: arithmetic/range coding, with
-/// incompressible bytes delay-interleaved into a single flat stream. Used by
-/// [`encode`](super::encode)/[`decode`](super::decode);
-/// [`encode_to`](super::encode_to)/[`decode_from`](super::decode_from) stream
-/// the identical bytes without buffering the whole value.
 pub struct Range(RangeEncoder<Vec<u8>>);
 
 impl Default for Range {
