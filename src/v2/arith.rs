@@ -244,11 +244,11 @@ const W_DELAY: usize = 8;
 /// assert_eq!(encoded.len(), 4);
 /// assert_eq!(compactly::v2::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
-/// The in-memory range coder: a [`RangeEncoder`] whose sink is a `Vec<u8>`
-/// (which implements [`Write`](std::io::Write) infallibly). All the coding and
-/// delay-interleave logic lives in `RangeEncoder`; `Range` is a thin wrapper
-/// that adds the `Vec`-returning [`into_vec`](Range::into_vec) plus the decode
-/// helpers, so the in-memory and streaming paths are literally the same code.
+/// The in-memory range coder for the v2 format: arithmetic/range coding, with
+/// incompressible bytes delay-interleaved into a single flat stream. Used by
+/// [`encode`](super::encode)/[`decode`](super::decode);
+/// [`encode_to`](super::encode_to)/[`decode_from`](super::decode_from) stream
+/// the identical bytes without buffering the whole value.
 pub struct Range(RangeEncoder<Vec<u8>>);
 
 impl Default for Range {
@@ -326,8 +326,7 @@ impl Range {
     ) -> Vec<super::AtMost<MAX>> {
         walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::new(bytes), n)
     }
-    /// Finish encoding and return the bytes. Delegates to
-    /// [`RangeEncoder::finish`] over the `Vec` sink, which never errors.
+    /// Finish encoding and return the bytes.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")
@@ -346,7 +345,7 @@ impl From<Range> for Vec<u8> {
 /// `streaming_encode_matches_in_memory`). IO errors are latched and surfaced by
 /// [`RangeEncoder::finish`], keeping the infallible [`EntropyCoder`] hot path
 /// branch-free.
-pub struct RangeEncoder<W: std::io::Write> {
+pub(crate) struct RangeEncoder<W: std::io::Write> {
     writer: W,
     state: ArithState,
     /// Count of entropy bytes written (excludes spliced runs) — schedules the
@@ -359,7 +358,7 @@ pub struct RangeEncoder<W: std::io::Write> {
 }
 
 impl<W: std::io::Write> RangeEncoder<W> {
-    pub fn new(writer: W) -> Self {
+    pub(crate) fn new(writer: W) -> Self {
         Self {
             writer,
             state: ArithState::default(),
@@ -403,7 +402,7 @@ impl<W: std::io::Write> RangeEncoder<W> {
     /// Finish encoding: append the coder's final byte and flush any tail runs
     /// (the streaming twin of [`Range::into_vec`]), then return the sink or the
     /// latched IO error.
-    pub fn finish(mut self) -> std::io::Result<W> {
+    pub(crate) fn finish(mut self) -> std::io::Result<W> {
         let last = self.state.last_byte();
         self.push_entropy(&[last]);
         let mut remaining = self.withheld.iter().filter(|r| !r.is_empty()).count();
@@ -641,7 +640,7 @@ fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::E
 /// the byte source differs). IO errors are latched and surfaced by
 /// [`RangeDecoder::into_result`]; a clean EOF yields zero bytes, which the
 /// higher-level `Encode::decode` validation catches.
-pub struct RangeDecoder<R: std::io::Read> {
+pub(crate) struct RangeDecoder<R: std::io::Read> {
     reader: R,
     state: ArithState,
     value: u64,
@@ -649,7 +648,7 @@ pub struct RangeDecoder<R: std::io::Read> {
 }
 
 impl<R: std::io::Read> RangeDecoder<R> {
-    pub fn new(mut reader: R) -> Self {
+    pub(crate) fn new(mut reader: R) -> Self {
         // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
         let mut error = None;
         let mut value = 0u64;
@@ -674,7 +673,7 @@ impl<R: std::io::Read> RangeDecoder<R> {
     }
 
     /// Return `value` unless a read error was latched during decoding.
-    pub fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
+    pub(crate) fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
         match self.error.take() {
             Some(e) => Err(e),
             None => Ok(value),

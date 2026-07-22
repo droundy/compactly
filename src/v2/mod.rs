@@ -131,10 +131,10 @@ fn default_context_is_fifty_percent() {
 
 /// A place where we can put bits where we have estimated the probabilities.
 ///
-/// `Default` is not a supertrait: a streaming coder such as
-/// [`RangeEncoder`](arith::RangeEncoder) owns its output sink and cannot be
-/// `Default`. The in-memory [`Self::encode`] constructor requires `Default`
-/// per-method instead. `Sized` is kept so the symbol walks can pass `self`.
+/// `Default` is not a supertrait: a coder that owns an output sink (as the
+/// streaming encoder behind [`encode_to`] does) cannot be `Default`. The
+/// in-memory [`Self::encode`] constructor requires `Default` per-method
+/// instead. `Sized` is kept so the symbol walks can pass `self`.
 pub trait EntropyCoder: Sized {
     /// Encode `N` bits, each with its own independent adaptive context —
     /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
