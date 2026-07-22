@@ -48,7 +48,7 @@ fn pair_tuple() {
     assert_bits!(Tuple(0, false), expect!["v1: 4 bits, v2: 2 bits"]);
     assert_bits!(Tuple(1, true), expect!["v1: 4 bits, v2: 3 bits"]);
     assert_bits!(Tuple(2, false), expect!["v1: 4 bits, v2: 5 bits"]);
-    assert_bits!(Tuple(2048, false), expect!["v1: 18 bits, v2: 19 bits"]);
+    assert_bits!(Tuple(2048, false), expect!["v1: 18 bits, v2: 20 bits"]);
 }
 
 #[test]

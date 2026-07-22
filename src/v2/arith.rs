@@ -58,19 +58,9 @@ impl ArithState {
 
     #[inline]
     pub fn last_byte(self) -> u8 {
-        let hi = (self.hi >> 56) as u8;
-        let lo = (self.lo >> 56) as u8;
-        // when convenient, we'd like to avoid ending with a magic byte.
-        if hi == MAGIC_HAS_INCOMPRESSIBLE[1] || hi == MAGIC_LACKS_INCOMPRESSIBLE[1] {
-            if lo < hi && lo + 1 < hi {
-                // being cautious unless lo == hi == 255
-                lo + 1
-            } else {
-                hi
-            }
-        } else {
-            hi
-        }
+        // The flat delay-interleave stream has no trailer/magic, so the final
+        // byte no longer needs to dodge a magic value.
+        (self.hi >> 56) as u8
     }
 
     /// Returns a set of bytes to be written out.
@@ -237,6 +227,15 @@ impl IntoIterator for Bytes {
     }
 }
 
+/// Delay-interleave constant: the decoder's window `value` is a `u64` filled
+/// from the first 8 stream bytes and pulled one byte per renorm in lockstep
+/// with the encoder, so the decoder's cumulative pull-count stays exactly this
+/// many bytes ahead of the encoder's emit-count. An incompressible run is
+/// therefore spliced into the stream `W_DELAY` entropy bytes after the point it
+/// was produced, so it lands exactly at the decoder's read cursor when the
+/// decode logic reaches that field. See plans/streaming-io-api.md.
+const W_DELAY: usize = 8;
+
 /// Use range coding to encode bits.
 ///
 /// # Example
@@ -247,8 +246,14 @@ impl IntoIterator for Bytes {
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Range {
+    /// Pure entropy bytes, emitted forward as the coder settles them (the coder
+    /// is carry-free, so a settled byte never changes).
     bytes: Vec<u8>,
-    incompressible_bytes: Vec<u8>,
+    /// Incompressible runs awaiting interleaving, each tagged with the entropy
+    /// offset it must follow: `bytes.len() + W_DELAY` at the moment of the call.
+    /// Targets are non-decreasing (entropy only grows). The in-memory path
+    /// splices them in `into_vec`; a streaming encoder would splice as it goes.
+    pending_incompressible: Vec<(usize, Vec<u8>)>,
     state: ArithState,
 }
 
@@ -277,7 +282,9 @@ impl EntropyCoder for Range {
 
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
-        self.incompressible_bytes.extend_from_slice(bytes);
+        // Record the run to be spliced `W_DELAY` entropy bytes from here.
+        self.pending_incompressible
+            .push((self.bytes.len() + W_DELAY, bytes.to_vec()));
     }
 }
 
@@ -330,34 +337,44 @@ impl Range {
     ) -> Vec<super::AtMost<MAX>> {
         walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::new(bytes), n)
     }
-    /// Convert the encoded value in to a `Vec` of bytes.
+    /// Convert the encoded value into a `Vec` of bytes, splicing each
+    /// incompressible run into the entropy stream at its delayed offset
+    /// (delay-interleave). The result is a single flat stream — no trailer, no
+    /// magic — that the decoder reads by pulling entropy into its window and
+    /// reading raw runs straight off the cursor at each incompressible field.
     #[inline]
     pub fn into_vec(mut self) -> Vec<u8> {
         self.bytes.push(self.state.last_byte());
-        if self.incompressible_bytes.is_empty() {
-            if self.bytes.last_chunk().copied() == Some(MAGIC_HAS_INCOMPRESSIBLE)
-                || self.bytes.last_chunk().copied() == Some(MAGIC_LACKS_INCOMPRESSIBLE)
-            {
-                self.bytes.extend_from_slice(&MAGIC_LACKS_INCOMPRESSIBLE);
-            }
-            self.bytes
-        } else {
-            let mut len = self.incompressible_bytes.len();
-            self.incompressible_bytes.extend_from_slice(&self.bytes);
-            // This is a funny tweak on LEB128.  We encode the length as 7-bit
-            // bytes that are encoded little-endian, but then we decode it in
-            // reversed so it is decoded big-endian.  The "final" byte is
-            // indicated by the most significant bit being set.
-            self.incompressible_bytes.push((len & 127) as u8 | 128);
-            len >>= 7;
-            while len > 0 {
-                self.incompressible_bytes.push((len & 127) as u8);
-                len >>= 7;
-            }
-            self.incompressible_bytes
-                .extend_from_slice(&MAGIC_HAS_INCOMPRESSIBLE);
-            self.incompressible_bytes
+        if self.pending_incompressible.is_empty() {
+            return self.bytes;
         }
+        // A run whose target lands past the last real entropy byte (a "tail"
+        // run, within W_DELAY of the end) needs that many bytes of read-ahead
+        // cover so the decoder's window fills with padding, not raw bytes. The
+        // decoder tolerates zero-padding past the true end exactly as today.
+        let max_target = self
+            .pending_incompressible
+            .iter()
+            .map(|(t, _)| *t)
+            .max()
+            .unwrap_or(0);
+        if max_target > self.bytes.len() {
+            self.bytes.resize(max_target, 0);
+        }
+        let raw_total: usize = self
+            .pending_incompressible
+            .iter()
+            .map(|(_, r)| r.len())
+            .sum();
+        let mut out = Vec::with_capacity(self.bytes.len() + raw_total);
+        let mut pos = 0;
+        for (target, raw) in std::mem::take(&mut self.pending_incompressible) {
+            out.extend_from_slice(&self.bytes[pos..target]);
+            pos = target;
+            out.extend_from_slice(&raw);
+        }
+        out.extend_from_slice(&self.bytes[pos..]);
+        out
     }
 }
 impl From<Range> for Vec<u8> {
@@ -368,36 +385,18 @@ impl From<Range> for Vec<u8> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder<'a> {
+    /// The single flat delay-interleave stream: entropy bytes with each
+    /// incompressible run spliced in. Entropy `pull`s and
+    /// `decode_incompressible_bytes` both advance this one cursor; the W_DELAY
+    /// splice guarantees a run sits exactly at the cursor when its field is
+    /// reached.
     bytes: &'a [u8],
     state: ArithState,
     value: u64,
-    /// The incompressible set of bytes.
-    incompressible: &'a [u8],
 }
-
-const MAGIC_HAS_INCOMPRESSIBLE: [u8; 2] = *b"Ya";
-const MAGIC_LACKS_INCOMPRESSIBLE: [u8; 2] = *b"No";
 
 impl<'a> Decoder<'a> {
     pub fn new(bytes: &'a [u8]) -> Self {
-        let last = bytes.last_chunk().copied();
-        let (bytes, incompressible) = if last == Some(MAGIC_LACKS_INCOMPRESSIBLE) {
-            (&bytes[..bytes.len() - 2], [].as_slice())
-        } else if last == Some(MAGIC_HAS_INCOMPRESSIBLE) {
-            let mut bytes = &bytes[..bytes.len() - 2];
-            let mut incompressible_len = 0;
-            while let Some((&b, rest)) = bytes.split_last() {
-                bytes = rest;
-                incompressible_len = (incompressible_len << 7) | (b & 127) as usize;
-                if b & 127 != b {
-                    break;
-                }
-            }
-            let (incompressible, compressed) = bytes.split_at(incompressible_len);
-            (compressed, incompressible)
-        } else {
-            (bytes, [].as_slice())
-        };
         let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
             (u64::from_be_bytes(first), rest)
         } else {
@@ -409,7 +408,6 @@ impl<'a> Decoder<'a> {
             bytes,
             state: ArithState::default(),
             value,
-            incompressible,
         }
     }
 }
@@ -513,16 +511,19 @@ impl<'a> EntropyDecoder for Decoder<'a> {
 
     #[inline]
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
-        if self.incompressible.len() < bytes.len() {
+        // By the W_DELAY splice, the run sits at the cursor right now: the
+        // entropy `pull`s that fill the window read exactly W_DELAY bytes ahead,
+        // so the cursor lands on this run's first byte. Read it straight off.
+        if self.bytes.len() < bytes.len() {
             return Err(std::io::Error::other(format!(
                 "insufficient incompressible bytes: {} < {}",
-                self.incompressible.len(),
+                self.bytes.len(),
                 bytes.len()
             )));
         }
-        let (b, rest) = self.incompressible.split_at(bytes.len());
+        let (b, rest) = self.bytes.split_at(bytes.len());
         bytes.copy_from_slice(b);
-        self.incompressible = rest;
+        self.bytes = rest;
         Ok(())
     }
 }
@@ -768,6 +769,47 @@ mod tests {
                 );
                 assert_eq!(decoded, bit);
             }
+        }
+    }
+
+    /// Adversarial round-trip for the delay-interleave splice (`W_DELAY`):
+    /// coded values interleaved with incompressible runs of every length
+    /// straddling `W_DELAY`, consecutive short runs, and runs at the very end
+    /// (the tail edge case). A wrong delay, off-by-one at a splice, or botched
+    /// tail is silent corruption, so this hammers the boundaries.
+    #[test]
+    fn delay_interleave_roundtrip_adversarial() {
+        use crate::{Encoded, Incompressible};
+        type Item = (u8, Encoded<Vec<u8>, Incompressible>);
+        let mut x = 0x1234_5678_9abc_def0u64;
+        let mut rng = || {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            x
+        };
+        for trial in 0..300u64 {
+            let n = (rng() % 60) as usize;
+            let mut items: Vec<Item> = Vec::new();
+            for i in 0..n {
+                // Cover 0..=20 deterministically on some trials (straddles
+                // W_DELAY = 8), random on others.
+                let len = if trial % 3 == 0 {
+                    i % 21
+                } else {
+                    (rng() % 21) as usize
+                };
+                let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                items.push((rng() as u8, Encoded::new(run)));
+            }
+            // Force a non-empty raw run as the final element on half the trials
+            // (the tail case, within W_DELAY of the end).
+            if trial % 2 == 0 {
+                let len = (trial as usize % 12) + 1;
+                let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                items.push((rng() as u8, Encoded::new(run)));
+            }
+            let encoded = super::super::encode(&items);
+            let decoded: Vec<Item> = super::super::decode(&encoded).unwrap();
+            assert_eq!(decoded, items, "trial {trial}");
         }
     }
 }
