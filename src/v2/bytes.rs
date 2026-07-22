@@ -575,7 +575,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8986 bits, small: 7123 bits"]
+    expect!["normal: 8985 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());
@@ -614,7 +614,7 @@ fn size() {
     expect!["normal: 412 bits, small: 417 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.",
     ));
-    expect!["normal: 1539 bits, small: 836 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1538 bits, small: 836 bits"].assert_eq(&compare_small_bits(
         b"This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.

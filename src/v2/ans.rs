@@ -599,7 +599,7 @@ fn check_ans_coder() {
 #[test]
 fn ans_is_reasonable() {
     let data = vec![true; 1024 * 8];
-    assert_eq!(super::Range::encode(&data).len(), 12);
+    assert_eq!(super::Range::encode(&data).len(), 10);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
     assert_eq!(Ans::encode(&data).len(), 18);
 }

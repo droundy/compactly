@@ -318,7 +318,7 @@ fn compact_btreeset() {
     expect!["94"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(1_000_000_u64..1_001_024)
     )));
-    expect!["131"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["130"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(2_000_000_u64..2_002_048)
     )));
     expect!["131"].assert_eq(&encoded_bits!(
