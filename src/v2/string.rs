@@ -255,35 +255,35 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8930 bits, small: 7113 bits"]
+    expect!["normal: 8930 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());
     expect!["4593 mb"].assert_eq(&'a'.millibits().to_string());
     expect!["24038 mb"].assert_eq(&'😊'.millibits().to_string());
-    expect!["normal: 3 bits, small: 3 bits"].assert_eq(&compare_small_bits(""));
-    expect!["normal: 8 bits, small: 17 bits"].assert_eq(&compare_small_bits("a"));
-    expect!["normal: 12 bits, small: 23 bits"].assert_eq(&compare_small_bits("aa"));
-    expect!["normal: 15 bits, small: 26 bits"].assert_eq(&compare_small_bits("aaa"));
-    expect!["normal: 18 bits, small: 30 bits"].assert_eq(&compare_small_bits("aaaa"));
+    expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(""));
+    expect!["normal: 8 bits, small: 16 bits"].assert_eq(&compare_small_bits("a"));
+    expect!["normal: 12 bits, small: 22 bits"].assert_eq(&compare_small_bits("aa"));
+    expect!["normal: 15 bits, small: 25 bits"].assert_eq(&compare_small_bits("aaa"));
+    expect!["normal: 18 bits, small: 29 bits"].assert_eq(&compare_small_bits("aaaa"));
     expect!["normal: 25 bits, small: 37 bits"].assert_eq(&compare_small_bits("aaaaaaaa"));
-    expect!["normal: 147 bits, small: 140 bits"]
+    expect!["normal: 147 bits, small: 145 bits"]
         .assert_eq(&compare_small_bits("aaaa1★😊aaaaaaaa1★😊😊aa"));
-    expect!["normal: 28 bits, small: 42 bits"].assert_eq(&compare_small_bits("hello"));
-    expect!["normal: 105 bits, small: 116 bits"]
+    expect!["normal: 28 bits, small: 41 bits"].assert_eq(&compare_small_bits("hello"));
+    expect!["normal: 105 bits, small: 118 bits"]
         .assert_eq(&compare_small_bits("hello world hello wood"));
-    expect!["normal: 110 bits, small: 98 bits"]
+    expect!["normal: 110 bits, small: 100 bits"]
         .assert_eq(&compare_small_bits("hello world hello world"));
-    expect!["normal: 375 bits, small: 418 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 375 bits, small: 417 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.",
     ));
-    expect!["normal: 1497 bits, small: 832 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1497 bits, small: 836 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?",
     ));
-    expect!["normal: 1566 bits, small: 1001 bits"].assert_eq(&compare_small_bits(
+    expect!["normal: 1566 bits, small: 1006 bits"].assert_eq(&compare_small_bits(
         "This sentence is pretty long and seems reflective of ordinary English to me.
            If I duplicate this sentence then I should get better compression, right?
            This sentence is pretty long but seems reflective of ordinary English to me.
@@ -303,16 +303,16 @@ fn size() {
     expect!["140933 mb"].assert_eq(&s.millibits().to_string());
     expect!["141"].assert_eq(&encoded_bits!(s.clone()));
 
-    expect!["normal: Millibits(11866) (12 bits), small: Millibits(20000) (20 bits)"]
+    expect!["normal: Millibits(11866) (12 bits), small: Millibits(19264) (19 bits)"]
         .assert_eq(&compare_vecs(&["h"]));
-    expect!["normal: Millibits(63601) (64 bits), small: Millibits(82841) (83 bits)"]
+    expect!["normal: Millibits(63601) (64 bits), small: Millibits(82105) (82 bits)"]
         .assert_eq(&compare_vecs(&["hello world"]));
-    expect!["normal: Millibits(112312) (112 bits), small: Millibits(101770) (102 bits)"]
+    expect!["normal: Millibits(112312) (112 bits), small: Millibits(99082) (99 bits)"]
         .assert_eq(&compare_vecs(&["hello world", "hello world"]));
-    expect!["normal: Millibits(155591) (156 bits), small: Millibits(112584) (113 bits)"].assert_eq(
+    expect!["normal: Millibits(155591) (156 bits), small: Millibits(109043) (109 bits)"].assert_eq(
         &compare_vecs(&["hello world", "hello world", "hello world"]),
     );
-    expect!["normal: Millibits(244924) (245 bits), small: Millibits(145803) (146 bits)"].assert_eq(
+    expect!["normal: Millibits(244924) (245 bits), small: Millibits(144296) (144 bits)"].assert_eq(
         &compare_vecs(&[
             "hello world",
             "hello world",
@@ -320,9 +320,9 @@ fn size() {
             "hello world hello world",
         ]),
     );
-    expect!["normal: Millibits(199645) (200 bits), small: Millibits(198370) (198 bits)"]
+    expect!["normal: Millibits(199645) (200 bits), small: Millibits(198690) (199 bits)"]
         .assert_eq(&compare_vecs(&["hello world! 😊", "goodbye world! 😊"]));
-    expect!["normal: Millibits(416130) (416 bits), small: Millibits(350885) (351 bits)"].assert_eq(
+    expect!["normal: Millibits(416130) (416 bits), small: Millibits(352529) (353 bits)"].assert_eq(
         &compare_vecs(&[
             "hello world! 😊",
             "greetings world! 😊",
@@ -330,7 +330,7 @@ fn size() {
             "farewell sweet world! 😊",
         ]),
     );
-    expect!["normal: Millibits(474215) (474 bits), small: Millibits(413454) (414 bits)"].assert_eq(
+    expect!["normal: Millibits(474215) (474 bits), small: Millibits(423048) (423 bits)"].assert_eq(
         &compare_vecs(&[
             "The quick brown fox jumps over the lazy dog.",
             "The",
@@ -392,7 +392,7 @@ fn crash_from_bench() {
     expect!["53"].assert_eq(&encoded_bits!(vec.clone()));
     expect!["53"].assert_eq(&encoded_bits!(super::Ans, vec.clone()));
     let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
-    expect!["69"].assert_eq(&encoded_bits!(compressible.clone()));
+    expect!["68"].assert_eq(&encoded_bits!(compressible.clone()));
     expect!["69"].assert_eq(&encoded_bits!(super::Ans, compressible.clone()));
     let sorted = Encoded::<Vec<String>, Values<Sorted>>::new(vec.clone());
     expect!["49"].assert_eq(&encoded_bits!(sorted.clone()));
