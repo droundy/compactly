@@ -56,10 +56,10 @@ impl ArithState {
         bytes
     }
 
+    /// The single byte that finalizes the stream: the top byte of the interval,
+    /// which the decoder pulls to disambiguate the last coded value.
     #[inline]
     pub fn last_byte(self) -> u8 {
-        // The flat delay-interleave stream has no trailer/magic, so the final
-        // byte no longer needs to dodge a magic value.
         (self.hi >> 56) as u8
     }
 
@@ -246,15 +246,40 @@ const W_DELAY: usize = 8;
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Range {
-    /// Pure entropy bytes, emitted forward as the coder settles them (the coder
-    /// is carry-free, so a settled byte never changes).
+    /// The interleaved output built up as we go: entropy bytes with each
+    /// incompressible run already spliced in at its delayed offset. `into_vec`
+    /// only has to flush the coder's last byte and any tail runs.
     bytes: Vec<u8>,
-    /// Incompressible runs awaiting interleaving, each tagged with the entropy
-    /// offset it must follow: `bytes.len() + W_DELAY` at the moment of the call.
-    /// Targets are non-decreasing (entropy only grows). The in-memory path
-    /// splices them in `into_vec`; a streaming encoder would splice as it goes.
-    pending_incompressible: Vec<(usize, Vec<u8>)>,
+    /// Count of *entropy* bytes in `bytes` so far (excludes spliced runs), used
+    /// to schedule the `W_DELAY` splice.
+    entropy_written: usize,
+    /// Incompressible runs not yet spliced into `bytes`. A run recorded at
+    /// entropy count `E` must follow entropy byte `E + W_DELAY`; since the delay
+    /// is exactly `W_DELAY`, at most one delay-cycle of runs is outstanding, so
+    /// this is a ring of `W_DELAY` slots indexed by `E % W_DELAY`. Runs recorded
+    /// at the same `E` (consecutive, no entropy between) accumulate in one slot.
+    withheld: [Vec<u8>; W_DELAY],
     state: ArithState,
+}
+
+impl Range {
+    /// Append settled entropy `bytes`, splicing each withheld run in as its
+    /// target entropy byte (`recorded_at + W_DELAY`) is written. Slot
+    /// `entropy_written % W_DELAY` holds the run due `W_DELAY` bytes after it was
+    /// recorded, so flushing that slot right after writing byte `entropy_written`
+    /// places the run exactly after its target byte.
+    #[inline]
+    fn push_entropy(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.bytes.push(b);
+            self.entropy_written += 1;
+            let slot = self.entropy_written % W_DELAY;
+            if !self.withheld[slot].is_empty() {
+                let run = std::mem::take(&mut self.withheld[slot]);
+                self.bytes.extend_from_slice(&run);
+            }
+        }
+    }
 }
 
 impl EntropyCoder for Range {
@@ -265,8 +290,8 @@ impl EntropyCoder for Range {
         bits: [bool; N],
     ) {
         for (value, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
-            self.bytes
-                .extend_from_slice(&self.state.encode(ctx.probability(), value));
+            let ready = self.state.encode(ctx.probability(), value);
+            self.push_entropy(&ready);
             *ctx = ctx.adapt(value);
         }
     }
@@ -282,9 +307,9 @@ impl EntropyCoder for Range {
 
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
-        // Record the run to be spliced `W_DELAY` entropy bytes from here.
-        self.pending_incompressible
-            .push((self.bytes.len() + W_DELAY, bytes.to_vec()));
+        // Withhold the run for W_DELAY entropy bytes (its slot is revisited then).
+        let slot = self.entropy_written % W_DELAY;
+        self.withheld[slot].extend_from_slice(bytes);
     }
 }
 
@@ -294,10 +319,12 @@ impl SymbolCoder for Range {
     #[inline]
     fn encode_symbol(&mut self, range: SymbolRange) {
         while self.state.clamp_for_symbol() {
-            self.bytes.extend_from_slice(&self.state.ready_bytes());
+            let ready = self.state.ready_bytes();
+            self.push_entropy(&ready);
         }
         self.state.narrow_symbol(range);
-        self.bytes.extend_from_slice(&self.state.ready_bytes());
+        let ready = self.state.ready_bytes();
+        self.push_entropy(&ready);
     }
 }
 
@@ -337,44 +364,27 @@ impl Range {
     ) -> Vec<super::AtMost<MAX>> {
         walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::new(bytes), n)
     }
-    /// Convert the encoded value into a `Vec` of bytes, splicing each
-    /// incompressible run into the entropy stream at its delayed offset
-    /// (delay-interleave). The result is a single flat stream — no trailer, no
-    /// magic — that the decoder reads by pulling entropy into its window and
-    /// reading raw runs straight off the cursor at each incompressible field.
+    /// Finish encoding: append the coder's final byte, then flush any tail runs
+    /// still withheld (recorded within `W_DELAY` of the end). Each tail run is
+    /// placed after zero-padding the entropy up to its target, so the decoder's
+    /// trailing read-ahead window fills with padding rather than raw bytes. The
+    /// result is a single flat stream — no trailer, no magic.
     #[inline]
     pub fn into_vec(mut self) -> Vec<u8> {
-        self.bytes.push(self.state.last_byte());
-        if self.pending_incompressible.is_empty() {
-            return self.bytes;
+        let last = self.state.last_byte();
+        self.push_entropy(&[last]);
+        let mut remaining = self.withheld.iter().filter(|r| !r.is_empty()).count();
+        while remaining > 0 {
+            self.bytes.push(0);
+            self.entropy_written += 1;
+            let slot = self.entropy_written % W_DELAY;
+            if !self.withheld[slot].is_empty() {
+                let run = std::mem::take(&mut self.withheld[slot]);
+                self.bytes.extend_from_slice(&run);
+                remaining -= 1;
+            }
         }
-        // A run whose target lands past the last real entropy byte (a "tail"
-        // run, within W_DELAY of the end) needs that many bytes of read-ahead
-        // cover so the decoder's window fills with padding, not raw bytes. The
-        // decoder tolerates zero-padding past the true end exactly as today.
-        let max_target = self
-            .pending_incompressible
-            .iter()
-            .map(|(t, _)| *t)
-            .max()
-            .unwrap_or(0);
-        if max_target > self.bytes.len() {
-            self.bytes.resize(max_target, 0);
-        }
-        let raw_total: usize = self
-            .pending_incompressible
-            .iter()
-            .map(|(_, r)| r.len())
-            .sum();
-        let mut out = Vec::with_capacity(self.bytes.len() + raw_total);
-        let mut pos = 0;
-        for (target, raw) in std::mem::take(&mut self.pending_incompressible) {
-            out.extend_from_slice(&self.bytes[pos..target]);
-            pos = target;
-            out.extend_from_slice(&raw);
-        }
-        out.extend_from_slice(&self.bytes[pos..]);
-        out
+        self.bytes
     }
 }
 impl From<Range> for Vec<u8> {
