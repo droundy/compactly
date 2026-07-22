@@ -244,43 +244,17 @@ const W_DELAY: usize = 8;
 /// assert_eq!(encoded.len(), 4);
 /// assert_eq!(compactly::v2::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Range {
-    /// The interleaved output built up as we go: entropy bytes with each
-    /// incompressible run already spliced in at its delayed offset. `into_vec`
-    /// only has to flush the coder's last byte and any tail runs.
-    bytes: Vec<u8>,
-    /// Count of *entropy* bytes in `bytes` so far (excludes spliced runs), used
-    /// to schedule the `W_DELAY` splice.
-    entropy_written: usize,
-    /// Incompressible runs not yet spliced into `bytes`. A run recorded at
-    /// entropy count `E` must follow entropy byte `E + W_DELAY`; since the delay
-    /// is exactly `W_DELAY`, at most one delay-cycle of runs is outstanding, so
-    /// this is a ring of `W_DELAY` slots indexed by `E % W_DELAY`. Runs recorded
-    /// at the same `E` (consecutive, no entropy between) accumulate in one slot.
-    withheld: [Vec<u8>; W_DELAY],
-    state: ArithState,
-}
+/// The in-memory range coder: a [`RangeEncoder`] whose sink is a `Vec<u8>`
+/// (which implements [`Write`](std::io::Write) infallibly). All the coding and
+/// delay-interleave logic lives in `RangeEncoder`; `Range` is a thin wrapper
+/// that adds the `Vec`-returning [`into_vec`](Range::into_vec) plus the decode
+/// helpers, so the in-memory and streaming paths are literally the same code.
+pub struct Range(RangeEncoder<Vec<u8>>);
 
-impl Range {
-    /// Append settled entropy `bytes`, splicing each withheld run in as its
-    /// target entropy byte (`recorded_at + W_DELAY`) is written. Slot
-    /// `entropy_written % W_DELAY` holds the run due `W_DELAY` bytes after it was
-    /// recorded, so flushing that slot right after writing byte `entropy_written`
-    /// places the run exactly after its target byte.
+impl Default for Range {
     #[inline]
-    fn push_entropy(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.bytes.push(b);
-            self.entropy_written += 1;
-            let slot = self.entropy_written % W_DELAY;
-            // Splice this slot's withheld run (a no-op copy when empty) and
-            // clear it for the next delay-cycle; `clear` keeps the allocation to
-            // reuse. `extend_from_slice` already fast-returns on an empty slice,
-            // so no guard is needed.
-            self.bytes.extend_from_slice(&self.withheld[slot]);
-            self.withheld[slot].clear();
-        }
+    fn default() -> Self {
+        Range(RangeEncoder::new(Vec::new()))
     }
 }
 
@@ -291,11 +265,7 @@ impl EntropyCoder for Range {
         contexts: &mut [super::bit_context::BitContext; N],
         bits: [bool; N],
     ) {
-        for (value, ctx) in bits.into_iter().zip(contexts.iter_mut()) {
-            let ready = self.state.encode(ctx.probability(), value);
-            self.push_entropy(&ready);
-            *ctx = ctx.adapt(value);
-        }
+        self.0.encode_bits(contexts, bits)
     }
 
     #[inline]
@@ -304,29 +274,19 @@ impl EntropyCoder for Range {
         ctx: &mut AtMostContext<MAX>,
         value: AtMost<MAX>,
     ) {
-        walks::encode_symbol_or_bitwise(self, ctx, value)
+        self.0.encode_atmost(ctx, value)
     }
 
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
-        // Withhold the run for W_DELAY entropy bytes (its slot is revisited then).
-        let slot = self.entropy_written % W_DELAY;
-        self.withheld[slot].extend_from_slice(bytes);
+        self.0.encode_incompressible_bytes(bytes)
     }
 }
 
 impl SymbolCoder for Range {
-    /// Code one whole-symbol interval: clamp the range state so a symbol
-    /// fits, then a single narrowing + renormalization.
     #[inline]
     fn encode_symbol(&mut self, range: SymbolRange) {
-        while self.state.clamp_for_symbol() {
-            let ready = self.state.ready_bytes();
-            self.push_entropy(&ready);
-        }
-        self.state.narrow_symbol(range);
-        let ready = self.state.ready_bytes();
-        self.push_entropy(&ready);
+        self.0.encode_symbol(range)
     }
 }
 
@@ -366,27 +326,11 @@ impl Range {
     ) -> Vec<super::AtMost<MAX>> {
         walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::new(bytes), n)
     }
-    /// Finish encoding: append the coder's final byte, then flush any tail runs
-    /// still withheld (recorded within `W_DELAY` of the end). Each tail run is
-    /// placed after zero-padding the entropy up to its target, so the decoder's
-    /// trailing read-ahead window fills with padding rather than raw bytes. The
-    /// result is a single flat stream — no trailer, no magic.
+    /// Finish encoding and return the bytes. Delegates to
+    /// [`RangeEncoder::finish`] over the `Vec` sink, which never errors.
     #[inline]
-    pub fn into_vec(mut self) -> Vec<u8> {
-        let last = self.state.last_byte();
-        self.push_entropy(&[last]);
-        let mut remaining = self.withheld.iter().filter(|r| !r.is_empty()).count();
-        while remaining > 0 {
-            self.bytes.push(0);
-            self.entropy_written += 1;
-            let slot = self.entropy_written % W_DELAY;
-            if !self.withheld[slot].is_empty() {
-                let run = std::mem::take(&mut self.withheld[slot]);
-                self.bytes.extend_from_slice(&run);
-                remaining -= 1;
-            }
-        }
-        self.bytes
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0.finish().expect("writing to a Vec<u8> is infallible")
     }
 }
 impl From<Range> for Vec<u8> {
@@ -1003,15 +947,18 @@ mod tests {
                 probs.push(rand_prob());
             }
             println!("\n\ntesting {probs:?}");
-            let mut encoder = Range::default();
+            // `ArithState::encode` is the coder's bit primitive at an arbitrary
+            // probability (the `Range` trait only offers context-driven
+            // encoding). With no incompressible bytes the finished stream is
+            // just the entropy bytes plus the final `last_byte`, so we drive the
+            // state directly rather than through `Range`.
+            let mut state = ArithState::default();
+            let mut bytes = Vec::new();
             for &(p, bit) in &probs {
-                // `ArithState::encode` is the coder's bit primitive at an
-                // arbitrary probability (the trait only offers context-driven
-                // encoding).
-                let ready = encoder.state.encode(p, bit);
-                encoder.bytes.extend_from_slice(&ready);
+                let ready = state.encode(p, bit);
+                bytes.extend_from_slice(&ready);
             }
-            let bytes = encoder.into_vec();
+            bytes.push(state.last_byte());
             println!("\n\nEncoded random as: {bytes:02x?}\n");
             let mut decoder = Decoder::new(&bytes);
             for &(p, bit) in &probs {
