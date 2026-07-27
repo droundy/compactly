@@ -928,6 +928,46 @@ the checks and decrements out entirely. Single-chunk decode is now at parity
 (−1.07%). Multi-chunk still pays ~5.7% decode / ~2.3% encode, which is the real
 price of bounded memory + streamability for huge values.
 
+**The residual multi-chunk decode cost is per-op, and resisted every mitigation.**
+Sweeping `CHUNK_OPS` (100k-u64 decode, vs pre-chunking baseline) confirms it is
+invariant to chunk size — bigger chunks help only by making a value *single*-chunk:
+
+| `CHUNK_OPS` | encode | decode |
+|---|---|---|
+| 1<<12 | +2.90% | +5.85% |
+| 1<<14 | **+0.97%** | +5.80% |
+| 1<<16 (shipped) | +2.29% | +5.71% |
+| 1<<18 | +3.75% | +5.92% |
+| 1<<24 | +4.44% | **+0.32%** ← workload is now single-chunk |
+
+Decode is flat at ~5.8% for every size that actually chunks. Encode has a sweet
+spot at 1<<14 (op-buffer locality in the reverse pass vs per-chunk fixed cost)
+and degrades as chunks grow. `1<<16` is kept because *lowering* it pushes more
+values into the penalized multi-chunk regime, and single-chunk decode is free;
+raising it hurts encode and unbounds memory, which is the whole point.
+
+`perf` on multi-chunk decode: 83% of cycles in the monomorphized
+`Small<u64>::decode::<Decoder>`, whose hot loop shows `test %r11,%r11` + `dec
+%r11` (the `ops_left` guard/decrement, ~3.7% combined) plus stack-spill reloads
+and a 136-byte frame — i.e. the cost is the bookkeeping *plus* the register
+pressure from the extra field. Four mitigations, all **measured worse** than the
+straightforward version (each quiesced, alternating, min of 3):
+
+- `saturating_sub` -> `wrapping_sub` (drops a cmov): **+6.43%**
+- `#[cold] #[inline(never)]` on `load_next_chunk`, which `perf` showed being
+  inlined (varint parsing and all) into the hot decode path: **+7.61%**
+- `ops_left` as `u32` instead of `usize`, to shrink the struct: **+6.83%**
+- Using `state == 0` as the boundary signal, dropping the counter entirely:
+  **incorrect.** The rANS state returns to exactly 0 at a chunk's end only for
+  pure-*bit* chunks (as `check_ans_coder` asserts); once whole-**symbol** steps
+  are interleaved it does not, so the decoder misses the boundary and runs into
+  the next chunk's bytes. (It "measured" −30% precisely because it had stopped
+  decoding correctly — the same trap as any A/B against broken code.)
+
+Another instance of the codegen-sensitivity theme: every variant doing strictly
+less work ran slower. Treat the shipped form as a local optimum unless something
+structural changes.
+
 **Build-ops vs entropy-code split** (measured on pre-chunking, where the phases
 separate cleanly) — the ratio is workload-dependent and *inverts*:
 
