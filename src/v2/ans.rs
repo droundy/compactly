@@ -48,16 +48,26 @@ fn read_varint(bytes: &mut &[u8]) -> usize {
 /// assert_eq!(encoded.len(), 9);
 /// assert_eq!(compactly::v2::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Ans {
+#[derive(Debug, Default)]
+pub struct Ans(AnsEncoder<Vec<u8>>);
+
+/// Streaming ANS encoder: records deferred coding ops and, once the buffer fills
+/// a chunk (`CHUNK_OPS` ops), flushes a self-contained rANS chunk to `W` — so
+/// peak encoder memory is bounded regardless of value size. Produces
+/// **byte-identical** output to the in-memory [`Ans`] (which is just
+/// `AnsEncoder<Vec<u8>>`) for the same value. IO errors are latched and surfaced
+/// by [`AnsEncoder::finish`], keeping the infallible [`EntropyCoder`] hot path
+/// branch-free.
+#[derive(Debug, Default)]
+pub(crate) struct AnsEncoder<W: std::io::Write> {
     /// Ops recorded for the *current* chunk (flushed once they reach
     /// `CHUNK_OPS`); the contexts adapt across chunk boundaries during recording.
     ops: Vec<Op>,
-    /// Raw bytes recorded for the current chunk, in order.
+    /// Raw incompressible bytes recorded for the current chunk, in order.
     incompressible_bytes: Vec<u8>,
-    /// Already-flushed chunk frames. Streaming will write these to a `Write`
-    /// instead of accumulating them here.
-    out: Vec<u8>,
+    /// Sink for flushed chunk frames — a `Vec<u8>` in memory, or any `Write`.
+    writer: W,
+    error: Option<std::io::Error>,
 }
 
 /// The number of ops (bits + symbols + incompressible runs) per chunk. Each
@@ -82,7 +92,7 @@ enum Op {
     Incompressible { len: usize },
 }
 
-impl EntropyCoder for Ans {
+impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
     #[inline]
     fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
         self.ops
@@ -111,7 +121,7 @@ impl EntropyCoder for Ans {
     }
 }
 
-impl SymbolCoder for Ans {
+impl<W: std::io::Write> SymbolCoder for AnsEncoder<W> {
     /// Record one deferred whole-symbol op, packed like the bit ops.
     #[inline]
     fn encode_symbol(&mut self, range: SymbolRange) {
@@ -122,7 +132,53 @@ impl SymbolCoder for Ans {
         self.maybe_flush();
     }
 }
-impl Ans {
+
+impl EntropyCoder for Ans {
+    #[inline]
+    fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
+        self.0.encode_bits(contexts, bits)
+    }
+    #[inline]
+    fn encode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut AtMostContext<MAX>,
+        value: AtMost<MAX>,
+    ) {
+        self.0.encode_atmost(ctx, value)
+    }
+    #[inline]
+    fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        self.0.encode_incompressible_bytes(bytes)
+    }
+}
+
+impl SymbolCoder for Ans {
+    #[inline]
+    fn encode_symbol(&mut self, range: SymbolRange) {
+        self.0.encode_symbol(range)
+    }
+}
+
+impl<W: std::io::Write> AnsEncoder<W> {
+    #[inline]
+    pub(crate) fn new(writer: W) -> Self {
+        Self {
+            ops: Vec::new(),
+            incompressible_bytes: Vec::new(),
+            writer,
+            error: None,
+        }
+    }
+
+    #[inline]
+    fn write_out(&mut self, bytes: &[u8]) {
+        if self.error.is_none() {
+            if let Err(e) = self.writer.write_all(bytes) {
+                self.error = Some(e);
+            }
+        }
+    }
+
     /// Flush a non-final chunk once the op buffer reaches `CHUNK_OPS`. Called
     /// after each recorded batch, so chunk boundaries always land between batches
     /// (a `decode_bits<N>` never straddles two chunks' separate rANS streams).
@@ -134,7 +190,7 @@ impl Ans {
     }
 
     /// Reverse-encode the current chunk's ops into a self-contained rANS stream
-    /// and append the framed chunk to `out`, then clear the chunk buffers. The
+    /// and write the framed chunk to `writer`, then clear the chunk buffers. The
     /// contexts are *not* reset (they adapt across chunks). `is_final` writes an
     /// op-count of 0 (the decoder then decodes until the value is complete).
     fn flush_chunk(&mut self, is_final: bool) {
@@ -164,18 +220,58 @@ impl Ans {
         entropy.reverse();
 
         let op_count = if is_final { 0 } else { self.ops.len() };
-        push_varint(&mut self.out, op_count);
-        push_varint(&mut self.out, entropy.len());
-        push_varint(&mut self.out, self.incompressible_bytes.len());
-        self.out.extend_from_slice(&entropy);
-        self.out.extend_from_slice(&self.incompressible_bytes);
+        let mut header = Vec::new();
+        push_varint(&mut header, op_count);
+        push_varint(&mut header, entropy.len());
+        push_varint(&mut header, self.incompressible_bytes.len());
+        self.write_out(&header);
+        self.write_out(&entropy);
+        // `incompressible_bytes` is cleared for the next chunk anyway, so take it
+        // out to write (avoids borrowing `self` while `write_out` needs `&mut`).
+        let incompressible = std::mem::take(&mut self.incompressible_bytes);
+        self.write_out(&incompressible);
         self.ops.clear();
-        self.incompressible_bytes.clear();
     }
 
+    /// Finish encoding: flush the final chunk, then return the sink or the
+    /// latched IO error. [`Ans::into_vec`] is the in-memory caller.
+    pub(crate) fn finish(mut self) -> std::io::Result<W> {
+        self.flush_chunk(true);
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(self.writer),
+        }
+    }
+}
+
+impl Ans {
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
+    }
+    /// Encode `value` straight into a [`Write`](std::io::Write), streaming chunks
+    /// out as they fill rather than buffering the whole compressed output; the
+    /// bytes are **identical** to [`Ans::encode`]. `writer` is wrapped in a
+    /// [`BufWriter`](std::io::BufWriter) internally.
+    pub fn encode_to<T: super::Encode, W: std::io::Write>(
+        value: &T,
+        writer: W,
+    ) -> std::io::Result<()> {
+        let mut encoder = AnsEncoder::new(std::io::BufWriter::new(writer));
+        value.encode(&mut encoder, &mut T::Context::default());
+        let buffered = encoder.finish()?;
+        // Surface a deferred flush error from the BufWriter, if any.
+        buffered.into_inner().map_err(|e| e.into_error())?;
+        Ok(())
+    }
+    /// Decode a value straight from a [`Read`](std::io::Read), pulling one chunk
+    /// at a time rather than requiring the whole compressed input in memory.
+    /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
+    /// `reader` is wrapped in a [`BufReader`](std::io::BufReader) internally.
+    pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
+        let mut decoder = AnsDecoder::new(std::io::BufReader::new(reader));
+        let value = T::decode(&mut decoder, &mut T::Context::default())?;
+        decoder.into_result(value)
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
@@ -224,12 +320,12 @@ impl Ans {
     #[doc(hidden)]
     pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
         assert!(
-            self.out.is_empty(),
+            self.0.writer.is_empty(),
             "replay_entropy_decode requires a single-chunk stream (input exceeded CHUNK_OPS ops)"
         );
         let mut decoder = Decoder::from(encoded);
         let mut checksum = 0u32;
-        for op in &self.ops {
+        for op in &self.0.ops {
             match *op {
                 Op::Bit(b, probability) => {
                     let bit =
@@ -272,9 +368,8 @@ impl Ans {
     /// contexts adapt continuously across chunk boundaries, so chunking costs
     /// only one rANS state-flush (plus the tiny frame header) per chunk.
     #[inline]
-    pub fn into_vec(mut self) -> Vec<u8> {
-        self.flush_chunk(true);
-        self.out
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0.finish().expect("writing to a Vec<u8> is infallible")
     }
 }
 impl From<Ans> for Vec<u8> {
@@ -494,6 +589,225 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     }
 }
 
+/// Read one byte from `reader`, returning 0 at a clean EOF and — once an error is
+/// latched — never touching `reader` again (fabricating 0s), mirroring the slice
+/// decoder's zero-padding past the end of a chunk.
+#[inline]
+fn read_one_byte_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> u8 {
+    if error.is_some() {
+        return 0;
+    }
+    let mut buf = [0u8; 1];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => return 0,
+            Ok(_) => return buf[0],
+            Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                *error = Some(e);
+                return 0;
+            }
+        }
+    }
+}
+
+/// Read a LEB128 varint (the chunk-frame header encoding) from `reader`.
+fn read_varint_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> usize {
+    let mut v = 0usize;
+    let mut shift = 0u32;
+    loop {
+        let b = read_one_byte_io(reader, error);
+        v |= ((b & 0x7f) as usize) << shift;
+        if b & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+        if shift >= usize::BITS {
+            break; // corrupt varint: stop rather than shift out of range
+        }
+    }
+    v
+}
+
+/// Read `len` bytes from `reader` into a fresh buffer, in bounded increments so a
+/// corrupt/huge declared length can't drive one giant allocation. A short read
+/// latches the error and returns the partial buffer; the rANS decode then
+/// zero-pads / reports insufficient bytes, and `into_result` surfaces the error.
+fn read_region<R: std::io::Read>(
+    reader: &mut R,
+    len: usize,
+    error: &mut Option<std::io::Error>,
+) -> Vec<u8> {
+    if error.is_some() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut remaining = len;
+    while remaining > 0 {
+        let chunk = remaining.min(1 << 16);
+        let start = out.len();
+        out.resize(start + chunk, 0);
+        if let Err(e) = reader.read_exact(&mut out[start..]) {
+            *error = Some(e);
+            out.truncate(start);
+            break;
+        }
+        remaining -= chunk;
+    }
+    out
+}
+
+/// Streaming ANS decoder: pulls one chunk frame at a time from `R` rather than
+/// indexing a whole slice, so decoding a large value need only hold one chunk's
+/// entropy + incompressible bytes at once. Reads the same bytes
+/// [`Ans`]/[`AnsEncoder`] produce and recovers identical values (the per-chunk
+/// arithmetic is the slice [`Decoder`]'s; only the byte source differs). IO
+/// errors are latched and surfaced by [`AnsDecoder::into_result`].
+pub(crate) struct AnsDecoder<R: std::io::Read> {
+    reader: R,
+    state: State,
+    /// Current chunk's entropy region (its leading `STATE_BYTES` seed the state).
+    entropy: Vec<u8>,
+    epos: usize,
+    /// Current chunk's raw incompressible region.
+    incompressible: Vec<u8>,
+    ipos: usize,
+    /// Ops left in the current chunk; `usize::MAX` for the final chunk.
+    ops_left: usize,
+    error: Option<std::io::Error>,
+}
+
+impl<R: std::io::Read> AnsDecoder<R> {
+    pub(crate) fn new(reader: R) -> Self {
+        let mut decoder = AnsDecoder {
+            reader,
+            state: 0,
+            entropy: Vec::new(),
+            epos: 0,
+            incompressible: Vec::new(),
+            ipos: 0,
+            ops_left: 0,
+            error: None,
+        };
+        decoder.load_next_chunk();
+        decoder
+    }
+
+    /// Read and enter the next chunk frame: parse the header, pull the entropy
+    /// and incompressible regions into owned buffers, seed the rANS state from
+    /// the entropy's leading bytes, and set `ops_left`.
+    fn load_next_chunk(&mut self) {
+        let op_count = read_varint_io(&mut self.reader, &mut self.error);
+        let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
+        let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
+        self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
+        self.incompressible = read_region(&mut self.reader, incompressible_len, &mut self.error);
+        self.ipos = 0;
+        self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
+        if self.entropy.len() < STATE_BYTES {
+            let mut state: State = 0;
+            for &b in self.entropy.iter() {
+                state = state << 8 | State::from(b);
+            }
+            self.state = state;
+            self.epos = self.entropy.len();
+        } else {
+            self.state = State::from_be_bytes(self.entropy[0..STATE_BYTES].try_into().unwrap());
+            self.epos = STATE_BYTES;
+        }
+    }
+
+    /// Return `value` unless a read error was latched during decoding.
+    pub(crate) fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(value),
+        }
+    }
+}
+
+impl<R: std::io::Read> SymbolDecoder for AnsDecoder<R> {
+    const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+
+    #[inline]
+    fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
+        let mut state = self.state;
+        let mut slice: &[u8] = &self.entropy[self.epos.min(self.entropy.len())..];
+        let before = slice.len();
+        let slot = state & (SymbolRange::M - 1);
+        let (range, value) = walk(slot);
+        state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
+        while state < (1 << (State::BITS - 8)) {
+            let Some((&byte, rest)) = slice.split_first() else {
+                break;
+            };
+            slice = rest;
+            state = (state << 8) | byte as State;
+        }
+        let consumed = before - slice.len();
+        self.epos += consumed;
+        self.state = state;
+        self.ops_left = self.ops_left.saturating_sub(1);
+        value
+    }
+}
+
+impl<R: std::io::Read> EntropyDecoder for AnsDecoder<R> {
+    #[inline]
+    fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
+        walks::decode_symbol_or_bitwise(self, ctx)
+    }
+
+    #[inline]
+    fn decode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> [bool; N] {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
+        let mut state = self.state;
+        let mut slice: &[u8] = &self.entropy[self.epos.min(self.entropy.len())..];
+        let before = slice.len();
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let bit = decode_step(&mut state, &mut slice, context.probability());
+            *context = context.adapt(bit);
+            *b = bit;
+        }
+        let consumed = before - slice.len();
+        self.epos += consumed;
+        self.state = state;
+        self.ops_left = self.ops_left.saturating_sub(N);
+        bits
+    }
+
+    #[inline]
+    fn decode_incompressible_bytes(&mut self, out: &mut [u8]) -> Result<(), std::io::Error> {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
+        let start = self.ipos.min(self.incompressible.len());
+        let avail_len = self.incompressible.len() - start;
+        if avail_len < out.len() {
+            // Prefer a latched IO error (the informative root cause) over the
+            // generic truncation message.
+            if let Some(e) = self.error.take() {
+                return Err(e);
+            }
+            return Err(std::io::Error::other(format!(
+                "insufficient incompressible bytes: {} < {}",
+                avail_len,
+                out.len()
+            )));
+        }
+        out.copy_from_slice(&self.incompressible[start..start + out.len()]);
+        self.ipos = start + out.len();
+        self.ops_left = self.ops_left.saturating_sub(1);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 struct StateOnly {
     state: State,
@@ -669,7 +983,7 @@ fn check_ans_coder() {
             for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
                 // `Op::Bit` is the coder's bit primitive at an arbitrary
                 // probability (the trait only offers context-driven encoding).
-                writer.ops.push(Op::Bit(b, probability));
+                writer.0.ops.push(Op::Bit(b, probability));
             }
             let bytes = writer.into_vec();
             let mut decoder = Decoder::from(bytes.as_slice());
@@ -742,6 +1056,46 @@ fn multi_chunk_round_trips() {
 
     let decoded: Vec<Item> = Ans::decode(&encoded).unwrap();
     assert_eq!(decoded, items);
+}
+
+/// The streaming (`encode_to`/`decode_from`) and in-memory (`encode`/`decode`)
+/// paths must be freely mix-and-matchable: byte-identical output, and either
+/// decoder reads either encoder's bytes — across single- and multi-chunk sizes.
+#[test]
+fn streaming_matches_in_memory() {
+    use crate::{Encoded, Incompressible};
+    type Item = (u64, Encoded<Vec<u8>, Incompressible>);
+    let mut x = 0xdead_beef_0000_1111u64;
+    let mut rng = || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    for &n in &[0usize, 1, 10, 60_000] {
+        let items: Vec<Item> = (0..n)
+            .map(|_| {
+                let len = (rng() % 6) as usize;
+                let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                (rng() % 5000, Encoded::new(run))
+            })
+            .collect();
+
+        let in_memory = Ans::encode(&items);
+
+        // encode_to (streaming) into a Vec must be byte-identical to encode.
+        let mut streamed = Vec::new();
+        Ans::encode_to(&items, &mut streamed).unwrap();
+        assert_eq!(streamed, in_memory, "n={n}: encode_to != encode");
+
+        // Every reader/writer pairing round-trips.
+        let d1: Vec<Item> = Ans::decode(&in_memory).unwrap();
+        assert_eq!(d1, items, "n={n}: decode(encode)");
+        let d2: Vec<Item> = Ans::decode_from(in_memory.as_slice()).unwrap();
+        assert_eq!(d2, items, "n={n}: decode_from(encode)");
+        let d3: Vec<Item> = Ans::decode(&streamed).unwrap();
+        assert_eq!(d3, items, "n={n}: decode(encode_to)");
+        let d4: Vec<Item> = Ans::decode_from(streamed.as_slice()).unwrap();
+        assert_eq!(d4, items, "n={n}: decode_from(encode_to)");
+    }
 }
 
 #[cfg(test)]

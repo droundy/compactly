@@ -130,7 +130,7 @@ fn default_context_is_fifty_percent() {
 }
 
 /// A place where we can put bits where we have estimated the probabilities.
-pub trait EntropyCoder: Default {
+pub trait EntropyCoder: Sized {
     /// Encode `N` bits, each with its own independent adaptive context —
     /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
     /// context's probability and adapts it, so encode- and decode-side
@@ -154,7 +154,10 @@ pub trait EntropyCoder: Default {
     }
 
     /// Encode the `value` into a `Vec<u8>` of bytes.`
-    fn encode<T: Encode>(value: &T) -> Self {
+    fn encode<T: Encode>(value: &T) -> Self
+    where
+        Self: Default,
+    {
         let mut writer = Self::default();
         value.encode(&mut writer, &mut T::Context::default());
         writer

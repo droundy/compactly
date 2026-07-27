@@ -58,8 +58,13 @@ fn main() {
         names.len()
     );
 
+    // Two independent encodes: one kept as the op-buffer oracle for the entropy
+    // replay, one finished into the bitstream (into_vec consumes, and Ans no
+    // longer clones now that it owns its writer). NOTE: replay_entropy_decode
+    // only handles a single-chunk value — an input over CHUNK_OPS ops flushes
+    // (and clears) chunks during encoding, so the replay phase asserts there.
     let ops = <Ans as EntropyCoder>::encode(&names);
-    let encoded = ops.clone().into_vec();
+    let encoded = <Ans as EntropyCoder>::encode(&names).into_vec();
     println!("encoded size {}", encoded.len());
 
     // Entropy-only: replay the recorded ops against the bitstream, doing just
