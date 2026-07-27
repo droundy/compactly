@@ -275,8 +275,19 @@ impl Ans {
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = Decoder::from(bytes);
-        T::decode(&mut reader, &mut T::Context::default()).ok()
+        // Peek the first frame's op-count: 0 means it is the *final* chunk, so
+        // the whole value lives in this one chunk and needs no boundary
+        // tracking. That is the common case, and skipping the per-batch
+        // `ops_left` bookkeeping is worth up to 21% of decode time — see
+        // [`Decoder`]. Multi-chunk streams take the tracking decoder.
+        let single_chunk = read_varint(&mut { bytes }) == 0;
+        if single_chunk {
+            let mut reader = Decoder::<false>::from(bytes);
+            T::decode(&mut reader, &mut T::Context::default()).ok()
+        } else {
+            let mut reader = Decoder::<true>::from(bytes);
+            T::decode(&mut reader, &mut T::Context::default()).ok()
+        }
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -302,7 +313,19 @@ impl Ans {
         bytes: &[u8],
         n: usize,
     ) -> Vec<super::AtMost<MAX>> {
-        walks::decode_atmost_batch::<Decoder, MAX, WHICH_WALK>(Decoder::from(bytes), n)
+        // Mirror `Ans::decode`'s dispatch so the benchmark measures the decoder
+        // production would actually pick for these bytes.
+        if read_varint(&mut { bytes }) == 0 {
+            walks::decode_atmost_batch::<Decoder<false>, MAX, WHICH_WALK>(
+                Decoder::<false>::from(bytes),
+                n,
+            )
+        } else {
+            walks::decode_atmost_batch::<Decoder<true>, MAX, WHICH_WALK>(
+                Decoder::<true>::from(bytes),
+                n,
+            )
+        }
     }
     /// Benchmark helper: replay only the entropy-decode steps against
     /// `encoded`, using this op buffer (from encoding the same value) as an
@@ -323,7 +346,7 @@ impl Ans {
             self.0.writer.is_empty(),
             "replay_entropy_decode requires a single-chunk stream (input exceeded CHUNK_OPS ops)"
         );
-        let mut decoder = Decoder::from(encoded);
+        let mut decoder = Decoder::<false>::from(encoded);
         let mut checksum = 0u32;
         for op in &self.0.ops {
             match *op {
@@ -410,26 +433,35 @@ impl Encoder {
     }
 }
 
+/// The in-memory (slice) decoder.
+///
+/// `CHUNKED` selects how chunk boundaries are tracked. A stream whose *first*
+/// frame is the final one (op-count 0) is a single chunk, which is the common
+/// case; decoding it needs no boundary tracking at all, so `CHUNKED = false`
+/// compiles the `ops_left` check and decrement out of the per-batch hot path
+/// entirely. That is worth real time: keeping the bookkeeping unconditionally
+/// measured **+21%** on a cache-resident `Vec<u64>` decode and +6% on a
+/// memory-bound one. [`Ans::decode`] peeks the first frame and picks.
 #[derive(Eq, PartialEq, Debug)]
-pub struct Decoder<'a> {
+pub struct Decoder<'a, const CHUNKED: bool = true> {
     state: StateOnly,
     /// The current chunk's rANS body (entropy bytes after the initial state).
     bytes: &'a [u8],
     /// The current chunk's raw incompressible bytes, in order.
     incompressible: &'a [u8],
-    /// The rest of the stream: chunks not yet entered.
+    /// The rest of the stream: chunks not yet entered. Unused when `!CHUNKED`.
     rest: &'a [u8],
     /// Ops left in the current chunk before the next chunk must be loaded;
-    /// `usize::MAX` for the final chunk (decode until the value is complete).
+    /// `usize::MAX` for the final chunk. Only read/written when `CHUNKED`.
     ops_left: usize,
 }
 
-impl<'a> From<&'a [u8]> for Decoder<'a> {
+impl<'a, const CHUNKED: bool> From<&'a [u8]> for Decoder<'a, CHUNKED> {
     #[inline(always)]
     fn from(bytes: &'a [u8]) -> Self {
         // Enter the first chunk; `load_next_chunk` parses its frame (see
         // `Ans::flush_chunk`). A single-chunk (final) value leaves `ops_left`
-        // at `usize::MAX`, so the per-batch boundary check never fires.
+        // at `usize::MAX`, so even under `CHUNKED` the check never fires.
         let mut decoder = Decoder {
             state: StateOnly { state: 0 },
             bytes: &[],
@@ -442,7 +474,7 @@ impl<'a> From<&'a [u8]> for Decoder<'a> {
     }
 }
 
-impl<'a> Decoder<'a> {
+impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
     /// Enter the next chunk from `self.rest`: parse its frame, initialize the
     /// rANS state from the entropy body, point `incompressible` at its raw run,
     /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
@@ -497,7 +529,7 @@ fn decode_step(state: &mut State, bytes: &mut &[u8], probability: Probability) -
     b
 }
 
-impl<'a> SymbolDecoder for Decoder<'a> {
+impl<'a, const CHUNKED: bool> SymbolDecoder for Decoder<'a, CHUNKED> {
     /// `Ans` always takes the plain walk: its lean symbol step leaves
     /// speculative work exposed — measured slower at every value count
     /// (+4…+22%); see the walk inventory in `atmost::walks`.
@@ -514,7 +546,7 @@ impl<'a> SymbolDecoder for Decoder<'a> {
     /// bytes where a bit step pulls at most one.
     #[inline(always)]
     fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         let mut state = self.state.state;
@@ -531,12 +563,14 @@ impl<'a> SymbolDecoder for Decoder<'a> {
         }
         self.state.state = state;
         self.bytes = bytes;
-        self.ops_left = self.ops_left.saturating_sub(1);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(1);
+        }
         value
     }
 }
 
-impl<'a> EntropyDecoder for Decoder<'a> {
+impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
     #[inline(always)]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
@@ -552,7 +586,7 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     /// result is identical to the per-bit default.
     #[inline(always)]
     fn decode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> [bool; N] {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         let mut state = self.state.state;
@@ -565,13 +599,15 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         }
         self.state.state = state;
         self.bytes = bytes;
-        self.ops_left = self.ops_left.saturating_sub(N);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(N);
+        }
         bits
     }
 
     #[inline(always)]
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         if self.incompressible.len() < bytes.len() {
@@ -584,7 +620,9 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         let (b, incompressible) = self.incompressible.split_at(bytes.len());
         self.incompressible = incompressible;
         bytes.copy_from_slice(b);
-        self.ops_left = self.ops_left.saturating_sub(1);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(1);
+        }
         Ok(())
     }
 }
@@ -967,7 +1005,10 @@ fn check_state_only_symbol() {
 
 #[test]
 fn check_ans_mixed_bits_and_symbols() {
-    super::check_mixed_bits_and_symbols!(Ans, Decoder::from);
+    // Both decoder instantiations must agree on these (single-chunk) streams:
+    // `false` is the fast path production picks, `true` the tracking one.
+    super::check_mixed_bits_and_symbols!(Ans, Decoder::<false>::from);
+    super::check_mixed_bits_and_symbols!(Ans, Decoder::<true>::from);
 }
 
 #[test]
@@ -986,7 +1027,7 @@ fn check_ans_coder() {
                 writer.0.ops.push(Op::Bit(b, probability));
             }
             let bytes = writer.into_vec();
-            let mut decoder = Decoder::from(bytes.as_slice());
+            let mut decoder = Decoder::<false>::from(bytes.as_slice());
             for (b, probability) in data.iter().copied().zip(distros.iter().copied()) {
                 // println!("checking {b} {probability}");
                 // `decode_step` is the coder's bit primitive at an arbitrary
@@ -1125,7 +1166,7 @@ mod test {
 
             let bytes = encoder.into_vec();
 
-            let mut decoder = Decoder::from(bytes.as_slice());
+            let mut decoder = Decoder::<true>::from(bytes.as_slice());
 
             for &(p, bit) in &probs {
                 println!("Decoding before {p:?} {bit:?}");
@@ -1183,7 +1224,7 @@ mod test {
                 &bytes[bytes.len() - inc.iter().map(|x| x.len()).sum::<usize>()..]
             );
 
-            let mut decoder = Decoder::from(bytes.as_slice());
+            let mut decoder = Decoder::<false>::from(bytes.as_slice());
 
             for &(p, bit) in &probs {
                 println!("Decoding before {p:?} {bit:?}");

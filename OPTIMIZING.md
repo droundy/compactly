@@ -901,6 +901,48 @@ came with numbers:
   `Sorted<String>` in-place fix (→ TODO #15). Two stale TODOs retired
   (#5, #10).
 
+### Ans chunked format: the cost is per-batch boundary tracking, not chunking (2026-07-27)
+
+Chunking `Ans` (self-contained rANS chunks every `CHUNK_OPS = 1<<16` ops, so
+encoder/decoder memory is bounded and the format can stream) was A/B'd against
+pre-chunking `a9184ef`. Quiesced, alternating, min of 3, reps within 0.3%:
+
+| phase | first cut | after `CHUNKED=false` |
+|---|---|---|
+| encode, multi-chunk (100k u64) | +2.41% | **+2.27%** |
+| decode, multi-chunk (100k u64) | +6.06% | **+5.71%** |
+| encode, single-chunk (2k u64) | +0.95% | **−0.87%** |
+| decode, single-chunk (2k u64) | **+21.51%** | **−1.07%** |
+
+The +21.5% on a *single-chunk* decode was the surprise — one never-taken branch
+should be free. Isolated by stripping just the `ops_left` load/store/decrement
+from the two hot decode paths: that alone restored it to −1.55%. So the entire
+regression was **per-batch boundary bookkeeping**; the framing and the per-chunk
+rANS state flush cost essentially nothing. It hurts most on cache-resident data
+(compute-bound); on 100k u64s the memory traffic dilutes it to ~6%.
+
+Fix: `Decoder<'a, const CHUNKED: bool>`. A stream whose *first* frame is final
+(op-count 0) is single-chunk — the common case — and needs no tracking at all,
+so `Ans::decode` peeks the frame and instantiates `CHUNKED = false`, compiling
+the checks and decrements out entirely. Single-chunk decode is now at parity
+(−1.07%). Multi-chunk still pays ~5.7% decode / ~2.3% encode, which is the real
+price of bounded memory + streamability for huge values.
+
+**Build-ops vs entropy-code split** (measured on pre-chunking, where the phases
+separate cleanly) — the ratio is workload-dependent and *inverts*:
+
+| workload | build `Vec<Op>` | entropy-code |
+|---|---|---|
+| 38k meteorite strings | 79.4% | 20.6% |
+| 100k `u64` | 37.4% | 62.6% |
+
+Relevant to the idea of entropy-coding each chunk on a background thread while
+the main thread keeps recording ops: a perfectly overlapped two-stage pipeline
+costs `max(build, entropy)` instead of the sum, i.e. a ceiling of ~1.26x on
+strings but ~1.60x on numeric data. Chunks are the natural handoff unit (each is
+an independent rANS stream), and the stages share no mutable model — contexts
+adapt during recording, so stage 2 only needs the finished op vector.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
