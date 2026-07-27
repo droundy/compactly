@@ -50,19 +50,36 @@ fn read_varint(bytes: &mut &[u8]) -> usize {
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ans {
+    /// Ops recorded for the *current* chunk (flushed once they reach
+    /// `CHUNK_OPS`); the contexts adapt across chunk boundaries during recording.
     ops: Vec<Op>,
+    /// Raw bytes recorded for the current chunk, in order.
     incompressible_bytes: Vec<u8>,
+    /// Already-flushed chunk frames. Streaming will write these to a `Write`
+    /// instead of accumulating them here.
+    out: Vec<u8>,
 }
 
-/// One deferred coding operation. rANS runs the coder backwards over the whole
-/// buffer in [`Ans::into_vec`], so symbols are recorded here next to bits to
-/// preserve their interleaving. The symbol interval is stored packed
-/// (`width` is in `1..=M`, so `width - 1` fits a `u16`) to keep the buffer
-/// entry small.
+/// The number of ops (bits + symbols + incompressible runs) per chunk. Each
+/// chunk is an independent rANS unit, so this bounds the encoder's op buffer and
+/// the decoder's per-chunk memory; the contexts adapt continuously across chunk
+/// boundaries so there is no compression loss beyond one state-flush per chunk.
+/// A value fitting in one chunk emits a single (final) chunk. Small enough to
+/// bound memory, large enough that the per-chunk overhead is negligible.
+const CHUNK_OPS: usize = 1 << 16;
+
+/// One deferred coding operation. rANS runs the coder backwards over each chunk
+/// of the buffer in [`Ans::into_vec`], so symbols are recorded here next to bits
+/// to preserve their interleaving. The symbol interval is stored packed
+/// (`width` is in `1..=M`, so `width - 1` fits a `u16`) to keep the buffer entry
+/// small. `Incompressible` records the length of a raw run at its position in
+/// the op sequence, so chunking partitions the raw bytes with the coded ops (the
+/// bytes themselves live in `Ans::incompressible_bytes`, in order).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Op {
     Bit(bool, Probability),
     Symbol { start: u16, width_minus_1: u16 },
+    Incompressible { len: usize },
 }
 
 impl EntropyCoder for Ans {
@@ -74,6 +91,7 @@ impl EntropyCoder for Ans {
                 *ctx = ctx.adapt(b);
                 Op::Bit(b, probability)
             }));
+        self.maybe_flush();
     }
 
     #[inline]
@@ -87,7 +105,9 @@ impl EntropyCoder for Ans {
 
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
+        self.ops.push(Op::Incompressible { len: bytes.len() });
         self.incompressible_bytes.extend_from_slice(bytes);
+        self.maybe_flush();
     }
 }
 
@@ -99,9 +119,60 @@ impl SymbolCoder for Ans {
             start: range.start() as u16,
             width_minus_1: (range.width() - 1) as u16,
         });
+        self.maybe_flush();
     }
 }
 impl Ans {
+    /// Flush a non-final chunk once the op buffer reaches `CHUNK_OPS`. Called
+    /// after each recorded batch, so chunk boundaries always land between batches
+    /// (a `decode_bits<N>` never straddles two chunks' separate rANS streams).
+    #[inline]
+    fn maybe_flush(&mut self) {
+        if self.ops.len() >= CHUNK_OPS {
+            self.flush_chunk(false);
+        }
+    }
+
+    /// Reverse-encode the current chunk's ops into a self-contained rANS stream
+    /// and append the framed chunk to `out`, then clear the chunk buffers. The
+    /// contexts are *not* reset (they adapt across chunks). `is_final` writes an
+    /// op-count of 0 (the decoder then decodes until the value is complete).
+    fn flush_chunk(&mut self, is_final: bool) {
+        let mut coder = Encoder::new();
+        let mut entropy = Vec::new();
+        for op in self.ops.iter().rev() {
+            match *op {
+                Op::Bit(b, probability) => {
+                    if let Some(byte) = coder.encode(b, probability) {
+                        entropy.push(byte);
+                    }
+                }
+                Op::Symbol {
+                    start,
+                    width_minus_1,
+                } => {
+                    let (bytes, state) = coder
+                        .state
+                        .encode_symbol(start as State, width_minus_1 as State + 1);
+                    coder.state = state;
+                    entropy.extend(bytes);
+                }
+                Op::Incompressible { .. } => {} // raw bytes bypass the coder
+            }
+        }
+        entropy.extend(coder.finish_encoding());
+        entropy.reverse();
+
+        let op_count = if is_final { 0 } else { self.ops.len() };
+        push_varint(&mut self.out, op_count);
+        push_varint(&mut self.out, entropy.len());
+        push_varint(&mut self.out, self.incompressible_bytes.len());
+        self.out.extend_from_slice(&entropy);
+        self.out.extend_from_slice(&self.incompressible_bytes);
+        self.ops.clear();
+        self.incompressible_bytes.clear();
+    }
+
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -144,8 +215,18 @@ impl Ans {
     /// model (context adaptation) and value construction; see
     /// `src/bin/ans-decode-phases.rs`. Panics if a decoded bit disagrees with
     /// the recorded one. Returns a checksum so callers can `black_box` it.
+    ///
+    /// Only valid for a **single-chunk** value: once encoding flushes a chunk
+    /// (at [`CHUNK_OPS`] ops) it clears the flushed ops from `self.ops`, so the
+    /// buffer would no longer be a complete oracle. A single-chunk value leaves
+    /// `self.out` empty; we assert that, failing loudly rather than measuring a
+    /// truncated replay. Keep the benchmark input under `CHUNK_OPS` ops.
     #[doc(hidden)]
     pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
+        assert!(
+            self.out.is_empty(),
+            "replay_entropy_decode requires a single-chunk stream (input exceeded CHUNK_OPS ops)"
+        );
         let mut decoder = Decoder::from(encoded);
         let mut checksum = 0u32;
         for op in &self.ops {
@@ -174,54 +255,26 @@ impl Ans {
                     decoder.state.state = state;
                     checksum = checksum.wrapping_add(slot);
                 }
+                Op::Incompressible { .. } => {} // raw bytes bypass the coder
             }
         }
         checksum
     }
-    /// Convert the encoded value into a `Vec` of bytes.
+    /// Finish encoding: flush the final chunk and return the framed stream.
     ///
-    /// The stream is a sequence of chunks; the in-memory path emits a single
-    /// **final** chunk (marked by an op-count of 0, meaning "decode until the
-    /// value is complete"). A chunk is
+    /// The stream is a sequence of chunks. Non-final chunks (flushed during
+    /// recording once the op buffer reaches [`CHUNK_OPS`]) carry their real
+    /// op-count; the final chunk carries op-count 0 ("decode until the value is
+    /// complete"). Each chunk is
     /// `[op-count][entropy-len][incompressible-len][entropy][incompressible]`,
-    /// all varints; `entropy` is the chunk's self-contained rANS stream (state
-    /// then body, in decode order) and `incompressible` its raw bytes. Streaming
-    /// will emit the same layout with real op-counts on the non-final chunks.
+    /// all varints; `entropy` is that chunk's self-contained rANS stream (state
+    /// then body, in decode order) and `incompressible` its raw bytes. The
+    /// contexts adapt continuously across chunk boundaries, so chunking costs
+    /// only one rANS state-flush (plus the tiny frame header) per chunk.
     #[inline]
-    pub fn into_vec(self) -> Vec<u8> {
-        // Reverse-encode the ops into the rANS entropy stream, then reverse so
-        // the decoder reads it front-to-back (state first, then body).
-        let mut coder = Encoder::new();
-        let mut entropy = Vec::new();
-        for op in self.ops.into_iter().rev() {
-            match op {
-                Op::Bit(b, probability) => {
-                    if let Some(byte) = coder.encode(b, probability) {
-                        entropy.push(byte);
-                    }
-                }
-                Op::Symbol {
-                    start,
-                    width_minus_1,
-                } => {
-                    let (bytes, state) = coder
-                        .state
-                        .encode_symbol(start as State, width_minus_1 as State + 1);
-                    coder.state = state;
-                    entropy.extend(bytes);
-                }
-            }
-        }
-        entropy.extend(coder.finish_encoding());
-        entropy.reverse();
-
-        let mut out = Vec::with_capacity(entropy.len() + self.incompressible_bytes.len() + 6);
-        push_varint(&mut out, 0); // op-count 0: the single, final chunk
-        push_varint(&mut out, entropy.len());
-        push_varint(&mut out, self.incompressible_bytes.len());
-        out.extend_from_slice(&entropy);
-        out.extend_from_slice(&self.incompressible_bytes);
-        out
+    pub fn into_vec(mut self) -> Vec<u8> {
+        self.flush_chunk(true);
+        self.out
     }
 }
 impl From<Ans> for Vec<u8> {
@@ -265,39 +318,63 @@ impl Encoder {
 #[derive(Eq, PartialEq, Debug)]
 pub struct Decoder<'a> {
     state: StateOnly,
-    /// The compressed bytes.
+    /// The current chunk's rANS body (entropy bytes after the initial state).
     bytes: &'a [u8],
-    /// The incompressible set of bytes.
+    /// The current chunk's raw incompressible bytes, in order.
     incompressible: &'a [u8],
+    /// The rest of the stream: chunks not yet entered.
+    rest: &'a [u8],
+    /// Ops left in the current chunk before the next chunk must be loaded;
+    /// `usize::MAX` for the final chunk (decode until the value is complete).
+    ops_left: usize,
 }
 
 impl<'a> From<&'a [u8]> for Decoder<'a> {
     #[inline(always)]
-    fn from(mut bytes: &'a [u8]) -> Self {
-        // Parse the (single, final) chunk frame; see `Ans::into_vec`.
-        let _op_count = read_varint(&mut bytes); // 0 for the final chunk
-        let entropy_len = read_varint(&mut bytes);
-        let incompressible_len = read_varint(&mut bytes);
-        let (entropy, rest) = bytes.split_at(entropy_len.min(bytes.len()));
-        let incompressible = &rest[..incompressible_len.min(rest.len())];
+    fn from(bytes: &'a [u8]) -> Self {
+        // Enter the first chunk; `load_next_chunk` parses its frame (see
+        // `Ans::flush_chunk`). A single-chunk (final) value leaves `ops_left`
+        // at `usize::MAX`, so the per-batch boundary check never fires.
+        let mut decoder = Decoder {
+            state: StateOnly { state: 0 },
+            bytes: &[],
+            incompressible: &[],
+            rest: bytes,
+            ops_left: 0,
+        };
+        decoder.load_next_chunk();
+        decoder
+    }
+}
 
-        let mut state: State = 0;
+impl<'a> Decoder<'a> {
+    /// Enter the next chunk from `self.rest`: parse its frame, initialize the
+    /// rANS state from the entropy body, point `incompressible` at its raw run,
+    /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
+    /// rANS stream, so the state restarts here; the model contexts (owned by the
+    /// caller) carry over, exactly as they did across the boundary on encode.
+    #[inline]
+    fn load_next_chunk(&mut self) {
+        let mut rest = self.rest;
+        let op_count = read_varint(&mut rest);
+        let entropy_len = read_varint(&mut rest);
+        let incompressible_len = read_varint(&mut rest);
+        let (entropy, rest) = rest.split_at(entropy_len.min(rest.len()));
+        let (incompressible, rest) = rest.split_at(incompressible_len.min(rest.len()));
+        self.rest = rest;
+        self.incompressible = incompressible;
+        self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
         if entropy.len() < STATE_BYTES {
+            let mut state: State = 0;
             for &b in entropy.iter() {
                 state = state << 8 | State::from(b);
             }
-            Self {
-                state: StateOnly { state },
-                bytes: &[],
-                incompressible,
-            }
+            self.state = StateOnly { state };
+            self.bytes = &[];
         } else {
             let state = State::from_be_bytes(entropy[0..STATE_BYTES].try_into().unwrap());
-            Self {
-                state: StateOnly { state },
-                bytes: &entropy[STATE_BYTES..],
-                incompressible,
-            }
+            self.state = StateOnly { state };
+            self.bytes = &entropy[STATE_BYTES..];
         }
     }
 }
@@ -342,6 +419,9 @@ impl<'a> SymbolDecoder for Decoder<'a> {
     /// bytes where a bit step pulls at most one.
     #[inline(always)]
     fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
         let mut state = self.state.state;
         let mut bytes = self.bytes;
         let slot = state & (SymbolRange::M - 1);
@@ -356,6 +436,7 @@ impl<'a> SymbolDecoder for Decoder<'a> {
         }
         self.state.state = state;
         self.bytes = bytes;
+        self.ops_left = self.ops_left.saturating_sub(1);
         value
     }
 }
@@ -376,6 +457,9 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     /// result is identical to the per-bit default.
     #[inline(always)]
     fn decode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> [bool; N] {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
         let mut state = self.state.state;
         let mut bytes = self.bytes;
         let mut bits = [false; N];
@@ -386,21 +470,26 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         }
         self.state.state = state;
         self.bytes = bytes;
+        self.ops_left = self.ops_left.saturating_sub(N);
         bits
     }
 
     #[inline(always)]
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error> {
+        if self.ops_left == 0 {
+            self.load_next_chunk();
+        }
         if self.incompressible.len() < bytes.len() {
             return Err(std::io::Error::other(format!(
                 "insufficient incompressible bytes: {} < {}",
-                self.bytes.len(),
+                self.incompressible.len(),
                 bytes.len()
             )));
         }
         let (b, incompressible) = self.incompressible.split_at(bytes.len());
         self.incompressible = incompressible;
         bytes.copy_from_slice(b);
+        self.ops_left = self.ops_left.saturating_sub(1);
         Ok(())
     }
 }
@@ -602,6 +691,57 @@ fn ans_is_reasonable() {
     assert_eq!(super::Range::encode(&data).len(), 10);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
     assert_eq!(Ans::encode(&data).len(), 19);
+}
+
+/// Count the chunk frames in an `Ans` stream (see [`Ans::flush_chunk`]), so a
+/// test can confirm it actually exercised more than the single final chunk.
+#[cfg(test)]
+fn count_chunks(mut bytes: &[u8]) -> usize {
+    let mut chunks = 0;
+    while !bytes.is_empty() {
+        let op_count = read_varint(&mut bytes);
+        let entropy_len = read_varint(&mut bytes);
+        let incompressible_len = read_varint(&mut bytes);
+        bytes = &bytes[(entropy_len + incompressible_len).min(bytes.len())..];
+        chunks += 1;
+        if op_count == 0 {
+            break; // the final chunk
+        }
+    }
+    chunks
+}
+
+/// A value big enough to span several `CHUNK_OPS` chunks must round-trip, with
+/// bits, whole symbols, and incompressible runs all crossing chunk boundaries
+/// while the model contexts adapt continuously across them.
+#[test]
+fn multi_chunk_round_trips() {
+    use crate::{Encoded, Incompressible};
+    type Item = (u64, Encoded<Vec<u8>, Incompressible>);
+    let mut x = 0x1234_5678_9abc_def0u64;
+    let mut rng = || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    // ~5 ops per item (a `u64` plus a short incompressible run) over 60k items
+    // is several times `CHUNK_OPS`.
+    let items: Vec<Item> = (0..60_000)
+        .map(|_| {
+            let len = (rng() % 5) as usize;
+            let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+            (rng() % 1000, Encoded::new(run))
+        })
+        .collect();
+
+    let encoded = Ans::encode(&items);
+    assert!(
+        count_chunks(&encoded) >= 2,
+        "test should exercise multiple chunks, got {}",
+        count_chunks(&encoded)
+    );
+
+    let decoded: Vec<Item> = Ans::decode(&encoded).unwrap();
+    assert_eq!(decoded, items);
 }
 
 #[cfg(test)]
