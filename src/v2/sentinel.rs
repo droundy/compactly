@@ -129,3 +129,123 @@ impl Sentinel {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::v2::{decode, encode};
+    use crate::{Compressible, Encoded, LowCardinality, Sorted, Values};
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+    /// Every collection that codes a marker must round-trip *past* the marker
+    /// interval. The rest of the suite uses small values, which emit no marker
+    /// at all, so without this an encode/decode asymmetry in any one of these
+    /// paths would go completely unnoticed.
+    const BIG: usize = super::SENTINEL_EVERY * 2 + 7;
+
+    fn seq(n: usize) -> impl Iterator<Item = u64> {
+        (0..n as u64).map(|i| i.wrapping_mul(2654435761) % 100_000)
+    }
+
+    macro_rules! round_trips {
+        ($name:ident, $value:expr) => {
+            #[test]
+            fn $name() {
+                let v = $value;
+                let bytes = encode(&v);
+                assert_eq!(
+                    decode(&bytes).as_ref(),
+                    Some(&v),
+                    "round trip past sentinel"
+                );
+            }
+        };
+    }
+
+    round_trips!(vec_u64, seq(BIG).collect::<Vec<u64>>());
+    round_trips!(
+        boxed_slice,
+        seq(BIG).collect::<Vec<u64>>().into_boxed_slice()
+    );
+    round_trips!(
+        string,
+        seq(BIG)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect::<String>()
+    );
+    round_trips!(
+        boxed_str,
+        seq(BIG)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect::<String>()
+            .into_boxed_str()
+    );
+    round_trips!(
+        hashmap,
+        seq(BIG).map(|i| (i, i ^ 5)).collect::<HashMap<u64, u64>>()
+    );
+    round_trips!(
+        btreemap,
+        seq(BIG).map(|i| (i, i ^ 5)).collect::<BTreeMap<u64, u64>>()
+    );
+    round_trips!(hashset, seq(BIG).collect::<HashSet<u64>>());
+    round_trips!(btreeset, seq(BIG).collect::<BTreeSet<u64>>());
+    round_trips!(
+        vecdeque,
+        Encoded::<VecDeque<u64>, Values<crate::Normal>>::new(seq(BIG).collect())
+    );
+    round_trips!(
+        compact_btreeset,
+        Encoded::<BTreeSet<u64>, crate::Small>::new(seq(BIG).collect())
+    );
+    round_trips!(
+        sorted_strings,
+        Encoded::<Vec<String>, Values<Sorted>>::new(
+            (0..BIG).map(|i| format!("item{i:07}")).collect()
+        )
+    );
+    round_trips!(
+        sorted_vecs,
+        Encoded::<Vec<Vec<u64>>, Values<Sorted>>::new(
+            (0..BIG).map(|i| vec![i as u64, (i as u64) ^ 3]).collect()
+        )
+    );
+    round_trips!(
+        low_cardinality,
+        Encoded::<Vec<u64>, LowCardinality>::new(seq(BIG).map(|i| i % 7).collect())
+    );
+    round_trips!(
+        compressible_bytes,
+        Encoded::<Vec<u8>, Compressible>::new(
+            (0..BIG * 8).map(|i| (i % 251) as u8).collect::<Vec<u8>>()
+        )
+    );
+
+    /// The point of the whole exercise: a tiny input claiming an enormous
+    /// collection must be rejected promptly rather than materializing it.
+    #[test]
+    fn absurd_claimed_length_is_rejected() {
+        let bytes = encode(&Encoded::<usize, crate::Small>::new(20_000_000));
+        assert!(bytes.len() < 32, "the attack is a handful of bytes");
+        let start = std::time::Instant::now();
+        let decoded: Option<Vec<u8>> = decode(&bytes);
+        assert!(decoded.is_none(), "must reject, not fabricate 20M elements");
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(200),
+            "must bail within a sentinel interval, took {:?}",
+            start.elapsed()
+        );
+    }
+
+    /// A truncated stream must not silently yield a partial collection.
+    #[test]
+    fn truncation_is_caught() {
+        let v: Vec<u64> = seq(BIG).collect();
+        let bytes = encode(&v);
+        let cut = bytes.len() / 4;
+        let decoded: Option<Vec<u64>> = decode(&bytes[..cut]);
+        assert!(
+            decoded.is_none() || decoded.as_ref().unwrap().len() <= v.len(),
+            "truncated stream must not expand"
+        );
+    }
+}

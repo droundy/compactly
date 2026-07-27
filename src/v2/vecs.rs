@@ -215,7 +215,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             ctx.previous.truncate(shared_prefix);
         }
         ctx.previous.reserve(len);
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             ctx.previous.push(T::decode(reader, &mut ctx.value)?);
         }
         Ok(ctx.previous.clone())
@@ -224,7 +226,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         if ctx.previous.is_empty() {
             let len = value.len();
             Small::encode(&len, writer, &mut ctx.len);
+            let mut sentinel = Sentinel::new();
             for b in value {
+                sentinel.encode(writer);
                 b.encode(writer, &mut ctx.value);
             }
         } else {
@@ -236,7 +240,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             let len = value.len() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len);
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
+            let mut sentinel = Sentinel::new();
             for b in &value[shared_prefix..] {
+                sentinel.encode(writer);
                 b.encode(writer, &mut ctx.value);
             }
         }
