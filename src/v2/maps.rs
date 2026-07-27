@@ -46,7 +46,7 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
-        let mut map = Self::with_capacity(len);
+        let mut map = Self::with_capacity(super::capacity_for::<(K, V)>(len));
         for _ in 0..len {
             map.insert(
                 Encode::decode(reader, &mut ctx.key)?,
@@ -137,7 +137,7 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         // diverge only on a corrupt stream carrying an Ord-equal key run of a
         // coarse-`Ord` key type, where `collect` keeps every Eq-distinct
         // entry. Not UB, which is all decode promises for corrupt input.
-        let mut pairs = Vec::with_capacity(len);
+        let mut pairs = Vec::with_capacity(super::capacity_for::<(K, V)>(len));
         for _ in 0..len {
             pairs.push((
                 SK::decode(reader, &mut ctx.key)?,
@@ -170,7 +170,7 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         ctx: &mut Self::Context,
     ) -> Result<HashMap<K, V>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut map = HashMap::with_capacity(len);
+        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
         for _ in 0..len {
             map.insert(
                 SK::decode(reader, &mut ctx.key)?,

@@ -248,14 +248,8 @@ const W_DELAY: usize = 8;
 /// assert_eq!(encoded.len(), 4);
 /// assert_eq!(compactly::v2::Range::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
+#[derive(Default, Debug)]
 pub struct Range(RangeEncoder<Vec<u8>>);
-
-impl Default for Range {
-    #[inline]
-    fn default() -> Self {
-        Range(RangeEncoder::new(Vec::new()))
-    }
-}
 
 impl EntropyCoder for Range {
     #[inline]
@@ -341,17 +335,20 @@ impl From<Range> for Vec<u8> {
 /// [`Range`], but settled bytes are written to `W` as they emerge, so peak
 /// memory is bounded rather than the whole `Vec`. Produces **byte-identical**
 /// output to [`Range`] for the same value (enforced by
-/// `streaming_encode_matches_in_memory`). IO errors are latched and surfaced by
+/// `streaming_matches_in_memory`). IO errors are latched and surfaced by
 /// [`RangeEncoder::finish`], keeping the infallible [`EntropyCoder`] hot path
 /// branch-free.
+///
+/// [`Range`] is the in-memory case, `RangeEncoder<Vec<u8>>`; the two share this
+/// single implementation.
+#[derive(Default, Debug)]
 pub(crate) struct RangeEncoder<W: std::io::Write> {
     writer: W,
     state: ArithState,
     /// Count of entropy bytes written (excludes spliced runs) — schedules the
-    /// `W_DELAY` splice, exactly as [`Range::entropy_written`].
+    /// `W_DELAY` splice.
     entropy_written: usize,
-    /// Ring of not-yet-spliced incompressible runs, identical scheme to
-    /// [`Range::withheld`].
+    /// Ring of not-yet-spliced incompressible runs.
     withheld: [Vec<u8>; W_DELAY],
     error: Option<std::io::Error>,
 }
@@ -376,8 +373,8 @@ impl<W: std::io::Write> RangeEncoder<W> {
         }
     }
 
-    /// The streaming twin of [`Range::push_entropy`]: write settled entropy
-    /// bytes, splicing each withheld run in as its target byte is written.
+    /// Write settled entropy bytes, splicing each withheld incompressible run
+    /// in as its target byte is written (the `W_DELAY` delay-interleave).
     #[inline]
     fn push_entropy(&mut self, bytes: &[u8]) {
         for &b in bytes {
@@ -385,7 +382,7 @@ impl<W: std::io::Write> RangeEncoder<W> {
             self.entropy_written += 1;
             let slot = self.entropy_written % W_DELAY;
             // Splice this slot's withheld run (a no-op write when empty) and
-            // clear it for reuse, matching `Range::push_entropy`. `write_all`
+            // clear it for reuse. `write_all`
             // fast-returns on an empty slice, so no guard is needed; the write
             // is inlined (rather than `write_out`) to keep the `writer`,
             // `error`, and `withheld` borrows disjoint.
@@ -398,9 +395,9 @@ impl<W: std::io::Write> RangeEncoder<W> {
         }
     }
 
-    /// Finish encoding: append the coder's final byte and flush any tail runs
-    /// (the streaming twin of [`Range::into_vec`]), then return the sink or the
-    /// latched IO error.
+    /// Finish encoding: append the coder's final byte and flush any tail runs,
+    /// then return the sink or the latched IO error. [`Range::into_vec`] is the
+    /// in-memory caller.
     pub(crate) fn finish(mut self) -> std::io::Result<W> {
         let last = self.state.last_byte();
         self.push_entropy(&[last]);
@@ -611,21 +608,30 @@ impl<'a> EntropyDecoder for Decoder<'a> {
 }
 
 /// Read one byte from `reader`; return 0 at a clean EOF (matching the slice
-/// decoder's zero-padding past the end), retry on `Interrupted`, and latch any
-/// other error into `error` (returning 0 so decoding can run to a validated
-/// stop rather than panicking mid-stream).
+/// [`Decoder`]'s zero-padding past the end of its byte slice), retry on
+/// `Interrupted`, and latch any other error into `error` (returning 0 so
+/// decoding can run to a validated stop rather than panicking mid-stream).
+///
+/// Once `error` is latched we never touch `reader` again — every later byte is a
+/// fabricated 0. This keeps a transiently-failing reader (one that errors once
+/// then recovers) from splicing genuine post-error bytes into the fabricated
+/// zeros, which would desynchronize the arithmetic coder and could decode a
+/// bogus length into a downstream `Vec::with_capacity`.
 #[inline]
 fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> u8 {
+    if error.is_some() {
+        return 0;
+    }
     let mut buf = [0u8; 1];
     loop {
+        // A 1-byte buffer means `Ok(0)` is EOF (the `Read` contract) and any
+        // other success is exactly one byte; we never lose a partial read.
         match reader.read(&mut buf) {
             Ok(0) => return 0,
             Ok(_) => return buf[0],
             Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => {
-                if error.is_none() {
-                    *error = Some(e);
-                }
+                *error = Some(e);
                 return 0;
             }
         }
@@ -635,8 +641,8 @@ fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::E
 /// Streaming range decoder: pulls bytes from `R` on demand rather than indexing
 /// a slice, so decoding a large value need not hold the whole compressed input
 /// in memory. Reads the same bytes [`Range`]/[`RangeEncoder`] produce and
-/// recovers identical values (the decode arithmetic is the slice decoder's; only
-/// the byte source differs). IO errors are latched and surfaced by
+/// recovers identical values (the decode arithmetic is the slice [`Decoder`]'s;
+/// only the byte source differs). IO errors are latched and surfaced by
 /// [`RangeDecoder::into_result`]; a clean EOF yields zero bytes, which the
 /// higher-level `Encode::decode` validation catches.
 pub(crate) struct RangeDecoder<R: std::io::Read> {
@@ -721,8 +727,17 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
 
     #[inline]
     fn decode_incompressible_bytes(&mut self, out: &mut [u8]) -> Result<(), std::io::Error> {
+        // If an IO error was already latched (e.g. mid entropy stream), surface
+        // that first, most-informative error here and abort — rather than
+        // reading fabricated zeros as data, which for a corrupt length could
+        // otherwise drive an unbounded read loop. Returning the latched error
+        // keeps it the one `decode_from` reports (R6).
+        if let Some(e) = self.error.take() {
+            return Err(e);
+        }
         // By the W_DELAY splice the run sits at the reader cursor, so read it
-        // straight off. `read_exact` errors on a truncated stream.
+        // straight off; `read_exact` errors on a truncated stream, stopping the
+        // decode cleanly instead of returning silently-short data.
         self.reader.read_exact(out)
     }
 }
@@ -946,7 +961,7 @@ mod tests {
             }
             println!("\n\ntesting {probs:?}");
             // `ArithState::encode` is the coder's bit primitive at an arbitrary
-            // probability (the `Range` trait only offers context-driven
+            // probability (the `Range` type only offers context-driven
             // encoding). With no incompressible bytes the finished stream is
             // just the entropy bytes plus the final `last_byte`, so we drive the
             // state directly rather than through `Range`.
@@ -1061,5 +1076,155 @@ mod tests {
             let d3: Vec<Item> = super::super::decode_from(streamed.as_slice()).unwrap();
             assert_eq!(d3, items, "trial {trial}: decode_from(encode_to)");
         }
+    }
+
+    /// A value type with both entropy-coded and incompressible bytes, big enough
+    /// that the streamed output is a few hundred bytes — enough for a mid-stream
+    /// reader/writer failure to land inside the coded region.
+    fn sample_items() -> Vec<(u8, crate::Encoded<Vec<u8>, crate::Incompressible>)> {
+        use crate::Encoded;
+        let mut x = 0x0123_4567_89ab_cdefu64;
+        let mut rng = || {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            x
+        };
+        (0..50)
+            .map(|i| {
+                let run: Vec<u8> = (0..(i % 7)).map(|_| rng() as u8).collect();
+                (rng() as u8, Encoded::new(run))
+            })
+            .collect()
+    }
+
+    /// `encode_to` to a real file on disk, then `decode_from` it. Exercises the
+    /// `Read`/`Write` paths against a real OS file (not a `Vec`/slice), where
+    /// reads genuinely return in chunks and can hit EOF.
+    #[test]
+    fn roundtrip_through_a_real_file() {
+        type Item = (u8, crate::Encoded<Vec<u8>, crate::Incompressible>);
+        let items = sample_items();
+        let path = std::env::temp_dir().join(format!(
+            "compactly-stream-roundtrip-{}.bin",
+            std::process::id()
+        ));
+
+        let file = std::fs::File::create(&path).unwrap();
+        super::super::encode_to(&items, file).unwrap();
+
+        // Bytes on disk are identical to the in-memory encoding.
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(on_disk, super::super::encode(&items));
+
+        let file = std::fs::File::open(&path).unwrap();
+        let decoded: Vec<Item> = super::super::decode_from(file).unwrap();
+        assert_eq!(decoded, items);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// A `Write` that accepts `fail_after` bytes and then errors on every
+    /// further write.
+    struct FailingWriter {
+        written: usize,
+        fail_after: usize,
+    }
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.written >= self.fail_after {
+                return Err(std::io::Error::other("disk full"));
+            }
+            let take = buf.len().min(self.fail_after - self.written);
+            self.written += take;
+            Ok(take)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// `encode_to` must surface a writer error as a clean `Err`, never panic and
+    /// never silently succeed.
+    #[test]
+    fn encode_to_surfaces_writer_errors() {
+        let items = sample_items();
+        // Fail immediately (byte 0) and partway through (byte 64); both must be
+        // reported through the `Result`, whether the failure hits during
+        // encoding or during the final `BufWriter` flush.
+        for fail_after in [0usize, 64] {
+            let writer = FailingWriter {
+                written: 0,
+                fail_after,
+            };
+            let result = super::super::encode_to(&items, writer);
+            assert!(
+                result.is_err(),
+                "encode_to should report the writer failure (fail_after={fail_after})"
+            );
+        }
+    }
+
+    /// A `Read` over `data` that yields at most one byte per call and returns a
+    /// transient error on the call indices in `fail_at` — modelling a flaky
+    /// socket/disk that errors once and would then recover.
+    struct FlakyReader {
+        data: Vec<u8>,
+        pos: usize,
+        call: usize,
+        fail_at: Vec<usize>,
+    }
+    impl std::io::Read for FlakyReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let call = self.call;
+            self.call += 1;
+            if self.fail_at.contains(&call) {
+                return Err(std::io::Error::other("transient read failure"));
+            }
+            if self.pos >= self.data.len() || buf.is_empty() {
+                return Ok(0);
+            }
+            buf[0] = self.data[self.pos];
+            self.pos += 1;
+            Ok(1)
+        }
+    }
+
+    /// `decode_from` must surface a reader error as a clean `Err`, never panic
+    /// (the R5 corruption path) and never return silently-wrong data. Once the
+    /// error is latched the reader is never touched again, so a would-be
+    /// recovery cannot splice genuine bytes into the fabricated zeros.
+    #[test]
+    fn decode_from_surfaces_reader_errors() {
+        type Item = (u8, crate::Encoded<Vec<u8>, crate::Incompressible>);
+        let items = sample_items();
+        let encoded = super::super::encode(&items);
+        assert!(
+            encoded.len() > 40,
+            "need a stream long enough to fail inside"
+        );
+
+        // Inject a first transient error partway in, plus a later one the guard
+        // must ensure is never reached, then real bytes that must never be spliced.
+        let reader = FlakyReader {
+            data: encoded.clone(),
+            pos: 0,
+            call: 0,
+            fail_at: vec![20, 30],
+        };
+        let result: std::io::Result<Vec<Item>> = super::super::decode_from(reader);
+        assert!(
+            result.is_err(),
+            "decode_from should report the latched reader error"
+        );
+
+        // Sanity: with no injected failures the same reader decodes correctly,
+        // confirming the one-byte-at-a-time reader is otherwise well-behaved.
+        let reader = FlakyReader {
+            data: encoded,
+            pos: 0,
+            call: 0,
+            fail_at: vec![],
+        };
+        let decoded: Vec<Item> = super::super::decode_from(reader).unwrap();
+        assert_eq!(decoded, items);
     }
 }

@@ -297,6 +297,21 @@ pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
     T::decode(&mut reader, &mut T::Context::default()).ok()
 }
 
+/// Eager pre-allocation size for a length decoded from untrusted input.
+///
+/// A corrupt or truncated stream can decode an absurd length; passing it
+/// straight to `Vec::with_capacity` (etc.) panics with a capacity overflow — or
+/// speculatively allocates gigabytes — *before* the decode loop can reach the
+/// error and return `Err`. Capping the eager reservation at roughly 1 MiB
+/// (regardless of element size) keeps decoding of untrusted bytes to a graceful
+/// stop; the container still grows to the true length for a valid stream, at
+/// most a few extra reallocations for genuinely large collections.
+#[inline]
+pub(crate) fn capacity_for<T>(len: usize) -> usize {
+    let elem = std::mem::size_of::<T>().max(1);
+    len.min((1 << 20) / elem)
+}
+
 /// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
 /// as they are produced rather than buffering the whole compressed output. The
 /// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds

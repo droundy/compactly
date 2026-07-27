@@ -401,7 +401,7 @@ where
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let n = usize::decode(reader, &mut ctx.0)?;
-        let mut x = Vec::with_capacity(n);
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         for _ in 0..n {
             x.push(LowCardinality::decode(reader, &mut ctx.1)?);
         }
