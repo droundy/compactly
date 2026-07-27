@@ -341,7 +341,7 @@ impl From<Range> for Vec<u8> {
 ///
 /// [`Range`] is the in-memory case, `RangeEncoder<Vec<u8>>`; the two share this
 /// single implementation.
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub(crate) struct RangeEncoder<W: std::io::Write> {
     writer: W,
     state: ArithState,
@@ -351,6 +351,24 @@ pub(crate) struct RangeEncoder<W: std::io::Write> {
     /// Ring of not-yet-spliced incompressible runs.
     withheld: [Vec<u8>; W_DELAY],
     error: Option<std::io::Error>,
+}
+
+/// Summarizes rather than dumping the sink. A derived `Debug` would format the
+/// whole accumulated output — megabytes on an in-progress encode, from an
+/// incidental `dbg!()` — and would need `W: Debug`, which a sink need not be.
+/// Progress is reported as `entropy_written`, which is the useful number anyway.
+impl<W: std::io::Write> std::fmt::Debug for RangeEncoder<W> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RangeEncoder")
+            .field("state", &self.state)
+            .field("entropy_written", &self.entropy_written)
+            .field(
+                "withheld_bytes",
+                &self.withheld.iter().map(Vec::len).sum::<usize>(),
+            )
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<W: std::io::Write> RangeEncoder<W> {
@@ -1165,17 +1183,19 @@ mod tests {
 
     /// A `Read` over `data` that yields at most one byte per call and returns a
     /// transient error on the call indices in `fail_at` — modelling a flaky
-    /// socket/disk that errors once and would then recover.
+    /// socket/disk that errors once and would then recover. `calls` is shared
+    /// with the test so it can assert the reader is never touched again once an
+    /// error has been latched.
     struct FlakyReader {
         data: Vec<u8>,
         pos: usize,
-        call: usize,
+        calls: std::rc::Rc<std::cell::Cell<usize>>,
         fail_at: Vec<usize>,
     }
     impl std::io::Read for FlakyReader {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let call = self.call;
-            self.call += 1;
+            let call = self.calls.get();
+            self.calls.set(call + 1);
             if self.fail_at.contains(&call) {
                 return Err(std::io::Error::other("transient read failure"));
             }
@@ -1202,12 +1222,14 @@ mod tests {
             "need a stream long enough to fail inside"
         );
 
-        // Inject a first transient error partway in, plus a later one the guard
-        // must ensure is never reached, then real bytes that must never be spliced.
+        // Fail on call 20, and again on call 30 — the second must never be
+        // reached, because the latch is supposed to stop us touching the reader
+        // at all after the first failure.
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
         let reader = FlakyReader {
             data: encoded.clone(),
             pos: 0,
-            call: 0,
+            calls: std::rc::Rc::clone(&calls),
             fail_at: vec![20, 30],
         };
         let result: std::io::Result<Vec<Item>> = super::super::decode_from(reader);
@@ -1215,16 +1237,44 @@ mod tests {
             result.is_err(),
             "decode_from should report the latched reader error"
         );
+        // The assertion that actually pins the R5 guard: `is_err()` alone would
+        // hold even without it (the first error still gets latched and
+        // surfaced). What the guard buys is that the reader is untouched
+        // afterwards, so a reader that recovers cannot splice genuine bytes into
+        // the fabricated zeros and silently desynchronize the coder.
+        assert_eq!(
+            calls.get(),
+            21,
+            "reader must not be called again after the first error is latched \
+             (called {} times; expected to stop at the failing call 20)",
+            calls.get()
+        );
 
         // Sanity: with no injected failures the same reader decodes correctly,
         // confirming the one-byte-at-a-time reader is otherwise well-behaved.
         let reader = FlakyReader {
             data: encoded,
             pos: 0,
-            call: 0,
+            calls: std::rc::Rc::new(std::cell::Cell::new(0)),
             fail_at: vec![],
         };
         let decoded: Vec<Item> = super::super::decode_from(reader).unwrap();
         assert_eq!(decoded, items);
     }
+}
+
+#[test]
+fn range_debug_summarizes_rather_than_dumping() {
+    use super::Encode;
+    // A large in-progress encode must not format its whole output buffer.
+    let big: Vec<u64> = (0..50_000).collect();
+    let mut coder = Range::default();
+    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    let shown = format!("{coder:?}");
+    assert!(
+        shown.len() < 300,
+        "Debug should summarize, not dump the buffer; got {} chars: {shown}",
+        shown.len()
+    );
+    assert!(shown.contains("entropy_written"), "got {shown}");
 }

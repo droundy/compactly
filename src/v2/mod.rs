@@ -303,9 +303,16 @@ pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
 /// straight to `Vec::with_capacity` (etc.) panics with a capacity overflow — or
 /// speculatively allocates gigabytes — *before* the decode loop can reach the
 /// error and return `Err`. Capping the eager reservation at roughly 1 MiB
-/// (regardless of element size) keeps decoding of untrusted bytes to a graceful
-/// stop; the container still grows to the true length for a valid stream, at
-/// most a few extra reallocations for genuinely large collections.
+/// (regardless of element size) avoids that immediate allocation failure; the
+/// container still grows to the true length for a valid stream, at most a few
+/// extra reallocations for genuinely large collections.
+///
+/// This bounds the *eager* allocation only, not total decode work. For element
+/// types that validate (integers, enums) a corrupt length is rejected quickly.
+/// For types where every bit pattern is legal (`u8`), nothing rejects an absurd
+/// claimed length, so the decode loop still runs to completion against
+/// zero-padding — a small input can request arbitrarily much work. Bounding
+/// that needs an in-stream end marker, not an allocation cap.
 #[inline]
 pub(crate) fn capacity_for<T>(len: usize) -> usize {
     let elem = std::mem::size_of::<T>().max(1);
