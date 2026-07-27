@@ -282,12 +282,26 @@ impl Ans {
         // [`Decoder`]. Multi-chunk streams take the tracking decoder.
         let single_chunk = read_varint(&mut { bytes }) == 0;
         if single_chunk {
-            let mut reader = Decoder::<false>::from(bytes);
-            T::decode(&mut reader, &mut T::Context::default()).ok()
+            Self::decode_with::<T, false>(bytes)
         } else {
-            let mut reader = Decoder::<true>::from(bytes);
-            T::decode(&mut reader, &mut T::Context::default()).ok()
+            Self::decode_with::<T, true>(bytes)
         }
+    }
+
+    /// One arm of [`Self::decode`]'s dispatch.
+    ///
+    /// Deliberately **not** inlined: each instantiation monomorphizes the whole
+    /// of `T::decode`, and letting both arms inline into one function makes an
+    /// unoptimized build reserve stack for both call trees at once (the arms are
+    /// exclusive, but debug builds do not overlap their slots). For a deeply
+    /// nested `T` that doubled frame size, which overflowed Windows' 1 MiB main
+    /// thread stack on `crash_from_bench`. Out of line, only one arm's frame is
+    /// ever live. The call costs nothing measurable — it happens once per
+    /// decoded value, not per op.
+    #[inline(never)]
+    fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
+        let mut reader = Decoder::<CHUNKED>::from(bytes);
+        T::decode(&mut reader, &mut T::Context::default()).ok()
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -313,19 +327,27 @@ impl Ans {
         bytes: &[u8],
         n: usize,
     ) -> Vec<super::AtMost<MAX>> {
-        // Mirror `Ans::decode`'s dispatch so the benchmark measures the decoder
-        // production would actually pick for these bytes.
+        // Mirror `Ans::decode`'s dispatch — including keeping the arms out of
+        // line — so the benchmark measures the decoder production would
+        // actually pick for these bytes.
         if read_varint(&mut { bytes }) == 0 {
-            walks::decode_atmost_batch::<Decoder<false>, MAX, WHICH_WALK>(
-                Decoder::<false>::from(bytes),
-                n,
-            )
+            Self::decode_atmost_batch_with::<MAX, WHICH_WALK, false>(bytes, n)
         } else {
-            walks::decode_atmost_batch::<Decoder<true>, MAX, WHICH_WALK>(
-                Decoder::<true>::from(bytes),
-                n,
-            )
+            Self::decode_atmost_batch_with::<MAX, WHICH_WALK, true>(bytes, n)
         }
+    }
+
+    /// One arm of [`Self::decode_atmost_batch`]'s dispatch; see
+    /// [`Self::decode_with`] for why this is kept out of line.
+    #[inline(never)]
+    fn decode_atmost_batch_with<const MAX: usize, const WHICH_WALK: usize, const CHUNKED: bool>(
+        bytes: &[u8],
+        n: usize,
+    ) -> Vec<super::AtMost<MAX>> {
+        walks::decode_atmost_batch::<Decoder<CHUNKED>, MAX, WHICH_WALK>(
+            Decoder::<CHUNKED>::from(bytes),
+            n,
+        )
     }
     /// Benchmark helper: replay only the entropy-decode steps against
     /// `encoded`, using this op buffer (from encoding the same value) as an
