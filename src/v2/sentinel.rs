@@ -81,33 +81,6 @@ const SEEDED: BitContext = {
 /// markers a given collection gets.
 const SENTINEL_EVERY: usize = 4096;
 
-/// Encode `items` with a marker every [`SENTINEL_EVERY`], iterating in runs so
-/// the inner loop carries no per-element bookkeeping at all.
-///
-/// The equivalent per-element `Sentinel::encode` costs about 3 extra
-/// instructions per element, which sounds free but measured +2.4% on encode:
-/// the loop-carried counter drops IPC from 2.61 to 2.55, since encode is
-/// throughput-bound and a counter in the loop body limits reordering. Decode is
-/// latency-bound and hides it, which is why only the encode side needs this.
-///
-/// Emits markers at exactly the positions [`Sentinel`] expects, so a decoder
-/// using the per-element form reads this back unchanged.
-#[inline]
-pub(crate) fn encode_runs<E: EntropyCoder, T>(
-    items: &[T],
-    writer: &mut E,
-    mut encode_one: impl FnMut(&T, &mut E),
-) {
-    for (run, chunk) in items.chunks(SENTINEL_EVERY).enumerate() {
-        if run > 0 {
-            writer.encode_bit(&mut { SEEDED }, true);
-        }
-        for v in chunk {
-            encode_one(v, writer);
-        }
-    }
-}
-
 /// Emits and checks the periodic marker for one length-driven loop.
 ///
 /// Encode and decode must call [`Self::encode`]/[`Self::decode`] the same number
@@ -128,7 +101,7 @@ impl Sentinel {
 
     /// Call once per element, before coding it; returns whether a marker is due.
     #[inline]
-    pub(crate) fn tick(&mut self) -> bool {
+    fn tick(&mut self) -> bool {
         let fire = self.countdown == 0;
         if fire {
             self.countdown = SENTINEL_EVERY;

@@ -90,6 +90,32 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   `Decoder` is threaded by `&mut` through deeply nested generic `decode` calls,
   so its fields never get promoted to registers across a loop.
 
+### Collection sentinel in `SENTINEL_EVERY`-sized runs — DEAD END (reverted)
+The collection sentinel (`sentinel.rs`) ticks a per-element countdown to decide
+when to code its marker, costing ~3 instructions per element. `encode_runs`
+replaced that on slice-backed collections with `items.chunks(SENTINEL_EVERY)`,
+coding one marker between runs so the inner loop carried no bookkeeping — the
+same marker positions, byte-identical output.
+
+It looked like a clear win on a normal build (+2.4% for the per-element form),
+but that was mostly code placement. Rebuilding **both** sides with forced
+alignment and measuring encode (Ans, quiesced, min of 4–5 alternated runs):
+
+|  | instructions | cycles |
+|---|---|---|
+| `Vec<u64>` (`just-compress`) | −0.50% | −0.58% |
+| `Vec<String>` (meteorite names) | **+0.55%** | **+0.55%** |
+
+So the sign depends on element cost. `encode_runs` must take the element encoder
+as a closure (`|v, w| S::encode(v, w, &mut ctx.values)`), which blocks hoisting
+of the value context that the direct `for` loop gets; once an element costs more
+than a few hundred instructions that outweighs the counter it removes. A wash
+overall — not worth a second marker schedule to keep in lockstep with
+`Sentinel`'s, especially as it only ever applied to the 4 of 17 coding sites that
+have a slice. Note `just-compress-strings` cannot see this: it encodes a
+`BTreeSet<String>`, which has no slice and so takes the per-element path on both
+sides.
+
 ### Batching Ipv6 zero-flags via `decode_bits::<14>` — DEAD END (reverted)
 Replaced the 14 sequential `bool::decode` zero-flag decodes in `Ipv6Addr` with a
 single `reader.decode_bits(ctx.zero.each_mut())`. Correct, all tests pass.
