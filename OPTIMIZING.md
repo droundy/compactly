@@ -99,22 +99,36 @@ same marker positions, byte-identical output.
 
 It looked like a clear win on a normal build (+2.4% for the per-element form),
 but that was mostly code placement. Rebuilding **both** sides with forced
-alignment and measuring encode (Ans, quiesced, min of 4–5 alternated runs):
+alignment and measuring encode (Ans, quiesced, min of 4–5 alternated runs),
+`encode_runs` relative to the per-element form:
 
 |  | instructions | cycles |
 |---|---|---|
 | `Vec<u64>` (`just-compress`) | −0.50% | −0.58% |
 | `Vec<String>` (meteorite names) | **+0.55%** | **+0.55%** |
 
-So the sign depends on element cost. `encode_runs` must take the element encoder
-as a closure (`|v, w| S::encode(v, w, &mut ctx.values)`), which blocks hoisting
-of the value context that the direct `for` loop gets; once an element costs more
-than a few hundred instructions that outweighs the counter it removes. A wash
-overall — not worth a second marker schedule to keep in lockstep with
-`Sentinel`'s, especially as it only ever applied to the 4 of 17 coding sites that
-have a slice. Note `just-compress-strings` cannot see this: it encodes a
-`BTreeSet<String>`, which has no slice and so takes the per-element path on both
-sides.
+**Read the instruction column, not the cycles.** Even force-aligned, this
+benchmark carries ~±0.5% of layout residual: lining up all three binaries shows
+the `encode_runs` build executing *more* instructions than baseline main
+(595.874B vs 595.835B) while measuring 0.49% *fewer* cycles (182.03B vs
+182.93B) — a gap no amount of real work explains. Every cycle delta here is
+inside that band. Instruction counts are deterministic and layout-independent,
+so they are the only reliable discriminator at this scale.
+
+And they flip sign with element cost. `encode_runs` must take the element
+encoder as a closure (`|v, w| S::encode(v, w, &mut ctx.values)`), which blocks
+hoisting of the value context that the direct `for` loop gets; once an element
+costs more than a few hundred instructions that outweighs the ~3-instruction
+counter it removes. A wash overall — not worth a second marker schedule to keep
+in lockstep with `Sentinel`'s, especially as it only ever applied to the 4 of 17
+coding sites that have a slice.
+
+Two traps worth remembering. `just-compress-strings` cannot see any of this: it
+encodes a `BTreeSet<String>`, which has no slice and so takes the per-element
+path on both sides — the `Vec<String>` case needs a purpose-built probe. And the
+original +2.4% was never the marker itself; setting `SENTINEL_EVERY` high enough
+to emit *zero* markers still measured +2.45%, which should have been the tell
+that a normal-build number was being over-read.
 
 ### Batching Ipv6 zero-flags via `decode_bits::<14>` — DEAD END (reverted)
 Replaced the 14 sequential `bool::decode` zero-flag decodes in `Ipv6Addr` with a
