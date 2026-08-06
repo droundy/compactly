@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 use super::{Encode, EncodingStrategy, LowCardinality};
 use crate::Small;
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
@@ -392,7 +393,9 @@ where
     );
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         value.len().encode(writer, &mut ctx.0);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             LowCardinality::encode(v, writer, &mut ctx.1);
         }
     }
@@ -402,7 +405,9 @@ where
     ) -> Result<Vec<T>, std::io::Error> {
         let n = usize::decode(reader, &mut ctx.0)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
         for _ in 0..n {
+            sentinel.decode(reader)?;
             x.push(LowCardinality::decode(reader, &mut ctx.1)?);
         }
         Ok(x)

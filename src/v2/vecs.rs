@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
@@ -39,7 +40,9 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
     type Context = Context<T, S>;
     fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
     }
@@ -49,7 +52,9 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
     ) -> Result<VecDeque<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
         for _ in 0..n {
+            sentinel.decode(reader)?;
             out.push_back(S::decode(reader, &mut ctx.values)?);
         }
         Ok(out)
@@ -133,14 +138,18 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
     ) -> Result<Vec<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
         for _ in 0..n {
+            sentinel.decode(reader)?;
             x.push(S::decode(reader, &mut ctx.values)?);
         }
         Ok(x)
     }
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
     }
@@ -154,14 +163,18 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
     ) -> Result<Box<[T]>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
         for _ in 0..n {
+            sentinel.decode(reader)?;
             x.push(S::decode(reader, &mut ctx.values)?);
         }
         Ok(x.into_boxed_slice())
     }
     fn encode<E: super::EntropyCoder>(value: &Box<[T]>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
     }
@@ -202,7 +215,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             ctx.previous.truncate(shared_prefix);
         }
         ctx.previous.reserve(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             ctx.previous.push(T::decode(reader, &mut ctx.value)?);
         }
         Ok(ctx.previous.clone())
@@ -211,7 +226,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         if ctx.previous.is_empty() {
             let len = value.len();
             Small::encode(&len, writer, &mut ctx.len);
+            let mut sentinel = Sentinel::new();
             for b in value {
+                sentinel.encode(writer);
                 b.encode(writer, &mut ctx.value);
             }
         } else {
@@ -223,7 +240,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             let len = value.len() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len);
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
+            let mut sentinel = Sentinel::new();
             for b in &value[shared_prefix..] {
+                sentinel.encode(writer);
                 b.encode(writer, &mut ctx.value);
             }
         }

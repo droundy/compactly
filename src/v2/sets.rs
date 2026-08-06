@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 use crate::{Normal, Small, Sorted, Values};
 
 use super::{Encode, EncodingStrategy};
@@ -96,7 +97,9 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         let mut iter = value.iter().copied();
         if let Some(mut prev) = iter.next() {
             Small::encode(&prev, writer, &mut ctx.first);
+            let mut sentinel = Sentinel::new();
             for v in iter {
+                sentinel.encode(writer);
                 Small::encode(&(v - prev), writer, &mut ctx.diff);
                 prev = v;
             }
@@ -113,7 +116,9 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         if len > 0 {
             let mut prev = Small::decode(reader, &mut ctx.first)?;
             values.push(prev);
+            let mut sentinel = Sentinel::new();
             for _ in 1..len {
+                sentinel.decode(reader)?;
                 let diff: u64 = Small::decode(reader, &mut ctx.diff)?;
                 prev += diff;
                 values.push(prev);
@@ -131,7 +136,9 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         ctx: &mut Self::Context,
     ) {
         value.len().encode(writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
     }
@@ -153,7 +160,9 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         // about corrupt input beyond not being UB, and this isn't; pinned by
         // `btreeset_bulk_build_keeps_ord_equal_dupes` below.
         let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             values.push(S::decode(reader, &mut ctx.values)?);
         }
         Ok(values.into_iter().collect())
@@ -238,7 +247,9 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
         value.len().encode(writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for v in value {
+            sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
     }
@@ -248,7 +259,9 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
     ) -> Result<HashSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
         let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             set.insert(S::decode(reader, &mut ctx.values)?);
         }
         Ok(set)

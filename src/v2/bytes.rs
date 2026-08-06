@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 use super::{Encode, EncodingStrategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
@@ -287,7 +288,9 @@ impl Lz77 {
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
         let chunks = self.eager(value);
         chunks.len().encode(writer, &mut self.count);
+        let mut sentinel = Sentinel::new();
         for chunk in chunks {
+            sentinel.encode(writer);
             chunk.encode(writer, self);
             self.shift_chunk(&chunk);
         }
@@ -300,7 +303,9 @@ impl Lz77 {
     ) -> Result<Vec<u8>, std::io::Error> {
         let count = usize::decode(reader, &mut self.count)?;
         let mut out = Vec::with_capacity(super::capacity_for::<u8>(count.saturating_mul(5)));
+        let mut sentinel = Sentinel::new();
         for _ in 0..count {
+            sentinel.decode(reader)?;
             let chunk @ Chunk {
                 length,
                 back,

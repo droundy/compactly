@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 use super::{Encode, EncodingStrategy};
 use crate::{Mapping, Normal, Sorted};
 use std::{
@@ -36,7 +37,9 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         self.len().encode(writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for (k, v) in self {
+            sentinel.encode(writer);
             k.encode(writer, &mut ctx.key);
             v.encode(writer, &mut ctx.value);
         }
@@ -47,7 +50,9 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     ) -> Result<Self, std::io::Error> {
         let len = Encode::decode(reader, &mut ctx.len)?;
         let mut map = Self::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             map.insert(
                 Encode::decode(reader, &mut ctx.key)?,
                 Encode::decode(reader, &mut ctx.value)?,
@@ -118,7 +123,9 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         ctx: &mut Self::Context,
     ) {
         value.len().encode(writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for (k, v) in value {
+            sentinel.encode(writer);
             SK::encode(k, writer, &mut ctx.key);
             SV::encode(v, writer, &mut ctx.value);
         }
@@ -138,7 +145,9 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         // coarse-`Ord` key type, where `collect` keeps every Eq-distinct
         // entry. Not UB, which is all decode promises for corrupt input.
         let mut pairs = Vec::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             pairs.push((
                 SK::decode(reader, &mut ctx.key)?,
                 SV::decode(reader, &mut ctx.value)?,
@@ -159,7 +168,9 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         ctx: &mut Self::Context,
     ) {
         value.len().encode(writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for (k, v) in value {
+            sentinel.encode(writer);
             SK::encode(k, writer, &mut ctx.key);
             SV::encode(v, writer, &mut ctx.value);
         }
@@ -171,7 +182,9 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
     ) -> Result<HashMap<K, V>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
         let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             map.insert(
                 SK::decode(reader, &mut ctx.key)?,
                 SV::decode(reader, &mut ctx.value)?,

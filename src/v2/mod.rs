@@ -105,6 +105,7 @@ mod net;
 mod nonzero;
 mod option;
 mod other_crate_types;
+mod sentinel;
 mod sets;
 mod string;
 mod tuples;
@@ -307,12 +308,13 @@ pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
 /// container still grows to the true length for a valid stream, at most a few
 /// extra reallocations for genuinely large collections.
 ///
-/// This bounds the *eager* allocation only, not total decode work. For element
-/// types that validate (integers, enums) a corrupt length is rejected quickly.
-/// For types where every bit pattern is legal (`u8`), nothing rejects an absurd
-/// claimed length, so the decode loop still runs to completion against
-/// zero-padding — a small input can request arbitrarily much work. Bounding
-/// that needs an in-stream end marker, not an allocation cap.
+/// This bounds the *eager* allocation only, not total decode work — the two are
+/// separate defenses and both are needed. Total work is bounded by the periodic
+/// marker in [`sentinel`](self::sentinel), which every length-driven loop codes
+/// and which a corrupt stream cannot forge; that catches an absurd claimed length
+/// within one marker interval even for element types where every bit pattern is
+/// legal (`u8`) and so nothing else rejects it. This cap is what keeps the
+/// allocation from failing *before* the loop gets far enough to check.
 #[inline]
 pub(crate) fn capacity_for<T>(len: usize) -> usize {
     let elem = std::mem::size_of::<T>().max(1);
