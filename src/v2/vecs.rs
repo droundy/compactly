@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{encode_runs, Sentinel};
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
@@ -147,11 +147,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
     }
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
-        }
+        encode_runs(value, writer, |v, w| S::encode(v, w, &mut ctx.values));
     }
 }
 
@@ -172,11 +168,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
     }
     fn encode<E: super::EntropyCoder>(value: &Box<[T]>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
-        }
+        encode_runs(value, writer, |v, w| S::encode(v, w, &mut ctx.values));
     }
 }
 
@@ -226,11 +218,7 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
         if ctx.previous.is_empty() {
             let len = value.len();
             Small::encode(&len, writer, &mut ctx.len);
-            let mut sentinel = Sentinel::new();
-            for b in value {
-                sentinel.encode(writer);
-                b.encode(writer, &mut ctx.value);
-            }
+            encode_runs(value, writer, |b, w| b.encode(w, &mut ctx.value));
         } else {
             let shared_prefix = value
                 .iter()
@@ -240,11 +228,9 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             let len = value.len() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len);
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
-            let mut sentinel = Sentinel::new();
-            for b in &value[shared_prefix..] {
-                sentinel.encode(writer);
-                b.encode(writer, &mut ctx.value);
-            }
+            encode_runs(&value[shared_prefix..], writer, |b, w| {
+                b.encode(w, &mut ctx.value)
+            });
         }
         ctx.previous.clone_from(value);
     }
