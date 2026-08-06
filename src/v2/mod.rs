@@ -105,6 +105,7 @@ mod net;
 mod nonzero;
 mod option;
 mod other_crate_types;
+mod sentinel;
 mod sets;
 mod string;
 mod tuples;

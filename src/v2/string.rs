@@ -1,3 +1,4 @@
+use super::sentinel::Sentinel;
 mod init;
 
 use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
@@ -86,7 +87,9 @@ impl Encode for String {
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&self.chars().count(), writer, &mut ctx.len);
+        let mut sentinel = Sentinel::new();
         for b in self.chars() {
+            sentinel.encode(writer);
             b.encode(writer, &mut ctx.chars);
         }
     }
@@ -97,7 +100,9 @@ impl Encode for String {
     ) -> Result<Self, std::io::Error> {
         let len = Small::decode(reader, &mut ctx.len)?;
         let mut out = String::with_capacity(len);
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             out.push(char::decode(reader, &mut ctx.chars)?);
         }
         Ok(out)
@@ -106,7 +111,9 @@ impl Encode for String {
 
 pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Context) {
     Small::encode(&s.chars().count(), writer, &mut ctx.len);
+    let mut sentinel = Sentinel::new();
     for c in s.chars() {
+        sentinel.encode(writer);
         c.encode(writer, &mut ctx.chars);
     }
 }
@@ -152,7 +159,9 @@ impl EncodingStrategy<String> for Sorted {
                 .map_or(ctx.previous.len(), |(i, _)| i);
             ctx.previous.truncate(prefix_bytes);
         }
+        let mut sentinel = Sentinel::new();
         for _ in 0..len {
+            sentinel.decode(reader)?;
             ctx.previous.push(char::decode(reader, &mut ctx.chars)?);
         }
         Ok(ctx.previous.clone())
@@ -161,7 +170,9 @@ impl EncodingStrategy<String> for Sorted {
         if ctx.previous.is_empty() {
             let len = value.chars().count();
             Small::encode(&len, writer, &mut ctx.len);
+            let mut sentinel = Sentinel::new();
             for c in value.chars() {
+                sentinel.encode(writer);
                 c.encode(writer, &mut ctx.chars);
             }
         } else {
@@ -173,7 +184,9 @@ impl EncodingStrategy<String> for Sorted {
             let len = value.chars().count() - shared_prefix;
             Small::encode(&len, writer, &mut ctx.len);
             Small::encode(&shared_prefix, writer, &mut ctx.shared_prefix);
+            let mut sentinel = Sentinel::new();
             for c in value.chars().skip(shared_prefix) {
+                sentinel.encode(writer);
                 c.encode(writer, &mut ctx.chars);
             }
         }
