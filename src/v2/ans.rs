@@ -24,9 +24,14 @@ fn push_varint(out: &mut Vec<u8>, mut v: usize) {
 }
 
 /// Read an unsigned LEB128 varint from the front of `bytes`, advancing it.
+///
+/// Malformed input must not panic: this is reached from `Ans::decode`, which is
+/// `Option`-returning, for every chunk header. A continuation-bit run longer
+/// than a `usize` would otherwise shift out of range (a debug-build panic), so
+/// the shift is bounded exactly as in [`read_varint_io`].
 fn read_varint(bytes: &mut &[u8]) -> usize {
     let mut v = 0usize;
-    let mut shift = 0;
+    let mut shift = 0u32;
     while let Some((&b, rest)) = bytes.split_first() {
         *bytes = rest;
         v |= ((b & 0x7f) as usize) << shift;
@@ -34,6 +39,9 @@ fn read_varint(bytes: &mut &[u8]) -> usize {
             break;
         }
         shift += 7;
+        if shift >= usize::BITS {
+            break; // corrupt varint: stop rather than shift out of range
+        }
     }
     v
 }
@@ -82,14 +90,17 @@ const CHUNK_OPS: usize = 1 << 16;
 /// of the buffer in [`Ans::into_vec`], so symbols are recorded here next to bits
 /// to preserve their interleaving. The symbol interval is stored packed
 /// (`width` is in `1..=M`, so `width - 1` fits a `u16`) to keep the buffer entry
-/// small. `Incompressible` records the length of a raw run at its position in
-/// the op sequence, so chunking partitions the raw bytes with the coded ops (the
-/// bytes themselves live in `Ans::incompressible_bytes`, in order).
+/// small. `Incompressible` marks the *position* of a raw run in the op sequence
+/// so chunking partitions the raw bytes with the coded ops; it carries no
+/// payload, since the bytes themselves live in `AnsEncoder::incompressible_bytes`
+/// and both sides drain them in lockstep with these markers. Carrying a length
+/// here would also widen the whole enum to `usize` alignment, inflating every
+/// `Bit`/`Symbol` entry to no purpose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Op {
     Bit(bool, Probability),
     Symbol { start: u16, width_minus_1: u16 },
-    Incompressible { len: usize },
+    Incompressible,
 }
 
 impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
@@ -115,7 +126,7 @@ impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
 
     #[inline]
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
-        self.ops.push(Op::Incompressible { len: bytes.len() });
+        self.ops.push(Op::Incompressible);
         self.incompressible_bytes.extend_from_slice(bytes);
         self.maybe_flush();
     }
@@ -213,7 +224,7 @@ impl<W: std::io::Write> AnsEncoder<W> {
                     coder.state = state;
                     entropy.extend(bytes);
                 }
-                Op::Incompressible { .. } => {} // raw bytes bypass the coder
+                Op::Incompressible => {} // raw bytes bypass the coder
             }
         }
         entropy.extend(coder.finish_encoding());
@@ -270,8 +281,16 @@ impl Ans {
     /// `reader` is wrapped in a [`BufReader`](std::io::BufReader) internally.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
         let mut decoder = AnsDecoder::new(std::io::BufReader::new(reader));
-        let value = T::decode(&mut decoder, &mut T::Context::default())?;
-        decoder.into_result(value)
+        match T::decode(&mut decoder, &mut T::Context::default()) {
+            Ok(value) => decoder.into_result(value),
+            // Prefer a latched IO error over whatever `T::decode` reported.
+            // Coder decode is infallible, so a mid-stream IO failure zero-pads
+            // instead of erroring; the fabricated bits then often trip some
+            // unrelated validation (a zero `NonZero`, a bad `char`) deeper in
+            // `T::decode`. Returning that would report a symptom and silently
+            // drop the actual root cause.
+            Err(e) => Err(decoder.into_result(()).err().unwrap_or(e)),
+        }
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
@@ -293,11 +312,18 @@ impl Ans {
     /// Deliberately **not** inlined: each instantiation monomorphizes the whole
     /// of `T::decode`, and letting both arms inline into one function makes an
     /// unoptimized build reserve stack for both call trees at once (the arms are
-    /// exclusive, but debug builds do not overlap their slots). For a deeply
-    /// nested `T` that doubled frame size, which overflowed Windows' 1 MiB main
-    /// thread stack on `crash_from_bench`. Out of line, only one arm's frame is
-    /// ever live. The call costs nothing measurable — it happens once per
-    /// decoded value, not per op.
+    /// exclusive, but debug builds do not overlap their slots).
+    ///
+    /// That doubled frame size overflowed `windows-test`'s 2 MiB test-thread
+    /// stack on `crash_from_bench` — whose *own* data is shallow (`["Al",
+    /// "Aïr"]`); the depth comes from `encoded_bits!` wrapping it in an 8x8
+    /// nested tuple. Measured with `RUST_MIN_STACK`: 1792 KiB before the const
+    /// generic, 2048 KiB with it inlined, 1792 KiB again out of line. Note that
+    /// margin is thin — this test sat at 1792 KiB against 2 MiB even before any
+    /// of this work, so it is a sensitive canary for debug frame growth.
+    ///
+    /// Out of line, only one arm's frame is ever live. The call costs nothing
+    /// measurable — it happens once per decoded value, not per op.
     #[inline(never)]
     fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
         let mut reader = Decoder::<CHUNKED>::from(bytes);
@@ -349,6 +375,15 @@ impl Ans {
             n,
         )
     }
+    /// Whether this encoder is still on its first chunk, i.e. nothing has been
+    /// flushed and `self.0.ops` is a complete record of the value.
+    /// [`Self::replay_entropy_decode`] requires this; benchmarks use it to size
+    /// their input. Benchmark support, not part of the stable API.
+    #[doc(hidden)]
+    pub fn is_single_chunk(&self) -> bool {
+        self.0.writer.is_empty()
+    }
+
     /// Benchmark helper: replay only the entropy-decode steps against
     /// `encoded`, using this op buffer (from encoding the same value) as an
     /// oracle for the probabilities and symbol intervals that the adaptive
@@ -359,9 +394,10 @@ impl Ans {
     ///
     /// Only valid for a **single-chunk** value: once encoding flushes a chunk
     /// (at [`CHUNK_OPS`] ops) it clears the flushed ops from `self.ops`, so the
-    /// buffer would no longer be a complete oracle. A single-chunk value leaves
-    /// `self.out` empty; we assert that, failing loudly rather than measuring a
-    /// truncated replay. Keep the benchmark input under `CHUNK_OPS` ops.
+    /// buffer would no longer be a complete oracle. A single-chunk value has
+    /// written nothing to its sink yet, so `self.0.writer` is still empty; we
+    /// assert that, failing loudly rather than measuring a truncated replay.
+    /// Keep the benchmark input under `CHUNK_OPS` ops.
     #[doc(hidden)]
     pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
         assert!(
@@ -396,7 +432,7 @@ impl Ans {
                     decoder.state.state = state;
                     checksum = checksum.wrapping_add(slot);
                 }
-                Op::Incompressible { .. } => {} // raw bytes bypass the coder
+                Op::Incompressible => {} // raw bytes bypass the coder
             }
         }
         checksum
@@ -1262,6 +1298,33 @@ mod test {
                 println!("Decoding after {p:?} {bit:?}");
                 assert_eq!(decoder.decode_bit(&mut p.clone()), bit);
             }
+        }
+    }
+}
+
+/// `Op` fills the encoder's per-chunk buffer, so its size is a real memory cost.
+/// A payload on `Incompressible` would force `usize` alignment and inflate every
+/// `Bit`/`Symbol` entry too.
+#[test]
+fn r6_op_is_compact() {
+    assert_eq!(std::mem::size_of::<Op>(), 6, "Op should stay 6 bytes");
+    assert_eq!(
+        std::mem::align_of::<Op>(),
+        2,
+        "Op should stay 2-byte aligned"
+    );
+}
+
+#[test]
+fn r1_malformed_header_must_not_panic() {
+    // `Ans::decode` is `Option`-returning: malformed bytes must yield `None`
+    // (or any value), never panic.
+    for pattern in [0xffu8, 0x80, 0xfe] {
+        for len in [1usize, 4, 16, 64] {
+            let bytes = vec![pattern; len];
+            let _ = Ans::decode::<u64>(&bytes);
+            let _ = Ans::decode::<Vec<u64>>(&bytes);
+            let _ = Ans::decode::<String>(&bytes);
         }
     }
 }
