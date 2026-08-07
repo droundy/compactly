@@ -131,6 +131,11 @@ fn default_context_is_fifty_percent() {
 }
 
 /// A place where we can put bits where we have estimated the probabilities.
+///
+/// `Default` is not a supertrait: a coder that owns an output sink (as the
+/// streaming encoder behind [`encode_to`] does) cannot be `Default`. The
+/// in-memory [`Self::encode`] constructor requires `Default` per-method
+/// instead. `Sized` is kept so the symbol walks can pass `self`.
 pub trait EntropyCoder: Sized {
     /// Encode `N` bits, each with its own independent adaptive context —
     /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
@@ -291,6 +296,53 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
     let mut reader = arith::Decoder::new(bytes);
     T::decode(&mut reader, &mut T::Context::default()).ok()
+}
+
+/// Eager pre-allocation size for a length decoded from untrusted input.
+///
+/// A corrupt or truncated stream can decode an absurd length; passing it
+/// straight to `Vec::with_capacity` (etc.) panics with a capacity overflow — or
+/// speculatively allocates gigabytes — *before* the decode loop can reach the
+/// error and return `Err`. Capping the eager reservation at roughly 1 MiB
+/// (regardless of element size) avoids that immediate allocation failure; the
+/// container still grows to the true length for a valid stream, at most a few
+/// extra reallocations for genuinely large collections.
+///
+/// This bounds the *eager* allocation only, not total decode work — the two are
+/// separate defenses and both are needed. Total work is bounded by the periodic
+/// marker in [`sentinel`](self::sentinel), which every length-driven loop codes
+/// and which a corrupt stream cannot forge; that catches an absurd claimed length
+/// within one marker interval even for element types where every bit pattern is
+/// legal (`u8`) and so nothing else rejects it. This cap is what keeps the
+/// allocation from failing *before* the loop gets far enough to check.
+#[inline]
+pub(crate) fn capacity_for<T>(len: usize) -> usize {
+    let elem = std::mem::size_of::<T>().max(1);
+    len.min((1 << 20) / elem)
+}
+
+/// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
+/// as they are produced rather than buffering the whole compressed output. The
+/// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds
+/// peak memory, which matters when the value is a large fraction of RAM.
+/// `writer` is wrapped in a [`BufWriter`](std::io::BufWriter) internally.
+pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io::Result<()> {
+    let mut encoder = arith::RangeEncoder::new(std::io::BufWriter::new(writer));
+    value.encode(&mut encoder, &mut T::Context::default());
+    let buffered = encoder.finish()?;
+    // Surface a deferred flush error from the BufWriter, if any.
+    buffered.into_inner().map_err(|e| e.into_error())?;
+    Ok(())
+}
+
+/// Decode a value straight from a [`Read`](std::io::Read), pulling bytes on
+/// demand rather than requiring the whole compressed input in memory. Accepts
+/// the same bytes [`encode`]/[`encode_to`] produce. `reader` is wrapped in a
+/// [`BufReader`](std::io::BufReader) internally.
+pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
+    let mut decoder = arith::RangeDecoder::new(std::io::BufReader::new(reader));
+    let value = T::decode(&mut decoder, &mut T::Context::default())?;
+    decoder.into_result(value)
 }
 
 /// An encoding strategy for type `T`.

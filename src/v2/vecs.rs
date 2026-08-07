@@ -51,7 +51,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
         ctx: &mut Self::Context,
     ) -> Result<VecDeque<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut out = VecDeque::with_capacity(n);
+        let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -137,7 +137,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut x = Vec::with_capacity(n);
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -162,7 +162,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
         ctx: &mut Self::Context,
     ) -> Result<Box<[T]>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut x = Vec::with_capacity(n);
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -214,7 +214,7 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             debug_assert!(shared_prefix <= ctx.previous.len());
             ctx.previous.truncate(shared_prefix);
         }
-        ctx.previous.reserve(len);
+        ctx.previous.reserve(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
@@ -250,18 +250,124 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
     }
 }
 
+/// Largest incompressible run coded in one call, so a corrupt length cannot
+/// force one huge allocation on decode.
+const INCOMPRESSIBLE_PIECE: usize = 1 << 16;
+
+/// Split a run of `len` incompressible bytes into the pieces that get coded one
+/// per `encode_incompressible_bytes` / `decode_incompressible_bytes` call.
+///
+/// **Encode and decode must both drive their loop from this**, because coders
+/// are free to attach per-call bookkeeping: `Ans` pushes one op per call and
+/// consumes one per call, so a side that makes a different number of calls
+/// desynchronizes the op stream. That is why an empty run still yields exactly
+/// one (zero-length) piece rather than no pieces at all.
+///
+/// Splitting is invisible to the encoded bytes: `Range` appends each piece to
+/// the same withheld slot (no entropy is written between pieces, so the slot
+/// cannot advance), and `Ans` concatenates them into the same region.
+fn incompressible_pieces(len: usize) -> impl Iterator<Item = usize> {
+    let mut remaining = len;
+    let mut done = false;
+    std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        let piece = remaining.min(INCOMPRESSIBLE_PIECE);
+        remaining -= piece;
+        done = remaining == 0;
+        Some(piece)
+    })
+}
+
 impl EncodingStrategy<Vec<u8>> for Incompressible {
     type Context = <Small as EncodingStrategy<usize>>::Context;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, ctx);
-        writer.encode_incompressible_bytes(value)
+        let mut start = 0;
+        for piece in incompressible_pieces(value.len()) {
+            writer.encode_incompressible_bytes(&value[start..start + piece]);
+            start += piece;
+        }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let mut out = vec![0; Small::decode(reader, ctx)?];
-        reader.decode_incompressible_bytes(&mut out)?;
+        // Grow in bounded pieces rather than one `vec![0; len]`: a corrupt or
+        // truncated stream can decode an absurd `len`, and allocating it whole
+        // would panic (capacity overflow) or speculatively allocate gigabytes
+        // before `decode_incompressible_bytes` can report the stream is short.
+        let len: usize = Small::decode(reader, ctx)?;
+        let mut out = Vec::new();
+        for piece in incompressible_pieces(len) {
+            let start = out.len();
+            out.resize(start + piece, 0);
+            reader.decode_incompressible_bytes(&mut out[start..])?;
+        }
         Ok(out)
+    }
+}
+
+/// An empty run must still be one piece, and the pieces must sum to `len` — the
+/// encode and decode loops are only in lockstep if both hold.
+#[test]
+fn incompressible_pieces_are_symmetric() {
+    for len in [0, 1, 100, INCOMPRESSIBLE_PIECE - 1, INCOMPRESSIBLE_PIECE] {
+        let pieces: Vec<usize> = incompressible_pieces(len).collect();
+        assert_eq!(pieces.len(), 1, "len {len} should be one piece");
+        assert_eq!(pieces[0], len);
+    }
+    for len in [INCOMPRESSIBLE_PIECE + 1, 3 * INCOMPRESSIBLE_PIECE + 7] {
+        let pieces: Vec<usize> = incompressible_pieces(len).collect();
+        assert_eq!(pieces.len(), len.div_ceil(INCOMPRESSIBLE_PIECE));
+        assert_eq!(pieces.iter().sum::<usize>(), len);
+        assert!(pieces.iter().all(|&p| p <= INCOMPRESSIBLE_PIECE));
+    }
+}
+
+/// `incompressible_pieces`'s doc claims splitting a run is invisible to
+/// `Range`'s output, which is what lets the encode side chunk without changing
+/// the format. Pin it: coding one run as several calls must be byte-identical to
+/// coding it as one.
+#[test]
+fn splitting_a_range_run_is_byte_identical() {
+    use super::{EntropyCoder, Range};
+    let bytes: Vec<u8> = (0..3 * INCOMPRESSIBLE_PIECE + 13)
+        .map(|i| (i * 31 + i / 7) as u8)
+        .collect();
+
+    let mut whole = Range::default();
+    whole.encode_bit(&mut Default::default(), true);
+    whole.encode_incompressible_bytes(&bytes);
+    whole.encode_bit(&mut Default::default(), false);
+
+    let mut split = Range::default();
+    split.encode_bit(&mut Default::default(), true);
+    let mut start = 0;
+    for piece in incompressible_pieces(bytes.len()) {
+        split.encode_incompressible_bytes(&bytes[start..start + piece]);
+        start += piece;
+    }
+    split.encode_bit(&mut Default::default(), false);
+
+    assert_eq!(whole.into_vec(), split.into_vec());
+}
+
+/// A run spanning several pieces must round-trip through both coders, and the
+/// bytes must not depend on how the run was split.
+#[test]
+fn multi_piece_incompressible_round_trips() {
+    use crate::Encoded;
+    for len in [
+        0usize,
+        1,
+        INCOMPRESSIBLE_PIECE,
+        2 * INCOMPRESSIBLE_PIECE + 13,
+    ] {
+        let bytes: Vec<u8> = (0..len).map(|i| (i * 7 + i / 251) as u8).collect();
+        let v = Encoded::<Vec<u8>, Incompressible>::new(bytes);
+        let encoded = super::encode(&v);
+        assert_eq!(super::decode(&encoded).as_ref(), Some(&v), "len {len}");
     }
 }

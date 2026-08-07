@@ -302,7 +302,7 @@ impl Lz77 {
         reader: &mut D,
     ) -> Result<Vec<u8>, std::io::Error> {
         let count = usize::decode(reader, &mut self.count)?;
-        let mut out = Vec::with_capacity(5 * count);
+        let mut out = Vec::with_capacity(super::capacity_for::<u8>(count.saturating_mul(5)));
         let mut sentinel = Sentinel::new();
         for _ in 0..count {
             sentinel.decode(reader)?;
@@ -319,7 +319,7 @@ impl Lz77 {
                 // We are repeating our own string.  In this case offset
                 // counts *backwards* and must be >= 1 so we shift it.
                 let offset = out.len() - 1 - offset;
-                out.reserve(length as usize);
+                out.reserve(super::capacity_for::<u8>(length as usize));
                 for i in offset..offset + length as usize {
                     out.push(out[i]);
                 }

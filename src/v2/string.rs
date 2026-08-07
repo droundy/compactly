@@ -99,7 +99,7 @@ impl Encode for String {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let len = Small::decode(reader, &mut ctx.len)?;
-        let mut out = String::with_capacity(len);
+        let mut out = String::with_capacity(super::capacity_for::<u8>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
