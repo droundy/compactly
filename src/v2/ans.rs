@@ -66,7 +66,7 @@ pub struct Ans(AnsEncoder<Vec<u8>>);
 /// `AnsEncoder<Vec<u8>>`) for the same value. IO errors are latched and surfaced
 /// by [`AnsEncoder::finish`], keeping the infallible [`EntropyCoder`] hot path
 /// branch-free.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct AnsEncoder<W: std::io::Write> {
     /// Ops recorded for the *current* chunk (flushed once they reach
     /// `CHUNK_OPS`); the contexts adapt across chunk boundaries during recording.
@@ -76,6 +76,23 @@ pub(crate) struct AnsEncoder<W: std::io::Write> {
     /// Sink for flushed chunk frames — a `Vec<u8>` in memory, or any `Write`.
     writer: W,
     error: Option<std::io::Error>,
+}
+
+/// Summarize rather than dump: the derived `Debug` would print every recorded
+/// op (up to `CHUNK_OPS` of them), every raw incompressible byte, and — for the
+/// in-memory `AnsEncoder<Vec<u8>>` behind [`Ans`] — every chunk flushed so far,
+/// so debug-printing a coder mid-encode would echo the whole payload. Sizes are
+/// what is actually useful when debugging chunking anyway. Written by hand
+/// rather than derived also drops the `W: Debug` bound, so an encoder over any
+/// writer stays printable.
+impl<W: std::io::Write> std::fmt::Debug for AnsEncoder<W> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnsEncoder")
+            .field("buffered_ops", &self.ops.len())
+            .field("incompressible_bytes", &self.incompressible_bytes.len())
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The number of ops (bits + symbols + incompressible runs) per chunk. Each
@@ -500,7 +517,7 @@ impl Encoder {
 /// entirely. That is worth real time: keeping the bookkeeping unconditionally
 /// measured **+21%** on a cache-resident `Vec<u64>` decode and +6% on a
 /// memory-bound one. [`Ans::decode`] peeks the first frame and picks.
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq)]
 pub struct Decoder<'a, const CHUNKED: bool = true> {
     state: StateOnly,
     /// The current chunk's rANS body (entropy bytes after the initial state).
@@ -512,6 +529,22 @@ pub struct Decoder<'a, const CHUNKED: bool = true> {
     /// Ops left in the current chunk before the next chunk must be loaded;
     /// `usize::MAX` for the final chunk. Only read/written when `CHUNKED`.
     ops_left: usize,
+}
+
+/// Summarize rather than dump, for the same reason as [`AnsEncoder`]'s: `bytes`,
+/// `incompressible`, and `rest` are slices *into the stream being decoded*, and
+/// `rest` is everything not yet consumed — so the derived `Debug` would print
+/// essentially the entire input. Remaining counts are the useful part.
+impl<const CHUNKED: bool> std::fmt::Debug for Decoder<'_, CHUNKED> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Decoder")
+            .field("state", &self.state)
+            .field("entropy_left", &self.bytes.len())
+            .field("incompressible_left", &self.incompressible.len())
+            .field("stream_left", &self.rest.len())
+            .field("ops_left", &self.ops_left)
+            .finish()
+    }
 }
 
 impl<'a, const CHUNKED: bool> From<&'a [u8]> for Decoder<'a, CHUNKED> {
@@ -1322,6 +1355,38 @@ fn r6_op_is_compact() {
         2,
         "Op should stay 2-byte aligned"
     );
+}
+
+/// Neither coder may echo its payload when debug-printed: the encoder buffers up
+/// to `CHUNK_OPS` ops plus every flushed chunk, and the decoder holds slices of
+/// the whole input. Both must summarize instead.
+#[test]
+fn debug_summarizes_rather_than_dumping() {
+    use super::Encode;
+    let big: Vec<u64> = (0..50_000).collect();
+
+    let mut coder = Ans::default();
+    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    let shown = format!("{coder:?}");
+    assert!(
+        shown.len() < 300,
+        "encoder Debug should summarize, not dump {} recorded ops; got {} chars: {shown}",
+        coder.0.ops.len(),
+        shown.len()
+    );
+    assert!(shown.contains("buffered_ops"), "got {shown}");
+
+    let encoded = Ans::encode(&big);
+    assert!(encoded.len() > 300, "want an input worth truncating");
+    let decoder = Decoder::<true>::from(encoded.as_slice());
+    let shown = format!("{decoder:?}");
+    assert!(
+        shown.len() < 300,
+        "decoder Debug should summarize, not dump the {}-byte stream; got {} chars: {shown}",
+        encoded.len(),
+        shown.len()
+    );
+    assert!(shown.contains("stream_left"), "got {shown}");
 }
 
 #[test]
