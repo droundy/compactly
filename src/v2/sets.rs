@@ -112,7 +112,7 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         let len = usize::decode(reader, &mut ctx.size)?;
         // Stage + collect: bulk-build from the sorted stream, as in
         // `Values<S> for BTreeSet` below.
-        let mut values = Vec::with_capacity(len);
+        let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
         if len > 0 {
             let mut prev = Small::decode(reader, &mut ctx.first)?;
             values.push(prev);
@@ -159,7 +159,7 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         // set) where `insert` dedups by `Ord`. Decode makes no guarantee
         // about corrupt input beyond not being UB, and this isn't; pinned by
         // `btreeset_bulk_build_keeps_ord_equal_dupes` below.
-        let mut values = Vec::with_capacity(len);
+        let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
@@ -258,7 +258,7 @@ impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Valu
         ctx: &mut Self::Context,
     ) -> Result<HashSet<T>, std::io::Error> {
         let len: usize = Encode::decode(reader, &mut ctx.len)?;
-        let mut set = HashSet::with_capacity(len);
+        let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;

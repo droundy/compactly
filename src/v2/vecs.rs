@@ -51,7 +51,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
         ctx: &mut Self::Context,
     ) -> Result<VecDeque<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut out = VecDeque::with_capacity(n);
+        let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -137,7 +137,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut x = Vec::with_capacity(n);
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -162,7 +162,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
         ctx: &mut Self::Context,
     ) -> Result<Box<[T]>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
-        let mut x = Vec::with_capacity(n);
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
@@ -214,7 +214,7 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             debug_assert!(shared_prefix <= ctx.previous.len());
             ctx.previous.truncate(shared_prefix);
         }
-        ctx.previous.reserve(len);
+        ctx.previous.reserve(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
@@ -260,8 +260,20 @@ impl EncodingStrategy<Vec<u8>> for Incompressible {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let mut out = vec![0; Small::decode(reader, ctx)?];
-        reader.decode_incompressible_bytes(&mut out)?;
+        // Read in bounded chunks rather than one `vec![0; len]`: a corrupt or
+        // truncated stream can decode an absurd `len`, and allocating it whole
+        // would panic (capacity overflow) or speculatively allocate gigabytes
+        // before `decode_incompressible_bytes` can report the stream is short.
+        let len: usize = Small::decode(reader, ctx)?;
+        let mut out = Vec::new();
+        let mut remaining = len;
+        while remaining > 0 {
+            let chunk = remaining.min(1 << 16);
+            let start = out.len();
+            out.resize(start + chunk, 0);
+            reader.decode_incompressible_bytes(&mut out[start..])?;
+            remaining -= chunk;
+        }
         Ok(out)
     }
 }
