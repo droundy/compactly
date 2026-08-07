@@ -106,7 +106,13 @@ impl EncodingStrategy<usize> for Small {
             6 => Ok(usize::from(AtMost::<31>::decode(reader, &mut ctx.b5)?) + 32),
             7 => {
                 let v: u64 = Small::decode(reader, &mut ctx.large)?;
-                Ok(v as usize + 64)
+                // Only `v <= usize::MAX - 64` is encodable, so anything larger is
+                // corrupt input. Reject rather than overflow: this is reached from
+                // the `Option`-returning entry points, which must never panic
+                // (an unchecked `+ 64` panics in debug, wraps silently in release).
+                (v as usize)
+                    .checked_add(64)
+                    .ok_or_else(|| std::io::Error::other("corrupt stream: Small<usize> overflows"))
             }
             _ => unreachable!(),
         }
@@ -204,6 +210,23 @@ fn size() {
         [0_usize, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         expect!["Millibits(14316)"]
     );
+}
+
+/// The top bucket encodes `value - 64` and decodes `v + 64`, so `usize::MAX`
+/// sits exactly on the boundary the overflow guard checks. It must still round
+/// trip: a guard that rejected the largest legitimate value would be a worse bug
+/// than the overflow it replaced.
+#[test]
+fn small_usize_max_round_trips() {
+    use crate::Encoded;
+    for v in [usize::MAX, usize::MAX - 1, usize::MAX - 64, usize::MAX / 2] {
+        let val = Encoded::<usize, Small>::new(v);
+        assert_eq!(
+            super::decode(&super::encode(&val)),
+            Some(val),
+            "Small<usize> round trip at {v}"
+        );
+    }
 }
 
 #[test]
