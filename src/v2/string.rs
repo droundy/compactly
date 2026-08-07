@@ -403,7 +403,7 @@ fn crash_from_bench() {
     let names = ["Al", "Aïr"];
     let vec = names.iter().map(|n| n.to_string()).collect::<Vec<String>>();
     expect!["53"].assert_eq(&encoded_bits!(vec.clone()));
-    expect!["54"].assert_eq(&encoded_bits!(super::Ans, vec.clone()));
+    expect!["53"].assert_eq(&encoded_bits!(super::Ans, vec.clone()));
     let compressible = Encoded::<Vec<String>, Values<Compressible>>::new(vec.clone());
     expect!["68"].assert_eq(&encoded_bits!(compressible.clone()));
     expect!["69"].assert_eq(&encoded_bits!(super::Ans, compressible.clone()));

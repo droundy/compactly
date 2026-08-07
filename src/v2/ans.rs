@@ -53,7 +53,7 @@ fn read_varint(bytes: &mut &[u8]) -> usize {
 /// # Example
 /// ```
 /// let encoded: Vec<u8> = compactly::v2::Ans::encode(&vec![5u64, 4, 3, 2, 1]);
-/// assert_eq!(encoded.len(), 9);
+/// assert_eq!(encoded.len(), 7);
 /// assert_eq!(compactly::v2::Ans::decode::<Vec<u64>>(&encoded).unwrap()[2], 3);
 /// ```
 #[derive(Debug, Default)]
@@ -219,8 +219,20 @@ impl<W: std::io::Write> AnsEncoder<W> {
 
     /// Reverse-encode the current chunk's ops into a self-contained rANS stream
     /// and write the framed chunk to `writer`, then clear the chunk buffers. The
-    /// contexts are *not* reset (they adapt across chunks). `is_final` writes an
-    /// op-count of 0 (the decoder then decodes until the value is complete).
+    /// contexts are *not* reset (they adapt across chunks).
+    ///
+    /// The frame's leading varint is a tag whose low bit says whether this is the
+    /// final chunk, so the two shapes are distinguishable before either is read:
+    ///
+    /// | | tag | then | layout |
+    /// |---|---|---|---|
+    /// | final | `raw_len * 2` | — | `[raw][entropy…EOF]` |
+    /// | non-final | `op_count * 2 + 1` | `entropy_len`, `raw_len` | `[entropy][raw]` |
+    ///
+    /// A final chunk therefore spends **one** varint where the obvious framing
+    /// spends three, which matters because every stream has exactly one final
+    /// chunk and small values are *only* that chunk. `op_count` loses a bit to
+    /// the tag, but a full chunk's count is 3 varint bytes either way.
     fn flush_chunk(&mut self, is_final: bool) {
         let mut coder = Encoder::new();
         let mut entropy = Vec::new();
@@ -247,17 +259,27 @@ impl<W: std::io::Write> AnsEncoder<W> {
         entropy.extend(coder.finish_encoding());
         entropy.reverse();
 
-        let op_count = if is_final { 0 } else { self.ops.len() };
-        let mut header = Vec::new();
-        push_varint(&mut header, op_count);
-        push_varint(&mut header, entropy.len());
-        push_varint(&mut header, self.incompressible_bytes.len());
-        self.write_out(&header);
-        self.write_out(&entropy);
         // `incompressible_bytes` is cleared for the next chunk anyway, so take it
         // out to write (avoids borrowing `self` while `write_out` needs `&mut`).
         let incompressible = std::mem::take(&mut self.incompressible_bytes);
-        self.write_out(&incompressible);
+        let mut header = Vec::new();
+        if is_final {
+            // Nothing follows this chunk, so its last region runs to the end of
+            // the stream and needs no length — only the *other* region's does.
+            // Raw bytes go first (their length is usually 0, so the tag varint is
+            // usually a single byte) and the entropy body runs to EOF.
+            push_varint(&mut header, incompressible.len() * 2);
+            self.write_out(&header);
+            self.write_out(&incompressible);
+            self.write_out(&entropy);
+        } else {
+            push_varint(&mut header, self.ops.len() * 2 + 1);
+            push_varint(&mut header, entropy.len());
+            push_varint(&mut header, incompressible.len());
+            self.write_out(&header);
+            self.write_out(&entropy);
+            self.write_out(&incompressible);
+        }
         self.ops.clear();
     }
 
@@ -311,12 +333,12 @@ impl Ans {
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        // Peek the first frame's op-count: 0 means it is the *final* chunk, so
-        // the whole value lives in this one chunk and needs no boundary
-        // tracking. That is the common case, and skipping the per-batch
-        // `ops_left` bookkeeping is worth up to 21% of decode time — see
-        // [`Decoder`]. Multi-chunk streams take the tracking decoder.
-        let single_chunk = read_varint(&mut { bytes }) == 0;
+        // Peek the first frame's tag: an even tag marks the *final* chunk, so the
+        // whole value lives in this one chunk and needs no boundary tracking.
+        // That is the common case, and skipping the per-batch `ops_left`
+        // bookkeeping is worth up to 21% of decode time — see [`Decoder`].
+        // Multi-chunk streams take the tracking decoder.
+        let single_chunk = read_varint(&mut { bytes }) & 1 == 0;
         if single_chunk {
             Self::decode_with::<T, false>(bytes)
         } else {
@@ -456,15 +478,17 @@ impl Ans {
     }
     /// Finish encoding: flush the final chunk and return the framed stream.
     ///
-    /// The stream is a sequence of chunks. Non-final chunks (flushed during
-    /// recording once the op buffer reaches [`CHUNK_OPS`]) carry their real
-    /// op-count; the final chunk carries op-count 0 ("decode until the value is
-    /// complete"). Each chunk is
-    /// `[op-count][entropy-len][incompressible-len][entropy][incompressible]`,
-    /// all varints; `entropy` is that chunk's self-contained rANS stream (state
-    /// then body, in decode order) and `incompressible` its raw bytes. The
-    /// contexts adapt continuously across chunk boundaries, so chunking costs
-    /// only one rANS state-flush (plus the tiny frame header) per chunk.
+    /// The stream is a sequence of chunks, each opening with a varint tag whose
+    /// low bit distinguishes the two frame shapes (see
+    /// [`AnsEncoder::flush_chunk`]). Non-final chunks — flushed during recording
+    /// once the op buffer reaches [`CHUNK_OPS`] — are
+    /// `[op_count * 2 + 1][entropy-len][incompressible-len][entropy][incompressible]`.
+    /// The final chunk is `[raw-len * 2][incompressible][entropy]`, its entropy
+    /// running to the end of the stream: nothing follows it, so that length would
+    /// be redundant. `entropy` is the chunk's self-contained rANS stream (state
+    /// then body, in decode order). The contexts adapt continuously across chunk
+    /// boundaries, so chunking costs only one rANS state-flush (plus the frame
+    /// header) per chunk.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")
@@ -574,14 +598,26 @@ impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
     #[inline]
     fn load_next_chunk(&mut self) {
         let mut rest = self.rest;
-        let op_count = read_varint(&mut rest);
-        let entropy_len = read_varint(&mut rest);
-        let incompressible_len = read_varint(&mut rest);
-        let (entropy, rest) = rest.split_at(entropy_len.min(rest.len()));
-        let (incompressible, rest) = rest.split_at(incompressible_len.min(rest.len()));
+        let tag = read_varint(&mut rest);
+        let (entropy, incompressible, rest) = if tag & 1 == 0 {
+            // Final chunk: `[raw][entropy…EOF]`, so the entropy body is whatever
+            // is left once the raw run is taken off the front.
+            let (incompressible, entropy) = rest.split_at((tag >> 1).min(rest.len()));
+            self.ops_left = usize::MAX;
+            (entropy, incompressible, &rest[rest.len()..])
+        } else {
+            let entropy_len = read_varint(&mut rest);
+            let incompressible_len = read_varint(&mut rest);
+            let (entropy, rest) = rest.split_at(entropy_len.min(rest.len()));
+            let (incompressible, rest) = rest.split_at(incompressible_len.min(rest.len()));
+            // A non-final frame claiming 0 ops would re-enter this on the very
+            // next op; treat it as unbounded so corrupt input cannot spin here.
+            let op_count = tag >> 1;
+            self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
+            (entropy, incompressible, rest)
+        };
         self.rest = rest;
         self.incompressible = incompressible;
-        self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
         if entropy.len() < STATE_BYTES {
             let mut state: State = 0;
             for &b in entropy.iter() {
@@ -786,6 +822,47 @@ fn read_region<R: std::io::Read>(
     out
 }
 
+/// The most entropy bytes a single chunk can legitimately hold.
+///
+/// A chunk is flushed once the op buffer reaches [`CHUNK_OPS`], and one
+/// `encode_bits::<N>` batch can overshoot by at most `N` (64 today, so a
+/// generous slack covers it). A bit op emits at most one byte and a symbol op at
+/// most two, plus the [`STATE_BYTES`] flush.
+///
+/// This exists because the *final* chunk's entropy body has no length field —
+/// it runs to end of stream (see [`AnsEncoder::flush_chunk`]) — so the streaming
+/// reader would otherwise buffer whatever a stream chose to append.
+const MAX_CHUNK_ENTROPY: usize = 2 * (CHUNK_OPS + 256) + STATE_BYTES;
+
+/// Read the rest of `reader` — the final chunk's entropy body, which carries no
+/// length — capped at [`MAX_CHUNK_ENTROPY`] so a stream cannot make the decoder
+/// buffer without bound. Exceeding the cap means the frame is corrupt.
+fn read_final_region<R: std::io::Read>(
+    reader: &mut R,
+    error: &mut Option<std::io::Error>,
+) -> Vec<u8> {
+    use std::io::Read;
+    if error.is_some() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    // One byte past the cap, so hitting it is distinguishable from filling it.
+    if let Err(e) = reader
+        .take(MAX_CHUNK_ENTROPY as u64 + 1)
+        .read_to_end(&mut out)
+    {
+        *error = Some(e);
+        return Vec::new();
+    }
+    if out.len() > MAX_CHUNK_ENTROPY {
+        *error = Some(std::io::Error::other(
+            "corrupt stream: final chunk exceeds the maximum entropy size",
+        ));
+        return Vec::new();
+    }
+    out
+}
+
 /// Streaming ANS decoder: pulls one chunk frame at a time from `R` rather than
 /// indexing a whole slice, so decoding a large value need only hold one chunk's
 /// entropy + incompressible bytes at once. Reads the same bytes
@@ -826,13 +903,24 @@ impl<R: std::io::Read> AnsDecoder<R> {
     /// and incompressible regions into owned buffers, seed the rANS state from
     /// the entropy's leading bytes, and set `ops_left`.
     fn load_next_chunk(&mut self) {
-        let op_count = read_varint_io(&mut self.reader, &mut self.error);
-        let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
-        let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
-        self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
-        self.incompressible = read_region(&mut self.reader, incompressible_len, &mut self.error);
+        let tag = read_varint_io(&mut self.reader, &mut self.error);
+        if tag & 1 == 0 {
+            // Final chunk: `[raw][entropy…EOF]` (see `AnsEncoder::flush_chunk`).
+            self.incompressible = read_region(&mut self.reader, tag >> 1, &mut self.error);
+            self.entropy = read_final_region(&mut self.reader, &mut self.error);
+            self.ops_left = usize::MAX;
+        } else {
+            let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
+            let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
+            self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
+            self.incompressible =
+                read_region(&mut self.reader, incompressible_len, &mut self.error);
+            // A non-final frame claiming 0 ops would re-enter this on the very
+            // next op; treat it as unbounded so corrupt input cannot spin here.
+            let op_count = tag >> 1;
+            self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
+        }
         self.ipos = 0;
-        self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
         if self.entropy.len() < STATE_BYTES {
             let mut state: State = 0;
             for &b in self.entropy.iter() {
@@ -1141,11 +1229,12 @@ fn ans_is_reasonable() {
     // (100k `u64` takes 24 markers for +16 bytes, ~0.67 B each, as predicted).
     assert_eq!(super::Range::encode(&data).len(), 17);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
-    // `Ans` pays for both, independently: 18 at the merge base, +1 for the
-    // sentinel marker and +1 for this PR's chunk frame header. Note both
-    // branches happened to assert 19 here for those two different reasons, so
-    // the textual merge agreed on a value that was wrong for the combination.
-    assert_eq!(Ans::encode(&data).len(), 20);
+    // `Ans`: 18 at the merge base, +1 for the sentinel marker and +1 for this
+    // PR's chunk frame, then -2 once the final chunk's frame shrank to a single
+    // tag varint — so back to where it started, with chunking now paid for.
+    // (Both branches happened to assert 19 here for the first two reasons, so an
+    // earlier textual merge agreed on a value wrong for the combination.)
+    assert_eq!(Ans::encode(&data).len(), 18);
 }
 
 /// Count the chunk frames in an `Ans` stream (see [`Ans::flush_chunk`]), so a
@@ -1154,14 +1243,14 @@ fn ans_is_reasonable() {
 fn count_chunks(mut bytes: &[u8]) -> usize {
     let mut chunks = 0;
     while !bytes.is_empty() {
-        let op_count = read_varint(&mut bytes);
+        let tag = read_varint(&mut bytes);
+        chunks += 1;
+        if tag & 1 == 0 {
+            break; // the final chunk: raw run then entropy to end of stream
+        }
         let entropy_len = read_varint(&mut bytes);
         let incompressible_len = read_varint(&mut bytes);
         bytes = &bytes[(entropy_len + incompressible_len).min(bytes.len())..];
-        chunks += 1;
-        if op_count == 0 {
-            break; // the final chunk
-        }
     }
     chunks
 }
@@ -1401,4 +1490,47 @@ fn r1_malformed_header_must_not_panic() {
             let _ = Ans::decode::<String>(&bytes);
         }
     }
+}
+
+/// The whole point of the two-shape frame: a value with no raw run pays a single
+/// tag byte of framing, not three varints. These are the smallest encodings the
+/// format produces, so a regression here means the final-chunk frame grew back.
+#[test]
+fn final_frame_costs_one_byte() {
+    // Tag only — the entropy body is empty and runs to end of stream.
+    assert_eq!(Ans::encode(&false).len(), 1);
+    assert_eq!(Ans::encode(&Vec::<u64>::new()).len(), 1);
+    // Tag plus a one-byte body.
+    assert_eq!(Ans::encode(&true).len(), 2);
+
+    // ...and they still round trip, including through the streaming reader.
+    for bytes in [Ans::encode(&false), Ans::encode(&true)] {
+        let want = bytes.len() == 2;
+        assert_eq!(Ans::decode::<bool>(&bytes), Some(want));
+        assert_eq!(Ans::decode_from::<bool, _>(bytes.as_slice()).unwrap(), want);
+    }
+    assert_eq!(
+        Ans::decode::<Vec<u64>>(&Ans::encode(&Vec::<u64>::new())),
+        Some(vec![])
+    );
+}
+
+/// The final chunk's entropy body has no length field, so the streaming reader
+/// reads it to EOF — capped, or a stream could make it buffer without bound.
+#[test]
+fn oversized_final_chunk_is_rejected() {
+    let mut bytes = vec![0u8]; // tag 0: final chunk, empty raw run
+    bytes.resize(1 + MAX_CHUNK_ENTROPY + 16, 0xab);
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
+        .expect_err("a final chunk past the cap must be rejected, not buffered");
+    // Assert on the *cap's* own message: this much garbage would make `Vec<u64>`
+    // decode fail for unrelated reasons anyway, so a bare `is_err` would pass
+    // even with no cap at all.
+    assert!(
+        err.to_string().contains("exceeds the maximum entropy size"),
+        "expected the size cap to reject this, got: {err}"
+    );
+    // The slice decoder indexes rather than buffering, so it is not at risk and
+    // must still merely fail to produce a value rather than panic.
+    let _ = Ans::decode::<Vec<u64>>(&bytes);
 }
