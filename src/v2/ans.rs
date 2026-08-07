@@ -395,7 +395,7 @@ impl Ans {
         // Mirror `Ans::decode`'s dispatch — including keeping the arms out of
         // line — so the benchmark measures the decoder production would
         // actually pick for these bytes.
-        if read_varint(&mut { bytes }) == 0 {
+        if read_varint(&mut { bytes }) & 1 == 0 {
             Self::decode_atmost_batch_with::<MAX, WHICH_WALK, false>(bytes, n)
         } else {
             Self::decode_atmost_batch_with::<MAX, WHICH_WALK, true>(bytes, n)
@@ -535,7 +535,7 @@ impl Encoder {
 /// The in-memory (slice) decoder.
 ///
 /// `CHUNKED` selects how chunk boundaries are tracked. A stream whose *first*
-/// frame is the final one (op-count 0) is a single chunk, which is the common
+/// frame's tag is even is a single (final) chunk, which is the common
 /// case; decoding it needs no boundary tracking at all, so `CHUNKED = false`
 /// compiles the `ops_left` check and decrement out of the per-batch hot path
 /// entirely. That is worth real time: keeping the bookkeeping unconditionally
@@ -825,9 +825,11 @@ fn read_region<R: std::io::Read>(
 /// The most entropy bytes a single chunk can legitimately hold.
 ///
 /// A chunk is flushed once the op buffer reaches [`CHUNK_OPS`], and one
-/// `encode_bits::<N>` batch can overshoot by at most `N` (64 today, so a
-/// generous slack covers it). A bit op emits at most one byte and a symbol op at
-/// most two, plus the [`STATE_BYTES`] flush.
+/// `encode_bits::<N>` batch can overshoot by at most `N`. No production call
+/// site batches beyond `N = 1` today (the standalone `micro-batch` benchmark
+/// goes up to 16); the slack below is deliberately generous against future
+/// batching. A bit op emits at most one byte and a symbol op at most two, plus
+/// the [`STATE_BYTES`] flush.
 ///
 /// This exists because the *final* chunk's entropy body has no length field —
 /// it runs to end of stream (see [`AnsEncoder::flush_chunk`]) — so the streaming
@@ -1532,5 +1534,5 @@ fn oversized_final_chunk_is_rejected() {
     );
     // The slice decoder indexes rather than buffering, so it is not at risk and
     // must still merely fail to produce a value rather than panic.
-    let _ = Ans::decode::<Vec<u64>>(&bytes);
+    assert_eq!(Ans::decode::<Vec<u64>>(&bytes), None);
 }

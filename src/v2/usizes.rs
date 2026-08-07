@@ -110,8 +110,12 @@ impl EncodingStrategy<usize> for Small {
                 // corrupt input. Reject rather than overflow: this is reached from
                 // the `Option`-returning entry points, which must never panic
                 // (an unchecked `+ 64` panics in debug, wraps silently in release).
-                (v as usize)
-                    .checked_add(64)
+                // `try_from` rather than `as`: where `usize` is narrower than
+                // `u64` (wasm32), a cast would truncate an out-of-range `v` into
+                // a small in-range one that then passes `checked_add`.
+                usize::try_from(v)
+                    .ok()
+                    .and_then(|v| v.checked_add(64))
                     .ok_or_else(|| std::io::Error::other("corrupt stream: Small<usize> overflows"))
             }
             _ => unreachable!(),
@@ -227,6 +231,26 @@ fn small_usize_max_round_trips() {
             "Small<usize> round trip at {v}"
         );
     }
+}
+
+/// The other side of `small_usize_max_round_trips`: every value that side feeds
+/// is a real `usize` and takes the `Ok` path, so on its own it would still pass
+/// with the guard reverted to `v as usize + 64`. Build a stream whose top bucket
+/// carries a magnitude past `usize::MAX - 64` and check it is rejected.
+#[test]
+fn small_usize_decode_rejects_overflowing_magnitude() {
+    use crate::Encoded;
+    let mut writer = super::Range::default();
+    let mut ctx = SmallContext::default();
+    // Bucket 7 means "the rest is a `Small<u64>`, plus 64" — the only arm that
+    // can overflow, and the only one whose payload is not width-limited.
+    AtMost::<7>::new(7).encode(&mut writer, &mut ctx.small_nonzero);
+    Small::encode(&u64::MAX, &mut writer, &mut ctx.large);
+    assert_eq!(
+        super::decode::<Encoded<usize, Small>>(&writer.into_vec()),
+        None,
+        "a magnitude past usize::MAX - 64 must be rejected, not wrapped"
+    );
 }
 
 #[test]
