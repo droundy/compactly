@@ -24,6 +24,21 @@ read the CI log and apply its suggested fix (or `rustup update stable`).
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
+The optional `benchmarking` feature exposes the benchmark-support API — forced
+tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
+forced decoder instantiations (`Ans::decode_from_forced`), and entropy-phase
+replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
+the library makes for itself and some silently produce wrong answers on the
+wrong input, so they are off by default and not covered by semver. Anything
+that calls them (`benches/atmost.rs`, `src/bin/ans-decode-phases.rs`,
+`src/bin/just-decompress-stream.rs`) needs `benchmarking` in its
+`required-features`, **and** cargo silently *skips* targets whose
+required-features are off — so a lint or build break in them hides unless the
+feature is named. That is why CI clippies twice and runs `cargo test
+--all-features`. Items the lib's own unit tests also use are gated
+`#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
+coverage.
+
 CI also builds with `--no-default-features` (including a wasm target), so it
 compiles every target without `v1`/`v2`. The usual failure is a new `src/bin/`
 binary that uses `compactly::v2` without a matching

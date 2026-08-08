@@ -32,6 +32,11 @@ jobs:
         components: clippy
     - name: Run clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
+      # `benchmarking` gates the benchmark-support API, so `benches/atmost.rs`
+      # and the bins that drive it carry `required-features` for it — without
+      # this second pass cargo would silently skip linting them.
+    - name: Run clippy (benchmark targets)
+      run: cargo clippy --all-targets --workspace --features benchmarking -- -D warnings
 
   rebuild-bit-context:
 

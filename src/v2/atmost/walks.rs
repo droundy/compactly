@@ -246,6 +246,7 @@ impl Walk {
     /// — used by the shootout benchmark to skip nonsensical combinations
     /// (e.g. [`Walk::Complete`] when `MAX + 1` isn't a power of two).
     #[doc(hidden)]
+    #[cfg(any(test, feature = "benchmarking"))]
     pub const fn applies_to<const MAX: usize>(self) -> bool {
         match self {
             Walk::Complete | Walk::CompleteSpeculating => {
@@ -280,6 +281,7 @@ impl Walk {
 /// its own branch-free function, exactly like production's
 /// [`Walk::production`]-selected constant.
 #[doc(hidden)]
+#[cfg(any(test, feature = "benchmarking"))]
 pub const WALKS: [Walk; 6] = [
     Walk::Complete,
     Walk::CompleteSpeculating,
@@ -346,6 +348,7 @@ pub(crate) fn decode_atmost_walk<D: SymbolDecoder, const MAX: usize>(
 /// benchmark-side analog of [`Walk::production`]'s constant folding. Backs
 /// the `#[doc(hidden)]` `encode_atmost_batch` methods on `Range` and `Ans`
 /// that `benches/atmost.rs` calls.
+#[cfg(any(test, feature = "benchmarking"))]
 pub(crate) fn encode_atmost_batch<C: SymbolCoder, const MAX: usize, const WHICH_WALK: usize>(
     mut coder: C,
     values: &[AtMost<MAX>],
@@ -360,6 +363,7 @@ pub(crate) fn encode_atmost_batch<C: SymbolCoder, const MAX: usize, const WHICH_
 
 /// The decode side of [`encode_atmost_batch`]: decode `n` values with an
 /// explicitly forced walk, sharing one adaptive context across the batch.
+#[cfg(any(test, feature = "benchmarking"))]
 pub(crate) fn decode_atmost_batch<D: SymbolDecoder, const MAX: usize, const WHICH_WALK: usize>(
     mut reader: D,
     n: usize,

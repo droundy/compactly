@@ -360,10 +360,14 @@ impl Ans {
     /// against the same bytes in the same build. `CHUNKED = false` is the
     /// single-chunk fast path; `true` is what a multi-chunk stream gets.
     ///
-    /// Only valid for a **single-chunk** stream: forcing `false` on a multi-chunk
-    /// one would decode into the first boundary and stop. Benchmark support for
+    /// Only valid for a **single-chunk** stream. Forcing `false` on a multi-chunk
+    /// one does not stop at the boundary and does not error: with the `ops_left`
+    /// check compiled out, `load_next_chunk` never fires, the exhausted entropy
+    /// buffer simply stops renormalizing, and decode runs to completion emitting
+    /// silently corrupted values. Benchmark support for
     /// `src/bin/just-decompress-stream.rs`, not part of the stable API.
     #[doc(hidden)]
+    #[cfg(feature = "benchmarking")]
     pub fn decode_from_forced<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
         reader: R,
     ) -> std::io::Result<T> {
@@ -414,12 +418,14 @@ impl Ans {
     /// [`SymbolDecoder::SPECULATES`]). Benchmark support for
     /// `benches/atmost.rs`, not part of the stable API.
     #[doc(hidden)]
+    #[cfg(feature = "benchmarking")]
     pub const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
     /// Encode `values` using an explicitly forced tree walk, bypassing
     /// [`Walk::production`](super::Walk::production)'s usual choice for
     /// `MAX`. `WHICH_WALK` indexes [`WALKS`](super::WALKS). Benchmark support
     /// for `benches/atmost.rs`, not part of the stable API.
     #[doc(hidden)]
+    #[cfg(any(test, feature = "benchmarking"))]
     pub fn encode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
         values: &[super::AtMost<MAX>],
     ) -> Vec<u8> {
@@ -429,6 +435,7 @@ impl Ans {
     /// with the same forced walk. Benchmark support for
     /// `benches/atmost.rs`, not part of the stable API.
     #[doc(hidden)]
+    #[cfg(any(test, feature = "benchmarking"))]
     pub fn decode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
         bytes: &[u8],
         n: usize,
@@ -446,6 +453,7 @@ impl Ans {
     /// One arm of [`Self::decode_atmost_batch`]'s dispatch; see
     /// [`Self::decode_with`] for why this is kept out of line.
     #[inline(never)]
+    #[cfg(any(test, feature = "benchmarking"))]
     fn decode_atmost_batch_with<const MAX: usize, const WHICH_WALK: usize, const CHUNKED: bool>(
         bytes: &[u8],
         n: usize,
@@ -460,6 +468,7 @@ impl Ans {
     /// [`Self::replay_entropy_decode`] requires this; benchmarks use it to size
     /// their input. Benchmark support, not part of the stable API.
     #[doc(hidden)]
+    #[cfg(feature = "benchmarking")]
     pub fn is_single_chunk(&self) -> bool {
         self.0.writer.is_empty()
     }
@@ -479,6 +488,7 @@ impl Ans {
     /// assert that, failing loudly rather than measuring a truncated replay.
     /// Keep the benchmark input under `CHUNK_OPS` ops.
     #[doc(hidden)]
+    #[cfg(feature = "benchmarking")]
     pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
         assert!(
             self.0.writer.is_empty(),
@@ -1563,12 +1573,23 @@ fn debug_summarizes_rather_than_dumping() {
 fn r1_malformed_header_must_not_panic() {
     // `Ans::decode` is `Option`-returning: malformed bytes must yield `None`
     // (or any value), never panic.
+    //
+    // `decode_from` is covered alongside it because the two decoders fail
+    // differently. `AnsDecoder` indexes `entropy[epos..]` unclamped, relying on
+    // the documented `epos <= entropy.len()` invariant, and derives its cursor
+    // by subtracting lengths — so a break in that invariant surfaces here as a
+    // slice-index panic or a subtraction overflow, on exactly the malformed
+    // input most likely to expose it. It returns `Result`, so an `Err` is fine;
+    // only a panic is a failure.
     for pattern in [0xffu8, 0x80, 0xfe] {
         for len in [1usize, 4, 16, 64] {
             let bytes = vec![pattern; len];
             let _ = Ans::decode::<u64>(&bytes);
             let _ = Ans::decode::<Vec<u64>>(&bytes);
             let _ = Ans::decode::<String>(&bytes);
+            let _ = Ans::decode_from::<u64, _>(bytes.as_slice());
+            let _ = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice());
+            let _ = Ans::decode_from::<String, _>(bytes.as_slice());
         }
     }
 }

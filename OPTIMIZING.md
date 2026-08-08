@@ -40,6 +40,14 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   it is far less noisy than wall-clock under contention:
   `taskset -c 2 perf stat -e cpu_core/cycles/ <bin>` and take the **min** of a
   few runs.
+- **Some of these targets need `--features benchmarking`.** The forced-walk and
+  forced-decoder hooks they call are gated behind that feature (off by default),
+  so `benches/atmost.rs`, `ans-decode-phases`, and `just-decompress-stream`
+  declare it in `required-features`. Cargo **silently skips** a target whose
+  required-features are missing — you get no error, just no binary — so build
+  them as e.g. `cargo build --release --features benchmarking --bin
+  just-decompress-stream` or `cargo bench --features benchmarking --bench
+  atmost`.
 - Focused decode/encode workloads live in `src/bin/`:
   - `just-decompress` — decode `Vec<u64>` (random) 5000×.
   - `just-decompress-floats` — decode `Vec<f64>` 1000× (prints compressed size).

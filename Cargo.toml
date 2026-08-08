@@ -10,6 +10,12 @@ readme = "README.md"
 [features]
 
 generate_bit_context = []
+# Exposes the benchmark-support surface (forced tree walks, forced decoder
+# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive.
+# Off by default: these bypass the choices the library makes for itself, and
+# some silently produce wrong answers when pointed at the wrong input. Not
+# covered by semver.
+benchmarking = []
 v1 = []
 v2 = []
 default = ["v1", "v2"]
@@ -70,7 +76,7 @@ required-features = ["v2"]
 [[bench]]
 name = "atmost"
 harness = false
-required-features = ["v2"]
+required-features = ["v2", "benchmarking"]
 
 # These binaries use the v2 API, so they cannot build without it.
 [[bin]]
@@ -119,7 +125,7 @@ required-features = ["csv", "ureq"]
 
 [[bin]]
 name = "ans-decode-phases"
-required-features = ["v2"]
+required-features = ["v2", "benchmarking"]
 
 [[bin]]
 name = "ans-encode-phases"
@@ -132,4 +138,4 @@ required-features = ["v2"]
 
 [[bin]]
 name = "just-decompress-stream"
-required-features = ["v2"]
+required-features = ["v2", "benchmarking"]
