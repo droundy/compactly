@@ -410,7 +410,14 @@ fn distribution_test() {
     // the cap makes reachable, and at 135 it lands on 1/256 — the smallest
     // probability a `NonZeroU8` can express. One rung past the cap is already
     // clamped to that same floor, which is why raising `MAX_PRODUCT` beyond
-    // 135 cannot buy any further confidence (only interior resolution).
+    // 135 cannot buy this chain any further confidence (only interior
+    // resolution).
+    //
+    // Note this exhausts the *true* tail only. The mirror-image pure-false
+    // chain tops out at 254/256 (~11.3 mb), one notch short of the 255/256 a
+    // `NonZeroU8` could hold, because `best()` searches `(1..255)` — an
+    // exclusive bound. That headroom is `best()`'s to give, not
+    // `MAX_PRODUCT`'s, and is deliberately left alone here.
     test_distribution(MAX_PRODUCT - 3, 0, 1.0 / 128.0, 0.05104365326082572);
     test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 256.0, 0.05065909928371242);
     test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05023291376188693);

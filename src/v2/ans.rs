@@ -599,13 +599,17 @@ fn check_ans_coder() {
 #[test]
 fn ans_is_reasonable() {
     let data = vec![true; 1024 * 8];
-    // 8192 elements draws one collection sentinel (see `v2::sentinel`). On this
-    // maximally degenerate stream the interval barely narrows per bool, so the
-    // one improbable marker forces a disproportionate renormalization flush,
-    // which is most of these 10 bytes. Ordinary data pays the marker's entropy
-    // and nothing more (100k `u64` takes 24 markers for +16 bytes, ~0.67 B
-    // each, as predicted). The 8192 near-certain bools themselves cost only
-    // ~5.7 millibits each — `BitContext`'s 1/256 floor, see `MAX_PRODUCT`.
+    // 8192 elements draws collection sentinels (see `v2::sentinel`), but on
+    // this stream they are nearly free: a marker is a `true` in a context that
+    // has long since saturated, so it costs ~5 millibits (measured: 4096
+    // elements price out 5 mb above 4095). These 10 bytes are essentially the
+    // bools themselves — `Millibits` puts the whole vector at 73.2 bits, i.e.
+    // 9.2 of the 10, the rest being the coder's terminating flush.
+    //
+    // Nor is the per-bool cost the floor: 73213/8192 averages 8.9 millibits,
+    // well above `BitContext`'s 1/256 floor of ~5.6, because the context has
+    // to climb the adaptation ramp first — the first 1000 values alone cost
+    // 29.1 of the 73.2 bits.
     assert_eq!(super::Range::encode(&data).len(), 10);
     assert_eq!(Ans::decode::<Vec<bool>>(&Ans::encode(&data)).unwrap(), data);
     assert_eq!(Ans::encode(&data).len(), 13);

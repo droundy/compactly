@@ -960,8 +960,19 @@ representable**, but at `MAX_PRODUCT = 134` the deepest state is `True132False0`
 = 2/256: the table stopped one notch short of what the type can express.
 `MAX_PRODUCT = 135` adds exactly **4** states (675 → 679), the deepest being
 `True133False0` = 1/256, halving the fully-adapted floor from ~11.3 mb per bit
-to ~5.7 mb. Nothing above 135 can sharpen the floor further — `prob` bottoms out
-there — so higher caps only buy interior resolution.
+to ~5.7 mb. No cap above 135 can sharpen *this* floor further — `prob` bottoms
+out there — so higher caps only buy interior resolution.
+
+**But the model is not symmetric, and the other side still has headroom.** The
+mirror-image pure-*false* chain tops out at 254/256 (~11.3 mb), a notch short of
+the 255/256 a `NonZeroU8` could hold, because `Distribution::best()` searches
+`(1..255)` — an exclusive upper bound, so 255 is never a candidate. A
+maximally-predicted `false` bit therefore still costs twice a maximally-predicted
+`true` one. That is `best()`'s bound to relax, not `MAX_PRODUCT`'s, and this PR
+deliberately leaves it alone — but it looks like a second free notch of the same
+kind, and `Probability::new` already emits 255 for large `falses`, so the coders
+should handle it (rANS needs only `zeros = 256 - ones >= 1`). Worth measuring
+next.
 
 It is free on both axes. **Still 2 bytes**: 679 is in the same `u16` bucket as
 675, so every `Encode::Context` keeps its exact size and the tables grow by
