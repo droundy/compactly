@@ -5,6 +5,17 @@
 pub struct Millibits(u32);
 
 impl super::EntropyCoder for Millibits {
+    /// `Millibits` only estimates a size; it has no real sink, so `Writer = ()`
+    /// and `new`/`finish` are trivial. It is built via [`Default`] in
+    /// `Encode::millibits` and never streamed, so these are never actually called.
+    type Writer = ();
+    fn new((): ()) -> Self {
+        Millibits::default()
+    }
+    fn finish(self) -> std::io::Result<()> {
+        Ok(())
+    }
+
     fn encode_bits<const N: usize>(
         &mut self,
         contexts: &mut [super::bit_context::BitContext; N],

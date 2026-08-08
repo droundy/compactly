@@ -222,6 +222,7 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     OrdOnFirstField(1, 'b').encode(&mut writer, &mut ctx.values);
     let bytes = writer.into_vec();
 
+    use super::EntropyDecoder;
     let mut reader = super::arith::Decoder::new(&bytes);
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
     let decoded = <Values<crate::Normal> as EncodingStrategy<BTreeSet<OrdOnFirstField>>>::decode(

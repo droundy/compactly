@@ -121,6 +121,28 @@ enum Op {
 }
 
 impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
+    type Writer = W;
+
+    #[inline]
+    fn new(writer: W) -> Self {
+        Self {
+            ops: Vec::new(),
+            incompressible_bytes: Vec::new(),
+            writer,
+            error: None,
+        }
+    }
+
+    /// Finish encoding: flush the final chunk, then return the sink or the
+    /// latched IO error. [`Ans::into_vec`] is the in-memory caller.
+    fn finish(mut self) -> std::io::Result<W> {
+        self.flush_chunk(true);
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => Ok(self.writer),
+        }
+    }
+
     #[inline]
     fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
         self.ops
@@ -162,6 +184,15 @@ impl<W: std::io::Write> SymbolCoder for AnsEncoder<W> {
 }
 
 impl EntropyCoder for Ans {
+    type Writer = Vec<u8>;
+    #[inline]
+    fn new(writer: Vec<u8>) -> Self {
+        Ans(AnsEncoder::new(writer))
+    }
+    #[inline]
+    fn finish(self) -> std::io::Result<Vec<u8>> {
+        self.0.finish()
+    }
     #[inline]
     fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
         self.0.encode_bits(contexts, bits)
@@ -188,16 +219,6 @@ impl SymbolCoder for Ans {
 }
 
 impl<W: std::io::Write> AnsEncoder<W> {
-    #[inline]
-    pub(crate) fn new(writer: W) -> Self {
-        Self {
-            ops: Vec::new(),
-            incompressible_bytes: Vec::new(),
-            writer,
-            error: None,
-        }
-    }
-
     #[inline]
     fn write_out(&mut self, bytes: &[u8]) {
         if self.error.is_none() {
@@ -282,16 +303,6 @@ impl<W: std::io::Write> AnsEncoder<W> {
         }
         self.ops.clear();
     }
-
-    /// Finish encoding: flush the final chunk, then return the sink or the
-    /// latched IO error. [`Ans::into_vec`] is the in-memory caller.
-    pub(crate) fn finish(mut self) -> std::io::Result<W> {
-        self.flush_chunk(true);
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => Ok(self.writer),
-        }
-    }
 }
 
 impl Ans {
@@ -301,25 +312,22 @@ impl Ans {
     }
     /// Encode `value` straight into a [`Write`](std::io::Write), streaming chunks
     /// out as they fill rather than buffering the whole compressed output; the
-    /// bytes are **identical** to [`Ans::encode`]. `writer` is wrapped in a
-    /// [`BufWriter`](std::io::BufWriter) internally.
+    /// bytes are **identical** to [`Ans::encode`]. No buffering is applied — wrap
+    /// an unbuffered sink like a `File` in a [`BufWriter`](std::io::BufWriter)
+    /// yourself.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
     ) -> std::io::Result<()> {
-        let mut encoder = AnsEncoder::new(std::io::BufWriter::new(writer));
-        value.encode(&mut encoder, &mut T::Context::default());
-        let buffered = encoder.finish()?;
-        // Surface a deferred flush error from the BufWriter, if any.
-        buffered.into_inner().map_err(|e| e.into_error())?;
-        Ok(())
+        super::stream_encode::<T, AnsEncoder<W>>(value, writer).map(drop)
     }
     /// Decode a value straight from a [`Read`](std::io::Read), pulling one chunk
     /// at a time rather than requiring the whole compressed input in memory.
-    /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
-    /// `reader` is wrapped in a [`BufReader`](std::io::BufReader) internally.
-    pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
-        let mut reader = std::io::BufReader::new(reader);
+    /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce. No
+    /// buffering is applied — wrap an unbuffered source in a
+    /// [`BufReader`](std::io::BufReader) yourself (note `Ans` reads chunk headers
+    /// a byte at a time, so buffering a `File` matters more here than for `Range`).
+    pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
         // whole value is one chunk and needs no boundary tracking. Unlike the
@@ -336,24 +344,17 @@ impl Ans {
     }
 
     /// One arm of [`Self::decode_from`]'s dispatch; kept out of line for the
-    /// same reason as [`Self::decode_with`].
+    /// same reason as [`Self::decode_with`]. The latched-IO-error-wins rule (a
+    /// mid-stream read failure must not be masked by a downstream `T::decode`
+    /// validation error) lives in [`stream_decode`](super::stream_decode) via
+    /// [`AnsDecoder`]'s `into_result`.
     #[inline(never)]
     fn decode_from_with<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
         reader: R,
         tag: usize,
         error: Option<std::io::Error>,
     ) -> std::io::Result<T> {
-        let mut decoder = AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error);
-        match T::decode(&mut decoder, &mut T::Context::default()) {
-            Ok(value) => decoder.into_result(value),
-            // Prefer a latched IO error over whatever `T::decode` reported.
-            // Coder decode is infallible, so a mid-stream IO failure zero-pads
-            // instead of erroring; the fabricated bits then often trip some
-            // unrelated validation (a zero `NonZero`, a bad `char`) deeper in
-            // `T::decode`. Returning that would report a symptom and silently
-            // drop the actual root cause.
-            Err(e) => Err(decoder.into_result(()).err().unwrap_or(e)),
-        }
+        super::stream_decode::<T, _>(AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error))
     }
     /// [`Self::decode_from`] with the chunk-boundary tracking forced rather than
     /// chosen from the first tag, so a benchmark can measure both instantiations
@@ -369,9 +370,8 @@ impl Ans {
     #[doc(hidden)]
     #[cfg(feature = "benchmarking")]
     pub fn decode_from_forced<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
-        reader: R,
+        mut reader: R,
     ) -> std::io::Result<T> {
-        let mut reader = std::io::BufReader::new(reader);
         let mut error = None;
         let tag = read_varint_io(&mut reader, &mut error);
         Self::decode_from_with::<T, _, CHUNKED>(reader, tag, error)
@@ -749,6 +749,19 @@ impl<'a, const CHUNKED: bool> SymbolDecoder for Decoder<'a, CHUNKED> {
 }
 
 impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
+    type Reader = &'a [u8];
+
+    #[inline]
+    fn new(bytes: &'a [u8]) -> Self {
+        Self::from(bytes)
+    }
+
+    /// The slice decoder never latches an IO error, so the decode result stands.
+    #[inline]
+    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        value
+    }
+
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
     #[inline(always)]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
@@ -1011,14 +1024,6 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
             self.epos = STATE_BYTES;
         }
     }
-
-    /// Return `value` unless a read error was latched during decoding.
-    pub(crate) fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => Ok(value),
-        }
-    }
 }
 
 impl<R: std::io::Read, const CHUNKED: bool> SymbolDecoder for AnsDecoder<R, CHUNKED> {
@@ -1051,6 +1056,29 @@ impl<R: std::io::Read, const CHUNKED: bool> SymbolDecoder for AnsDecoder<R, CHUN
 }
 
 impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHUNKED> {
+    type Reader = R;
+
+    /// Read the leading chunk tag, then enter the first chunk. Note this does
+    /// *not* choose `CHUNKED` from the tag (that is the caller's job in
+    /// [`Ans::decode_from`], which peeks the tag before picking the type);
+    /// constructing `AnsDecoder<R, CHUNKED>` directly commits to the given
+    /// `CHUNKED`. See [`Self::with_first_tag`] for the pre-peeked path.
+    fn new(mut reader: R) -> Self {
+        let mut error = None;
+        let tag = read_varint_io(&mut reader, &mut error);
+        Self::with_first_tag(reader, tag, error)
+    }
+
+    /// Return `value` unless a read error was latched during decoding — the
+    /// latched IO error wins even when `value` is itself `Err` (see the trait
+    /// method's contract).
+    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => value,
+        }
+    }
+
     #[inline]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
         walks::decode_symbol_or_bitwise(self, ctx)
