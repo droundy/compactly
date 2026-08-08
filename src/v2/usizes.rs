@@ -106,21 +106,67 @@ impl EncodingStrategy<usize> for Small {
             6 => Ok(usize::from(AtMost::<31>::decode(reader, &mut ctx.b5)?) + 32),
             7 => {
                 let v: u64 = Small::decode(reader, &mut ctx.large)?;
-                // Only `v <= usize::MAX - 64` is encodable, so anything larger is
-                // corrupt input. Reject rather than overflow: this is reached from
-                // the `Option`-returning entry points, which must never panic
-                // (an unchecked `+ 64` panics in debug, wraps silently in release).
-                // `try_from` rather than `as`: where `usize` is narrower than
-                // `u64` (wasm32), a cast would truncate an out-of-range `v` into
-                // a small in-range one that then passes `checked_add`.
-                usize::try_from(v)
-                    .ok()
-                    .and_then(|v| v.checked_add(64))
-                    .ok_or_else(|| std::io::Error::other("corrupt stream: Small<usize> overflows"))
+                add_bucket_bias(v)
             }
             _ => unreachable!(),
         }
     }
+}
+
+/// Add back the bias the top bucket subtracts, rejecting anything that does not
+/// fit the target width.
+///
+/// Only `v <= T::MAX - 64` is encodable, so anything larger is corrupt input.
+/// Reject rather than overflow: this is reached from the `Option`-returning
+/// entry points, which must never panic (an unchecked `+ 64` panics in debug
+/// and wraps silently in release).
+///
+/// The addition happens in `u64` and the conversion once afterwards, which is
+/// correct at any width. Converting first would let a `v` past `T::MAX`
+/// truncate into an in-range value that then sails through the overflow check
+/// — reachable wherever `usize` is narrower than `u64`, i.e. wasm32. `T` is
+/// generic solely so that case is testable on a 64-bit host; the one caller
+/// instantiates it at `usize`.
+#[inline]
+fn add_bucket_bias<T: TryFrom<u64>>(v: u64) -> Result<T, std::io::Error> {
+    v.checked_add(64)
+        .and_then(|v| T::try_from(v).ok())
+        .ok_or_else(|| std::io::Error::other("corrupt stream: Small<usize> overflows"))
+}
+
+/// `small_usize_decode_rejects_overflowing_magnitude` runs the real decoder,
+/// but only at the host's native width — and on a 64-bit host `as` and
+/// `try_from` agree for every `u64`, so it cannot tell the truncating cast from
+/// the checked one. The only targets where they differ are 32-bit, and CI's
+/// sole wasm32 job is `cargo check`, which never runs tests. So pin the
+/// conversion itself at both widths here, on whatever host is running.
+#[test]
+fn add_bucket_bias_rejects_values_past_the_target_width() {
+    // Largest encodable magnitude at each width, and the first one past it.
+    assert_eq!(
+        add_bucket_bias::<u32>(u32::MAX as u64 - 64).ok(),
+        Some(u32::MAX)
+    );
+    assert!(add_bucket_bias::<u32>(u32::MAX as u64 - 63).is_err());
+    assert_eq!(add_bucket_bias::<u64>(u64::MAX - 64).ok(), Some(u64::MAX));
+    assert!(add_bucket_bias::<u64>(u64::MAX - 63).is_err());
+
+    // Truncation bait: each of these truncates to a small in-range value under
+    // `as u32`, so a cast-first implementation returns a plausible wrong answer
+    // (64, 127, 64, 64) instead of rejecting.
+    for v in [
+        1u64 << 32,
+        (1u64 << 32) + 63,
+        1u64 << 40,
+        u64::MAX - u32::MAX as u64,
+    ] {
+        assert!(
+            add_bucket_bias::<u32>(v).is_err(),
+            "{v} does not fit a 32-bit usize and must be rejected, not truncated"
+        );
+    }
+
+    assert_eq!(add_bucket_bias::<u32>(0).ok(), Some(64));
 }
 
 #[derive(Default, Clone)]
@@ -235,8 +281,12 @@ fn small_usize_max_round_trips() {
 
 /// The other side of `small_usize_max_round_trips`: every value that side feeds
 /// is a real `usize` and takes the `Ok` path, so on its own it would still pass
-/// with the guard reverted to `v as usize + 64`. Build a stream whose top bucket
-/// carries a magnitude past `usize::MAX - 64` and check it is rejected.
+/// with no guard at all. Build a stream whose top bucket carries a magnitude
+/// past `usize::MAX - 64` and check the real decoder rejects it.
+///
+/// This covers the wiring — that bucket 7 reaches a rejecting conversion — at
+/// the host's width only. Whether that conversion is correct on a narrower
+/// `usize` is `add_bucket_bias_rejects_values_past_the_target_width`'s job.
 #[test]
 fn small_usize_decode_rejects_overflowing_magnitude() {
     use crate::Encoded;

@@ -825,11 +825,12 @@ fn read_region<R: std::io::Read>(
 /// The most entropy bytes a single chunk can legitimately hold.
 ///
 /// A chunk is flushed once the op buffer reaches [`CHUNK_OPS`], and one
-/// `encode_bits::<N>` batch can overshoot by at most `N`. No production call
-/// site batches beyond `N = 1` today (the standalone `micro-batch` benchmark
-/// goes up to 16); the slack below is deliberately generous against future
-/// batching. A bit op emits at most one byte and a symbol op at most two, plus
-/// the [`STATE_BYTES`] flush.
+/// `encode_bits::<N>` batch can overshoot by at most `N`. Every `encode_bits`
+/// call site in the repo passes `N = 1` — batching so far is decode-side only
+/// (`micro-batch` goes up to 16, but only through `decode_bits`) — so today the
+/// overshoot is zero; the slack below is deliberately generous against future
+/// encode-side batching. A bit op emits at most one byte and a symbol op at
+/// most two, plus the [`STATE_BYTES`] flush.
 ///
 /// This exists because the *final* chunk's entropy body has no length field —
 /// it runs to end of stream (see [`AnsEncoder::flush_chunk`]) — so the streaming
