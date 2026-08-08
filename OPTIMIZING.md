@@ -40,6 +40,14 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   it is far less noisy than wall-clock under contention:
   `taskset -c 2 perf stat -e cpu_core/cycles/ <bin>` and take the **min** of a
   few runs.
+- **Some of these targets need `--features benchmarking`.** The forced-walk and
+  forced-decoder hooks they call are gated behind that feature (off by default),
+  so `benches/atmost.rs`, `ans-decode-phases`, and `just-decompress-stream`
+  declare it in `required-features`. Cargo **silently skips** a target whose
+  required-features are missing — you get no error, just no binary — so build
+  them as e.g. `cargo build --release --features benchmarking --bin
+  just-decompress-stream` or `cargo bench --features benchmarking --bench
+  atmost`.
 - Focused decode/encode workloads live in `src/bin/`:
   - `just-decompress` — decode `Vec<u64>` (random) 5000×.
   - `just-decompress-floats` — decode `Vec<f64>` 1000× (prints compressed size).
@@ -52,6 +60,13 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
     `comparison/src/meteorites.csv`, so run from the workspace root.
   - `just-compress-strings [ans|range] [iters]` — the encode-side twin of
     `just-decompress-strings` (default 2000×; ~40B cycles per 1000 on `Ans`).
+  - `[COUNT=n] just-decompress-stream slice|stream|untracked|tracked` — the
+    streaming ANS decoder. `slice` vs `stream` compares `Ans::decode` against
+    `Ans::decode_from` over a `Cursor<&[u8]>` (no filesystem in the loop);
+    `untracked` vs `tracked` forces `AnsDecoder`'s two `CHUNKED` instantiations
+    on the same bytes. `COUNT` (default 2000) picks single-chunk/cache-resident
+    vs multi-chunk/memory-bound; iterations scale so total work is fixed. The
+    forced arms require single-chunk input and assert it.
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
@@ -943,6 +958,137 @@ came with numbers:
   `Sorted<String>` in-place fix (→ TODO #15). Two stale TODOs retired
   (#5, #10).
 
+### Ans chunked format: the cost is per-batch boundary tracking, not chunking (2026-07-27)
+
+Chunking `Ans` (self-contained rANS chunks every `CHUNK_OPS = 1<<16` ops, so
+encoder/decoder memory is bounded and the format can stream) was A/B'd against
+pre-chunking `a9184ef`. Quiesced, alternating, min of 3, reps within 0.3%:
+
+| phase | first cut | after `CHUNKED=false` |
+|---|---|---|
+| encode, multi-chunk (100k u64) | +2.41% | **+2.27%** |
+| decode, multi-chunk (100k u64) | +6.06% | **+5.71%** |
+| encode, single-chunk (2k u64) | +0.95% | **−0.87%** |
+| decode, single-chunk (2k u64) | **+21.51%** | **−1.07%** |
+
+The +21.5% on a *single-chunk* decode was the surprise — one never-taken branch
+should be free. Isolated by stripping just the `ops_left` load/store/decrement
+from the two hot decode paths: that alone restored it to −1.55%. So the entire
+regression was **per-batch boundary bookkeeping**; the framing and the per-chunk
+rANS state flush cost essentially nothing. It hurts most on cache-resident data
+(compute-bound); on 100k u64s the memory traffic dilutes it to ~6%.
+
+Fix: `Decoder<'a, const CHUNKED: bool>`. A stream whose *first* frame is final
+(op-count 0) is single-chunk — the common case — and needs no tracking at all,
+so `Ans::decode` peeks the frame and instantiates `CHUNKED = false`, compiling
+the checks and decrements out entirely. Single-chunk decode is now at parity
+(−1.07%). Multi-chunk still pays ~5.7% decode / ~2.3% encode, which is the real
+price of bounded memory + streamability for huge values.
+
+**The residual multi-chunk decode cost is per-op, and resisted every mitigation.**
+Sweeping `CHUNK_OPS` (100k-u64 decode, vs pre-chunking baseline) confirms it is
+invariant to chunk size — bigger chunks help only by making a value *single*-chunk:
+
+| `CHUNK_OPS` | encode | decode |
+|---|---|---|
+| 1<<12 | +2.90% | +5.85% |
+| 1<<14 | **+0.97%** | +5.80% |
+| 1<<16 (shipped) | +2.29% | +5.71% |
+| 1<<18 | +3.75% | +5.92% |
+| 1<<24 | +4.44% | **+0.32%** ← workload is now single-chunk |
+
+Decode is flat at ~5.8% for every size that actually chunks. Encode has a sweet
+spot at 1<<14 (op-buffer locality in the reverse pass vs per-chunk fixed cost)
+and degrades as chunks grow. `1<<16` is kept because *lowering* it pushes more
+values into the penalized multi-chunk regime, and single-chunk decode is free;
+raising it hurts encode and unbounds memory, which is the whole point.
+
+`perf` on multi-chunk decode: 83% of cycles in the monomorphized
+`Small<u64>::decode::<Decoder>`, whose hot loop shows `test %r11,%r11` + `dec
+%r11` (the `ops_left` guard/decrement, ~3.7% combined) plus stack-spill reloads
+and a 136-byte frame — i.e. the cost is the bookkeeping *plus* the register
+pressure from the extra field. Four mitigations, all **measured worse** than the
+straightforward version (each quiesced, alternating, min of 3):
+
+- `saturating_sub` -> `wrapping_sub` (drops a cmov): **+6.43%**
+- `#[cold] #[inline(never)]` on `load_next_chunk`, which `perf` showed being
+  inlined (varint parsing and all) into the hot decode path: **+7.61%**
+- `ops_left` as `u32` instead of `usize`, to shrink the struct: **+6.83%**
+- Using `state == 0` as the boundary signal, dropping the counter entirely:
+  **incorrect.** The rANS state returns to exactly 0 at a chunk's end only for
+  pure-*bit* chunks (as `check_ans_coder` asserts); once whole-**symbol** steps
+  are interleaved it does not, so the decoder misses the boundary and runs into
+  the next chunk's bytes. (It "measured" −30% precisely because it had stopped
+  decoding correctly — the same trap as any A/B against broken code.)
+
+Another instance of the codegen-sensitivity theme: every variant doing strictly
+less work ran slower. Treat the shipped form as a local optimum unless something
+structural changes.
+
+**Build-ops vs entropy-code split** (measured on pre-chunking, where the phases
+separate cleanly) — the ratio is workload-dependent and *inverts*:
+
+| workload | build `Vec<Op>` | entropy-code |
+|---|---|---|
+| 38k meteorite strings | 79.4% | 20.6% |
+| 100k `u64` | 37.4% | 62.6% |
+
+Relevant to the idea of entropy-coding each chunk on a background thread while
+the main thread keeps recording ops: a perfectly overlapped two-stage pipeline
+costs `max(build, entropy)` instead of the sum, i.e. a ceiling of ~1.26x on
+strings but ~1.60x on numeric data. Chunks are the natural handoff unit (each is
+an independent rANS stream), and the stages share no mutable model — contexts
+adapt during recording, so stage 2 only needs the finished op vector.
+
+### Streaming decoder: the single-chunk fast path is worth even more there (2026-08-08)
+
+The `CHUNKED` const generic that saved 21% on the in-memory `Decoder` was
+initially only on that decoder; `AnsDecoder<R>` always tracked boundaries.
+Giving it the same `const CHUNKED: bool` (`Ans::decode_from` reads the first
+frame's tag and picks, since a stream cannot be peeked and re-read) pays off
+harder than it does in memory. New A/B bin `just-decompress-stream`, which
+forces both instantiations over the same single-chunk bytes in one build
+(`Cursor<&[u8]>` source, so no filesystem in the measurement); quiesced,
+alternating, min of 3, reps within 0.4%:
+
+| streaming, single-chunk 2k `u64` | cycles | instructions |
+|---|---|---|
+| `CHUNKED = true` | 10,084,229,270 | 25,838,387,233 |
+| `CHUNKED = false` | 7,466,523,825 | 22,981,489,923 |
+| | **−25.96%** | **−11.06%** |
+
+**Clamping a cursor that cannot be out of range cost 2.7%.** Both streaming hot
+paths re-derived their slice as `entropy[epos.min(entropy.len())..]` and then
+recovered `consumed` via a saved `before` length. `epos <= entropy.len()` is an
+invariant (`enter_chunk` sets it within the new region; each step advances it to
+`len - remaining.len()` for a suffix), so the `min` was provably dead and the
+length bookkeeping redundant. Dropping both: streaming decode **−2.65% cycles,
+−4.25% instructions**, no change to the slice decoder. Invariant is now
+documented on the field so it stays checkable.
+
+**How much does streaming cost over memory?** With both fast paths in, the same
+bin decodes the same bytes through `Ans::decode` (borrowing slice decoder) and
+`Ans::decode_from` (owning streaming decoder over `Cursor<&[u8]>`):
+
+| workload | slice | stream | stream cost |
+|---|---|---|---|
+| 2k `u64` (single chunk, cache-resident) | 6,908,825,341 | 7,263,957,888 | **+5.14%** |
+| 100k `u64` (multi-chunk, memory-bound) | 10,834,965,673 | 11,458,232,609 | **+5.75%** |
+
+(Before the clamp fix these were +8.1% / +9.2%.) Instructions run ~19% higher
+while cycles are only ~5% higher — the extra work is largely absorbed by
+memory-level parallelism. Notably the residual is **not** the owned-buffer copy:
+`perf` puts `__memmove_avx_unaligned_erms` at just 2.4%, with 70% in the
+monomorphized `Small<u64>::decode`. It is the per-batch cursor bookkeeping —
+the streaming decoder loads `entropy` (ptr+len) plus `epos` and stores a
+recomputed `epos`, where the slice decoder loads and stores a `&[u8]` directly.
+
+So **collapsing to a single decoder implementation would cost ~5% on the
+default in-memory path** — the remaining gap is structural (owned buffer +
+index cursor vs. borrowed slice), and closing it without `unsafe` would need
+the decoder generic over a region-supplier trait so `&[u8]` can stay zero-copy,
+which keeps two cursor implementations anyway. Not attempted; recorded so the
+tradeoff is a decision rather than a rediscovery.
 ### Sweeping `MAX_PRODUCT`: one byte is a DEAD END, 135 is a free win (2026-08-08)
 
 `MAX_PRODUCT` (in `generate_bit_context.rs`) caps which `(trues, falses)` count

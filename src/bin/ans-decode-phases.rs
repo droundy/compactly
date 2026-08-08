@@ -14,6 +14,11 @@
 //! Usage: `ans-decode-phases [iterations]` (default 500). Reads meteorite
 //! names from `comparison/src/meteorites.csv` (falling back to
 //! `../comparison/src/meteorites.csv`), so run it from the workspace root.
+//!
+//! The entropy phase replays the encoder's op buffer, which only survives while
+//! the value fits in one chunk (flushing clears it), so the input is trimmed to
+//! the largest single-chunk prefix. Both phases then measure the same data, so
+//! the comparison — the point of this tool — is unaffected.
 
 use std::collections::HashSet;
 use std::time::Instant;
@@ -52,14 +57,42 @@ fn main() {
     let csv = std::fs::read_to_string("comparison/src/meteorites.csv")
         .or_else(|_| std::fs::read_to_string("../comparison/src/meteorites.csv"))
         .expect("run from the workspace root so comparison/src/meteorites.csv is found");
-    let names = first_fields(&csv);
+    let all_names = first_fields(&csv);
+
+    // Trim to the largest prefix that still encodes as a single chunk, so the
+    // op buffer remains a complete oracle for the entropy replay below. Binary
+    // searched rather than hardcoded, so it tracks CHUNK_OPS and keeps as much
+    // data as will fit (ops per name vary, so this cannot be computed directly).
+    let fits = |n: usize| <Ans as EntropyCoder>::encode(&all_names[..n].to_vec()).is_single_chunk();
+    let mut lo = 1;
+    let mut hi = all_names.len();
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(mid) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let names: Vec<String> = all_names[..lo].to_vec();
+    assert!(!names.is_empty(), "even one name should fit in a chunk");
+    if names.len() < all_names.len() {
+        println!(
+            "trimmed {} -> {} names to stay within one chunk",
+            all_names.len(),
+            names.len()
+        );
+    }
     println!(
         "decoding {} meteorite names, {iterations} iterations per phase",
         names.len()
     );
 
+    // Two independent encodes: one kept as the op-buffer oracle for the entropy
+    // replay, one finished into the bitstream (into_vec consumes, and Ans no
+    // longer clones now that it owns its writer).
     let ops = <Ans as EntropyCoder>::encode(&names);
-    let encoded = ops.clone().into_vec();
+    let encoded = <Ans as EntropyCoder>::encode(&names).into_vec();
     println!("encoded size {}", encoded.len());
 
     // Entropy-only: replay the recorded ops against the bitstream, doing just
