@@ -129,3 +129,7 @@ required-features = ["v2"]
 [[bin]]
 name = "just-decompress-compressible"
 required-features = ["v2"]
+
+[[bin]]
+name = "just-decompress-stream"
+required-features = ["v2"]

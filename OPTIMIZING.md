@@ -52,6 +52,13 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
     `comparison/src/meteorites.csv`, so run from the workspace root.
   - `just-compress-strings [ans|range] [iters]` — the encode-side twin of
     `just-decompress-strings` (default 2000×; ~40B cycles per 1000 on `Ans`).
+  - `[COUNT=n] just-decompress-stream slice|stream|untracked|tracked` — the
+    streaming ANS decoder. `slice` vs `stream` compares `Ans::decode` against
+    `Ans::decode_from` over a `Cursor<&[u8]>` (no filesystem in the loop);
+    `untracked` vs `tracked` forces `AnsDecoder`'s two `CHUNKED` instantiations
+    on the same bytes. `COUNT` (default 2000) picks single-chunk/cache-resident
+    vs multi-chunk/memory-bound; iterations scale so total work is fixed. The
+    forced arms require single-chunk input and assert it.
   - `micro-batch seq|batch` — isolates the ANS adaptive bit-decode: decode a
     stream of independent adaptive bits via `decode_bit` (`seq`) vs `decode_bits`
     (`batch`), nothing else in the loop. Best signal for batch-coder work.
@@ -1022,6 +1029,56 @@ costs `max(build, entropy)` instead of the sum, i.e. a ceiling of ~1.26x on
 strings but ~1.60x on numeric data. Chunks are the natural handoff unit (each is
 an independent rANS stream), and the stages share no mutable model — contexts
 adapt during recording, so stage 2 only needs the finished op vector.
+
+### Streaming decoder: the single-chunk fast path is worth even more there (2026-08-08)
+
+The `CHUNKED` const generic that saved 21% on the in-memory `Decoder` was
+initially only on that decoder; `AnsDecoder<R>` always tracked boundaries.
+Giving it the same `const CHUNKED: bool` (`Ans::decode_from` reads the first
+frame's tag and picks, since a stream cannot be peeked and re-read) pays off
+harder than it does in memory. New A/B bin `just-decompress-stream`, which
+forces both instantiations over the same single-chunk bytes in one build
+(`Cursor<&[u8]>` source, so no filesystem in the measurement); quiesced,
+alternating, min of 3, reps within 0.4%:
+
+| streaming, single-chunk 2k `u64` | cycles | instructions |
+|---|---|---|
+| `CHUNKED = true` | 10,084,229,270 | 25,838,387,233 |
+| `CHUNKED = false` | 7,466,523,825 | 22,981,489,923 |
+| | **−25.96%** | **−11.06%** |
+
+**Clamping a cursor that cannot be out of range cost 2.7%.** Both streaming hot
+paths re-derived their slice as `entropy[epos.min(entropy.len())..]` and then
+recovered `consumed` via a saved `before` length. `epos <= entropy.len()` is an
+invariant (`enter_chunk` sets it within the new region; each step advances it to
+`len - remaining.len()` for a suffix), so the `min` was provably dead and the
+length bookkeeping redundant. Dropping both: streaming decode **−2.65% cycles,
+−4.25% instructions**, no change to the slice decoder. Invariant is now
+documented on the field so it stays checkable.
+
+**How much does streaming cost over memory?** With both fast paths in, the same
+bin decodes the same bytes through `Ans::decode` (borrowing slice decoder) and
+`Ans::decode_from` (owning streaming decoder over `Cursor<&[u8]>`):
+
+| workload | slice | stream | stream cost |
+|---|---|---|---|
+| 2k `u64` (single chunk, cache-resident) | 6,908,825,341 | 7,263,957,888 | **+5.14%** |
+| 100k `u64` (multi-chunk, memory-bound) | 10,834,965,673 | 11,458,232,609 | **+5.75%** |
+
+(Before the clamp fix these were +8.1% / +9.2%.) Instructions run ~19% higher
+while cycles are only ~5% higher — the extra work is largely absorbed by
+memory-level parallelism. Notably the residual is **not** the owned-buffer copy:
+`perf` puts `__memmove_avx_unaligned_erms` at just 2.4%, with 70% in the
+monomorphized `Small<u64>::decode`. It is the per-batch cursor bookkeeping —
+the streaming decoder loads `entropy` (ptr+len) plus `epos` and stores a
+recomputed `epos`, where the slice decoder loads and stores a `&[u8]` directly.
+
+So **collapsing to a single decoder implementation would cost ~5% on the
+default in-memory path** — the remaining gap is structural (owned buffer +
+index cursor vs. borrowed slice), and closing it without `unsafe` would need
+the decoder generic over a region-supplier trait so `&[u8]` can stay zero-copy,
+which keeps two cursor implementations anyway. Not attempted; recorded so the
+tradeoff is a decision rather than a rediscovery.
 
 ## TODO (in rough priority order)
 

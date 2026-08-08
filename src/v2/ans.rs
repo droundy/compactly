@@ -319,7 +319,31 @@ impl Ans {
     /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
     /// `reader` is wrapped in a [`BufReader`](std::io::BufReader) internally.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
-        let mut decoder = AnsDecoder::new(std::io::BufReader::new(reader));
+        let mut reader = std::io::BufReader::new(reader);
+        // Consume the first frame's tag to pick the decoder, exactly as
+        // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
+        // whole value is one chunk and needs no boundary tracking. Unlike the
+        // slice case we cannot peek and re-read, so the tag is handed to the
+        // constructor. A read error here latches and travels with it, so an
+        // unreadable stream still reports the IO error rather than a decode one.
+        let mut error = None;
+        let tag = read_varint_io(&mut reader, &mut error);
+        if tag & 1 == 0 {
+            Self::decode_from_with::<T, _, false>(reader, tag, error)
+        } else {
+            Self::decode_from_with::<T, _, true>(reader, tag, error)
+        }
+    }
+
+    /// One arm of [`Self::decode_from`]'s dispatch; kept out of line for the
+    /// same reason as [`Self::decode_with`].
+    #[inline(never)]
+    fn decode_from_with<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
+        reader: R,
+        tag: usize,
+        error: Option<std::io::Error>,
+    ) -> std::io::Result<T> {
+        let mut decoder = AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error);
         match T::decode(&mut decoder, &mut T::Context::default()) {
             Ok(value) => decoder.into_result(value),
             // Prefer a latched IO error over whatever `T::decode` reported.
@@ -330,6 +354,23 @@ impl Ans {
             // drop the actual root cause.
             Err(e) => Err(decoder.into_result(()).err().unwrap_or(e)),
         }
+    }
+    /// [`Self::decode_from`] with the chunk-boundary tracking forced rather than
+    /// chosen from the first tag, so a benchmark can measure both instantiations
+    /// against the same bytes in the same build. `CHUNKED = false` is the
+    /// single-chunk fast path; `true` is what a multi-chunk stream gets.
+    ///
+    /// Only valid for a **single-chunk** stream: forcing `false` on a multi-chunk
+    /// one would decode into the first boundary and stop. Benchmark support for
+    /// `src/bin/just-decompress-stream.rs`, not part of the stable API.
+    #[doc(hidden)]
+    pub fn decode_from_forced<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
+        reader: R,
+    ) -> std::io::Result<T> {
+        let mut reader = std::io::BufReader::new(reader);
+        let mut error = None;
+        let tag = read_varint_io(&mut reader, &mut error);
+        Self::decode_from_with::<T, _, CHUNKED>(reader, tag, error)
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
@@ -872,22 +913,38 @@ fn read_final_region<R: std::io::Read>(
 /// [`Ans`]/[`AnsEncoder`] produce and recovers identical values (the per-chunk
 /// arithmetic is the slice [`Decoder`]'s; only the byte source differs). IO
 /// errors are latched and surfaced by [`AnsDecoder::into_result`].
-pub(crate) struct AnsDecoder<R: std::io::Read> {
+///
+/// `CHUNKED` plays exactly the role it does on [`Decoder`]: an even first tag
+/// means the whole value is one final chunk, so `CHUNKED = false` compiles the
+/// per-op `ops_left` check and decrement out of the hot paths.
+/// [`Ans::decode_from`] reads the first tag and picks.
+pub(crate) struct AnsDecoder<R: std::io::Read, const CHUNKED: bool = true> {
     reader: R,
     state: State,
     /// Current chunk's entropy region (its leading `STATE_BYTES` seed the state).
     entropy: Vec<u8>,
+    /// How much of `entropy` is consumed.
+    ///
+    /// Invariant: `epos <= entropy.len()`, so the hot paths can index
+    /// `entropy[epos..]` without clamping. `enter_chunk` sets it to at most the
+    /// new region's length, and each step advances it to
+    /// `entropy.len() - remaining.len()` for a suffix `remaining` — never past
+    /// the end. Clamping here instead cost ~2.7% of streaming decode.
     epos: usize,
     /// Current chunk's raw incompressible region.
     incompressible: Vec<u8>,
     ipos: usize,
     /// Ops left in the current chunk; `usize::MAX` for the final chunk.
+    /// Only read/written when `CHUNKED`.
     ops_left: usize,
     error: Option<std::io::Error>,
 }
 
-impl<R: std::io::Read> AnsDecoder<R> {
-    pub(crate) fn new(reader: R) -> Self {
+impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
+    /// Build a decoder positioned just past the first chunk's `tag`, which the
+    /// caller has already consumed from `reader` in order to choose `CHUNKED`
+    /// (and which may have latched `error` doing so).
+    pub(crate) fn with_first_tag(reader: R, tag: usize, error: Option<std::io::Error>) -> Self {
         let mut decoder = AnsDecoder {
             reader,
             state: 0,
@@ -896,17 +953,25 @@ impl<R: std::io::Read> AnsDecoder<R> {
             incompressible: Vec::new(),
             ipos: 0,
             ops_left: 0,
-            error: None,
+            error,
         };
-        decoder.load_next_chunk();
+        decoder.enter_chunk(tag);
         decoder
     }
 
-    /// Read and enter the next chunk frame: parse the header, pull the entropy
-    /// and incompressible regions into owned buffers, seed the rANS state from
-    /// the entropy's leading bytes, and set `ops_left`.
+    /// Read the next chunk frame's tag and enter it.
+    ///
+    /// Unreachable when `!CHUNKED` — the sole chunk is final, so `ops_left`
+    /// stays `usize::MAX` and no caller ever asks for another chunk.
     fn load_next_chunk(&mut self) {
         let tag = read_varint_io(&mut self.reader, &mut self.error);
+        self.enter_chunk(tag);
+    }
+
+    /// Enter the chunk whose frame `tag` opens: pull the entropy and
+    /// incompressible regions into owned buffers, seed the rANS state from the
+    /// entropy's leading bytes, and set `ops_left`.
+    fn enter_chunk(&mut self, tag: usize) {
         if tag & 1 == 0 {
             // Final chunk: `[raw][entropy…EOF]` (see `AnsEncoder::flush_chunk`).
             self.incompressible = read_region(&mut self.reader, tag >> 1, &mut self.error);
@@ -946,17 +1011,16 @@ impl<R: std::io::Read> AnsDecoder<R> {
     }
 }
 
-impl<R: std::io::Read> SymbolDecoder for AnsDecoder<R> {
+impl<R: std::io::Read, const CHUNKED: bool> SymbolDecoder for AnsDecoder<R, CHUNKED> {
     const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
 
     #[inline]
     fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         let mut state = self.state;
-        let mut slice: &[u8] = &self.entropy[self.epos.min(self.entropy.len())..];
-        let before = slice.len();
+        let mut slice: &[u8] = &self.entropy[self.epos..];
         let slot = state & (SymbolRange::M - 1);
         let (range, value) = walk(slot);
         state = range.width() * (state >> SymbolRange::BITS) + (slot - range.start());
@@ -967,15 +1031,16 @@ impl<R: std::io::Read> SymbolDecoder for AnsDecoder<R> {
             slice = rest;
             state = (state << 8) | byte as State;
         }
-        let consumed = before - slice.len();
-        self.epos += consumed;
+        self.epos = self.entropy.len() - slice.len();
         self.state = state;
-        self.ops_left = self.ops_left.saturating_sub(1);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(1);
+        }
         value
     }
 }
 
-impl<R: std::io::Read> EntropyDecoder for AnsDecoder<R> {
+impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHUNKED> {
     #[inline]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
         walks::decode_symbol_or_bitwise(self, ctx)
@@ -983,28 +1048,28 @@ impl<R: std::io::Read> EntropyDecoder for AnsDecoder<R> {
 
     #[inline]
     fn decode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N]) -> [bool; N] {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         let mut state = self.state;
-        let mut slice: &[u8] = &self.entropy[self.epos.min(self.entropy.len())..];
-        let before = slice.len();
+        let mut slice: &[u8] = &self.entropy[self.epos..];
         let mut bits = [false; N];
         for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
             let bit = decode_step(&mut state, &mut slice, context.probability());
             *context = context.adapt(bit);
             *b = bit;
         }
-        let consumed = before - slice.len();
-        self.epos += consumed;
+        self.epos = self.entropy.len() - slice.len();
         self.state = state;
-        self.ops_left = self.ops_left.saturating_sub(N);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(N);
+        }
         bits
     }
 
     #[inline]
     fn decode_incompressible_bytes(&mut self, out: &mut [u8]) -> Result<(), std::io::Error> {
-        if self.ops_left == 0 {
+        if CHUNKED && self.ops_left == 0 {
             self.load_next_chunk();
         }
         let start = self.ipos.min(self.incompressible.len());
@@ -1023,7 +1088,9 @@ impl<R: std::io::Read> EntropyDecoder for AnsDecoder<R> {
         }
         out.copy_from_slice(&self.incompressible[start..start + out.len()]);
         self.ipos = start + out.len();
-        self.ops_left = self.ops_left.saturating_sub(1);
+        if CHUNKED {
+            self.ops_left = self.ops_left.saturating_sub(1);
+        }
         Ok(())
     }
 }
@@ -1294,6 +1361,11 @@ fn multi_chunk_round_trips() {
 /// The streaming (`encode_to`/`decode_from`) and in-memory (`encode`/`decode`)
 /// paths must be freely mix-and-matchable: byte-identical output, and either
 /// decoder reads either encoder's bytes — across single- and multi-chunk sizes.
+///
+/// The chunk-count assertion is what makes this cover all four decoder
+/// instantiations: both `Decoder<CHUNKED>` and both `AnsDecoder<_, CHUNKED>`.
+/// Without it, a change that pushed every `n` here to one side would silently
+/// leave two of them untested.
 #[test]
 fn streaming_matches_in_memory() {
     use crate::{Encoded, Incompressible};
@@ -1313,6 +1385,12 @@ fn streaming_matches_in_memory() {
             .collect();
 
         let in_memory = Ans::encode(&items);
+        let chunks = count_chunks(&in_memory);
+        if n == 60_000 {
+            assert!(chunks >= 2, "n={n} should be multi-chunk, got {chunks}");
+        } else {
+            assert_eq!(chunks, 1, "n={n} should be single-chunk");
+        }
 
         // encode_to (streaming) into a Vec must be byte-identical to encode.
         let mut streamed = Vec::new();
