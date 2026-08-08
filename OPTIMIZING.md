@@ -1088,6 +1088,34 @@ the decoder generic over a region-supplier trait so `&[u8]` can stay zero-copy,
 which keeps two cursor implementations anyway. Not attempted; recorded so the
 tradeoff is a decision rather than a rediscovery.
 
+### Same collapse, `Range` side: also ~5% / +15% instructions — keep both (2026-08-08)
+
+After the streaming-IO unification (PR #44) gave both coders a uniform
+`type Reader`/`new`/`into_result`, `RangeDecoder<R>` can be instantiated on
+`R = &[u8]`, so the natural question is whether it can *replace* the bespoke
+borrowing slice `Decoder<'a>` and delete a decoder type. It cannot — same verdict
+as the `Ans` side above. A/B bin `range-decode-collapse` (`slice` = `Range::decode`,
+`stream` = `Range::decode_from::<_, &[u8]>` — a bare `&[u8]` reader, the most
+favorable case, no `Cursor`), same bytes/build, each arm monomorphized; quiesced,
+min of 3 (reps within 0.2%):
+
+| workload | metric | slice | stream | stream cost |
+|---|---|---|---|---|
+| 2k `u64` (cache-resident) | instructions | 26,598,852,916 | 30,596,790,435 | **+15.03%** |
+| | cycles | 12,759,685,276 | 13,446,695,236 | **+5.38%** |
+| 100k `u64` (memory-bound) | instructions | 26,581,744,879 | 30,614,723,151 | **+15.17%** |
+| | cycles | 14,021,567,469 | 15,226,268,683 | **+8.59%** |
+
+Instruction count is a steady **+15%**; cycles +5–9% (widening memory-bound,
+opposite of `Ans`'s memory-parallelism absorption). Structural cause, visible in
+source: `Decoder<'a>` has a hand-fused batch `decode_bits` keeping
+`state`/`value`/`bytes` register-resident and indexing via `split_first`, while
+`RangeDecoder<R>` pulls **one byte at a time through `Read`** (`read_one_byte`)
+with error-latch branches and a non-fused loop — `<&[u8] as Read>::read` does not
+optimize down to the fused path. Keep both decoders. (Reproducer:
+`cargo build --release --bin range-decode-collapse`, then
+`bench perf stat -e instructions,cycles -- ./target/release/range-decode-collapse slice|stream`.)
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
