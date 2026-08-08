@@ -406,6 +406,12 @@ fn distribution_test() {
     test_distribution(0, 3, 0.80078125, 0.7187907456421366);
     test_distribution(32, 0, 0.02734375, 0.18195147863889768);
     test_distribution(64, 0, 0.01171875, 0.10211457524295939);
-    test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 128.0, 0.05104365326082572);
-    test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05065909928371242);
+    // The tail of the pure-true chain. `MAX_PRODUCT - 2` is the deepest state
+    // the cap makes reachable, and at 135 it lands on 1/256 — the smallest
+    // probability a `NonZeroU8` can express. One rung past the cap is already
+    // clamped to that same floor, which is why raising `MAX_PRODUCT` beyond
+    // 135 cannot buy any further confidence (only interior resolution).
+    test_distribution(MAX_PRODUCT - 3, 0, 1.0 / 128.0, 0.05104365326082572);
+    test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 256.0, 0.05065909928371242);
+    test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05023291376188693);
 }
