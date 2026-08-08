@@ -736,7 +736,9 @@ flat-seeded.
 
 Why: the old 6-level `AtMost<63>` tree charged every u64/usize **6
 adaptive decisions** regardless of magnitude. Each fully-adapted decision
-floors at ~11.3 mb (`BitContext`'s 254/256 probability cap) and each
+floors at ~11.3 mb (`BitContext`'s 254/256 probability cap — this and the
+numbers below were measured before `MAX_PRODUCT` went to 135, which halves
+that floor to ~5.7 mb; see the `MAX_PRODUCT` note further down) and each
 fresh seeded node at ~0.26 bits (`seed_context`'s 4-observation cap), so
 tiny values — the overwhelmingly common case for `usize` — paid double
 what a 3-decision path needs. Measured (Millibits, exact):
@@ -940,6 +942,118 @@ came with numbers:
   `Sorted<Vec<T>>`'s clone-per-collection in `vecs.rs`, which never got the
   `Sorted<String>` in-place fix (→ TODO #15). Two stale TODOs retired
   (#5, #10).
+
+### Sweeping `MAX_PRODUCT`: one byte is a DEAD END, 135 is a free win (2026-08-08)
+
+`MAX_PRODUCT` (in `generate_bit_context.rs`) caps which `(trues, falses)` count
+pairs get their own `BitContext` state — `Bucket::new` keeps a pair only while
+`(1 + trues) * (1 + falses) < MAX_PRODUCT`. It therefore sets **both** the state
+count and the model's maximum confidence, whose floor is the deepest pure-true
+state `True(M−2)False0`. Both directions were swept. Short version: shrinking to
+one byte loses, and **135 is a strict improvement over the current 134** (landed
+in this PR).
+
+#### Raising to 135 — the free notch (LANDED)
+
+`Probability` is `prob / 256` with `prob: NonZeroU8`, so **1/256 is
+representable**, but at `MAX_PRODUCT = 134` the deepest state is `True132False0`
+= 2/256: the table stopped one notch short of what the type can express.
+`MAX_PRODUCT = 135` adds exactly **4** states (675 → 679), the deepest being
+`True133False0` = 1/256, halving the fully-adapted floor from ~11.3 mb per bit
+to ~5.7 mb. Nothing above 135 can sharpen the floor further — `prob` bottoms out
+there — so higher caps only buy interior resolution.
+
+It is free on both axes. **Still 2 bytes**: 679 is in the same `u16` bucket as
+675, so every `Encode::Context` keeps its exact size and the tables grow by
+8/16/24 bytes total. **Speed-neutral**: force-aligned, instructions came out
+marginally *fewer* on all six workloads (−0.001% to −0.005%: strings `Ans`/`Range`,
+Lz77, enums, random `u64`, IPv6) with every cycle delta inside the layout
+residual. And it cannot touch the frozen format — `v1` has its own
+`bit_context.rs`.
+
+Encoded size, real data: meteorite names −0.216% (42630 → 42538 B), Lz77 CSV
+−0.048%, IPv6 −0.007%, enums unchanged. Modest overall, but the redundant cases
+it targets move hard: `Range::encode(vec![true; 8192])` **17 → 10 bytes**,
+`encoded_bits!(BTreeSet…)` 159 → 148, `Encoded<_, Small>` 130 → 119,
+`BTreeSet::from_iter(0..1024)` 87 → 82 bits. Two negligible regressions
+(8985 → 8989 bits; 284762 → 284908).
+
+#### The ladder above 135 — a real tradeoff, not a win
+
+A full sweep (encoded bytes; strings = meteorite names, lz77 = meteorite CSV):
+
+| M | strings | enums3 | enums17 | lz77 | ipv6 |
+|-----|---------|--------|---------|--------|--------|
+| 134 | 42630 | 17581 | 52228 | 622455 | 632707 |
+| **135** | **42538** | 17581 | 52228 | **622159** | 632662 |
+| 136 | 42573 | 17585 | 52235 | 622224 | 632686 |
+| 140 | 42575 | 17586 | 52210 | 622004 | 632529 |
+| 160 | 42604 | 17554 | 52130 | 621813 | 631996 |
+| 200 | 42700 | 17503 | 52084 | 621644 | 631303 |
+| 256 | 42830 | 17475 | 51924 | 621318 | 630473 |
+
+135 is the unique point better-or-equal everywhere; 136 already regresses on all
+five. Past it the two effects separate cleanly — **strings degrade monotonically
+while stationary bulk data keeps improving** — because a bigger state set adapts
+more slowly but estimates a stationary source more accurately. Strings sit on the
+fast-adaptation side (thousands of per-character contexts, each seeing few
+samples); enums/IPv6/Lz77 sit on the other (few contexts, ~100k samples each).
+So a cap above 135 is a workload bet, not an upgrade. If it is ever revisited,
+note that M=256 costs strings +0.47% to buy IPv6 −0.35%.
+
+#### One-byte `BitContext` (249 states) — DEAD END
+
+Dropping `MAX_PRODUCT` in
+`generate_bit_context.rs` from 134 to **60** yields **249** variants — the
+largest bucket cap that still fits a byte (61 → 261, one too many). The
+hypothesis was that halving every context would pay for the compression it
+costs. It does not: **the memory is free and the model precision is not.**
+
+Every `Encode::Context` halved exactly as predicted (`u64` 1152 → 576 B, `f64`
+3974 → 1987, `String` 3320 → 1660, `Ipv6Addr` 4618 → 2309), and the two hot
+tables shrank with it (`LOOKUP` 675 → 249 `Probability`; `OUTCOMES` 2700 → 498 B;
+`FUSED` entries 6 → 3 B). **None of that bought any speed** — contexts were
+already only 1–5 KB and comfortably L1-resident, so there was no miss traffic to
+remove.
+
+Meanwhile the probability floor doubles: the `adapt(true)` fixed point moves from
+`True132False0` (2/256, ~11.3 mb per maximally-predicted bit) to `True58False0`
+(4/256, ~22.7 mb). More coded bits means more renormalization steps, so **decode
+executes more instructions**:
+
+| decode workload (`Ans`)      | Δ instructions | Δ cycles (force-aligned) |
+|------------------------------|----------------|--------------------------|
+| random `Vec<u64>`            | **+4.87%**     | +4.09% (unaligned)       |
+| Lz77 (`Compressible`, CSV)   | **+3.68%**     | **+2.52%**               |
+| meteorite names (`BTreeSet<String>`) | +1.07% | **+1.64%**              |
+| `Vec<Ipv6Addr>`              | +1.06%         | +1.68% (unaligned)       |
+| `Vec<f64>` (all-raw)         | −0.23%         | −0.13% (wash)            |
+| 3-variant enums              | −1.57%         | +0.35% (wash)            |
+
+Encoded size grows on real data: meteorite names +1.29% (42630 → 43180 B),
+3-variant enums +1.30%, 17-variant enums +1.00%, Lz77 CSV +0.87% (622455 →
+627851), IPv6 +0.76%. The expect-test churn shows where it concentrates — the
+*most* redundant streams pay most, because the 2/256 floor was doing all the
+work there: `BTreeSet::from_iter(0..1024)` 87 → 130 bits (**+49%**), its encoded
+form 159 → 249 (**+57%**), `[0_usize; 128]` 15342 → 17239 mb (+12%). A coarser
+ladder does adapt *faster*, so a few short all-zero cases actually shrink
+(`[0_u64; 128]` 59 → 53 bits) — quicker learning, worse asymptote. Two hard
+assertions encode the floor directly and fail by construction:
+`v2::usizes::repeated_constant_floor_matches_shallow_path` (34 → 69 mb/element,
+exactly 2×) and `v2::ans::ans_is_reasonable` (17 → 24 bytes).
+
+**Two traps this one is a good example of.** Unaligned builds showed floats
+`Ans` **+12.2%** and 3-variant enums **−8.6%**; force-aligned rebuilds of *both*
+sides collapsed them to −0.13% and +0.35%. Both were pure code placement, and in
+both cases the instruction column had said so all along. The strings `Ans`
+number even *flipped sign* (−1.49% unaligned → +1.64% aligned). Follow the rule
+already in this file: on these bins, believe instructions, not cycles.
+
+**Do not retry a plain 256-state cap.** A smarter 256-state layout could recover
+most of the size (keep the long `t=0`/`f=0` confidence chains at full depth on a
+geometric ladder above ~16, and quantize only the ~410 interior states), but it
+would be chasing a speed win that this experiment shows is not there: at *zero*
+size cost the halved contexts measured a wash on every workload.
 
 ## TODO (in rough priority order)
 

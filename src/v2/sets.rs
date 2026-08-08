@@ -278,17 +278,17 @@ fn btreeset() {
     expect!["11"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize, 1])));
     expect!["14"].assert_eq(&estimated_bits!(BTreeSet::from([0_usize, 1, 2])));
     expect!["41"].assert_eq(&estimated_bits!(BTreeSet::from_iter(0_usize..70)));
-    expect!["87"].assert_eq(&estimated_bits!(BTreeSet::from_iter(0_usize..1024)));
+    expect!["82"].assert_eq(&estimated_bits!(BTreeSet::from_iter(0_usize..1024)));
     expect!["3"].assert_eq(&estimated_bits!(BTreeSet::from([false])));
     expect!["3"].assert_eq(&estimated_bits!(BTreeSet::from([true])));
     expect!["7"].assert_eq(&estimated_bits!(BTreeSet::from([false, true])));
-    expect!["110"].assert_eq(&estimated_bits!(BTreeSet::from_iter(
+    expect!["105"].assert_eq(&estimated_bits!(BTreeSet::from_iter(
         1_000_000_u64..1_001_024
     )));
-    expect!["159"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
+    expect!["148"].assert_eq(&encoded_bits!(BTreeSet::from_iter(
         2_000_000_u64..2_002_048
     )));
-    expect!["159"].assert_eq(&encoded_bits!(
+    expect!["148"].assert_eq(&encoded_bits!(
         super::Ans,
         BTreeSet::from_iter(2_000_000_u64..2_002_048)
     ));
@@ -325,16 +325,16 @@ fn compact_btreeset() {
     expect!["35"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(0_u64..70)
     )));
-    expect!["71"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
+    expect!["66"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(0_u64..1024)
     )));
-    expect!["94"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
+    expect!["89"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(1_000_000_u64..1_001_024)
     )));
-    expect!["130"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
+    expect!["119"].assert_eq(&encoded_bits!(Encoded::<_, Small>::new(
         BTreeSet::from_iter(2_000_000_u64..2_002_048)
     )));
-    expect!["131"].assert_eq(&encoded_bits!(
+    expect!["120"].assert_eq(&encoded_bits!(
         super::Ans,
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048))
     ));

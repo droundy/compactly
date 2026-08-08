@@ -304,7 +304,7 @@ impl Distribution<BitContext> for Standard {{
     );
 }
 
-const MAX_PRODUCT: usize = 134;
+const MAX_PRODUCT: usize = 135;
 const COUNT_FOR_CONFIDENCE: usize = 4;
 
 /// The program that actually outputs the generated code.
