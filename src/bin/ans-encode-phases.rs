@@ -62,21 +62,20 @@ fn main() {
     }
     let build = start.elapsed();
 
-    // Clone cost (needed below because into_vec consumes the Ans).
-    let start = Instant::now();
-    for _ in 0..iterations {
-        std::hint::black_box(ops.clone());
-    }
-    let clone = start.elapsed();
+    std::hint::black_box(&ops);
 
-    // Phase 2: entropy-code the op buffer into the bitstream.
+    // Phase 2: the final `into_vec` (finish) flush. With chunking, most of the
+    // entropy coding happens incrementally during Phase 1 (each full chunk is
+    // flushed as it fills); `into_vec` only flushes the trailing chunk. We
+    // isolate it by timing a full `encode + into_vec` and subtracting the
+    // build-only time above — no clone needed now that `Ans` owns its writer.
     let start = Instant::now();
     let mut encoded = Vec::new();
     for _ in 0..iterations {
-        encoded = std::hint::black_box(ops.clone().into_vec());
+        encoded = std::hint::black_box(<Ans as EntropyCoder>::encode(&names).into_vec());
     }
-    let clone_plus_into_vec = start.elapsed();
-    let into_vec = clone_plus_into_vec.saturating_sub(clone);
+    let build_plus_into_vec = start.elapsed();
+    let into_vec = build_plus_into_vec.saturating_sub(build);
 
     println!("encoded size {}", encoded.len());
     let per_iter = |d: std::time::Duration| d.as_secs_f64() * 1e3 / iterations as f64;
@@ -91,8 +90,5 @@ fn main() {
         per_iter(into_vec),
         100.0 * into_vec.as_secs_f64() / total.as_secs_f64()
     );
-    println!(
-        "(clone, subtracted from into_vec: {:.3} ms/iter)",
-        per_iter(clone)
-    );
+    println!("(into_vec isolated as (encode+into_vec) - encode; final-chunk flush only)");
 }
