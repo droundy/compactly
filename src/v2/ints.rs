@@ -3,7 +3,7 @@ use super::atmost::geometric::{
 };
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{DecodeAsync, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
 #[cfg(test)]
@@ -390,6 +390,48 @@ macro_rules! impl_compact {
             }
         }
 
+        impl crate::v2::DecodeAsyncStrategy<$t> for Small {
+            #[inline]
+            fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
+                async {
+                let blbl = usize::from(AtMost::<$blbl_max>::decode_async(reader, &mut ctx.blbl).await?);
+                let bl: usize = if blbl <= 1 {
+                    blbl
+                } else if blbl == $blbl_max {
+                    $bits
+                } else {
+                    let offset = match blbl {
+                        $($code => usize::from(AtMost::<$max>::decode_async(reader, &mut ctx.$bucket).await?),)*
+                        _ => unreachable!(),
+                    };
+                    (1usize << (blbl - 1)) + offset
+                };
+                if bl < 2 {
+                    return Ok(bl as $t);
+                }
+                let lz = $bits - bl;
+                let sig_bits = bl - 1;
+                let full_bytes = sig_bits / 8;
+                let partial_bits = sig_bits % 8;
+                let mut value_bytes = [0u8; std::mem::size_of::<$t>()];
+                if full_bytes > 0 {
+                    reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes]).await?;
+                }
+                for i in 0..partial_bits {
+                    if bool::decode_async(reader, &mut ctx.partial[lz][i]).await? {
+                        value_bytes[full_bytes] |= 1 << i;
+                    }
+                }
+                // Restore the implicit leading 1.
+                value_bytes[full_bytes] |= 1 << partial_bits;
+                Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
+                }
+            }
+        }
+
         // The default `Encode` for `$t` reuses `Small`'s exact encode/decode
         // logic (there is exactly one compiled copy, shared by both) via a
         // context that wraps `Small`'s own context type and only overrides
@@ -420,6 +462,16 @@ macro_rules! impl_compact {
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 Small::decode(reader, &mut ctx.0)
+            }
+        }
+
+        impl crate::v2::DecodeAsync for $t {
+            #[inline]
+            fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
+                <Small as crate::v2::DecodeAsyncStrategy<$t>>::decode_async(reader, &mut ctx.0)
             }
         }
     };

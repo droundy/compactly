@@ -810,6 +810,143 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
     }
 }
 
+/// Range decoder over an async source: the arithmetic is the sync decoders',
+/// but every byte comes from a [`ChunkSource`], so running out of buffered
+/// chunk suspends rather than blocks.
+///
+/// Reads the same bytes [`Range`]/[`RangeEncoder`] produce and recovers
+/// identical values, including at the edges — a stream error is latched and
+/// surfaced by [`into_result`](super::AsyncEntropyDecoder::into_result), and a
+/// clean end of stream yields zero bytes, exactly as [`RangeDecoder`] does.
+#[cfg(feature = "stream")]
+pub struct AsyncRangeDecoder<S> {
+    source: super::stream::ChunkSource<S>,
+    state: ArithState,
+    value: u64,
+}
+
+#[cfg(feature = "stream")]
+impl<S> std::fmt::Debug for AsyncRangeDecoder<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncRangeDecoder")
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// Build a decoder over `stream`, filling the 8-byte window to match
+    /// [`Decoder::new`]'s and [`RangeDecoder::new`]'s initial `u64`.
+    pub async fn new(stream: S) -> Self {
+        let mut source = super::stream::ChunkSource::new(stream);
+        let mut value = 0u64;
+        for _ in 0..W_DELAY {
+            value = (value << 8) + source.next_byte().await as u64;
+        }
+        Self {
+            source,
+            state: ArithState::default(),
+            value,
+        }
+    }
+
+    /// Pull `n` entropy bytes into the window; the async twin of
+    /// [`RangeDecoder::refill`].
+    #[inline]
+    async fn refill(&mut self, n: usize) {
+        for _ in 0..n {
+            let byte = self.source.next_byte().await;
+            self.value = (self.value << 8) + byte as u64;
+        }
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> super::model::AsyncSymbolDecoder for AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// Must equal [`RangeDecoder`]'s, so both decoders pick the same `Walk` and
+    /// therefore make the same coder steps.
+    const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+
+    #[inline]
+    async fn decode_symbol_step(
+        &mut self,
+        walk: impl FnOnce(u32) -> (SymbolRange, usize),
+    ) -> usize {
+        while self.state.clamp_for_symbol() {
+            let n = self.state.consume_decoded_bytes();
+            self.refill(n).await;
+        }
+        let slot = self.state.symbol_slot(self.value);
+        let (range, decoded) = walk(slot);
+        self.state.narrow_symbol(range);
+        let n = self.state.consume_decoded_bytes();
+        self.refill(n).await;
+        decoded
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> super::AsyncEntropyDecoder for AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// A latched stream error wins over a downstream validation error, for the
+    /// reason given on the trait method.
+    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        match self.source.take_error() {
+            Some(e) => Err(e),
+            None => value,
+        }
+    }
+
+    /// Overrides the trait's per-bit default with the fused whole-symbol walk,
+    /// exactly as [`RangeDecoder`] does. Not an optimization: the two walks
+    /// narrow the coder state differently and so read different bytes, and this
+    /// must match what the encoder did.
+    #[inline]
+    fn decode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut AtMostContext<MAX>,
+    ) -> impl std::future::Future<Output = AtMost<MAX>> {
+        walks::decode_symbol_or_bitwise_async(self, ctx)
+    }
+
+    #[inline]
+    async fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> [bool; N] {
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let (out, sz) = self.state.decode(context.probability(), self.value);
+            self.refill(sz).await;
+            *context = context.adapt(out);
+            *b = out;
+        }
+        bits
+    }
+
+    #[inline]
+    fn decode_incompressible_bytes(
+        &mut self,
+        out: &mut [u8],
+    ) -> impl std::future::Future<Output = Result<(), std::io::Error>> {
+        // By the W_DELAY splice the run sits at the source cursor, so read it
+        // straight off, exactly as `RangeDecoder` does.
+        self.source.read_exact(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU8;

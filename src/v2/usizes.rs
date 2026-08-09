@@ -2,7 +2,7 @@ use crate::Sorted;
 
 use super::atmost::geometric::SeededDistribution;
 use super::ints::U64Compact;
-use super::{AtMost, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{AtMost, DecodeAsync, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -40,6 +40,18 @@ impl Encode for usize {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let v: u64 = Small::decode(reader, &mut ctx.0)?;
+        usize::try_from(v).map_err(std::io::Error::other)
+    }
+}
+
+impl super::DecodeAsync for usize {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let v: u64 =
+            <Small as super::DecodeAsyncStrategy<u64>>::decode_async(reader, &mut ctx.0).await?;
         usize::try_from(v).map_err(std::io::Error::other)
     }
 }
@@ -106,6 +118,33 @@ impl EncodingStrategy<usize> for Small {
             6 => Ok(usize::from(AtMost::<31>::decode(reader, &mut ctx.b5)?) + 32),
             7 => {
                 let v: u64 = Small::decode(reader, &mut ctx.large)?;
+                add_bucket_bias(v)
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl super::DecodeAsyncStrategy<usize> for Small {
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let nz = usize::from(AtMost::<7>::decode_async(reader, &mut ctx.small_nonzero).await?);
+        match nz {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => Ok(usize::from(AtMost::<1>::decode_async(reader, &mut ctx.b1).await?) + 2),
+            3 => Ok(usize::from(AtMost::<3>::decode_async(reader, &mut ctx.b2).await?) + 4),
+            4 => Ok(usize::from(AtMost::<7>::decode_async(reader, &mut ctx.b3).await?) + 8),
+            5 => Ok(usize::from(AtMost::<15>::decode_async(reader, &mut ctx.b4).await?) + 16),
+            6 => Ok(usize::from(AtMost::<31>::decode_async(reader, &mut ctx.b5).await?) + 32),
+            7 => {
+                let v: u64 = <Small as super::DecodeAsyncStrategy<u64>>::decode_async(
+                    reader,
+                    &mut ctx.large,
+                )
+                .await?;
                 add_bucket_bias(v)
             }
             _ => unreachable!(),

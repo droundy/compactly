@@ -107,6 +107,8 @@ mod option;
 mod other_crate_types;
 mod sentinel;
 mod sets;
+#[cfg(feature = "stream")]
+pub mod stream;
 mod string;
 mod tuples;
 mod usizes;
@@ -310,6 +312,75 @@ pub trait EntropyDecoder {
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error>;
 }
 
+/// The async twin of [`EntropyDecoder`], for decoding a value as its bytes
+/// arrive from an async source rather than from a buffer that is already whole.
+///
+/// Every read point can suspend, which is what lets the decode overlap the wait
+/// for the next chunk instead of following it. That is the *only* difference:
+/// the bits, symbols, and adaptation are identical to [`EntropyDecoder`]'s, and
+/// both decoders read the same bytes.
+///
+/// Deliberately **not** a subtrait of [`EntropyDecoder`]: an async decoder
+/// cannot supply the sync methods without blocking, and the sync decoders
+/// cannot suspend. They are separate implementations of the same format.
+///
+/// The methods are written desugared, as `fn … -> impl Future`, rather than as
+/// `async fn`. They mean the same thing, but `async fn` in a *public* trait
+/// trips rustc's `async_fn_in_trait` lint, and this crate builds warning-free.
+/// The lint's own suggestion is to desugar **and** add `+ Send`; we take only
+/// the first half. A `Send` bound here would propagate to `T` — every decoded
+/// value would have to be `Send`, forever, since it cannot be relaxed later
+/// without a breaking change. Left off, auto traits still leak through the
+/// opaque return type, so the future *is* `Send` whenever the decoder, the
+/// contexts, and the value all are, which is what `tokio::spawn` needs.
+pub trait AsyncEntropyDecoder {
+    /// Fold a decode result together with any error latched while reading; see
+    /// [`EntropyDecoder::into_result`], whose rule this shares — a latched
+    /// source error wins over a downstream validation error.
+    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T>;
+
+    /// Decode `N` bits, each with its own context. The async twin of
+    /// [`EntropyDecoder::decode_bits`], and likewise the core required
+    /// primitive: infallible, because running past the encoded data yields
+    /// arbitrary bits that higher-level `decode_async` impls validate.
+    fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [bit_context::BitContext; N],
+    ) -> impl std::future::Future<Output = [bool; N]>;
+
+    /// The `N == 1` case of [`Self::decode_bits`].
+    #[inline(always)]
+    fn decode_bit(
+        &mut self,
+        context: &mut bit_context::BitContext,
+    ) -> impl std::future::Future<Output = bool> {
+        async {
+            let [bit] = self.decode_bits(std::array::from_mut(context)).await;
+            bit
+        }
+    }
+
+    /// Decode one whole [`AtMost<MAX>`](AtMost); the async twin of
+    /// [`EntropyDecoder::decode_atmost`].
+    #[inline]
+    fn decode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut atmost::AtMostContext<MAX>,
+    ) -> impl std::future::Future<Output = AtMost<MAX>>
+    where
+        Self: Sized,
+    {
+        async { AtMost::new(atmost::walks::decode_bitwise_async(self, &mut ctx.bits).await) }
+    }
+
+    /// Decode a fixed number of incompressible bytes; the async twin of
+    /// [`EntropyDecoder::decode_incompressible_bytes`].
+    fn decode_incompressible_bytes(
+        &mut self,
+        bytes: &mut [u8],
+    ) -> impl std::future::Future<Output = Result<(), std::io::Error>>;
+}
+
 /// Trait for types that can be compactly encoded.
 ///
 /// Normally you will derive this for your own types, although it can be
@@ -333,6 +404,33 @@ pub trait Encode: Sized {
         self.encode(&mut m, &mut Self::Context::default());
         m
     }
+}
+
+/// The async twin of [`Encode`]'s decode half: decode a value from an
+/// [`AsyncEntropyDecoder`], suspending whenever the source has not delivered
+/// enough bytes yet.
+///
+/// Reads exactly the bytes [`Encode::encode`] produces, and must recover the
+/// same value [`Encode::decode`] does. A separate trait rather than a method on
+/// [`Encode`] so that turning the `stream` feature on cannot break an existing
+/// external `Encode` impl.
+pub trait DecodeAsync: Encode {
+    /// Decode a value with the given [`AsyncEntropyDecoder`]; the async twin of
+    /// [`Encode::decode`].
+    fn decode_async<D: AsyncEntropyDecoder>(
+        entropy_decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>>;
+}
+
+/// The async twin of [`EncodingStrategy`]'s decode half.
+pub trait DecodeAsyncStrategy<T>: EncodingStrategy<T> {
+    /// Decode a value with this strategy; the async twin of
+    /// [`EncodingStrategy::decode`].
+    fn decode_async<D: AsyncEntropyDecoder>(
+        entropy_decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<T, std::io::Error>>;
 }
 
 /// Encode the `value` into a `Vec<u8>` of bytes.`
@@ -493,6 +591,16 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error> {
         T::decode(reader, ctx)
+    }
+}
+
+impl<T: DecodeAsync> DecodeAsyncStrategy<T> for crate::Normal {
+    #[inline]
+    fn decode_async<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<T, std::io::Error>> {
+        T::decode_async(reader, ctx)
     }
 }
 

@@ -134,6 +134,21 @@ impl Sentinel {
         }
         Ok(())
     }
+
+    /// The async twin of [`Self::decode`].
+    #[inline]
+    pub(crate) async fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
+        &mut self,
+        reader: &mut D,
+    ) -> Result<(), std::io::Error> {
+        // `&&` short-circuits, so the bit is only decoded when a marker is due.
+        if self.tick() && !reader.decode_bit(&mut { SEEDED }).await {
+            return Err(std::io::Error::other(
+                "corrupt or truncated stream: collection ran past the encoded data",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

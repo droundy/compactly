@@ -21,6 +21,16 @@ impl<T: Encode> Encode for Vec<T> {
     }
 }
 
+impl<T: super::DecodeAsync> super::DecodeAsync for Vec<T> {
+    #[inline]
+    fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>> {
+        <crate::Values<Normal> as super::DecodeAsyncStrategy<Vec<T>>>::decode_async(reader, ctx)
+    }
+}
+
 impl<T: Encode> Encode for Box<[T]> {
     type Context = Context<T, Normal>;
     #[inline]
@@ -152,6 +162,23 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
             sentinel.encode(writer);
             S::encode(v, writer, &mut ctx.values);
         }
+    }
+}
+
+impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for crate::Values<S> {
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<T>, std::io::Error> {
+        let n = <Small as super::DecodeAsyncStrategy<usize>>::decode_async(reader, &mut ctx.len)
+            .await?;
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..n {
+            sentinel.decode_async(reader).await?;
+            x.push(S::decode_async(reader, &mut ctx.values).await?);
+        }
+        Ok(x)
     }
 }
 

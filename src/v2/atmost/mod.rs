@@ -189,6 +189,16 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     }
 }
 
+impl<const MAX: usize> super::DecodeAsync for AtMost<MAX> {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(reader.decode_atmost(ctx).await)
+    }
+}
+
 #[test]
 fn size() {
     use super::estimated_bits;

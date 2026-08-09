@@ -45,6 +45,28 @@ pub(crate) trait SymbolDecoder: EntropyDecoder {
     fn decode_symbol_step(&mut self, walk: impl FnOnce(u32) -> (SymbolRange, usize)) -> usize;
 }
 
+/// The async twin of [`SymbolDecoder`], for [`AsyncEntropyDecoder`].
+///
+/// This exists because a whole-symbol step is **not** interchangeable with the
+/// per-bit walk over the same tree: the two narrow the coder state differently
+/// (`narrow_symbol` over the `M`-slot interval versus one `Probability` split
+/// per level), so they read different bytes. An async decoder must therefore
+/// make the same choice its sync counterpart made — matching the *walk*, not
+/// merely the decoded value. Only the coder step needs to suspend; the `walk`
+/// closure is a pure tree computation and stays synchronous.
+#[cfg(feature = "stream")]
+pub(crate) trait AsyncSymbolDecoder: super::AsyncEntropyDecoder {
+    /// Mirrors [`SymbolDecoder::SPECULATES`], and must agree with it for the
+    /// same coder so both decoders pick the same [`Walk`](super::atmost::walks::Walk).
+    const SPECULATES: bool;
+
+    /// The async twin of [`SymbolDecoder::decode_symbol_step`].
+    fn decode_symbol_step(
+        &mut self,
+        walk: impl FnOnce(u32) -> (SymbolRange, usize),
+    ) -> impl std::future::Future<Output = usize>;
+}
+
 /// log2 of the number of slots a single bit is coded out of: probabilities
 /// are `prob / 256`.
 pub(crate) const SHIFT: u8 = 8;

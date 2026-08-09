@@ -23,6 +23,16 @@ impl Encode for bool {
     }
 }
 
+impl super::DecodeAsync for bool {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(reader.decode_bit(ctx).await)
+    }
+}
+
 impl EncodingStrategy<bool> for Sorted {
     type Context = BitContext;
     fn decode<D: super::EntropyDecoder>(
