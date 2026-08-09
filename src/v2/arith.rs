@@ -560,6 +560,15 @@ pub struct Decoder<'a> {
     value: u64,
 }
 
+#[cfg(test)]
+impl Decoder<'_> {
+    /// Stream bytes not yet consumed. Lets `super::max_bytes` measure how much
+    /// a single value's decode actually advanced the cursor.
+    pub(crate) fn bytes_remaining(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
 /// One range-decode bit step, operating on locals so the caller can keep `state`,
 /// the decode window `value`, and the input cursor `bytes` register-resident
 /// across a whole batch instead of round-tripping them through the `Decoder`.
@@ -1007,7 +1016,7 @@ where
 
     #[inline]
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder<'_>) -> R) -> R {
-        AsyncRangeDecoder::with_sync(self, f)
+        self.with_sync(f)
     }
 
     /// A latched stream error wins over a downstream validation error, for the

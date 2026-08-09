@@ -99,6 +99,8 @@ mod ints;
 mod low_cardinality;
 mod maps;
 mod markers;
+#[cfg(test)]
+mod max_bytes;
 mod millibits;
 mod model;
 mod net;
