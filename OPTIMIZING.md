@@ -1442,19 +1442,58 @@ register-resident across a whole run rather than round-tripping per element.
 
 | chunks | chunk size | cycles | instructions |
 |---|---|---|---|
-| 2 | 401 KB | +4.5% | **+1.1%** |
-| 16 | 50 KB | +5.0% | **+1.6%** |
-| 64 | 12.5 KB | +6.2% | **+3.0%** |
-| 256 | 3.1 KB | +10.0% | +8.2% |
-| 1024 | 783 B | +22.2% | +27.1% |
+| 2 | 401 KB | +4.7% | **+1.1%** |
+| 16 | 50 KB | +4.9% | **+1.3%** |
+| 64 | 12.5 KB | +5.1% | **+1.7%** |
+| 256 | 3.1 KB | +6.2% | +3.2% |
+| 1024 | 783 B | +10.7% | +8.9% |
 
-At 64 chunks that is **+3.0% where the final-chunk handoff alone left +151%**.
+At 64 chunks that is **+1.7% where the final-chunk handoff alone left +151%**.
 
 The residual follows `151% × per_element / chunk_size` — the async path is still
-paid once per batch boundary, and batches are `chunk_size / 103` elements long.
-So it only bites when chunks approach the bound in size (at 783 B, batches are 7
-elements). Two levers if that ever matters: tighter bounds, or carrying leftover
-bytes across the chunk boundary so batches do not have to stop there.
+paid once per batch boundary — so it only bites when chunks approach the bound
+in size. Remaining lever if that ever matters: carry leftover bytes across the
+chunk boundary so a batch need not stop there.
+
+**The bounds have to be right, so they are property-tested, and getting them
+right was worth about 3x at small chunks.** The first cut multiplied a
+*renormalization* worst case per operation — 8 bytes per bit, because
+`consume_decoded_bytes` can drain the whole `u64` window in one step. That is
+real but unamortizable: draining 8 bytes at once requires the preceding steps to
+have drained none, so `7 * bool::MAX_BYTES = 56` for seven mantissa bits was
+nonsense. Seven bits cannot occupy 56 bytes.
+
+The right split is information plus settling, and they compose differently:
+
+- **Information** is additive per operation. One adaptive bit costs at most
+  `-log2(1/256)` = 8 bits = **1 byte** (`Probability` is `prob/256`,
+  `prob >= 1`); one symbol at most 16 bits = **2 bytes** (a `SymbolRange` slot is
+  ≥1 of `M = 2^16`), carried as **3** for margin on the interval
+  `clamp_for_symbol` discards; one incompressible byte is 1.
+- **Settling** — bytes emitted that the information does not yet account for —
+  is bounded per *span*, not per operation. The interval starts at `2^64`, each
+  emitted byte multiplies it by 256 and each coded bit divides it, so
+  `I/8 - 8 <= E <= I/8` holds at every point and hence `dE <= dI/8 + 8` over any
+  span. The 8 is the coder state width.
+
+So `Encode::MAX_BYTES` is information only, and the decoder's `SETTLING_BYTES`
+is added **once per handoff** by `sync_capacity` — never by callers, which is
+why they get a capacity rather than the raw margin. `u64` went 95 → 20, and a
+`Vec` element's budget 103 → 21, which is the 3x above.
+
+`v2::max_bytes` property-tests every bound against real decodes: values coded
+back to back under one shared context (so all but the first are measured with
+*adapted* contexts, where the worst case lives), exhaustive where the domain
+allows, skewed runs plus extremes elsewhere. Observed worst against declared:
+
+| | bool | u8 / `AtMost<255>` | `AtMost<1000>` | u64 / usize | u128 |
+|---|---|---|---|---|---|
+| observed | 0 | 2 | 3 | 9 | 17 |
+| declared (+8 settling) | 1 | 3 | 3 | 20 | 28 |
+
+Margins are now ~2x rather than ~10x, and `with_sync`'s `debug_assert` — which
+fires if a decode consumes every buffered byte without the stream having ended —
+remains the backstop against a bound that is wrong rather than merely loose.
 
 Superseded: the non-blocking-drain idea recorded here previously. It would still
 help the pathological small-chunk case, but the reason it was interesting —

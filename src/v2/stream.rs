@@ -195,16 +195,6 @@ where
         self.current.len() - self.pos
     }
 
-    /// Whether a value needing at most `max_bytes` can be decoded from what is
-    /// already in hand.
-    ///
-    /// True either because that many bytes are buffered, or because no more can
-    /// arrive at all — past true end of stream a sync decoder zero-pads, which
-    /// is exactly the right behaviour there.
-    pub(crate) fn can_sync(&self, max_bytes: usize) -> bool {
-        self.is_final_chunk() || self.ready_bytes() >= max_bytes
-    }
-
     /// Everything the source has buffered, as one slice.
     ///
     /// Returned owned (a `Bytes` slice is a refcount bump, not a copy) rather

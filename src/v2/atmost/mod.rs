@@ -178,7 +178,7 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     /// One whole-symbol step when the value count fits `SymbolRange::M`, else
     /// the per-bit fallback over a tree of depth `ceil(log2(MAX + 1))`.
     const MAX_BYTES: usize = if MAX < super::model::SymbolRange::M as usize {
-        super::MAX_BYTES_PER_SYMBOL
+        super::MAX_INFO_BYTES_PER_SYMBOL
     } else {
         (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
     };

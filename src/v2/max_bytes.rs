@@ -13,7 +13,7 @@
 //! branch expensive. A run of one value followed by extremes is the shape that
 //! probes it hardest, which [`skewed`] builds.
 
-use super::arith::{Decoder, Range};
+use super::arith::{Decoder, Range, SETTLING_BYTES};
 use super::{AtMost, EncodingStrategy, EntropyDecoder};
 use crate::{Normal, Small};
 
@@ -43,10 +43,11 @@ where
             .unwrap_or_else(|e| panic!("{what}: value {i} failed to decode: {e}"));
         assert_eq!(&got, expected, "{what}: value {i} did not round-trip");
         let consumed = before - reader.bytes_remaining();
+        let allowed = S::MAX_BYTES.saturating_add(SETTLING_BYTES);
         assert!(
-            consumed <= S::MAX_BYTES,
-            "{what}: value {i} ({expected:?}) consumed {consumed} bytes, over its \
-             declared MAX_BYTES of {}",
+            consumed <= allowed,
+            "{what}: value {i} ({expected:?}) consumed {consumed} bytes, over the \
+             {allowed} its MAX_BYTES of {} allows (plus {SETTLING_BYTES} settling)",
             S::MAX_BYTES
         );
         worst = worst.max(consumed);

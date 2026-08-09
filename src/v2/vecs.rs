@@ -174,10 +174,13 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
             .await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
-        // The most one element can consume: its marker plus the element itself.
-        // `saturating_add` keeps an unbounded `S` (the `usize::MAX` default) from
-        // wrapping to something small — it stays unbounded, so `batch` is 0 and
-        // the loop simply never leaves the async path.
+        // Information one element accounts for: its marker plus the element.
+        // Both are `MAX_BYTES`, i.e. information only — the coder's settling
+        // margin is `sync_capacity`'s to add, once for the whole handoff rather
+        // than once per element. `saturating_add` keeps an unbounded `S` (the
+        // `usize::MAX` default) from wrapping to something small; it stays
+        // unbounded, so the capacity is 0 and the loop never leaves the async
+        // path.
         const fn per_element<T, S: super::DecodeAsyncStrategy<T>>() -> usize {
             Sentinel::MAX_BYTES.saturating_add(S::MAX_BYTES)
         }
@@ -188,14 +191,7 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
             // fully sync decoder, and batching keeps the sync decoder's state
             // register-resident across the whole run rather than round-tripping
             // it per element.
-            let batch = if reader.is_final() {
-                // Nothing more is coming, so the rest of the loop can go at once
-                // however little is left: past the end the sync decoder
-                // zero-pads, exactly as it would have decoding from a slice.
-                n - decoded
-            } else {
-                (reader.ready_bytes() / per_element::<T, S>()).min(n - decoded)
-            };
+            let batch = reader.sync_capacity(per_element::<T, S>()).min(n - decoded);
             if batch > 0 {
                 // Bound to a `let` so the closure's borrows of `x`, `sentinel`
                 // and `ctx` end at the semicolon.

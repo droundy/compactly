@@ -847,6 +847,20 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
     }
 }
 
+/// Bytes `Range` may have emitted that the information coded so far does not
+/// yet account for.
+///
+/// The interval starts at `2^64`, each emitted byte multiplies it by 256 and
+/// each coded bit divides it, so from `1 <= width <= 2^64` we get
+/// `I/8 - 8 <= E <= I/8` at every point, and hence `dE <= dI/8 + 8` over *any*
+/// span. The 8 is the coder state width in bytes — and because the bound holds
+/// for a span of any length, it is added once per handoff and never per value.
+///
+/// Available to tests without the `stream` feature so `v2::max_bytes` can check
+/// the bounds against the sync decoder, which is where they are measurable.
+#[cfg(any(test, feature = "stream"))]
+pub(crate) const SETTLING_BYTES: usize = std::mem::size_of::<u64>();
+
 /// Range decoder over an async source: the arithmetic is the sync decoders',
 /// but every byte comes from a [`ChunkSource`], so running out of buffered
 /// chunk suspends rather than blocks.
@@ -999,10 +1013,7 @@ where
     where
         Self: 'a;
 
-    #[inline]
-    fn can_sync(&self, max_bytes: usize) -> bool {
-        self.source.can_sync(max_bytes)
-    }
+    const SETTLING_BYTES: usize = SETTLING_BYTES;
 
     #[inline]
     fn ready_bytes(&self) -> usize {

@@ -324,7 +324,7 @@ macro_rules! impl_compact {
             /// then the mantissa: whole bytes go through the incompressible
             /// path (one byte each) and the partial top byte costs up to 7
             /// coded bits.
-            const MAX_BYTES: usize = 2 * crate::v2::MAX_BYTES_PER_SYMBOL
+            const MAX_BYTES: usize = 2 * crate::v2::MAX_INFO_BYTES_PER_SYMBOL
                 + ($bits - 1) / 8
                 + 7 * <bool as Encode>::MAX_BYTES;
             type Context = $context;

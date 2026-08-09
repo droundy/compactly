@@ -9,11 +9,12 @@ use expect_test::expect;
 impl Encode for bool {
     /// One coded bit, and so the unit every other bound is built from.
     ///
-    /// `Range` renormalizes by shifting settled bytes out of a `u64` window, so
-    /// a single step drains at most the whole window — `ArithState::decode`
-    /// returns 8 in its degenerate case, and `consume_decoded_bytes` is capped
-    /// at 8.
-    const MAX_BYTES: usize = 8;
+    /// A `Probability` is `prob/256` with `prob >= 1`, so the unlikely branch
+    /// costs at most `-log2(1/256)` = 8 bits — one byte of information. (A
+    /// *single* renormalization can drain more than that from the stream, but
+    /// only as catch-up for earlier steps that drained none; that is the
+    /// coder's settling margin, counted once per handoff rather than here.)
+    const MAX_BYTES: usize = 1;
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

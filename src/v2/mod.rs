@@ -343,18 +343,51 @@ pub trait AsyncEntropyDecoder {
     where
         Self: 'a;
 
-    /// Whether a value needing at most `max_bytes` can be decoded from what is
-    /// already buffered — the gate for [`Self::with_sync`].
-    ///
-    /// Pass the type's [`Encode::MAX_BYTES`]. Types that leave it at
-    /// `usize::MAX` never pass, which is what makes opting in safe.
-    fn can_sync(&self, max_bytes: usize) -> bool;
+    /// Bytes that may be emitted but not yet accounted for by the information
+    /// coded so far — the margin [`Self::sync_capacity`] holds back.
+    const SETTLING_BYTES: usize;
 
     /// Bytes already buffered, decodable without awaiting.
     fn ready_bytes(&self) -> usize;
 
     /// Whether no more input can arrive, so any amount may be consumed.
     fn is_final(&self) -> bool;
+
+    /// How many items, each accounting for at most `info_bytes` of information,
+    /// can certainly be decoded from what is already buffered.
+    ///
+    /// Pass a sum of [`MAX_BYTES`](Encode::MAX_BYTES) values and nothing else:
+    /// this adds [`Self::SETTLING_BYTES`] itself, **once**, which is the only
+    /// correct number of times. That is the whole reason callers are given a
+    /// capacity rather than the raw margin — there is no way to forget it, and
+    /// no way to add it twice.
+    ///
+    /// `usize::MAX` once no more input can arrive: past true end of stream the
+    /// sync decoder zero-pads, which is what it should do there.
+    #[inline]
+    fn sync_capacity(&self, info_bytes: usize) -> usize {
+        if self.is_final() {
+            return usize::MAX;
+        }
+        self.ready_bytes().saturating_sub(Self::SETTLING_BYTES) / info_bytes.max(1)
+    }
+
+    /// Decode one whole value with the sync decoder if there is certainly room
+    /// for it, else `None` and the caller must stay async.
+    ///
+    /// The safe default for a single value; [`Self::with_sync`] is for handing
+    /// over several at once, which is faster when a caller can compute how many
+    /// fit (see [`Self::sync_capacity`]).
+    #[inline]
+    fn sync_decode_if_there_is_room<T, S: EncodingStrategy<T>>(
+        &mut self,
+        ctx: &mut S::Context,
+    ) -> Option<Result<T, std::io::Error>> {
+        if self.sync_capacity(S::MAX_BYTES) == 0 {
+            return None;
+        }
+        Some(self.with_sync(|sync| S::decode(sync, ctx)))
+    }
 
     /// Decode with the sync decoder, positioned exactly here.
     ///
@@ -415,32 +448,41 @@ pub trait AsyncEntropyDecoder {
     ) -> impl std::future::Future<Output = Result<(), std::io::Error>>;
 }
 
-/// Worst-case bytes of coded stream one whole-symbol step can consume.
+/// Information one whole-symbol step can account for, in bytes.
 ///
-/// `clamp_for_symbol`'s loop shifts left by at least a byte each time it fires
-/// and cannot shift more than the 8-byte window out in total, then the symbol's
-/// own renormalization drains at most the window again — so twice what a single
-/// bit step can, which is what [`bool`]'s own bound already names.
-pub(crate) const MAX_BYTES_PER_SYMBOL: usize = 2 * <bool as Encode>::MAX_BYTES;
+/// A [`SymbolRange`](model::SymbolRange) slot is at least 1 of `M = 2^16`, so a
+/// symbol costs at most 16 bits — two bytes — plus one byte of margin for the
+/// interval `clamp_for_symbol` discards, which is a few bits per step but is not
+/// tightly derived. Margin is nearly free here (it widens a `u64`'s bound from
+/// 18 to 20) and covers the one part of the derivation that is not airtight.
+pub(crate) const MAX_INFO_BYTES_PER_SYMBOL: usize = 3;
 
 /// Trait for types that can be compactly encoded.
 ///
 /// Normally you will derive this for your own types, although it can be
 /// implemented manually.
 pub trait Encode: Sized {
-    /// The most bytes of coded stream one value of this type can occupy, or
-    /// [`usize::MAX`] when there is no bound (anything length-driven, like a
-    /// collection or a `String`).
+    /// The most **information** one value of this type can account for, in
+    /// bytes, or [`usize::MAX`] when there is no bound (anything length-driven,
+    /// like a collection or a `String`).
     ///
-    /// Only an *upper* bound is required, and a loose one costs nothing: it is
-    /// used by the async decoder to decide when a value can be decoded from the
-    /// buffer already in hand rather than awaiting, and transport chunks are
-    /// kilobytes, so the difference between a bound of 100 and a bound of 1000
-    /// is invisible. Being **wrong** is not free — a value that consumes more
-    /// than it declares would be decoded past the end of the buffer, producing
-    /// plausible garbage — so derive it from `<bool as Encode>::MAX_BYTES` (one
-    /// coded bit) and [`MAX_BYTES_PER_SYMBOL`] rather than from measurement, and
-    /// prefer slack.
+    /// Deliberately *excludes* the coder's settling margin — bytes emitted but
+    /// not yet accounted for by the information coded so far. That margin is
+    /// bounded per *span*, not per value, so adding it here would count it once
+    /// per value and make sums badly wrong: seven coded bits cost seven bytes
+    /// plus one margin, not seven margins. The decoder adds its own
+    /// `SETTLING_BYTES` exactly once, in
+    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity); callers never add
+    /// it themselves.
+    ///
+    /// So this composes cleanly: **sum** over the parts a value codes in
+    /// sequence, **max** over branches it might take. Build it from
+    /// `<bool as Encode>::MAX_BYTES` (one adaptive bit),
+    /// [`MAX_INFO_BYTES_PER_SYMBOL`], and one byte per incompressible byte —
+    /// derived, not measured. A loose bound only costs batching headroom; a
+    /// **wrong** one decodes past the end of the buffer and returns plausible
+    /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
+    /// against real decodes.
     ///
     /// Defaults to `usize::MAX`, so a type that does not override it simply
     /// never takes the fast path. Opting in is safe by construction.
