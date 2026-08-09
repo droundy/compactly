@@ -46,10 +46,15 @@ jobs:
     - uses: actions/checkout@v4
     - name: Bit context unit tests
       run: cargo test --features "generate_bit_context"
-    - name: Rebuild bit contex
+    - name: Rebuild v1 bit context
       run: ./src/v1/bit-context.sh
+    - name: Rebuild v2 bit context
+      run: ./src/v2/bit-context.sh
+    # `--exit-code` is what makes this a check: plain `git diff` prints the
+    # drift and still exits 0, so regenerated output that no longer matches
+    # the committed file would pass silently.
     - name: Confirm no changes to the code
-      run: git diff || exit 1
+      run: git diff --exit-code
 
   linux-test-no-default-features:
 

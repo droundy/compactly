@@ -580,7 +580,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8985 bits, small: 7123 bits"]
+    expect!["normal: 8989 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());

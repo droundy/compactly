@@ -617,16 +617,17 @@ fn mirrored_prior_cost_increases_through_the_common_range() {
 fn repeated_constant_floor_matches_shallow_path() {
     // The whole point of the hierarchical (bit-length-of-bit-length)
     // encoding: a heavily repeated tiny value converges to a fully-adapted
-    // cost of one 3-decision `AtMost<7>` walk — ~34 millibits/element
-    // (3 x ~11.3, `BitContext`'s 254/256 probability cap) — rather than
-    // the 6-decision, ~68 millibits/element floor a single deep
-    // `AtMost<63>` leading-zero tree imposes. Measure the marginal cost
-    // over a doubling well past convergence and pin the ceiling.
+    // cost of one 3-decision `AtMost<7>` walk — ~29 millibits/element, set by
+    // `BitContext`'s 255/256 probability cap (~5.7 millibits for a node that
+    // reaches it; the walk's nodes do not all saturate that far) — rather
+    // than the roughly twice-as-deep floor a single `AtMost<63>` leading-zero
+    // tree imposes. Measure the marginal cost over a doubling well past
+    // convergence and pin the ceiling.
     let a = vec![1_usize; 1 << 19].millibits();
     let b = vec![1_usize; 1 << 20].millibits();
     let per_element_mb = (b.as_millibits() - a.as_millibits()) / (1 << 19);
     assert!(
-        per_element_mb <= 35,
-        "fully-adapted repeated-1 cost should be ~34 millibits/element, got {per_element_mb}"
+        per_element_mb <= 30,
+        "fully-adapted repeated-1 cost should be ~29 millibits/element, got {per_element_mb}"
     );
 }

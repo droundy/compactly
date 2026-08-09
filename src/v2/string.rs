@@ -268,7 +268,7 @@ fn size() {
                 .collect::<Vec<_>>())
         )
     }
-    expect!["normal: 8930 bits, small: 7123 bits"]
+    expect!["normal: 8934 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
     expect!["1000 mb"].assert_eq(&true.millibits().to_string());
@@ -392,8 +392,8 @@ fn sorted() {
         crate::Encoded::new(strings.clone());
     use super::estimated_bits;
 
-    expect!["5933"].assert_eq(&estimated_bits!(strings.clone()));
-    expect!["4937"].assert_eq(&estimated_bits!(encoded_strings.clone()));
+    expect!["5932"].assert_eq(&estimated_bits!(strings.clone()));
+    expect!["4933"].assert_eq(&estimated_bits!(encoded_strings.clone()));
 }
 
 #[test]
