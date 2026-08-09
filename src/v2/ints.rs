@@ -222,8 +222,8 @@ fn default_encoding_roundtrips_every_leading_zero_depth() {
 // Versus coding the leading-zero count directly through one deep
 // `AtMost<$bits - 1>` tree (the previous scheme), the path for tiny values
 // shrinks from `log2($bits)` adaptive decisions to `log2($blbl_max + 1)`
-// (6 → 3 for u64) — which halves both the fully-adapted floor (~11.3
-// millibits per decision, `BitContext`'s 254/256 probability cap) and the
+// (6 → 3 for u64) — which halves both the fully-adapted floor (~5.7
+// millibits per decision, `BitContext`'s 255/256 probability cap) and the
 // fresh-context minimum (~0.26 bits per decision, `seed_context`'s
 // 4-observation cap) on the values that dominate real `usize` data.
 // Mid-size values instead pay one extra (shallow) coder step.

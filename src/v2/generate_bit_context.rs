@@ -304,7 +304,7 @@ impl Distribution<BitContext> for Standard {{
     );
 }
 
-const MAX_PRODUCT: usize = 134;
+const MAX_PRODUCT: usize = 135;
 const COUNT_FOR_CONFIDENCE: usize = 4;
 
 /// The program that actually outputs the generated code.
@@ -406,6 +406,19 @@ fn distribution_test() {
     test_distribution(0, 3, 0.80078125, 0.7187907456421366);
     test_distribution(32, 0, 0.02734375, 0.18195147863889768);
     test_distribution(64, 0, 0.01171875, 0.10211457524295939);
-    test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 128.0, 0.05104365326082572);
-    test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05065909928371242);
+    // The tail of the pure-true chain. `MAX_PRODUCT - 2` is the deepest state
+    // the cap makes reachable, and at 135 it lands on 1/256 — the smallest
+    // probability a `NonZeroU8` can express. One rung past the cap is already
+    // clamped to that same floor, which is why raising `MAX_PRODUCT` beyond
+    // 135 cannot buy this chain any further confidence (only interior
+    // resolution).
+    //
+    // Note this exhausts the *true* tail only. The mirror-image pure-false
+    // chain tops out at 254/256 (~11.3 mb), one notch short of the 255/256 a
+    // `NonZeroU8` could hold, because `best()` searches `(1..255)` — an
+    // exclusive bound. That headroom is `best()`'s to give, not
+    // `MAX_PRODUCT`'s, and is deliberately left alone here.
+    test_distribution(MAX_PRODUCT - 3, 0, 1.0 / 128.0, 0.05104365326082572);
+    test_distribution(MAX_PRODUCT - 2, 0, 1.0 / 256.0, 0.05065909928371242);
+    test_distribution(MAX_PRODUCT - 1, 0, 1.0 / 256.0, 0.05023291376188693);
 }
