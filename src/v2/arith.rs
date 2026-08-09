@@ -338,20 +338,27 @@ impl Range {
     }
     /// Encode `value` straight into a [`Write`](std::io::Write), streaming settled
     /// bytes out as they emerge rather than buffering the whole compressed output.
-    /// The bytes are **identical** to [`Range::encode`]. No buffering is applied —
-    /// wrap an unbuffered sink like a `File` in a [`BufWriter`](std::io::BufWriter)
-    /// yourself.
+    /// The bytes are **identical** to [`Range::encode`].
+    ///
+    /// No buffering is applied, and `Range` writes **one byte per `write` call**
+    /// (settled bytes as they emerge), so wrap an unbuffered sink like a `File` in
+    /// a [`BufWriter`](std::io::BufWriter) yourself or performance will suffer. The
+    /// returned writer is flushed before return, so a final flush error surfaces
+    /// here rather than being lost in a wrapping `BufWriter`'s `Drop`.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
     ) -> std::io::Result<()> {
-        super::stream_encode::<T, RangeEncoder<W>>(value, writer).map(drop)
+        super::stream_encode::<T, RangeEncoder<W>>(value, writer)
+            .and_then(|mut w| std::io::Write::flush(&mut w))
     }
     /// Decode a value straight from a [`Read`](std::io::Read), pulling bytes on
     /// demand rather than requiring the whole compressed input in memory. Accepts
-    /// the same bytes [`Range::encode`]/[`Range::encode_to`] produce. No buffering
-    /// is applied — wrap an unbuffered source in a
-    /// [`BufReader`](std::io::BufReader) yourself.
+    /// the same bytes [`Range::encode`]/[`Range::encode_to`] produce.
+    ///
+    /// No buffering is applied, and `Range` issues **one `read` call per entropy
+    /// byte** for the whole stream, so wrap an unbuffered source like a `File` in a
+    /// [`BufReader`](std::io::BufReader) yourself or performance will suffer.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
         super::stream_decode::<T, _>(RangeDecoder::new(reader))
     }
@@ -1222,6 +1229,34 @@ mod tests {
                 "encode_to should report the writer failure (fail_after={fail_after})"
             );
         }
+    }
+
+    /// R1: `encode_to` docs tell callers to wrap an unbuffered sink in a
+    /// `BufWriter`. `BufWriter`'s `Drop` silently swallows its final flush error,
+    /// so `encode_to` must flush the returned writer itself — otherwise a caller
+    /// following that advice loses the tail of the stream on a disk-full at flush
+    /// time and still gets `Ok(())`.
+    #[test]
+    fn encode_to_surfaces_buffered_flush_error() {
+        /// Accepts every write (into a `BufWriter`'s buffer it never fills) but
+        /// fails on flush — i.e. the error only appears at the final flush.
+        struct FlushFails;
+        impl std::io::Write for FlushFails {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("flush failed (e.g. ENOSPC)"))
+            }
+        }
+        let items = sample_items();
+        let writer = std::io::BufWriter::new(FlushFails);
+        let result = super::super::encode_to(&items, writer);
+        assert!(
+            result.is_err(),
+            "encode_to must surface the wrapped BufWriter's final flush error, \
+             not swallow it in Drop"
+        );
     }
 
     /// A `Read` over `data` that yields at most one byte per call and returns a

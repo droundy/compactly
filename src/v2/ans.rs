@@ -312,21 +312,29 @@ impl Ans {
     }
     /// Encode `value` straight into a [`Write`](std::io::Write), streaming chunks
     /// out as they fill rather than buffering the whole compressed output; the
-    /// bytes are **identical** to [`Ans::encode`]. No buffering is applied — wrap
-    /// an unbuffered sink like a `File` in a [`BufWriter`](std::io::BufWriter)
-    /// yourself.
+    /// bytes are **identical** to [`Ans::encode`].
+    ///
+    /// No buffering is applied — wrap an unbuffered sink like a `File` in a
+    /// [`BufWriter`](std::io::BufWriter) yourself. (`Ans` writes each chunk's body
+    /// in bulk, so it is less syscall-bound than `Range`, which writes a byte at a
+    /// time.) The returned writer is flushed before return, so a final flush error
+    /// surfaces here rather than being lost in a wrapping `BufWriter`'s `Drop`.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
     ) -> std::io::Result<()> {
-        super::stream_encode::<T, AnsEncoder<W>>(value, writer).map(drop)
+        super::stream_encode::<T, AnsEncoder<W>>(value, writer)
+            .and_then(|mut w| std::io::Write::flush(&mut w))
     }
     /// Decode a value straight from a [`Read`](std::io::Read), pulling one chunk
     /// at a time rather than requiring the whole compressed input in memory.
-    /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce. No
-    /// buffering is applied — wrap an unbuffered source in a
-    /// [`BufReader`](std::io::BufReader) yourself (note `Ans` reads chunk headers
-    /// a byte at a time, so buffering a `File` matters more here than for `Range`).
+    /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
+    ///
+    /// No buffering is applied — wrap an unbuffered source in a
+    /// [`BufReader`](std::io::BufReader) yourself. (`Ans` reads only the small
+    /// chunk-header varints a byte at a time and pulls each chunk body in bulk via
+    /// `read_exact`, so it is less syscall-bound than `Range`, which reads a byte
+    /// at a time for the whole stream.)
     pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
@@ -1445,6 +1453,43 @@ fn streaming_matches_in_memory() {
         let d4: Vec<Item> = Ans::decode_from(streamed.as_slice()).unwrap();
         assert_eq!(d4, items, "n={n}: decode_from(encode_to)");
     }
+}
+
+/// R2 for `Ans`: once a read error is latched, [`AnsDecoder::into_result`] must
+/// surface *that* IO error even when `T::decode` returned an `Err`. This rule was
+/// previously hand-written inline in `decode_from_with`; it now lives in the
+/// shared trait method (reached via `stream_decode`), so it needs its own
+/// error-injection coverage — the round-trip tests above never latch an error.
+#[cfg(test)]
+#[test]
+fn ans_into_result_prefers_latched_error_over_downstream() {
+    /// A `Read` that errors on every call, so an IO error latches immediately.
+    struct FailingReader;
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("transient read failure"))
+        }
+    }
+
+    // `new` reads the leading chunk tag, so the error latches during construction;
+    // the fabricated downstream error must not mask it.
+    let decoder = AnsDecoder::<FailingReader, true>::new(FailingReader);
+    let downstream: std::io::Result<u8> =
+        Err(std::io::Error::other("downstream validation symptom"));
+    let err = decoder
+        .into_result(downstream)
+        .expect_err("a latched read error must surface as Err");
+    assert!(
+        err.to_string().contains("transient read failure"),
+        "the latched IO error must win over the downstream error, got: {err}"
+    );
+
+    // End to end through the public entry point: a failing reader must report the
+    // IO error, not a decode validation symptom from the fabricated zero tail.
+    assert!(
+        Ans::decode_from::<Vec<u64>, _>(FailingReader).is_err(),
+        "decode_from must surface the reader error"
+    );
 }
 
 #[cfg(test)]
