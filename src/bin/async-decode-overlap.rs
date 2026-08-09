@@ -27,7 +27,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use compactly::v2::stream::decode_stream;
+use compactly::v2::decode_stream;
 use futures_core::Stream;
 
 const DEFAULT_COUNT: usize = 100_000;

@@ -38,7 +38,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use compactly::v2::{stream::decode_stream, DecodeAsync, Range};
+use compactly::v2::{decode_stream, DecodeAsync, Range};
 use futures_core::Stream;
 
 const DEFAULT_COUNT: usize = 2_000;

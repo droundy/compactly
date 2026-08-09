@@ -6,24 +6,22 @@
 //! following it. Collecting the whole stream and calling
 //! [`v2::decode`](super::decode) would need no library support at all.
 //!
-//! The entry point is [`decode_stream`]. Its input bound,
-//! `Stream<Item = Result<Bytes, E>>`, is what the ecosystem already speaks:
+//! The entry point is [`Range::decode_stream`](super::Range::decode_stream).
+//! Its input bound, `Stream<Item = Result<Bytes, E>>`, is what the ecosystem
+//! already speaks:
 //! `aws_sdk_s3`'s `ByteStream`, `object_store`'s `GetResult::into_stream()`, and
 //! `axum`'s `Body::into_data_stream()` all match it directly.
 //!
 //! This module holds only the coder-independent part — [`ChunkSource`], the
 //! buffer that turns a chunk stream into "one byte, awaiting if necessary". Each
-//! coder's async decoder lives beside its sync counterparts (`AsyncRangeDecoder`
-//! in `arith`), which is where the coder state's internals are reachable.
+//! coder's async decoder, and the entry point that drives it, live beside that
+//! coder's sync counterparts (`AsyncRangeDecoder` in `arith`), which is where
+//! the coder state's internals are reachable.
 
 use std::pin::Pin;
 
 use bytes::Bytes;
 use futures_core::Stream;
-
-use super::{AsyncEntropyDecoder, DecodeAsync, EntropyDecoder};
-
-pub use super::arith::AsyncRangeDecoder;
 
 /// The byte source behind an async decoder: holds the chunk currently being
 /// read and awaits the next one only when that chunk is used up.
@@ -268,50 +266,10 @@ where
     }
 }
 
-/// Shared async decode plumbing: run `decode_async` and fold the result with any
-/// latched stream error. The async twin of `stream_decode`.
-async fn stream_decode_async<T: DecodeAsync, D: AsyncEntropyDecoder>(
-    mut decoder: D,
-) -> std::io::Result<T> {
-    let value = T::decode_async(&mut decoder, &mut T::Context::default()).await;
-    decoder.into_result(value)
-}
-
-/// Decode a value from an async stream of [`Bytes`] chunks, decoding each chunk
-/// as it arrives rather than waiting for the whole input.
-///
-/// Accepts exactly the bytes [`encode`](super::encode) and
-/// [`encode_to`](super::encode_to) produce, using the same default `Range`
-/// coder, so this and the sync API interoperate in both directions. Where the
-/// transport happened to split the bytes makes no difference to the result.
-///
-/// A stream that delivers everything in one chunk takes the sync slice decoder
-/// instead — see [`ChunkSource::take_if_single_chunk`]. There is nothing to
-/// overlap in that case, so the async decoder would only cost.
-pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
-where
-    T: DecodeAsync,
-    S: Stream<Item = Result<Bytes, E>>,
-    E: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    let mut source = ChunkSource::new(stream).await;
-    if let Some(whole) = source.take_if_single_chunk().await {
-        // The whole input is in memory, so decode it the fast way. This is the
-        // *same* decoder `v2::decode` uses, reading the same bytes — the async
-        // path is an alternative implementation of one format, not a variant of
-        // it, so which path a value takes is unobservable in the result.
-        let value = super::stream_decode::<T, _>(super::arith::Decoder::new(&whole));
-        return match source.take_error() {
-            Some(e) => Err(e),
-            None => value,
-        };
-    }
-    stream_decode_async::<T, _>(AsyncRangeDecoder::from_source(source).await).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v2::decode_stream;
     use futures_executor::block_on;
     use std::task::Poll;
 

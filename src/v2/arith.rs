@@ -299,7 +299,7 @@ impl Range {
     }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = super::arith::Decoder::new(bytes);
+        let mut reader = Decoder::new(bytes);
         T::decode(&mut reader, &mut T::Context::default()).ok()
     }
     /// Whether `Range`'s decoder asks [`Walk::production`](super::Walk::production)
@@ -361,6 +361,34 @@ impl Range {
     /// [`BufReader`](std::io::BufReader) yourself or performance will suffer.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
         super::stream_decode::<T, _>(RangeDecoder::new(reader))
+    }
+
+    /// Decode a value from an async stream of [`Bytes`](bytes::Bytes) chunks,
+    /// decoding each chunk as it arrives rather than waiting for the whole
+    /// input — so the decode overlaps the wait for the next chunk instead of
+    /// following it. Accepts the same bytes [`Range::encode`] produces.
+    ///
+    /// A stream that delivers everything in one chunk is decoded by the sync
+    /// slice [`Decoder`] instead: there is nothing to overlap in that case, so
+    /// the async decoder would be pure cost. Which path a value takes is
+    /// unobservable in the result — both read the same format, and the async
+    /// decoder is an alternative implementation of it rather than a variant.
+    #[cfg(feature = "stream")]
+    pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
+    where
+        T: super::DecodeAsync,
+        S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+        E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
+        let mut source = super::stream::ChunkSource::new(stream).await;
+        if let Some(whole) = source.take_if_single_chunk().await {
+            let value = super::stream_decode::<T, _>(Decoder::new(&whole));
+            return match source.take_error() {
+                Some(e) => Err(e),
+                None => value,
+            };
+        }
+        super::stream_decode_async::<T, _>(AsyncRangeDecoder::from_source(source).await).await
     }
 }
 impl From<Range> for Vec<u8> {

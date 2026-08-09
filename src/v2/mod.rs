@@ -108,7 +108,7 @@ mod other_crate_types;
 mod sentinel;
 mod sets;
 #[cfg(feature = "stream")]
-pub mod stream;
+mod stream;
 mod string;
 mod tuples;
 mod usizes;
@@ -116,6 +116,8 @@ mod vecs;
 
 use crate::{LowCardinality, Small};
 pub use ans::Ans;
+#[cfg(feature = "stream")]
+pub use arith::AsyncRangeDecoder;
 pub use arith::Range;
 /// Benchmark-support surface for `benches/atmost.rs`; not part of the stable API.
 ///
@@ -516,6 +518,35 @@ pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io:
 /// [`BufReader`](std::io::BufReader) yourself.
 pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
     Range::decode_from(reader)
+}
+
+/// Shared async decode plumbing: run `decode_async` and fold the result with any
+/// latched stream error. The async twin of [`stream_decode`].
+#[cfg(feature = "stream")]
+async fn stream_decode_async<T: DecodeAsync, D: AsyncEntropyDecoder>(
+    mut decoder: D,
+) -> std::io::Result<T> {
+    let value = T::decode_async(&mut decoder, &mut T::Context::default()).await;
+    decoder.into_result(value)
+}
+
+/// Decode a value from an async stream of [`Bytes`](::bytes::Bytes) chunks,
+/// decoding each chunk as it arrives rather than waiting for the whole input.
+///
+/// Accepts the same bytes [`encode`]/[`encode_to`] produce. Uses the default
+/// [`Range`] coder; [`Range::decode_stream`] selects explicitly.
+///
+/// The input bound is what the ecosystem already speaks — `aws_sdk_s3`'s
+/// `ByteStream`, `object_store`'s `GetResult::into_stream()`, and `axum`'s
+/// `Body::into_data_stream()` all match it directly.
+#[cfg(feature = "stream")]
+pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
+where
+    T: DecodeAsync,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    Range::decode_stream(stream).await
 }
 
 /// An encoding strategy for type `T`.
