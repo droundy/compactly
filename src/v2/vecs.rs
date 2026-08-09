@@ -174,26 +174,44 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
             .await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
+        // The most one element can consume: its marker plus the element itself.
+        // `saturating_add` keeps an unbounded `S` (the `usize::MAX` default) from
+        // wrapping to something small — it stays unbounded, so `batch` is 0 and
+        // the loop simply never leaves the async path.
+        const fn per_element<T, S: super::DecodeAsyncStrategy<T>>() -> usize {
+            Sentinel::MAX_BYTES.saturating_add(S::MAX_BYTES)
+        }
         let mut decoded = 0;
         while decoded < n {
-            // Once the rest of the input has arrived there is nothing left to
-            // wait for, so finish the whole remaining loop on the sync decoder
-            // rather than one element at a time — that is what keeps its state
-            // register-resident across the tail.
-            //
-            // Bound to a `let` so the closure's borrows of `x`/`sentinel`/`ctx`
-            // end at the semicolon rather than lasting the whole `if let`.
-            let finished = reader.with_sync(|sync| {
-                for _ in decoded..n {
-                    sentinel.decode(sync)?;
-                    x.push(S::decode(sync, &mut ctx.values)?);
-                }
-                Ok::<(), std::io::Error>(())
-            });
-            if let Some(result) = finished {
+            // Decode as many elements as the buffer certainly covers, in one
+            // handoff. Every element decoded this way costs nothing over the
+            // fully sync decoder, and batching keeps the sync decoder's state
+            // register-resident across the whole run rather than round-tripping
+            // it per element.
+            let batch = if reader.is_final() {
+                // Nothing more is coming, so the rest of the loop can go at once
+                // however little is left: past the end the sync decoder
+                // zero-pads, exactly as it would have decoding from a slice.
+                n - decoded
+            } else {
+                (reader.ready_bytes() / per_element::<T, S>()).min(n - decoded)
+            };
+            if batch > 0 {
+                // Bound to a `let` so the closure's borrows of `x`, `sentinel`
+                // and `ctx` end at the semicolon.
+                let result = reader.with_sync(|sync| {
+                    for _ in 0..batch {
+                        sentinel.decode(sync)?;
+                        x.push(S::decode(sync, &mut ctx.values)?);
+                    }
+                    Ok::<(), std::io::Error>(())
+                });
                 result?;
-                return Ok(x);
+                decoded += batch;
+                continue;
             }
+            // Too little buffered to promise even one element: take that one the
+            // slow way, which also awaits more input.
             sentinel.decode_async(reader).await?;
             x.push(S::decode_async(reader, &mut ctx.values).await?);
             decoded += 1;

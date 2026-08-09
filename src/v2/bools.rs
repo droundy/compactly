@@ -7,6 +7,7 @@ use super::{bit_context::BitContext, EncodingStrategy};
 use expect_test::expect;
 
 impl Encode for bool {
+    const MAX_BYTES: usize = super::MAX_BYTES_PER_BIT;
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

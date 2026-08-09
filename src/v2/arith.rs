@@ -908,24 +908,36 @@ where
     /// handoff is exact — the sync decoder resumes mid-stream rather than
     /// starting one.
     ///
-    /// Gated on there being no more input rather than trusting the caller: a
-    /// slice decoder run on a non-final chunk would zero-pad past the end of
-    /// the chunk and return plausible, wrong values. Making that unrepresentable
-    /// costs one field test.
+    /// **Precondition:** `f` must not need more than
+    /// [`can_sync`](super::AsyncEntropyDecoder::can_sync) reported available —
+    /// i.e. either the input is complete, or every value `f` decodes has a
+    /// `MAX_BYTES` that fits in what is buffered. Running the slice decoder past
+    /// the end of a *non*-final chunk zero-pads and returns plausible, wrong
+    /// values, and the position it reports back would be wrong too.
+    ///
+    /// That cannot be checked up front — it depends on `MAX_BYTES` being a true
+    /// bound — so it is checked afterwards instead: consuming the whole buffer
+    /// without the stream having ended means the decode wanted more than was
+    /// there, which is exactly the symptom of an understated `MAX_BYTES`.
     #[inline]
-    pub(crate) fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder) -> R) -> Option<R> {
-        let rest = self.source.final_remainder()?;
+    pub(crate) fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder) -> R) -> R {
+        let rest = self.source.buffered();
         let mut sync = Decoder {
             bytes: &rest,
             state: self.state,
             value: self.value,
         };
         let result = f(&mut sync);
+        debug_assert!(
+            !sync.bytes.is_empty() || self.source.is_final_chunk(),
+            "sync decode consumed every buffered byte without reaching end of \
+             stream: some type's MAX_BYTES is too small"
+        );
         let consumed = rest.len() - sync.bytes.len();
         self.state = sync.state;
         self.value = sync.value;
         self.source.advance(consumed);
-        Some(result)
+        result
     }
 
     /// Pull `n` entropy bytes into the window; the async twin of
@@ -979,7 +991,22 @@ where
         Self: 'a;
 
     #[inline]
-    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder<'_>) -> R) -> Option<R> {
+    fn can_sync(&self, max_bytes: usize) -> bool {
+        self.source.can_sync(max_bytes)
+    }
+
+    #[inline]
+    fn ready_bytes(&self) -> usize {
+        self.source.ready_bytes()
+    }
+
+    #[inline]
+    fn is_final(&self) -> bool {
+        self.source.is_final_chunk()
+    }
+
+    #[inline]
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder<'_>) -> R) -> R {
         AsyncRangeDecoder::with_sync(self, f)
     }
 

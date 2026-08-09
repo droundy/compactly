@@ -175,6 +175,13 @@ impl<const MAX: usize> Default for AtMostContext<MAX> {
 }
 
 impl<const MAX: usize> Encode for AtMost<MAX> {
+    /// One whole-symbol step when the value count fits `SymbolRange::M`, else
+    /// the per-bit fallback over a tree of depth `ceil(log2(MAX + 1))`.
+    const MAX_BYTES: usize = if MAX < super::model::SymbolRange::M as usize {
+        super::MAX_BYTES_PER_SYMBOL
+    } else {
+        (usize::BITS - MAX.leading_zeros()) as usize * super::MAX_BYTES_PER_BIT
+    };
     type Context = AtMostContext<MAX>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

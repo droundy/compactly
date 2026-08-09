@@ -1418,14 +1418,47 @@ The model fits from `n = 4` on, so this is understood rather than mysterious: at
 64 chunks the handoff recovers essentially nothing, because 63/64 of the decode
 happens before the last chunk arrives.
 
-**What would make it fire for real streams**: buffer more than one chunk ahead
-when more has *already* arrived — a non-blocking drain, polling while the stream
-returns `Ready` and stopping at the first `Pending`. That converts "many small
-chunks already in the transport" into "one large final chunk", which is exactly
-the shape the handoff wants, and costs no latency because it never waits. A
-decoder slower than its source would then converge on holding everything and
-switch to sync for the remainder. Not done yet; this is the natural next step,
-and the numbers above are what justify it.
+### `Encode::MAX_BYTES`: sync-decode anything that fits in the buffer (2026-08-09)
+
+The final-chunk handoff generalizes, and this is the version that matters. Each
+type declares `const MAX_BYTES: usize` — the most coded bytes one value of it
+can occupy — and the async decoder runs the *sync* decoder for any value whose
+bound fits in what is already buffered. Waiting is then confined to the moments
+there is genuinely nothing to decode.
+
+The default is `usize::MAX`, so a type that has not opted in never takes the
+fast path: adding bounds is incremental and safe by construction, and no impl
+had to change to introduce this. Bounds are derived from two constants
+(`MAX_BYTES_PER_BIT = 8`, `MAX_BYTES_PER_SYMBOL = 16`) rather than measured,
+and deliberately loose — `u64` declares 95 where a typical value costs ~9 —
+because looseness only costs a little batching headroom while being *wrong*
+would silently decode past the buffer.
+
+`Values<Vec<T>>` batches: it decodes `ready_bytes() / (Sentinel::MAX_BYTES +
+S::MAX_BYTES)` elements per handoff, so the sync decoder keeps its state
+register-resident across a whole run rather than round-tripping per element.
+
+100k `u64` (802 KB compressed), against the fully sync slice decoder:
+
+| chunks | chunk size | cycles | instructions |
+|---|---|---|---|
+| 2 | 401 KB | +4.5% | **+1.1%** |
+| 16 | 50 KB | +5.0% | **+1.6%** |
+| 64 | 12.5 KB | +6.2% | **+3.0%** |
+| 256 | 3.1 KB | +10.0% | +8.2% |
+| 1024 | 783 B | +22.2% | +27.1% |
+
+At 64 chunks that is **+3.0% where the final-chunk handoff alone left +151%**.
+
+The residual follows `151% × per_element / chunk_size` — the async path is still
+paid once per batch boundary, and batches are `chunk_size / 103` elements long.
+So it only bites when chunks approach the bound in size (at 783 B, batches are 7
+elements). Two levers if that ever matters: tighter bounds, or carrying leftover
+bytes across the chunk boundary so batches do not have to stop there.
+
+Superseded: the non-blocking-drain idea recorded here previously. It would still
+help the pathological small-chunk case, but the reason it was interesting —
+reaching the final chunk sooner — no longer gates anything.
 
 ## TODO (in rough priority order)
 

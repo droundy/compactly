@@ -341,17 +341,30 @@ pub trait AsyncEntropyDecoder {
     where
         Self: 'a;
 
-    /// Decode with the sync decoder, positioned exactly here, if the rest of the
-    /// input is already in hand; `None` if it is not, and the caller must stay
-    /// async.
+    /// Whether a value needing at most `max_bytes` can be decoded from what is
+    /// already buffered — the gate for [`Self::with_sync`].
+    ///
+    /// Pass the type's [`Encode::MAX_BYTES`]. Types that leave it at
+    /// `usize::MAX` never pass, which is what makes opting in safe.
+    fn can_sync(&self, max_bytes: usize) -> bool;
+
+    /// Bytes already buffered, decodable without awaiting.
+    fn ready_bytes(&self) -> usize;
+
+    /// Whether no more input can arrive, so any amount may be consumed.
+    fn is_final(&self) -> bool;
+
+    /// Decode with the sync decoder, positioned exactly here.
     ///
     /// The point is that an async decode need only stay async for as long as it
     /// is actually waiting on bytes. Frames already in flight cannot move — they
     /// live in the async call stack — but a sub-value that has *not started* can
     /// run entirely synchronously beneath them. Hand over as much at a time as
-    /// possible: a whole loop tail beats one element at a time, since the sync
-    /// decoder then keeps its state register-resident across all of it.
-    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> Option<R>;
+    /// possible: a batch of elements beats one at a time, since the sync decoder
+    /// then keeps its state register-resident across all of them.
+    ///
+    /// **Only call when [`Self::can_sync`] agrees** for everything `f` decodes.
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
     /// Fold a decode result together with any error latched while reading; see
     /// [`EntropyDecoder::into_result`], whose rule this shares — a latched
@@ -400,11 +413,42 @@ pub trait AsyncEntropyDecoder {
     ) -> impl std::future::Future<Output = Result<(), std::io::Error>>;
 }
 
+/// Worst-case bytes of coded stream one adaptive bit can consume.
+///
+/// `Range` renormalizes by shifting settled bytes out of a `u64` window, so a
+/// single step drains at most the whole window — `ArithState::decode` returns 8
+/// in its degenerate case and `consume_decoded_bytes` is capped at 8.
+pub(crate) const MAX_BYTES_PER_BIT: usize = 8;
+
+/// Worst-case bytes of coded stream one whole-symbol step can consume.
+///
+/// `clamp_for_symbol`'s loop shifts left by at least a byte each time it fires
+/// and cannot shift more than the 8-byte window out in total, then the symbol's
+/// own renormalization drains at most the window again.
+pub(crate) const MAX_BYTES_PER_SYMBOL: usize = 2 * MAX_BYTES_PER_BIT;
+
 /// Trait for types that can be compactly encoded.
 ///
 /// Normally you will derive this for your own types, although it can be
 /// implemented manually.
 pub trait Encode: Sized {
+    /// The most bytes of coded stream one value of this type can occupy, or
+    /// [`usize::MAX`] when there is no bound (anything length-driven, like a
+    /// collection or a `String`).
+    ///
+    /// Only an *upper* bound is required, and a loose one costs nothing: it is
+    /// used by the async decoder to decide when a value can be decoded from the
+    /// buffer already in hand rather than awaiting, and transport chunks are
+    /// kilobytes, so the difference between a bound of 100 and a bound of 1000
+    /// is invisible. Being **wrong** is not free — a value that consumes more
+    /// than it declares would be decoded past the end of the buffer, producing
+    /// plausible garbage — so derive it from [`MAX_BYTES_PER_BIT`] and
+    /// [`MAX_BYTES_PER_SYMBOL`] rather than from measurement, and prefer slack.
+    ///
+    /// Defaults to `usize::MAX`, so a type that does not override it simply
+    /// never takes the fast path. Opting in is safe by construction.
+    const MAX_BYTES: usize = usize::MAX;
+
     /// Context storing probability model for this type.
     type Context: Default + Clone;
 
@@ -578,6 +622,10 @@ where
 /// can use full paths in your derive macros, e.g.
 /// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
 pub trait EncodingStrategy<T> {
+    /// The most bytes of coded stream one value coded with this strategy can
+    /// occupy; see [`Encode::MAX_BYTES`], whose contract this shares.
+    const MAX_BYTES: usize = usize::MAX;
+
     /// The conext (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 
@@ -629,6 +677,7 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
 }
 
 impl<T: Encode> EncodingStrategy<T> for crate::Normal {
+    const MAX_BYTES: usize = T::MAX_BYTES;
     type Context = <T as Encode>::Context;
     #[inline]
     fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {

@@ -29,6 +29,8 @@ impl Default for UsizeContext {
 }
 
 impl Encode for usize {
+    /// Reuses `u64`'s hierarchical encoding exactly, so it inherits its bound.
+    const MAX_BYTES: usize = <u64 as Encode>::MAX_BYTES;
     type Context = UsizeContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

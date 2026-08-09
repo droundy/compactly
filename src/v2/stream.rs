@@ -190,16 +190,29 @@ where
         self.queued.is_none() && self.error.is_none()
     }
 
-    /// Every byte the source has left, as one slice — but only once no more can
-    /// arrive, so that a sync decoder handed this cannot come up short.
+    /// Bytes already buffered, decodable without awaiting anything.
+    pub(crate) fn ready_bytes(&self) -> usize {
+        self.current.len() - self.pos
+    }
+
+    /// Whether a value needing at most `max_bytes` can be decoded from what is
+    /// already in hand.
+    ///
+    /// True either because that many bytes are buffered, or because no more can
+    /// arrive at all — past true end of stream a sync decoder zero-pads, which
+    /// is exactly the right behaviour there.
+    pub(crate) fn can_sync(&self, max_bytes: usize) -> bool {
+        self.is_final_chunk() || self.ready_bytes() >= max_bytes
+    }
+
+    /// Everything the source has buffered, as one slice.
     ///
     /// Returned owned (a `Bytes` slice is a refcount bump, not a copy) rather
     /// than borrowed, so the caller can go on mutating the source while holding
     /// it — which is exactly what handing it to a sync decoder and then
     /// [advancing](Self::advance) by what that decoder consumed requires.
-    pub(crate) fn final_remainder(&self) -> Option<Bytes> {
-        self.is_final_chunk()
-            .then(|| self.current.slice(self.pos..))
+    pub(crate) fn buffered(&self) -> Bytes {
+        self.current.slice(self.pos..)
     }
 
     /// Skip `n` bytes of the current chunk, after something else has read them.

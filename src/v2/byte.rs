@@ -6,6 +6,7 @@ use crate::{Incompressible, Small, Sorted};
 use expect_test::expect;
 
 impl Encode for u8 {
+    const MAX_BYTES: usize = <AtMost<255> as Encode>::MAX_BYTES;
     type Context = <AtMost<255> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -31,6 +32,7 @@ impl super::DecodeAsync for u8 {
 }
 
 impl Encode for i8 {
+    const MAX_BYTES: usize = <u8 as Encode>::MAX_BYTES;
     type Context = <u8 as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

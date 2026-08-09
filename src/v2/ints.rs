@@ -320,6 +320,13 @@ macro_rules! impl_compact {
         }
 
         impl EncodingStrategy<$t> for Small {
+            /// The bit-length symbol, then at most one bucket-offset symbol,
+            /// then the mantissa: whole bytes go through the incompressible
+            /// path (one byte each) and the partial top byte costs up to 7
+            /// coded bits.
+            const MAX_BYTES: usize = 2 * crate::v2::MAX_BYTES_PER_SYMBOL
+                + ($bits - 1) / 8
+                + 7 * crate::v2::MAX_BYTES_PER_BIT;
             type Context = $context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
@@ -451,6 +458,7 @@ macro_rules! impl_compact {
         }
 
         impl Encode for $t {
+            const MAX_BYTES: usize = <Small as EncodingStrategy<$t>>::MAX_BYTES;
             type Context = $default_context;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
