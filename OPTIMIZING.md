@@ -1240,6 +1240,53 @@ optimize down to the fused path. Keep both decoders. (Reproducer:
 `cargo build --release --bin range-decode-collapse`, then
 `bench perf stat -e instructions,cycles -- ./target/release/range-decode-collapse slice|stream`.)
 
+### What async-all-the-way-down decode costs (2026-08-09)
+
+The async decoder (`v2::stream::decode_stream`, `AsyncRangeDecoder`) makes every
+read point suspendable — `AsyncEntropyDecoder::decode_bits`,
+`decode_symbol_step`, and every `DecodeAsync::decode_async` are futures. The
+question this settles is what that machinery costs *before* any concurrency
+benefit, so the async arm is fed the whole compressed buffer as a **single**
+`Bytes`: no await ever suspends (`async-decode-cost` panics if one does), which
+makes the A/B deterministic and instruction-countable like every other entry
+here. Quiesced, alternating, min of 3, reps within 0.15%.
+
+Three arms, because billing async against the *slice* decoder alone would charge
+it for the borrowed-vs-owned difference measured in the section above:
+
+| workload | async vs sync-stream (the machinery) | sync-stream vs slice (owned buffer) |
+|---|---|---|
+| 2k `u64` (cache-resident) | **+62.4%** cycles, **+123.1%** instructions | +12.0% / +14.9% |
+| 100k `u64` (memory-bound) | **+56.2%** cycles, **+123.4%** instructions | +9.2% / +15.0% |
+| 38k meteorite strings | **+10.5%** cycles, **+44.1%** instructions | −0.5% / −0.6% |
+
+Instruction count is the honest number (cycles absorb some of it through
+memory-level parallelism): the integer path runs **2.2x** the instructions, the
+string path 1.44x.
+
+**The spread is the interesting part, and it points at the fix.** The integer
+path pays most because `Small<u64>::decode` is a chain of many small await
+points — several `AtMost` symbol steps, an incompressible read, then per-bit
+partial-byte decodes — each of which becomes a separate state machine that no
+longer inlines or keeps `state`/`value` register-resident. The string path pays
+far less because its work per await is much larger: one `AtMost<255>` tree walk
+per `char`, i.e. eight tree levels fused inside a single `decode_symbol_step`.
+So the cost tracks *await density*, not total work — exactly what the
+`ensure`-at-delegation-points design would reduce, by letting bounded primitive
+decodes run through the untouched sync `decode_bits`/`decode_atmost` and
+awaiting only where one decode delegates to another.
+
+In absolute terms, on this machine the random-`u64` workload decodes at roughly
+100 MB/s of compressed input through the slice decoder and ~56 MB/s through the
+async one, so the machinery is not obviously hidden behind a fast network — it
+is worth reducing rather than accepting. (Reproducer: `cargo build --release
+--features stream --bin async-decode-cost`, then `bench perf stat -e
+cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
+slice|stream|async [u64|strings]`, `COUNT` for the `u64` size.)
+
+Not yet measured: the overlap this buys. That claim is wall-clock, not
+instructions, and needs a delaying source.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —

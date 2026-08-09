@@ -271,6 +271,33 @@ mod tests {
         }
     }
 
+    /// The string path, including every `char` length class: ASCII, the
+    /// one-continuation-byte range, and the two-continuation-byte range.
+    #[test]
+    fn round_trip_vec_string_at_every_chunk_size() {
+        let value: Vec<String> = vec![
+            String::new(),
+            "a".to_string(),
+            "hello world".to_string(),
+            // One continuation byte (< 1 << 14), then two.
+            "héllo — ünïcode".to_string(),
+            "日本語のテキスト".to_string(),
+            "mixed ascii 日本 and émojis 🎉🦀".to_string(),
+            "x".repeat(300),
+        ];
+        let encoded = crate::v2::encode(&value);
+        assert_eq!(
+            crate::v2::decode::<Vec<String>>(&encoded).as_ref(),
+            Some(&value),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        for chunk_size in [1, 2, 3, 7, 64, 4096] {
+            let decoded: Vec<String> =
+                block_on(decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, value, "chunk_size = {chunk_size}");
+        }
+    }
+
     /// On truncated input the async decoder must behave exactly as the sync one
     /// does — including where the sync one legitimately succeeds.
     ///

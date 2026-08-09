@@ -76,6 +76,30 @@ impl Encode for char {
     }
 }
 
+impl super::DecodeAsync for char {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let byte = u8::decode_async(reader, &mut ctx.first).await?;
+        if byte < 128 {
+            return Ok(char::from(byte));
+        }
+        let x = if byte < 192 {
+            let high = (byte & 0x3f) as u32;
+            let low = u8::decode_async(reader, &mut ctx.one_chunk).await? as u32;
+            (high << 8) | low
+        } else {
+            let top = (byte & 0x3f) as u32;
+            let a = u8::decode_async(reader, &mut ctx.two_chunk_a).await? as u32;
+            let b = u8::decode_async(reader, &mut ctx.two_chunk_b).await? as u32;
+            (top << 16) | (a << 8) | b
+        };
+        char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Context {
     len: <Small as EncodingStrategy<usize>>::Context,
@@ -104,6 +128,24 @@ impl Encode for String {
         for _ in 0..len {
             sentinel.decode(reader)?;
             out.push(char::decode(reader, &mut ctx.chars)?);
+        }
+        Ok(out)
+    }
+}
+
+impl super::DecodeAsync for String {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let len = <Small as super::DecodeAsyncStrategy<usize>>::decode_async(reader, &mut ctx.len)
+            .await?;
+        let mut out = String::with_capacity(super::capacity_for::<u8>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            out.push(char::decode_async(reader, &mut ctx.chars).await?);
         }
         Ok(out)
     }

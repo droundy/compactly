@@ -149,5 +149,9 @@ name = "just-decompress-compressible"
 required-features = ["v2"]
 
 [[bin]]
+name = "async-decode-cost"
+required-features = ["v2", "stream"]
+
+[[bin]]
 name = "just-decompress-stream"
 required-features = ["v2", "benchmarking"]

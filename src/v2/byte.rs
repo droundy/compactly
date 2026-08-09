@@ -20,6 +20,16 @@ impl Encode for u8 {
     }
 }
 
+impl super::DecodeAsync for u8 {
+    #[inline]
+    async fn decode_async<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(usize::from(AtMost::<255>::decode_async(reader, ctx).await?) as u8)
+    }
+}
+
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
