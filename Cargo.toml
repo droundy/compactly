@@ -88,6 +88,10 @@ name = "just-decompress"
 required-features = ["v2"]
 
 [[bin]]
+name = "range-decode-collapse"
+required-features = ["v2"]
+
+[[bin]]
 name = "just-decompress-floats"
 required-features = ["v2"]
 

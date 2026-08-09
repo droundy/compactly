@@ -252,6 +252,15 @@ const W_DELAY: usize = 8;
 pub struct Range(RangeEncoder<Vec<u8>>);
 
 impl EntropyCoder for Range {
+    type Writer = Vec<u8>;
+    #[inline]
+    fn new(writer: Vec<u8>) -> Self {
+        Range(RangeEncoder::new(writer))
+    }
+    #[inline]
+    fn finish(self) -> std::io::Result<Vec<u8>> {
+        self.0.finish()
+    }
     #[inline]
     fn encode_bits<const N: usize>(
         &mut self,
@@ -327,6 +336,32 @@ impl Range {
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")
     }
+    /// Encode `value` straight into a [`Write`](std::io::Write), streaming settled
+    /// bytes out as they emerge rather than buffering the whole compressed output.
+    /// The bytes are **identical** to [`Range::encode`].
+    ///
+    /// No buffering is applied, and `Range` writes **one byte per `write` call**
+    /// (settled bytes as they emerge), so wrap an unbuffered sink like a `File` in
+    /// a [`BufWriter`](std::io::BufWriter) yourself or performance will suffer. The
+    /// returned writer is flushed before return, so a final flush error surfaces
+    /// here rather than being lost in a wrapping `BufWriter`'s `Drop`.
+    pub fn encode_to<T: super::Encode, W: std::io::Write>(
+        value: &T,
+        writer: W,
+    ) -> std::io::Result<()> {
+        super::stream_encode::<T, RangeEncoder<W>>(value, writer)
+            .and_then(|mut w| std::io::Write::flush(&mut w))
+    }
+    /// Decode a value straight from a [`Read`](std::io::Read), pulling bytes on
+    /// demand rather than requiring the whole compressed input in memory. Accepts
+    /// the same bytes [`Range::encode`]/[`Range::encode_to`] produce.
+    ///
+    /// No buffering is applied, and `Range` issues **one `read` call per entropy
+    /// byte** for the whole stream, so wrap an unbuffered source like a `File` in a
+    /// [`BufReader`](std::io::BufReader) yourself or performance will suffer.
+    pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
+        super::stream_decode::<T, _>(RangeDecoder::new(reader))
+    }
 }
 impl From<Range> for Vec<u8> {
     fn from(value: Range) -> Self {
@@ -375,16 +410,6 @@ impl<W: std::io::Write> std::fmt::Debug for RangeEncoder<W> {
 }
 
 impl<W: std::io::Write> RangeEncoder<W> {
-    pub(crate) fn new(writer: W) -> Self {
-        Self {
-            writer,
-            state: ArithState::default(),
-            entropy_written: 0,
-            withheld: Default::default(),
-            error: None,
-        }
-    }
-
     #[inline]
     fn write_out(&mut self, bytes: &[u8]) {
         if self.error.is_none() {
@@ -415,11 +440,25 @@ impl<W: std::io::Write> RangeEncoder<W> {
             self.withheld[slot].clear();
         }
     }
+}
+
+impl<W: std::io::Write> EntropyCoder for RangeEncoder<W> {
+    type Writer = W;
+
+    fn new(writer: W) -> Self {
+        Self {
+            writer,
+            state: ArithState::default(),
+            entropy_written: 0,
+            withheld: Default::default(),
+            error: None,
+        }
+    }
 
     /// Finish encoding: append the coder's final byte and flush any tail runs,
     /// then return the sink or the latched IO error. [`Range::into_vec`] is the
     /// in-memory caller.
-    pub(crate) fn finish(mut self) -> std::io::Result<W> {
+    fn finish(mut self) -> std::io::Result<W> {
         let last = self.state.last_byte();
         self.push_entropy(&[last]);
         let mut remaining = self.withheld.iter().filter(|r| !r.is_empty()).count();
@@ -438,9 +477,7 @@ impl<W: std::io::Write> RangeEncoder<W> {
             None => Ok(self.writer),
         }
     }
-}
 
-impl<W: std::io::Write> EntropyCoder for RangeEncoder<W> {
     #[inline]
     fn encode_bits<const N: usize>(
         &mut self,
@@ -493,23 +530,6 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
     state: ArithState,
     value: u64,
-}
-
-impl<'a> Decoder<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
-        let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
-            (u64::from_be_bytes(first), rest)
-        } else {
-            let mut b = [0; 8];
-            b[..bytes.len()].copy_from_slice(bytes);
-            (u64::from_be_bytes(b), [].as_slice())
-        };
-        Self {
-            bytes,
-            state: ArithState::default(),
-            value,
-        }
-    }
 }
 
 /// One range-decode bit step, operating on locals so the caller can keep `state`,
@@ -579,6 +599,29 @@ impl<'a> SymbolDecoder for Decoder<'a> {
 }
 
 impl<'a> EntropyDecoder for Decoder<'a> {
+    type Reader = &'a [u8];
+
+    fn new(bytes: &'a [u8]) -> Self {
+        let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
+            (u64::from_be_bytes(first), rest)
+        } else {
+            let mut b = [0; 8];
+            b[..bytes.len()].copy_from_slice(bytes);
+            (u64::from_be_bytes(b), [].as_slice())
+        };
+        Self {
+            bytes,
+            state: ArithState::default(),
+            value,
+        }
+    }
+
+    /// The slice decoder never latches an IO error, so the decode result stands.
+    #[inline]
+    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        value
+    }
+
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
     #[inline]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
@@ -674,35 +717,12 @@ pub(crate) struct RangeDecoder<R: std::io::Read> {
 }
 
 impl<R: std::io::Read> RangeDecoder<R> {
-    pub(crate) fn new(mut reader: R) -> Self {
-        // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
-        let mut error = None;
-        let mut value = 0u64;
-        for _ in 0..8 {
-            value = (value << 8) + read_one_byte(&mut reader, &mut error) as u64;
-        }
-        Self {
-            reader,
-            state: ArithState::default(),
-            value,
-            error,
-        }
-    }
-
     /// Pull `n` entropy bytes into the window.
     #[inline]
     fn refill(&mut self, n: usize) {
         for _ in 0..n {
             let byte = read_one_byte(&mut self.reader, &mut self.error);
             self.value = (self.value << 8) + byte as u64;
-        }
-    }
-
-    /// Return `value` unless a read error was latched during decoding.
-    pub(crate) fn into_result<T>(mut self, value: T) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => Ok(value),
         }
     }
 }
@@ -726,6 +746,33 @@ impl<R: std::io::Read> SymbolDecoder for RangeDecoder<R> {
 }
 
 impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
+    type Reader = R;
+
+    fn new(mut reader: R) -> Self {
+        // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
+        let mut error = None;
+        let mut value = 0u64;
+        for _ in 0..8 {
+            value = (value << 8) + read_one_byte(&mut reader, &mut error) as u64;
+        }
+        Self {
+            reader,
+            state: ArithState::default(),
+            value,
+            error,
+        }
+    }
+
+    /// Return `value` unless a read error was latched during decoding — the
+    /// latched IO error wins even when `value` is itself `Err` (see the trait
+    /// method's contract).
+    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        match self.error.take() {
+            Some(e) => Err(e),
+            None => value,
+        }
+    }
+
     #[inline]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
         walks::decode_symbol_or_bitwise(self, ctx)
@@ -1184,6 +1231,34 @@ mod tests {
         }
     }
 
+    /// R1: `encode_to` docs tell callers to wrap an unbuffered sink in a
+    /// `BufWriter`. `BufWriter`'s `Drop` silently swallows its final flush error,
+    /// so `encode_to` must flush the returned writer itself — otherwise a caller
+    /// following that advice loses the tail of the stream on a disk-full at flush
+    /// time and still gets `Ok(())`.
+    #[test]
+    fn encode_to_surfaces_buffered_flush_error() {
+        /// Accepts every write (into a `BufWriter`'s buffer it never fills) but
+        /// fails on flush — i.e. the error only appears at the final flush.
+        struct FlushFails;
+        impl std::io::Write for FlushFails {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("flush failed (e.g. ENOSPC)"))
+            }
+        }
+        let items = sample_items();
+        let writer = std::io::BufWriter::new(FlushFails);
+        let result = super::super::encode_to(&items, writer);
+        assert!(
+            result.is_err(),
+            "encode_to must surface the wrapped BufWriter's final flush error, \
+             not swallow it in Drop"
+        );
+    }
+
     /// A `Read` over `data` that yields at most one byte per call and returns a
     /// transient error on the call indices in `fail_at` — modelling a flaky
     /// socket/disk that errors once and would then recover. `calls` is shared
@@ -1263,6 +1338,48 @@ mod tests {
         };
         let decoded: Vec<Item> = super::super::decode_from(reader).unwrap();
         assert_eq!(decoded, items);
+    }
+
+    /// R2: once a read error is latched, [`EntropyDecoder::into_result`] must
+    /// surface *that* IO error even when `T::decode` itself returned an `Err`.
+    /// Coder decode is infallible, so a mid-stream failure zero-pads and the
+    /// fabricated bits often trip an unrelated downstream validation (a zero
+    /// `NonZero`, a bad `char`); returning that symptom would silently drop the
+    /// real root cause. Before the fix `Range::decode_from` did `T::decode(..)?`,
+    /// propagating the downstream error and losing the latched one.
+    #[test]
+    fn into_result_prefers_latched_error_over_downstream() {
+        // Fails on the very first read, so an IO error latches during
+        // construction and the whole stream is fabricated zeros thereafter.
+        let reader = FlakyReader {
+            data: vec![0u8; 16],
+            pos: 0,
+            calls: std::rc::Rc::new(std::cell::Cell::new(0)),
+            fail_at: vec![0],
+        };
+        let decoder = RangeDecoder::new(reader);
+        let downstream: std::io::Result<u8> =
+            Err(std::io::Error::other("downstream validation symptom"));
+        let err = decoder
+            .into_result(downstream)
+            .expect_err("a latched read error must surface as Err");
+        assert!(
+            err.to_string().contains("transient read failure"),
+            "the latched IO error (root cause) must win over the downstream \
+             validation error, got: {err}"
+        );
+
+        // With nothing latched, both an Ok and an Err pass through unchanged.
+        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
+        assert_eq!(clean.into_result::<u8>(Ok(42)).unwrap(), 42);
+        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
+        assert_eq!(
+            clean
+                .into_result::<u8>(Err(std::io::Error::other("kept")))
+                .unwrap_err()
+                .to_string(),
+            "kept"
+        );
     }
 }
 

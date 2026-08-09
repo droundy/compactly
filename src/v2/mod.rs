@@ -144,6 +144,29 @@ fn default_context_is_fifty_percent() {
 /// in-memory [`Self::encode`] constructor requires `Default` per-method
 /// instead. `Sized` is kept so the symbol walks can pass `self`.
 pub trait EntropyCoder: Sized {
+    /// The sink this coder finalizes into (`W` for the streaming `XEncoder<W>`,
+    /// `Vec<u8>` for the in-memory coders, `()` for [`Millibits`]).
+    ///
+    /// Intentionally **unbounded**: neither this trait nor the `stream_encode`
+    /// helper ever calls [`Write`](std::io::Write) methods on it — only `new`,
+    /// `finish`, and `Encode::encode`. The real `W: Write` bound lives on the
+    /// `impl<W: Write> EntropyCoder for XEncoder<W>` blocks, where the writing
+    /// happens. Leaving it unbounded lets [`Millibits`] use `type Writer = ()`.
+    type Writer;
+
+    /// Build a coder that writes into `writer`.
+    ///
+    /// No buffering is applied: wrap `writer` in a [`BufWriter`](std::io::BufWriter)
+    /// yourself if it is an unbuffered sink like a `File` (an in-memory `Vec<u8>`
+    /// needs none). Streaming coders write settled bytes as they emerge.
+    fn new(writer: Self::Writer) -> Self;
+
+    /// Flush all remaining coder state and return the sink, or the first IO error
+    /// latched during encoding. Returning the sink (rather than `()`) is what lets
+    /// `into_vec` be `finish().unwrap()` and lets a `File` caller recover its
+    /// handle.
+    fn finish(self) -> std::io::Result<Self::Writer>;
+
     /// Encode `N` bits, each with its own independent adaptive context —
     /// symmetric with [`EntropyDecoder::decode_bits`]: the coder reads each
     /// context's probability and adapts it, so encode- and decode-side
@@ -214,6 +237,28 @@ pub trait EntropyCoder: Sized {
 /// and incompressible bytes in the same order they were encoded, adapting the
 /// same contexts identically.
 pub trait EntropyDecoder {
+    /// The source this decoder pulls from (`R` for the streaming `XDecoder<R>`,
+    /// `&[u8]` for the in-memory slice decoders). **Unbounded** for the same
+    /// reason as [`EntropyCoder::Writer`]: the real `R: Read` bound is on the
+    /// streaming impl blocks.
+    type Reader;
+
+    /// Build a decoder over `reader`.
+    ///
+    /// No buffering is applied: wrap `reader` in a [`BufReader`](std::io::BufReader)
+    /// yourself for an unbuffered source (a `&[u8]` needs none).
+    fn new(reader: Self::Reader) -> Self;
+
+    /// Fold a decode result together with any IO error latched while reading.
+    ///
+    /// A latched read error **wins** even when `value` is itself `Err`: coder
+    /// decode is infallible, so a mid-stream IO failure zero-pads instead of
+    /// erroring, and the fabricated bits then often trip some unrelated validation
+    /// (a zero `NonZero`, a bad `char`) deeper in `Encode::decode`. Returning that
+    /// downstream symptom would silently drop the real root cause. In-memory slice
+    /// decoders never latch, so they just return `value`.
+    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T>;
+
     /// Decode `N` bits, each with its own independent probability context.
     ///
     /// This is the core required primitive — `decode_bit` is just the `N == 1`
@@ -328,28 +373,51 @@ pub(crate) fn capacity_for<T>(len: usize) -> usize {
     len.min((1 << 20) / elem)
 }
 
+/// Shared encode plumbing: build a coder over `writer`, encode `value`, and
+/// finish. One monomorphized copy serves every coder's `encode_to` (and the
+/// free [`encode_to`] below), so there is no per-coder duplication and no `fn`
+/// pointer between the entry point and the coder.
+fn stream_encode<T: Encode, E: EntropyCoder>(
+    value: &T,
+    writer: E::Writer,
+) -> std::io::Result<E::Writer> {
+    let mut encoder = E::new(writer);
+    value.encode(&mut encoder, &mut T::Context::default());
+    encoder.finish()
+}
+
+/// Shared decode plumbing: run `T::decode` and fold the result with any latched
+/// IO error (the [`EntropyDecoder::into_result`] rule). Takes an **already-built**
+/// decoder rather than constructing one, because decoder construction is not
+/// uniform across coders — `Ans::decode_from` first peeks the leading chunk tag
+/// to choose its single-chunk fast path — while this tail (decode + `into_result`)
+/// is identical for both, and is where the latched-error correctness lives.
+fn stream_decode<T: Encode, D: EntropyDecoder>(mut decoder: D) -> std::io::Result<T> {
+    let value = T::decode(&mut decoder, &mut T::Context::default());
+    decoder.into_result(value)
+}
+
 /// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
 /// as they are produced rather than buffering the whole compressed output. The
 /// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds
 /// peak memory, which matters when the value is a large fraction of RAM.
-/// `writer` is wrapped in a [`BufWriter`](std::io::BufWriter) internally.
+///
+/// Uses the default [`Range`] coder; [`Range::encode_to`] / [`Ans::encode_to`]
+/// select explicitly. No buffering is applied — wrap an unbuffered sink like a
+/// `File` in a [`BufWriter`](std::io::BufWriter) yourself.
 pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io::Result<()> {
-    let mut encoder = arith::RangeEncoder::new(std::io::BufWriter::new(writer));
-    value.encode(&mut encoder, &mut T::Context::default());
-    let buffered = encoder.finish()?;
-    // Surface a deferred flush error from the BufWriter, if any.
-    buffered.into_inner().map_err(|e| e.into_error())?;
-    Ok(())
+    Range::encode_to(value, writer)
 }
 
 /// Decode a value straight from a [`Read`](std::io::Read), pulling bytes on
 /// demand rather than requiring the whole compressed input in memory. Accepts
-/// the same bytes [`encode`]/[`encode_to`] produce. `reader` is wrapped in a
-/// [`BufReader`](std::io::BufReader) internally.
+/// the same bytes [`encode`]/[`encode_to`] produce.
+///
+/// Uses the default [`Range`] coder; [`Range::decode_from`] / [`Ans::decode_from`]
+/// select explicitly. No buffering is applied — wrap an unbuffered source in a
+/// [`BufReader`](std::io::BufReader) yourself.
 pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
-    let mut decoder = arith::RangeDecoder::new(std::io::BufReader::new(reader));
-    let value = T::decode(&mut decoder, &mut T::Context::default())?;
-    decoder.into_result(value)
+    Range::decode_from(reader)
 }
 
 /// An encoding strategy for type `T`.
