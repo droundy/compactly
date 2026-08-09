@@ -153,5 +153,9 @@ name = "async-decode-cost"
 required-features = ["v2", "stream"]
 
 [[bin]]
+name = "async-decode-overlap"
+required-features = ["v2", "stream"]
+
+[[bin]]
 name = "just-decompress-stream"
 required-features = ["v2", "benchmarking"]

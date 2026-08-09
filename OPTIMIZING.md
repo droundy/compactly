@@ -1284,8 +1284,49 @@ is worth reducing rather than accepting. (Reproducer: `cargo build --release
 cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
 slice|stream|async [u64|strings]`, `COUNT` for the `u64` size.)
 
-Not yet measured: the overlap this buys. That claim is wall-clock, not
-instructions, and needs a delaying source.
+### The overlap works perfectly, and the machinery cost is eating it (2026-08-09)
+
+The companion measurement to the one above, and the one that says whether
+`decode_stream` is worth using. Wall-clock, not instructions —
+`async-decode-overlap` models a network delivering at a constant rate (chunk `i`
+due at `start + i * interval`, independent of decode speed) and compares
+`decode_stream` against the do-it-yourself baseline: await every chunk into a
+buffer, then `v2::decode`. 100k random `u64` (802 KB compressed, 64 chunks), min
+of 5, under `bench`. Sync decode of this workload is 21.3 ms.
+
+| delivery rate | arrival | collect-then-decode | `decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 22.7 ms | 35.8 ms | **+58%** |
+| 200 MB/s | 4.0 ms | 24.8 ms | 35.7 ms | +44% |
+| 100 MB/s | 8.0 ms | 28.9 ms | 35.7 ms | +23% |
+| 50 MB/s | 16.0 ms | 36.9 ms | 35.7 ms | −3% |
+| 25 MB/s | 32.1 ms | 52.9 ms | 35.7 ms | **−32%** |
+| 10 MB/s | 80.2 ms | 101.2 ms | 80.5 ms | −21% |
+
+**The overlap itself is as good as it can be.** `decode_stream` sits pinned at
+~35.7 ms no matter how fast the chunks arrive, until arrival finally exceeds it
+(at 10 MB/s it tracks arrival exactly, 80.5 vs 80.2 ms — the decode is entirely
+hidden). That is precisely `max(arrival, decode)` against the baseline's
+`arrival + decode`. The API does what it claims.
+
+**But 35.7 ms is the *async* decode, not the 21.3 ms sync one** — a 1.68x ratio,
+which independently confirms the +70.6% cycles measured for async-vs-slice on
+this workload from a completely different direction. So the machinery cost sets
+the floor, and it is that floor, not the overlap, that decides the outcome:
+break-even lands at **~50 MB/s**, and above it `decode_stream` is *slower* than
+the four lines it replaces.
+
+Were the machinery free, overlap would floor at 21.3 ms and beat the baseline at
+every rate — at 100 MB/s, 21.3 vs 28.9 ms (−26%) instead of +23%. That is the
+whole case for reducing the per-await cost: it is not a micro-optimization, it
+is what moves the break-even past the rates people actually have.
+
+Not measured, but implied: the string workload pays only +10.5% cycles for the
+machinery, so its floor is ~1.1x sync decode and it should beat the baseline at
+essentially any delivery rate. The integer path is the one in trouble.
+(Reproducer: `cargo build --release --features stream --bin
+async-decode-overlap`, then `[RATE_MBPS=n] bench
+./target/release/async-decode-overlap both`.)
 
 ## TODO (in rough priority order)
 
