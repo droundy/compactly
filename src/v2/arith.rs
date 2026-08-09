@@ -843,7 +843,13 @@ where
     /// Build a decoder over `stream`, filling the 8-byte window to match
     /// [`Decoder::new`]'s and [`RangeDecoder::new`]'s initial `u64`.
     pub async fn new(stream: S) -> Self {
-        let mut source = super::stream::ChunkSource::new(stream);
+        Self::from_source(super::stream::ChunkSource::new(stream)).await
+    }
+
+    /// [`Self::new`] over a source that has already been read from — used by
+    /// `decode_stream`, whose single-chunk look-ahead has consumed a poll or two
+    /// before deciding to decode asynchronously after all.
+    pub(crate) async fn from_source(mut source: super::stream::ChunkSource<S>) -> Self {
         let mut value = 0u64;
         for _ in 0..W_DELAY {
             value = (value << 8) + source.next_byte().await as u64;

@@ -1324,6 +1324,46 @@ is what moves the break-even past the rates people actually have.
 Not measured, but implied: the string workload pays only +10.5% cycles for the
 machinery, so its floor is ~1.1x sync decode and it should beat the baseline at
 essentially any delivery rate. The integer path is the one in trouble.
+
+### Single-chunk inputs skip the async decoder entirely, for free (2026-08-09)
+
+A stream that delivers everything in one chunk has **no overlap available** —
+every byte arrives at once — so running it through the async decoder is pure
+loss. `ChunkSource` now keeps a one-chunk read-ahead as an invariant, which
+makes "is the chunk in hand the last one?" answerable at any time; when the
+first chunk is also the last, `decode_stream` hands the buffer to the ordinary
+sync slice decoder instead.
+
+The cost of asking is two stream polls and a `Bytes` clone per decode, amortized
+over the whole value. Quiesced, alternating, min of 3, against `v2::decode` on
+the same bytes:
+
+| workload | single-chunk fast path vs `slice` | forced async vs `slice` |
+|---|---|---|
+| 2k `u64` | **+0.22% cycles, +0.11% instructions** | +84.5% / +165% |
+| 38k meteorite strings | **+0.08% cycles, +0.01% instructions** | +10.4% / +47% |
+
+So the fast path is free to within measurement noise, and the entire async
+penalty disappears for single-chunk inputs — which is every value small enough
+to arrive in one piece, plus anything already in memory.
+
+Two details worth keeping:
+
+- **Empty chunks are transparent**, both when promoting and when reading ahead.
+  A stream may legitimately yield one, and queueing it would leave
+  `is_final_chunk` answering "not final" on a stream with nothing left, quietly
+  costing the fast path to any producer that pads. Caught by a test, not by
+  inspection.
+- **Restoring the read-ahead belongs with the chunk promotion, not after the
+  fill loop.** The invariant is established when `current` changes and holds
+  until it changes again, so checking after the loop re-checks it on every byte:
+  measured at **1.2%** of the async path's instructions.
+
+The read-ahead invariant costs the forced-async path ~2% against the version
+without it (71.2B vs 69.7B instructions on 2k `u64`), most likely because `fill`
+gains an await point and so a larger state machine. That buys never stalling at
+a chunk boundary, and the fast path above; both are worth 2% of a path that is
+already 165% over.
 (Reproducer: `cargo build --release --features stream --bin
 async-decode-overlap`, then `[RATE_MBPS=n] bench
 ./target/release/async-decode-overlap both`.)

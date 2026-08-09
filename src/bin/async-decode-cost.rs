@@ -16,12 +16,18 @@
 //           `slice` alone would bill it for the borrowed-vs-owned difference
 //           that OPTIMIZING.md already measured separately.
 //
-//   async   `v2::stream::decode_stream` over a one-chunk stream.
+//   async   `v2::stream::decode_stream` over a one-chunk stream — which its
+//           look-ahead routes to the sync slice decoder, so this measures the
+//           single-chunk fast path and should land on top of `slice`.
 //
-// So `async | stream` isolates the async machinery, and `stream | slice` is the
-// already-known cost of not borrowing.
+//   async-split  the same bytes as two chunks, which defeats the look-ahead and
+//           forces the async decoder. This is what measures the machinery.
 //
-// Usage: `[COUNT=n] async-decode-cost slice|stream|async [u64|strings]`
+// So `async-split | stream` isolates the async machinery, `async | slice` shows
+// what the fast path costs, and `stream | slice` is the already-known cost of
+// not borrowing.
+//
+// Usage: `[COUNT=n] async-decode-cost slice|stream|async|async-split [u64|strings]`
 //
 // COUNT (default 2000) sets how many u64s per value; ITERS is derived so the
 // total number of values decoded stays fixed, keeping runtimes comparable
@@ -42,15 +48,34 @@ const VALUE_BUDGET: usize = 40_000_000;
 /// The strings workload is far more work per element, so it gets its own budget.
 const STRING_VALUE_BUDGET: usize = 4_000_000;
 
-/// The whole compressed buffer as one chunk. Deliberately never `Pending`: this
-/// benchmark measures the async machinery, not suspension, and `block_on` below
-/// asserts that by panicking if anything ever does suspend.
-struct OneChunk(Option<Bytes>);
+/// The compressed buffer as either one chunk or two. Deliberately never
+/// `Pending`: this benchmark measures the async machinery, not suspension, and
+/// `block_on` below asserts that by panicking if anything ever does suspend.
+///
+/// One chunk is what `decode_stream`'s look-ahead routes to the sync slice
+/// decoder, so `async` measures the fast path. Splitting is what forces the
+/// async decoder, and the split is a single byte off the front — the smallest
+/// thing that defeats the look-ahead, so the two arms differ in *which decoder
+/// runs* and in essentially nothing else. (A trailing empty chunk would not
+/// work: empty chunks are transparent to the source, by design.)
+struct Chunks(std::vec::IntoIter<Bytes>);
 
-impl Stream for OneChunk {
+impl Chunks {
+    fn new(bytes: &[u8], split: bool) -> Self {
+        let all = Bytes::copy_from_slice(bytes);
+        let parts = if split && all.len() > 1 {
+            vec![all.slice(..1), all.slice(1..)]
+        } else {
+            vec![all]
+        };
+        Chunks(parts.into_iter())
+    }
+}
+
+impl Stream for Chunks {
     type Item = Result<Bytes, std::io::Error>;
     fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.0.take().map(Ok))
+        Poll::Ready(self.0.next().map(Ok))
     }
 }
 
@@ -89,11 +114,10 @@ fn decode_sync_stream<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> 
     total
 }
 
-fn decode_async<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> usize {
-    let bytes = Bytes::copy_from_slice(compressed);
+fn decode_async<T: DecodeAsync + Len>(compressed: &[u8], iters: usize, split: bool) -> usize {
     let mut total = 0;
     for _ in 0..iters {
-        let source = OneChunk(Some(bytes.clone()));
+        let source = Chunks::new(compressed, split);
         total += std::hint::black_box(block_on(decode_stream::<T, _, _>(source)))
             .unwrap()
             .len();
@@ -148,9 +172,12 @@ fn run<T: DecodeAsync + Len>(which: &str, compressed: &[u8], iters: usize) -> us
     match which {
         "slice" => decode_slice::<T>(compressed, iters),
         "stream" => decode_sync_stream::<T>(compressed, iters),
-        "async" => decode_async::<T>(compressed, iters),
+        "async" => decode_async::<T>(compressed, iters, false),
+        "async-split" => decode_async::<T>(compressed, iters, true),
         _ => {
-            eprintln!("usage: [COUNT=n] async-decode-cost slice|stream|async [u64|strings]");
+            eprintln!(
+                "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split [u64|strings]"
+            );
             std::process::exit(2);
         }
     }
