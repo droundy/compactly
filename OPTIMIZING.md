@@ -1340,8 +1340,8 @@ the same bytes:
 
 | workload | single-chunk fast path vs `slice` | forced async vs `slice` |
 |---|---|---|
-| 2k `u64` | **+0.22% cycles, +0.11% instructions** | +84.5% / +165% |
-| 38k meteorite strings | **+0.08% cycles, +0.01% instructions** | +10.4% / +47% |
+| 2k `u64` | **+0.01% cycles, +0.12% instructions** | +70.9% / +151.5% |
+| 38k meteorite strings | **+0.03% cycles, +0.00% instructions** | +12.5% / +47.9% |
 
 So the fast path is free to within measurement noise, and the entire async
 penalty disappears for single-chunk inputs — which is every value small enough
@@ -1359,11 +1359,20 @@ Two details worth keeping:
   until it changes again, so checking after the loop re-checks it on every byte:
   measured at **1.2%** of the async path's instructions.
 
-The read-ahead invariant costs the forced-async path ~2% against the version
-without it (71.2B vs 69.7B instructions on 2k `u64`), most likely because `fill`
-gains an await point and so a larger state machine. That buys never stalling at
-a chunk boundary, and the fast path above; both are worth 2% of a path that is
-already 165% over.
+- **Priming the read-ahead in the constructor removes a field**, and the field
+  was costing real time. With the source primed at birth there is no "not yet
+  started" state, so `queued.is_none() && error.is_none()` *is* end of stream
+  and the separate `exhausted` flag is unnecessary — which also deletes a branch
+  from `fill`, on the per-byte path. The stream still cannot be polled past its
+  end, but structurally rather than by a flag: `read_ahead` is the only caller,
+  it is only entered after a poll that produced a chunk, and it returns the
+  moment it sees `None`.
+
+  Dropping it was worth **−7.4% cycles / −3.9% instructions** on the
+  forced-async path. Net of the invariant's own cost, the multi-chunk async
+  decoder now runs **−7.3% cycles / −1.8% instructions** against the version
+  before any of this — so the single-chunk fast path came with a faster
+  multi-chunk path rather than at its expense.
 (Reproducer: `cargo build --release --features stream --bin
 async-decode-overlap`, then `[RATE_MBPS=n] bench
 ./target/release/async-decode-overlap both`.)

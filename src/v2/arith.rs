@@ -843,7 +843,7 @@ where
     /// Build a decoder over `stream`, filling the 8-byte window to match
     /// [`Decoder::new`]'s and [`RangeDecoder::new`]'s initial `u64`.
     pub async fn new(stream: S) -> Self {
-        Self::from_source(super::stream::ChunkSource::new(stream)).await
+        Self::from_source(super::stream::ChunkSource::new(stream).await).await
     }
 
     /// [`Self::new`] over a source that has already been read from — used by

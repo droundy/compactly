@@ -40,21 +40,24 @@ pub(crate) struct ChunkSource<S> {
     pos: usize,
     /// The next chunk, fetched while `current` was still being read.
     ///
-    /// [`ChunkSource::fill`] maintains the invariant that this is `Some`
-    /// whenever `current` has unread bytes and the stream is neither finished
-    /// nor failed. That is what lets [`ChunkSource::is_final_chunk`] answer
-    /// without polling, and what keeps exhausting `current` from having to wait.
+    /// **The invariant**, established by [`ChunkSource::new`] and restored by
+    /// [`ChunkSource::fill`] at every chunk promotion: this is `Some` unless the
+    /// stream has ended or failed. Two things follow, and they are why the
+    /// read-ahead is maintained rather than fetched on demand:
+    ///
+    /// - `queued.is_none() && error.is_none()` *is* end of stream, so
+    ///   [`ChunkSource::is_final_chunk`] answers without polling and there is no
+    ///   separate `exhausted` flag to keep in step.
+    /// - Exhausting `current` never has to wait, because the next chunk was
+    ///   asked for a whole chunk earlier.
+    ///
+    /// It also fuses the stream for free. [`Stream::poll_next`] documents that
+    /// polling after it returns `None` "may panic, block forever, or cause other
+    /// kinds of problems", and only a `FusedStream` promises otherwise — but the
+    /// sole caller of the stream is [`ChunkSource::read_ahead`], which is only
+    /// ever entered when the previous poll yielded a chunk, and which returns
+    /// the moment it sees `None`. So a second poll past the end cannot happen.
     queued: Option<Bytes>,
-    /// Set once the stream has returned `None`. This is a **fuse**, not a
-    /// cache: it cannot be derived from `pos`/`current`/`queued`, because
-    /// having no buffered bytes left says nothing about whether the stream has
-    /// more — finding that out is exactly what polling does. And we must not
-    /// simply poll again to re-ask: [`Stream::poll_next`] documents that once a
-    /// stream has returned `None`, polling it again "may panic, block forever,
-    /// or cause other kinds of problems", with no requirements placed on the
-    /// effects. Only a `FusedStream` promises otherwise, and we accept any
-    /// `Stream`, so the fuse has to live here.
-    exhausted: bool,
     error: Option<std::io::Error>,
 }
 
@@ -64,7 +67,7 @@ impl<S> std::fmt::Debug for ChunkSource<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChunkSource")
             .field("buffered", &(self.current.len() - self.pos))
-            .field("exhausted", &self.exhausted)
+            .field("read_ahead", &self.queued.as_ref().map(Bytes::len))
             .field("error", &self.error)
             .finish_non_exhaustive()
     }
@@ -75,15 +78,24 @@ where
     S: Stream<Item = Result<Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    pub(crate) fn new(stream: S) -> Self {
-        ChunkSource {
+    /// Build a source and **prime it**: fetch the first chunk and the
+    /// read-ahead behind it, so the invariant on `queued` holds from the start.
+    ///
+    /// Priming here rather than lazily on first use is what removes the
+    /// "not yet started" state — without it, `queued.is_none()` would be
+    /// ambiguous between "nothing fetched yet" and "nothing left", and telling
+    /// them apart would need the extra flag this design does without.
+    pub(crate) async fn new(stream: S) -> Self {
+        let mut source = ChunkSource {
             stream: Box::pin(stream),
             current: Bytes::new(),
             pos: 0,
             queued: None,
-            exhausted: false,
             error: None,
-        }
+        };
+        source.current = source.take_from_stream().await.unwrap_or_default();
+        source.read_ahead().await;
+        source
     }
 
     /// Take any latched stream error, for `into_result`.
@@ -99,14 +111,11 @@ where
         std::future::poll_fn(move |cx| stream.as_mut().poll_next(cx)).await
     }
 
-    /// One chunk straight from the stream, folding end-of-stream into
-    /// `exhausted` and a failure into `error`. `None` for either.
+    /// One chunk straight from the stream, latching a failure into `error`.
+    /// `None` for either end of stream or failure.
     async fn take_from_stream(&mut self) -> Option<Bytes> {
         match self.poll_stream().await {
-            None => {
-                self.exhausted = true;
-                None
-            }
+            None => None,
             Some(Ok(chunk)) => Some(chunk),
             Some(Err(e)) => {
                 self.error = Some(std::io::Error::other(e));
@@ -130,11 +139,20 @@ where
     /// [`Self::is_final_chunk`] answering `false` on a stream that in fact has
     /// nothing left — costing the single-chunk fast path to any producer that
     /// pads with empty chunks.
+    ///
+    /// Returning immediately on `None` is what fuses the stream: this is the
+    /// only place the stream is polled after construction, and it is only
+    /// reached when the previous poll produced a chunk.
     async fn read_ahead(&mut self) {
-        while self.queued.is_none() && !self.exhausted && self.error.is_none() {
+        debug_assert!(self.queued.is_none(), "read-ahead already in hand");
+        while self.error.is_none() {
             match self.take_from_stream().await {
                 Some(chunk) if chunk.is_empty() => continue,
-                other => self.queued = other,
+                Some(chunk) => {
+                    self.queued = Some(chunk);
+                    return;
+                }
+                None => return,
             }
         }
     }
@@ -143,27 +161,21 @@ where
     /// Returns false at a clean end of stream or once an error is latched.
     ///
     /// Maintains the invariant that whenever this returns true, `queued` holds
-    /// the next chunk *or* the stream is known to be finished or failed. Note
-    /// the loop: a stream may legitimately yield an empty chunk, and such a
-    /// chunk must be transparent rather than read as end of stream.
+    /// the next chunk *or* the stream is known to be finished or failed.
+    ///
+    /// A loop rather than an `if` only because the *first* chunk may be empty:
+    /// [`Self::new`] takes it straight from the stream, while every later chunk
+    /// comes from `queued`, which [`Self::read_ahead`] never fills with an empty
+    /// one.
     async fn fill(&mut self) -> bool {
         while self.pos == self.current.len() {
-            match self.queued.take() {
-                Some(next) => {
-                    self.current = next;
-                    self.pos = 0;
-                }
-                None if self.exhausted || self.error.is_some() => return false,
-                // Not yet primed: the very first fill has no read-ahead to
-                // promote, so it fetches `current` itself.
-                None => match self.take_from_stream().await {
-                    Some(next) => {
-                        self.current = next;
-                        self.pos = 0;
-                    }
-                    None => return false,
-                },
-            }
+            // No read-ahead means no more data — the invariant says so, with no
+            // need to poll and find out.
+            let Some(next) = self.queued.take() else {
+                return false;
+            };
+            self.current = next;
+            self.pos = 0;
             // Restoring the read-ahead belongs here, with the promotion that
             // consumed it, and not after the loop: the invariant is established
             // when `current` changes and holds until it changes again, so doing
@@ -174,11 +186,10 @@ where
         true
     }
 
-    /// Whether the chunk in hand is the last one: the stream has been polled
-    /// past it and reported end of stream. Answerable at any point thanks to the
-    /// read-ahead invariant `fill` maintains.
+    /// Whether the chunk in hand is the last one. Free, by the invariant: no
+    /// read-ahead and no error means the stream is spent.
     pub(crate) fn is_final_chunk(&self) -> bool {
-        self.queued.is_none() && self.exhausted && self.error.is_none()
+        self.queued.is_none() && self.error.is_none()
     }
 
     /// The whole input, if the stream turns out to deliver it in a single chunk.
@@ -283,7 +294,7 @@ where
     S: Stream<Item = Result<Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    let mut source = ChunkSource::new(stream);
+    let mut source = ChunkSource::new(stream).await;
     if let Some(whole) = source.take_if_single_chunk().await {
         // The whole input is in memory, so decode it the fast way. This is the
         // *same* decoder `v2::decode` uses, reading the same bytes — the async
@@ -361,7 +372,7 @@ mod tests {
     }
 
     fn source_of(items: Vec<Result<Bytes, std::io::Error>>) -> ChunkSource<Ready> {
-        ChunkSource::new(Ready(items.into_iter().collect()))
+        block_on(ChunkSource::new(Ready(items.into_iter().collect())))
     }
 
     /// The single-chunk look-ahead decides which decoder runs. Both decoders
