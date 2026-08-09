@@ -41,6 +41,20 @@ use bytes::Bytes;
 use compactly::v2::{decode_stream, DecodeAsync, Range};
 use futures_core::Stream;
 
+/// How many chunks the `async-split` arm delivers. 2 (a single byte, then the
+/// rest) is the smallest split that defeats the single-chunk look-ahead, and so
+/// the *best* case for the final-chunk handoff — everything after byte one is
+/// decoded synchronously. Larger values show how the benefit scales, since the
+/// handoff can only happen once the last chunk is in hand: with `n` equal
+/// chunks, only the final `1/n` of the input is reached with nothing left to
+/// wait for.
+fn split_chunks() -> usize {
+    std::env::var("CHUNKS")
+        .ok()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(2)
+}
+
 const DEFAULT_COUNT: usize = 2_000;
 /// Total values decoded per run, spread over however many iterations `COUNT`
 /// implies.
@@ -61,12 +75,22 @@ const STRING_VALUE_BUDGET: usize = 4_000_000;
 struct Chunks(std::vec::IntoIter<Bytes>);
 
 impl Chunks {
-    fn new(bytes: &[u8], split: bool) -> Self {
+    fn new(bytes: &[u8], chunks: usize) -> Self {
         let all = Bytes::copy_from_slice(bytes);
-        let parts = if split && all.len() > 1 {
+        let parts = if chunks <= 1 || all.len() < 2 {
+            vec![all]
+        } else if chunks == 2 {
             vec![all.slice(..1), all.slice(1..)]
         } else {
-            vec![all]
+            let size = all.len().div_ceil(chunks);
+            let mut parts = Vec::new();
+            let mut start = 0;
+            while start < all.len() {
+                let end = (start + size).min(all.len());
+                parts.push(all.slice(start..end));
+                start = end;
+            }
+            parts
         };
         Chunks(parts.into_iter())
     }
@@ -114,10 +138,10 @@ fn decode_sync_stream<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> 
     total
 }
 
-fn decode_async<T: DecodeAsync + Len>(compressed: &[u8], iters: usize, split: bool) -> usize {
+fn decode_async<T: DecodeAsync + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
-        let source = Chunks::new(compressed, split);
+        let source = Chunks::new(compressed, chunks);
         total += std::hint::black_box(block_on(decode_stream::<T, _, _>(source)))
             .unwrap()
             .len();
@@ -172,8 +196,8 @@ fn run<T: DecodeAsync + Len>(which: &str, compressed: &[u8], iters: usize) -> us
     match which {
         "slice" => decode_slice::<T>(compressed, iters),
         "stream" => decode_sync_stream::<T>(compressed, iters),
-        "async" => decode_async::<T>(compressed, iters, false),
-        "async-split" => decode_async::<T>(compressed, iters, true),
+        "async" => decode_async::<T>(compressed, iters, 1),
+        "async-split" => decode_async::<T>(compressed, iters, split_chunks()),
         _ => {
             eprintln!(
                 "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split [u64|strings]"

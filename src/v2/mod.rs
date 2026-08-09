@@ -336,6 +336,23 @@ pub trait EntropyDecoder {
 /// opaque return type, so the future *is* `Send` whenever the decoder, the
 /// contexts, and the value all are, which is what `tokio::spawn` needs.
 pub trait AsyncEntropyDecoder {
+    /// The sync decoder this one hands off to once no more input can arrive.
+    type Sync<'a>: EntropyDecoder
+    where
+        Self: 'a;
+
+    /// Decode with the sync decoder, positioned exactly here, if the rest of the
+    /// input is already in hand; `None` if it is not, and the caller must stay
+    /// async.
+    ///
+    /// The point is that an async decode need only stay async for as long as it
+    /// is actually waiting on bytes. Frames already in flight cannot move — they
+    /// live in the async call stack — but a sub-value that has *not started* can
+    /// run entirely synchronously beneath them. Hand over as much at a time as
+    /// possible: a whole loop tail beats one element at a time, since the sync
+    /// decoder then keeps its state register-resident across all of it.
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> Option<R>;
+
     /// Fold a decode result together with any error latched while reading; see
     /// [`EntropyDecoder::into_result`], whose rule this shares — a latched
     /// source error wins over a downstream validation error.

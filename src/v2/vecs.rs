@@ -174,9 +174,29 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
             .await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
-        for _ in 0..n {
+        let mut decoded = 0;
+        while decoded < n {
+            // Once the rest of the input has arrived there is nothing left to
+            // wait for, so finish the whole remaining loop on the sync decoder
+            // rather than one element at a time — that is what keeps its state
+            // register-resident across the tail.
+            //
+            // Bound to a `let` so the closure's borrows of `x`/`sentinel`/`ctx`
+            // end at the semicolon rather than lasting the whole `if let`.
+            let finished = reader.with_sync(|sync| {
+                for _ in decoded..n {
+                    sentinel.decode(sync)?;
+                    x.push(S::decode(sync, &mut ctx.values)?);
+                }
+                Ok::<(), std::io::Error>(())
+            });
+            if let Some(result) = finished {
+                result?;
+                return Ok(x);
+            }
             sentinel.decode_async(reader).await?;
             x.push(S::decode_async(reader, &mut ctx.values).await?);
+            decoded += 1;
         }
         Ok(x)
     }

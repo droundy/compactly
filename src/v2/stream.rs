@@ -190,6 +190,24 @@ where
         self.queued.is_none() && self.error.is_none()
     }
 
+    /// Every byte the source has left, as one slice — but only once no more can
+    /// arrive, so that a sync decoder handed this cannot come up short.
+    ///
+    /// Returned owned (a `Bytes` slice is a refcount bump, not a copy) rather
+    /// than borrowed, so the caller can go on mutating the source while holding
+    /// it — which is exactly what handing it to a sync decoder and then
+    /// [advancing](Self::advance) by what that decoder consumed requires.
+    pub(crate) fn final_remainder(&self) -> Option<Bytes> {
+        self.is_final_chunk()
+            .then(|| self.current.slice(self.pos..))
+    }
+
+    /// Skip `n` bytes of the current chunk, after something else has read them.
+    pub(crate) fn advance(&mut self, n: usize) {
+        debug_assert!(self.pos + n <= self.current.len());
+        self.pos += n;
+    }
+
     /// The whole input, if the stream turns out to deliver it in a single chunk.
     ///
     /// Worth a look-ahead poll because a single-chunk input has **no overlap

@@ -889,6 +889,45 @@ where
         }
     }
 
+    /// Run `f` against the **sync** slice [`Decoder`], positioned exactly here,
+    /// and adopt whatever position it reaches. `None` when the input is still
+    /// arriving, in which case the caller must stay on the async path.
+    ///
+    /// This is what lets a multi-chunk decode stop paying for async once the
+    /// last chunk is in hand. The frames already in flight stay async — their
+    /// state lives in the async call stack and cannot be moved — but any
+    /// sub-value that has *not started yet* can be decoded synchronously, with
+    /// those frames acting as a shell. The deeper the handoff, the more of the
+    /// remaining work runs at sync speed; handing over a whole loop tail rather
+    /// than one element at a time is strictly better, since the sync decoder
+    /// then keeps `state`/`value`/`bytes` register-resident across all of it.
+    ///
+    /// Only the three words of coder state need translating: `Decoder` holds
+    /// the same `ArithState` and window `value`, and a `&[u8]` cursor where
+    /// this holds a chunk plus offset. Nothing is re-read or re-derived, so the
+    /// handoff is exact — the sync decoder resumes mid-stream rather than
+    /// starting one.
+    ///
+    /// Gated on there being no more input rather than trusting the caller: a
+    /// slice decoder run on a non-final chunk would zero-pad past the end of
+    /// the chunk and return plausible, wrong values. Making that unrepresentable
+    /// costs one field test.
+    #[inline]
+    pub(crate) fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder) -> R) -> Option<R> {
+        let rest = self.source.final_remainder()?;
+        let mut sync = Decoder {
+            bytes: &rest,
+            state: self.state,
+            value: self.value,
+        };
+        let result = f(&mut sync);
+        let consumed = rest.len() - sync.bytes.len();
+        self.state = sync.state;
+        self.value = sync.value;
+        self.source.advance(consumed);
+        Some(result)
+    }
+
     /// Pull `n` entropy bytes into the window; the async twin of
     /// [`RangeDecoder::refill`].
     #[inline]
@@ -934,6 +973,16 @@ where
     S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
+    type Sync<'a>
+        = Decoder<'a>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder<'_>) -> R) -> Option<R> {
+        AsyncRangeDecoder::with_sync(self, f)
+    }
+
     /// A latched stream error wins over a downstream validation error, for the
     /// reason given on the trait method.
     fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {

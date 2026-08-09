@@ -1377,6 +1377,56 @@ Two details worth keeping:
 async-decode-overlap`, then `[RATE_MBPS=n] bench
 ./target/release/async-decode-overlap both`.)
 
+### Handing the tail to the sync decoder once the last chunk is in (2026-08-09)
+
+The async traversal only needs to be async while it is actually waiting on
+bytes. Frames already in flight cannot move — their state is the async call
+stack — but a sub-value that has **not started yet** can be decoded entirely by
+the sync slice decoder, with those frames acting as a shell. Only three words of
+coder state need translating (`ArithState`, the window `value`, and a cursor),
+so `AsyncRangeDecoder::with_sync` builds a `Decoder` positioned exactly here,
+runs a closure against it, and adopts whatever position it reaches.
+
+Gated on there being no more input, not on a byte bound: a slice decoder run on
+a non-final chunk would zero-pad past the end and return plausible wrong values.
+`with_sync` returns `Option`, so that case is unrepresentable rather than a
+documented precondition — the check is one field test.
+
+Wired into `Values<Vec<T>>`, which hands over the **whole remaining loop** at
+once rather than one element at a time, so the sync decoder keeps its state
+register-resident across the tail. Best case (2k `u64`, input split one byte
+then the rest, so the handoff is immediate):
+
+| | cycles vs `slice` | instructions vs `slice` |
+|---|---|---|
+| before | +70.9% | +151.5% |
+| after | **+0.82%** | **+0.40%** |
+| strings | +0.10% | −0.00% |
+
+**But the benefit is exactly the fraction of bytes in the final chunk**, because
+that is all the handoff can reach. Sweeping the split of the same 2k `u64`:
+
+| chunks | instructions vs `slice` | `151.5% × (n−1)/n` |
+|---|---|---|
+| 2 (1 byte + rest) | **+0.3%** | — (off-model: the "final chunk" is nearly everything) |
+| 4 | +114.2% | +113.6% |
+| 16 | +143.2% | +142.0% |
+| 64 | +151.1% | +149.1% |
+| 256 | +156.5% | +150.9% |
+
+The model fits from `n = 4` on, so this is understood rather than mysterious: at
+64 chunks the handoff recovers essentially nothing, because 63/64 of the decode
+happens before the last chunk arrives.
+
+**What would make it fire for real streams**: buffer more than one chunk ahead
+when more has *already* arrived — a non-blocking drain, polling while the stream
+returns `Ready` and stopping at the first `Pending`. That converts "many small
+chunks already in the transport" into "one large final chunk", which is exactly
+the shape the handoff wants, and costs no latency because it never waits. A
+decoder slower than its source would then converge on holding everything and
+switch to sync for the remainder. Not done yet; this is the natural next step,
+and the numbers above are what justify it.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
