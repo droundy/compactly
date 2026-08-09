@@ -1461,25 +1461,46 @@ fn streaming_matches_in_memory() {
     }
 }
 
-/// R2 for `Ans`: once a read error is latched, [`AnsDecoder::into_result`] must
-/// surface *that* IO error even when `T::decode` returned an `Err`. This rule was
-/// previously hand-written inline in `decode_from_with`; it now lives in the
-/// shared trait method (reached via `stream_decode`), so it needs its own
-/// error-injection coverage — the round-trip tests above never latch an error.
+/// The "latched IO error wins" rule now lives in the shared
+/// [`AnsDecoder::into_result`] (reached via `stream_decode`), where the round-trip
+/// tests above never exercise it. This covers all three things the consolidation
+/// put on that path:
+///  - a construction-time latch (first chunk tag unreadable) beating a downstream
+///    `Err`, at the trait method directly;
+///  - a read failure **mid-decode, inside `load_next_chunk`** of a genuine
+///    multi-chunk stream — the exact path the old inline logic guarded; and
+///  - that the surfaced error is **specifically the latched IO error**, not a
+///    decode validation symptom fabricated from the zero-padded tail.
 #[cfg(test)]
 #[test]
-fn ans_into_result_prefers_latched_error_over_downstream() {
-    /// A `Read` that errors on every call, so an IO error latches immediately.
-    struct FailingReader;
-    impl std::io::Read for FailingReader {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("transient read failure"))
+fn ans_decode_from_surfaces_latched_read_error() {
+    use crate::{Encoded, Incompressible};
+
+    /// A `Read` that delivers `data[..fail_after]` and then errors on every
+    /// further call, modelling a stream that dies partway through.
+    struct FailAfter {
+        data: Vec<u8>,
+        pos: usize,
+        fail_after: usize,
+    }
+    impl std::io::Read for FailAfter {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = buf.len().min(self.fail_after.saturating_sub(self.pos));
+            if n == 0 {
+                return Err(std::io::Error::other("transient read failure"));
+            }
+            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
         }
     }
 
-    // `new` reads the leading chunk tag, so the error latches during construction;
-    // the fabricated downstream error must not mask it.
-    let decoder = AnsDecoder::<FailingReader, true>::new(FailingReader);
+    // (a) Construction-time latch beats a downstream `Err`, at the trait method.
+    let decoder = AnsDecoder::<FailAfter, true>::new(FailAfter {
+        data: Vec::new(),
+        pos: 0,
+        fail_after: 0,
+    });
     let downstream: std::io::Result<u8> =
         Err(std::io::Error::other("downstream validation symptom"));
     let err = decoder
@@ -1490,11 +1511,73 @@ fn ans_into_result_prefers_latched_error_over_downstream() {
         "the latched IO error must win over the downstream error, got: {err}"
     );
 
-    // End to end through the public entry point: a failing reader must report the
-    // IO error, not a decode validation symptom from the fabricated zero tail.
+    // (b) Mid-decode failure inside `load_next_chunk` of a real multi-chunk
+    // stream (same shape as `multi_chunk_round_trips`). Cutting the reader off
+    // exactly at the first chunk boundary lets the first chunk decode cleanly and
+    // lands the failure when the decoder reads the *second* chunk's frame.
+    type Item = (u64, Encoded<Vec<u8>, Incompressible>);
+    let mut x = 0x1234_5678_9abc_def0u64;
+    let mut rng = || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    let items: Vec<Item> = (0..60_000)
+        .map(|_| {
+            let len = (rng() % 5) as usize;
+            let run: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+            (rng() % 1000, Encoded::new(run))
+        })
+        .collect();
+    let encoded = Ans::encode(&items);
+    assert!(count_chunks(&encoded) >= 2, "need a multi-chunk stream");
+
+    // Byte length of the first (non-final) chunk: its 3-varint header plus both
+    // region bodies (the frame walk `count_chunks` uses).
+    let mut p: &[u8] = &encoded;
+    let tag = read_varint(&mut p);
     assert!(
-        Ans::decode_from::<Vec<u64>, _>(FailingReader).is_err(),
-        "decode_from must surface the reader error"
+        tag & 1 == 1,
+        "first chunk must be non-final in a multi-chunk stream"
+    );
+    let entropy_len = read_varint(&mut p);
+    let incompressible_len = read_varint(&mut p);
+    let header_len = encoded.len() - p.len();
+    let first_chunk_end = header_len + entropy_len + incompressible_len;
+
+    let reader = FailAfter {
+        data: encoded.clone(),
+        pos: 0,
+        fail_after: first_chunk_end,
+    };
+    let err = Ans::decode_from::<Vec<Item>, _>(reader)
+        .expect_err("a read failure entering the second chunk must surface as Err");
+    assert!(
+        err.to_string().contains("transient read failure"),
+        "decode_from must report the latched IO error, not a fabricated decode \
+         symptom, got: {err}"
+    );
+}
+
+/// R4, `Ans` side: mirror of `arith`'s `encode_to_surfaces_buffered_flush_error`.
+/// `Ans::encode_to` must flush the caller's writer so a wrapping `BufWriter`'s
+/// final flush error surfaces here rather than being swallowed by its `Drop`.
+#[cfg(test)]
+#[test]
+fn ans_encode_to_surfaces_buffered_flush_error() {
+    struct FlushFails;
+    impl std::io::Write for FlushFails {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("flush failed (e.g. ENOSPC)"))
+        }
+    }
+    let writer = std::io::BufWriter::new(FlushFails);
+    let result = Ans::encode_to(&vec![5u64, 4, 3, 2, 1], writer);
+    assert!(
+        result.is_err(),
+        "Ans::encode_to must surface the wrapped BufWriter's final flush error"
     );
 }
 
