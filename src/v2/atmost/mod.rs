@@ -180,7 +180,7 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     const MAX_BYTES: usize = if MAX < super::model::SymbolRange::M as usize {
         super::MAX_BYTES_PER_SYMBOL
     } else {
-        (usize::BITS - MAX.leading_zeros()) as usize * super::MAX_BYTES_PER_BIT
+        (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
     };
     type Context = AtMostContext<MAX>;
     #[inline]

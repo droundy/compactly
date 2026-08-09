@@ -7,7 +7,13 @@ use super::{bit_context::BitContext, EncodingStrategy};
 use expect_test::expect;
 
 impl Encode for bool {
-    const MAX_BYTES: usize = super::MAX_BYTES_PER_BIT;
+    /// One coded bit, and so the unit every other bound is built from.
+    ///
+    /// `Range` renormalizes by shifting settled bytes out of a `u64` window, so
+    /// a single step drains at most the whole window — `ArithState::decode`
+    /// returns 8 in its degenerate case, and `consume_decoded_bytes` is capped
+    /// at 8.
+    const MAX_BYTES: usize = 8;
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

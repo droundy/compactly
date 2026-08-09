@@ -326,7 +326,7 @@ macro_rules! impl_compact {
             /// coded bits.
             const MAX_BYTES: usize = 2 * crate::v2::MAX_BYTES_PER_SYMBOL
                 + ($bits - 1) / 8
-                + 7 * crate::v2::MAX_BYTES_PER_BIT;
+                + 7 * <bool as Encode>::MAX_BYTES;
             type Context = $context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {

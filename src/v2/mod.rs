@@ -413,19 +413,13 @@ pub trait AsyncEntropyDecoder {
     ) -> impl std::future::Future<Output = Result<(), std::io::Error>>;
 }
 
-/// Worst-case bytes of coded stream one adaptive bit can consume.
-///
-/// `Range` renormalizes by shifting settled bytes out of a `u64` window, so a
-/// single step drains at most the whole window — `ArithState::decode` returns 8
-/// in its degenerate case and `consume_decoded_bytes` is capped at 8.
-pub(crate) const MAX_BYTES_PER_BIT: usize = 8;
-
 /// Worst-case bytes of coded stream one whole-symbol step can consume.
 ///
 /// `clamp_for_symbol`'s loop shifts left by at least a byte each time it fires
 /// and cannot shift more than the 8-byte window out in total, then the symbol's
-/// own renormalization drains at most the window again.
-pub(crate) const MAX_BYTES_PER_SYMBOL: usize = 2 * MAX_BYTES_PER_BIT;
+/// own renormalization drains at most the window again — so twice what a single
+/// bit step can, which is what [`bool`]'s own bound already names.
+pub(crate) const MAX_BYTES_PER_SYMBOL: usize = 2 * <bool as Encode>::MAX_BYTES;
 
 /// Trait for types that can be compactly encoded.
 ///
@@ -442,8 +436,9 @@ pub trait Encode: Sized {
     /// kilobytes, so the difference between a bound of 100 and a bound of 1000
     /// is invisible. Being **wrong** is not free — a value that consumes more
     /// than it declares would be decoded past the end of the buffer, producing
-    /// plausible garbage — so derive it from [`MAX_BYTES_PER_BIT`] and
-    /// [`MAX_BYTES_PER_SYMBOL`] rather than from measurement, and prefer slack.
+    /// plausible garbage — so derive it from `<bool as Encode>::MAX_BYTES` (one
+    /// coded bit) and [`MAX_BYTES_PER_SYMBOL`] rather than from measurement, and
+    /// prefer slack.
     ///
     /// Defaults to `usize::MAX`, so a type that does not override it simply
     /// never takes the fast path. Opting in is safe by construction.
