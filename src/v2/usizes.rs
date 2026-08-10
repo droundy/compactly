@@ -71,6 +71,10 @@ pub struct SmallContext {
 }
 
 impl EncodingStrategy<usize> for Small {
+    /// A bucket symbol, then either an in-bucket offset symbol or (top
+    /// bucket) the value delegated to `Small<u64>`.
+    const MAX_BYTES: usize = <AtMost<7> as Encode>::MAX_BYTES
+        .saturating_add(<Small as EncodingStrategy<u64>>::MAX_BYTES);
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
@@ -219,6 +223,8 @@ pub struct SortedContext {
 }
 
 impl EncodingStrategy<usize> for Sorted {
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<usize>>::MAX_BYTES);
     type Context = SortedContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -474,6 +480,9 @@ impl Default for IsizeContext {
 }
 
 impl Encode for isize {
+    /// A sign bit, then the magnitude through `usize`'s scheme.
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<usize as Encode>::MAX_BYTES);
     type Context = IsizeContext;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -515,6 +524,8 @@ pub struct IsizeSmallContext {
 }
 
 impl EncodingStrategy<isize> for Small {
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<usize>>::MAX_BYTES);
     type Context = IsizeSmallContext;
     #[inline]
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
@@ -549,6 +560,8 @@ pub struct IsizeSortedContext {
 }
 
 impl EncodingStrategy<isize> for Sorted {
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<isize>>::MAX_BYTES);
     type Context = IsizeSortedContext;
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {

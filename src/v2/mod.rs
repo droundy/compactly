@@ -484,9 +484,11 @@ pub trait Encode: Sized {
     /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
     /// against real decodes.
     ///
-    /// Defaults to `usize::MAX`, so a type that does not override it simply
-    /// never takes the fast path. Opting in is safe by construction.
-    const MAX_BYTES: usize = usize::MAX;
+    /// Required, deliberately: there is no default to fall through, so every
+    /// implementor has to decide. `usize::MAX` is the honest answer for anything
+    /// length-driven and costs only the fast path, so saying so is cheap — but
+    /// it should be *said*, not defaulted into.
+    const MAX_BYTES: usize;
 
     /// Context storing probability model for this type.
     type Context: Default + Clone;
@@ -661,9 +663,11 @@ where
 /// can use full paths in your derive macros, e.g.
 /// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
 pub trait EncodingStrategy<T> {
-    /// The most bytes of coded stream one value coded with this strategy can
-    /// occupy; see [`Encode::MAX_BYTES`], whose contract this shares.
-    const MAX_BYTES: usize = usize::MAX;
+    /// The most information one value coded with this strategy can account for,
+    /// in bytes; see [`Encode::MAX_BYTES`], whose contract this shares. A
+    /// strategy that codes differently from the type's default needs its own
+    /// figure — `Small` and `Sorted` do not cost the same as `Normal`.
+    const MAX_BYTES: usize;
 
     /// The conext (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
@@ -698,6 +702,7 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, bytes: &[u8]) -> Opt
 }
 
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
+    const MAX_BYTES: usize = S::MAX_BYTES;
     type Context = S::Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

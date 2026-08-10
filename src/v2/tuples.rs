@@ -4,6 +4,8 @@ use super::Encode;
 use expect_test::expect;
 
 impl Encode for () {
+    /// Carries no information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
     type Context = ();
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, _writer: &mut E, _ctx: &mut Self::Context) {}
@@ -17,6 +19,8 @@ impl Encode for () {
 }
 
 impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES.saturating_add(T2::MAX_BYTES);
     type Context = (T1::Context, T2::Context);
 
     #[inline]
@@ -38,6 +42,10 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
 }
 
 impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES);
     type Context = (T1::Context, T2::Context, T3::Context);
 
     #[inline]
@@ -61,6 +69,11 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
 }
 
 impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4) {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES)
+        .saturating_add(T4::MAX_BYTES);
     type Context = (T1::Context, T2::Context, T3::Context, T4::Context);
 
     #[inline]
@@ -86,6 +99,12 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
 }
 
 impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1, T2, T3, T4, T5) {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES)
+        .saturating_add(T4::MAX_BYTES)
+        .saturating_add(T5::MAX_BYTES);
     type Context = (
         T1::Context,
         T2::Context,
@@ -121,6 +140,13 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
 impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Encode
     for (T1, T2, T3, T4, T5, T6)
 {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES)
+        .saturating_add(T4::MAX_BYTES)
+        .saturating_add(T5::MAX_BYTES)
+        .saturating_add(T6::MAX_BYTES);
     type Context = (
         T1::Context,
         T2::Context,
@@ -159,6 +185,14 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
 impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7: Encode> Encode
     for (T1, T2, T3, T4, T5, T6, T7)
 {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES)
+        .saturating_add(T4::MAX_BYTES)
+        .saturating_add(T5::MAX_BYTES)
+        .saturating_add(T6::MAX_BYTES)
+        .saturating_add(T7::MAX_BYTES);
     type Context = (
         T1::Context,
         T2::Context,
@@ -208,6 +242,15 @@ impl<
         T8: Encode,
     > Encode for (T1, T2, T3, T4, T5, T6, T7, T8)
 {
+    /// The elements, coded in sequence.
+    const MAX_BYTES: usize = T1::MAX_BYTES
+        .saturating_add(T2::MAX_BYTES)
+        .saturating_add(T3::MAX_BYTES)
+        .saturating_add(T4::MAX_BYTES)
+        .saturating_add(T5::MAX_BYTES)
+        .saturating_add(T6::MAX_BYTES)
+        .saturating_add(T7::MAX_BYTES)
+        .saturating_add(T8::MAX_BYTES);
     type Context = (
         T1::Context,
         T2::Context,

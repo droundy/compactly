@@ -62,6 +62,12 @@ macro_rules! impl_float {
             }
 
             impl Encode for $t {
+                /// One of a few tiers — raw bytes, `Small<i64>`, or a decimal
+                /// mantissa and power — behind a couple of selector bits.
+                /// Loose on purpose; property-tested rather than derived tightly.
+                const MAX_BYTES: usize = 4 * <bool as Encode>::MAX_BYTES
+                    + std::mem::size_of::<$t>()
+                    + 2 * <Small as EncodingStrategy<i64>>::MAX_BYTES;
                 type Context = FloatContext;
                 #[inline]
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -239,6 +245,8 @@ macro_rules! impl_float {
                 exponent: <Small as EncodingStrategy<i8>>::Context,
             }
             impl EncodingStrategy<$t> for Decimal {
+                /// As the default encoding, plus the non-decimal fallback.
+                const MAX_BYTES: usize = <$t as Encode>::MAX_BYTES;
                 type Context = DecimalContext;
                 fn encode<E: super::EntropyCoder>(
                     value: &$t,

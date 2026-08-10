@@ -33,6 +33,8 @@ impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
 }
 
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = SetContext<T, Normal>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -65,6 +67,8 @@ impl<T: Ord> Encode for BTreeSet<T>
 where
     Sorted: EncodingStrategy<T>,
 {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = SetContext<T, Sorted>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -87,6 +91,8 @@ pub struct CompactU64Set {
 }
 
 impl EncodingStrategy<BTreeSet<u64>> for super::Small {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = CompactU64Set;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<u64>,
@@ -129,6 +135,8 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
 }
 
 impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S> {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<T>,
@@ -189,6 +197,7 @@ impl Ord for OrdOnFirstField {
 
 #[cfg(test)]
 impl Encode for OrdOnFirstField {
+    const MAX_BYTES: usize = <i32 as Encode>::MAX_BYTES.saturating_add(<char as Encode>::MAX_BYTES);
     type Context = (<i32 as Encode>::Context, <char as Encode>::Context);
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         self.0.encode(writer, &mut ctx.0);
@@ -245,6 +254,8 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
 }
 
 impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
         value.len().encode(writer, &mut ctx.len);

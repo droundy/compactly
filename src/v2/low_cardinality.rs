@@ -33,6 +33,8 @@ macro_rules! impl_low_cardinality {
         mod $mod {
             use super::{CacheContext, Encode, EncodingStrategy, LowCardinality};
             impl EncodingStrategy<$t> for LowCardinality {
+                /// Unbounded: a dictionary index over arbitrarily many values.
+                const MAX_BYTES: usize = usize::MAX;
                 type Context = CacheContext<$t>;
                 #[inline]
                 fn encode<E: super::super::EntropyCoder>(
@@ -322,6 +324,9 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
 }
 
 impl EncodingStrategy<Arc<str>> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = DictContext<Arc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Arc<str>, writer: &mut E, ctx: &mut Self::Context) {
@@ -340,6 +345,9 @@ impl EncodingStrategy<Arc<str>> for LowCardinality {
 }
 
 impl EncodingStrategy<Rc<str>> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = DictContext<Rc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Rc<str>, writer: &mut E, ctx: &mut Self::Context) {
@@ -364,6 +372,9 @@ impl EncodingStrategy<Rc<str>> for LowCardinality {
 // share the cached buffer), so prefer `Arc<str>`/`Rc<str>` fields when you
 // can; see `LowCardinality`'s docs.
 impl EncodingStrategy<String> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = DictContext<Rc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
@@ -387,6 +398,9 @@ where
     T: Encode,
     LowCardinality: EncodingStrategy<T>,
 {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = (
         <usize as Encode>::Context,
         <LowCardinality as EncodingStrategy<T>>::Context,

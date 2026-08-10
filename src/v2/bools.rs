@@ -42,6 +42,7 @@ impl super::DecodeAsync for bool {
 }
 
 impl EncodingStrategy<bool> for Sorted {
+    const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES;
     type Context = BitContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,

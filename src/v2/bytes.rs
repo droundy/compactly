@@ -472,6 +472,8 @@ Lossless data compression is used in many applications. For example, it is used 
 Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
 impl Encode for Chunk {
+    /// Unbounded: an Lz77 match or literal run of arbitrary length.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         let Chunk {
@@ -522,6 +524,8 @@ impl Encode for Chunk {
 }
 
 impl EncodingStrategy<Vec<u8>> for Compressible {
+    /// Length-driven: an arbitrary number of bytes.
+    const MAX_BYTES: usize = usize::MAX;
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value, writer)
