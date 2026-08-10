@@ -2096,6 +2096,33 @@ impl std::io::Read for FrameBuffer {
     }
 }
 
+/// How few ops may be left in the current chunk before [`AsyncAnsDecoder`] will
+/// suspend to buffer the next frame.
+///
+/// It has to exceed the most ops one call through the decoder can consume,
+/// because `read_ahead` runs once per call and not once per op: a `decode_bits`
+/// batch spends `N`, and a multi-step `AtMost` walk spends one per tree level.
+/// Both are small — the library only ever batches through `decode_bit`
+/// (`N = 1`) today, and the deepest walk is bounded by the tree height — so 256
+/// is generous by a wide margin while costing 0.4% of a chunk's `CHUNK_OPS`
+/// worth of overlap.
+///
+/// Being wrong here fails loudly rather than silently: the sync decoder's
+/// `load_next_chunk` would find no frame in the buffer, and `read_varint_io`
+/// reports that as [`truncated_stream`].
+#[cfg(feature = "stream")]
+const OPS_MARGIN: usize = 256;
+
+/// Ops between polls of the transport while the decoder is working through a
+/// buffered frame.
+///
+/// `read_ahead` runs once per op and polling a `Stream` is far from free, so the
+/// pump is throttled rather than run every time. 1024 gives 64 chances to notice
+/// an arrival within one [`CHUNK_OPS`] frame — ample, since acting on it any
+/// time before the frame's ops run out is equally good — for 0.1% of the ops.
+#[cfg(feature = "stream")]
+const PUMP_INTERVAL: u32 = 1024;
+
 /// Decodes [`Ans`]'s format from a stream of [`Bytes`](bytes::Bytes), one chunk
 /// frame at a time.
 ///
@@ -2124,6 +2151,11 @@ pub struct AsyncAnsDecoder<S> {
     /// the sync decoder may then run to completion without blocking — which is
     /// what [`AsyncEntropyDecoder::is_final`] reports.
     reached_final: bool,
+    /// Monotone lower bound on the source bytes the next frame needs; see
+    /// [`Self::next_frame_has_arrived`].
+    next_frame_bytes: usize,
+    /// Ops until the transport is polled again; see [`PUMP_INTERVAL`].
+    pump_countdown: u32,
 }
 
 #[cfg(feature = "stream")]
@@ -2156,6 +2188,10 @@ where
                 error: None,
             },
             reached_final: false,
+            next_frame_bytes: 1,
+            // Zero, so the first `read_ahead` polls rather than waiting out an
+            // interval before it has any frame in reserve.
+            pump_countdown: 0,
         };
         me.buffer_next_frame().await;
         // Uniform with every later chunk: the tag is in the buffer, so the sync
@@ -2165,28 +2201,101 @@ where
         me
     }
 
-    /// Keep one complete unentered frame buffered, so a `load_next_chunk` from
-    /// *inside* sync code reads from memory instead of blocking. It has to be
-    /// possible from inside: a multi-step `AtMost` walk can exhaust a chunk
-    /// mid-symbol, and the boundary lands wherever `CHUNK_OPS` falls, not on a
-    /// value boundary.
+    /// Have a complete unentered frame buffered *by the time* a
+    /// `load_next_chunk` from inside sync code needs one — and not before.
+    ///
+    /// It has to be possible from inside: a multi-step `AtMost` walk can exhaust
+    /// a chunk mid-symbol, and the boundary lands wherever `CHUNK_OPS` falls,
+    /// not on a value boundary. What it must *not* be is eager. Buffering the
+    /// next frame the moment the current one is entered awaits the whole of it
+    /// — tens of kilobytes — before decoding a single op of the frame in hand,
+    /// which serializes arrival and decode instead of overlapping them. At
+    /// 10 MB/s that is 5.3 ms of waiting against 1.1 ms of decoding, once per
+    /// frame, and it is why `Ans::decode_stream` measured `arrival + decode`.
+    ///
+    /// [`ops_left`](AnsDecoder::ops_left) says when the wait is actually due:
+    /// the sync decoder cannot reach the next frame until the current one's ops
+    /// run out, so deferring until then lets a frame's decode run while its
+    /// successor arrives.
     async fn read_ahead(&mut self) {
         if self.reached_final {
             return;
         }
-        if !self.inner.reader.has_unentered() {
+        // Nothing else reads the source while the sync decoder works through a
+        // buffered frame, so `ready_bytes` goes stale unless we poll — and a
+        // stale zero looks exactly like a transport that has fallen behind.
+        // Throttled, because polling a stream is far from free and this runs
+        // once per op; see `PUMP_INTERVAL`.
+        if self.pump_countdown == 0 {
+            self.pump_countdown = PUMP_INTERVAL;
+            self.source.drain_ready().await;
+            // Everything has arrived, so taking the rest cannot suspend. Worth
+            // doing in one go: it sets `reached_final`, and `is_final` then lets
+            // whole values decode through the sync decoder rather than op by op.
+            if self.source.is_complete() {
+                while !self.reached_final {
+                    self.buffer_next_frame().await;
+                }
+                return;
+            }
+            // Frames that have *wholly* arrived are free to take, and taking
+            // them is what gets `is_final` true — and whole values decoding
+            // synchronously — as soon as the transport is ahead of us.
+            while !self.reached_final && self.next_frame_has_arrived() {
+                self.buffer_next_frame().await;
+            }
+        } else {
+            self.pump_countdown -= 1;
+        }
+        if !self.reached_final
+            && !self.inner.reader.has_unentered()
+            && self.inner.ops_left <= OPS_MARGIN
+        {
+            // Now it must be waited for: the sync decoder is about to reach it.
             self.buffer_next_frame().await;
         }
-        // Then take whatever else the transport has *already* delivered. Every
-        // frame buffered is one the sync decoder can cross without suspending,
-        // and once the last is in, `is_final` goes true and the whole remainder
-        // runs synchronously. Nothing here waits for a byte that has not
-        // arrived, so this cannot cost latency — only the memory the transport
-        // has already spent. The async path is therefore paid only while the
-        // decode is genuinely ahead of the network, which is the only time it
-        // buys anything.
-        while !self.reached_final && self.source.ready_bytes() > 0 {
-            self.buffer_next_frame().await;
+    }
+
+    /// Whether the whole of the next frame is already buffered, so
+    /// [`Self::buffer_next_frame`] cannot suspend.
+    ///
+    /// Runs once per op, so the header parse is guarded by `next_frame_bytes`, a
+    /// monotone lower bound on the bytes the frame needs: below it the answer is
+    /// certainly no, and the check costs a subtraction and a comparison. The
+    /// bound is refined on each failed peek and reset once a frame is taken.
+    ///
+    /// The *final* frame's entropy region has no length — it runs to end of
+    /// stream — so "wholly arrived" for it means "the stream has ended", which
+    /// is [`ChunkSource::is_complete`]'s branch above rather than this one.
+    fn next_frame_has_arrived(&mut self) -> bool {
+        let ready = self.source.ready_bytes();
+        if ready < self.next_frame_bytes {
+            return false;
+        }
+        let buffered = self.source.peek();
+        let mut rest = buffered;
+        let (Some(tag), ..) = (read_varint(&mut rest),) else {
+            self.next_frame_bytes = ready + 1;
+            return false;
+        };
+        if tag & 1 == 0 {
+            self.next_frame_bytes = usize::MAX;
+            return false;
+        }
+        let (Some(entropy_len), Some(incompressible_len)) =
+            (read_varint(&mut rest), read_varint(&mut rest))
+        else {
+            self.next_frame_bytes = ready + 1;
+            return false;
+        };
+        let header = buffered.len() - rest.len();
+        let need = header + entropy_len + incompressible_len;
+        if ready >= need {
+            self.next_frame_bytes = 1;
+            true
+        } else {
+            self.next_frame_bytes = need;
+            false
         }
     }
 

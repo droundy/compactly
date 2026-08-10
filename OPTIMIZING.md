@@ -1732,6 +1732,56 @@ on a transport slower than the decoder — which is precisely the regime where
 `Ans` is waiting on bytes anyway. Worth doing only after the `read_ahead`
 eagerness fix, which is what actually gates that regime.
 
+### `Ans::decode_stream` finally overlaps: stop awaiting the next frame (2026-08-10)
+
+`AsyncAnsDecoder::read_ahead` buffered the next frame the moment the current one
+was entered — awaiting the whole of it, tens of kilobytes, before decoding a
+single op of the frame already in hand. That serializes arrival and decode: at
+10 MB/s, 5.3 ms of waiting against 1.1 ms of decoding, once per frame, fifteen
+times over. Hence the `arrival + decode` shape.
+
+`ops_left` says when the wait is actually due — the sync decoder cannot reach
+the next frame until the current one's ops run out — so the await is now
+deferred until `ops_left <= OPS_MARGIN`. 100k `u64`, 802 KB, 64 chunks:
+
+| rate | arrival | collect | before | after | |
+|---|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 18.0 ms | 18.9 ms | 19.0 ms | +5.6% |
+| 100 MB/s | 8.0 ms | 24.0 ms | 25.3 ms | 23.2 ms | **−3.3%** |
+| 50 MB/s | 16.1 ms | 32.0 ms | 33.2 ms | 29.0 ms | **−9.4%** |
+| 25 MB/s | 32.1 ms | 48.3 ms | 49.5 ms | 40.4 ms | **−16.4%** |
+| 10 MB/s | 80.3 ms | 96.4 ms | 97.7 ms | 81.4 ms | **−15.5%** |
+
+At 10 MB/s that is 81.4 ms against 80.3 ms of arrival: the decode is essentially
+entirely hidden, which is the `max(arrival, decode)` shape the API exists for.
+**`Ans::decode_stream` now earns its existence**, which it did not before. Only
+400 MB/s is still worse than collect, and that is right — 2 ms of arrival has no
+overlap to offer, and the single-chunk fast path already takes the genuinely
+buffered case.
+
+Two things had to come with it, and each was found by measuring rather than by
+reasoning:
+
+- **Deferring alone regressed fast rates by 77%** (400 MB/s: 18.9 → 31.7 ms).
+  The old eager loop was doing load-bearing work: draining every arrived frame
+  got `reached_final` true early, and `is_final` is what lets whole values
+  decode through the sync decoder instead of op by op. Restored as
+  `next_frame_has_arrived` — a header peek that takes a frame only when it has
+  *wholly* arrived, so it can never suspend. The peek is guarded by
+  `next_frame_bytes`, a monotone lower bound, so the per-op cost is a
+  subtraction and a compare rather than a header parse.
+- **The peek alone did not help either**, because `ready_bytes` was stale.
+  Nothing reads the source while the sync decoder works through a buffered
+  frame, so `drain_ready` never ran and a stale zero looked exactly like a
+  transport that had fallen behind. `read_ahead` now pumps the source itself,
+  throttled by `PUMP_INTERVAL` (1024 ops — 64 chances to notice an arrival
+  within a `CHUNK_OPS` frame, for 0.1% of the ops).
+
+Cost: **+2.0% instructions** on `ans-async` (25.140 B → 25.642 B) in the
+never-suspending benchmark, where the pump does real work on every interval and
+none of the overlap it buys is visible. That is the same lesson as
+§"…but it buys no overlap" in reverse, and the reason both measurements exist.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —

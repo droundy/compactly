@@ -153,7 +153,7 @@ where
     /// the stream, so a transport that starts a fetch when polled has been asked
     /// for the next chunk before we need it. That is the read-ahead this used to
     /// maintain explicitly, obtained here as a side effect of asking.
-    async fn drain_ready(&mut self) {
+    pub(crate) async fn drain_ready(&mut self) {
         if self.ended || self.error.is_some() || self.ready_bytes() >= READY_TARGET {
             return;
         }
@@ -242,6 +242,14 @@ where
     /// [advancing](Self::advance) by what that decoder consumed requires.
     pub(crate) fn buffered(&self) -> Bytes {
         self.current.slice(self.pos..)
+    }
+
+    /// The ready bytes, borrowed — for looking without taking. Free, where
+    /// [`Self::buffered`] costs a refcount bump, so this is what a per-op check
+    /// should use.
+    #[inline]
+    pub(crate) fn peek(&self) -> &[u8] {
+        &self.current[self.pos..]
     }
 
     /// Skip `n` bytes of the current chunk, after something else has read them.
