@@ -1011,10 +1011,7 @@ where
     S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    type Sync<'a>
-        = Decoder<'a>
-    where
-        Self: 'a;
+    type Sync<'a> = Decoder<'a>;
 
     const SETTLING_BYTES: usize = SETTLING_BYTES;
 

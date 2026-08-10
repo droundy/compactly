@@ -14,7 +14,6 @@ mod bit_context;
 mod bits;
 mod bools;
 mod byte;
-mod bytes;
 mod floats;
 #[cfg(feature = "generate_bit_context")]
 pub mod generate_bit_context;
@@ -29,6 +28,7 @@ mod tuples;
 mod ulessthan;
 mod usizes;
 mod vecs;
+mod vecu8;
 
 use crate::{LowCardinality, Small};
 pub use adapt::{Reader, Writer};

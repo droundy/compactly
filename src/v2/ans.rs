@@ -2,8 +2,8 @@ use super::atmost::{walks, AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
 use super::{EntropyCoder, EntropyDecoder};
-mod bytes;
-use bytes::Bytes;
+mod bytebuf;
+use bytebuf::Bytes;
 
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
@@ -306,6 +306,25 @@ impl<W: std::io::Write> AnsEncoder<W> {
 }
 
 impl Ans {
+    /// Decode a value from an async stream of [`Bytes`](bytes::Bytes), decoding
+    /// each chunk frame as it arrives rather than waiting for the whole input.
+    /// Accepts the same bytes [`Ans::encode`] produces.
+    ///
+    /// Overlap stops at the final chunk, whose entropy region has no length and
+    /// so cannot be read before end of stream; see [`AsyncAnsDecoder`].
+    #[cfg(feature = "stream")]
+    pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
+    where
+        crate::Normal: super::DecodeAsync<T>,
+        S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+        E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
+        super::stream_decode_async::<T, crate::Normal, _>(
+            AsyncAnsDecoder::from_source(super::stream::ChunkSource::new(stream).await).await,
+        )
+        .await
+    }
+
     /// Encode value directly to a `Vec<u8>`.
     pub fn encode<T: super::Encode>(value: &T) -> Vec<u8> {
         <Self as EntropyCoder>::encode(value).into()
@@ -949,7 +968,9 @@ fn read_final_region<R: std::io::Read>(
 /// means the whole value is one final chunk, so `CHUNKED = false` compiles the
 /// per-op `ops_left` check and decrement out of the hot paths.
 /// [`Ans::decode_from`] reads the first tag and picks.
-pub(crate) struct AnsDecoder<R: std::io::Read, const CHUNKED: bool = true> {
+/// Public only because it names [`AsyncAnsDecoder`]'s `Sync` associated type;
+/// every field is private and there is no way to build one from outside.
+pub struct AnsDecoder<R: std::io::Read, const CHUNKED: bool = true> {
     reader: R,
     state: State,
     /// Current chunk's entropy region (its leading `STATE_BYTES` seed the state).
@@ -1797,4 +1818,397 @@ fn oversized_final_chunk_is_rejected() {
     // The slice decoder indexes rather than buffering, so it is not at risk and
     // must still merely fail to produce a value rather than panic.
     assert_eq!(Ans::decode::<Vec<u64>>(&bytes), None);
+}
+
+// ============================ async streaming decode ============================
+
+/// A [`Read`](std::io::Read) over chunk frames the async layer has already
+/// pulled from the stream whole.
+///
+/// [`AnsDecoder`] touches its reader **only** inside `enter_chunk`, so buffering
+/// whole frames here lets the entire sync decoder — hot loops, walks and all —
+/// run unchanged on the async path. Reads past the end return 0, which
+/// `read_region`/`read_varint_io` already treat as truncation.
+#[cfg(feature = "stream")]
+#[derive(Default)]
+/// Public for the same reason as [`AnsDecoder`], and equally opaque.
+pub struct FrameBuffer {
+    bytes: Vec<u8>,
+    pos: usize,
+    /// End offset of each appended frame, so the async side can tell how many
+    /// complete frames the sync side has not entered yet.
+    ends: std::collections::VecDeque<usize>,
+}
+
+#[cfg(feature = "stream")]
+impl FrameBuffer {
+    /// Frames buffered in full that `enter_chunk` has not consumed yet.
+    fn unentered(&self) -> usize {
+        self.ends.iter().filter(|&&end| end > self.pos).count()
+    }
+
+    /// Append one complete frame, first dropping whatever the sync side has
+    /// finished with so the buffer does not grow with the stream.
+    fn push_frame(&mut self, frame: &[u8]) {
+        // `enter_chunk` reads a frame in full, so the cursor always sits on a
+        // frame boundary and everything behind it is dead.
+        let dead = self.pos;
+        while self.ends.front().is_some_and(|&end| end <= dead) {
+            self.ends.pop_front();
+        }
+        if dead > 0 {
+            self.bytes.drain(..dead);
+            self.pos = 0;
+            for end in self.ends.iter_mut() {
+                *end -= dead;
+            }
+        }
+        self.bytes.extend_from_slice(frame);
+        self.ends.push_back(self.bytes.len());
+    }
+}
+
+#[cfg(feature = "stream")]
+impl std::io::Read for FrameBuffer {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let n = out.len().min(self.bytes.len() - self.pos);
+        out[..n].copy_from_slice(&self.bytes[self.pos..self.pos + n]);
+        self.pos += n;
+        Ok(n)
+    }
+}
+
+/// Decodes [`Ans`]'s format from a stream of [`Bytes`](bytes::Bytes), one chunk
+/// frame at a time.
+///
+/// Where [`AsyncRangeDecoder`](super::arith::AsyncRangeDecoder) must be able to
+/// suspend on every byte — `Range` delay-interleaves its incompressible bytes,
+/// so its output is decodable as it arrives — `Ans` stores each chunk's
+/// incompressible bytes in a **separate region after** the entropy region. A
+/// chunk's very first op can therefore need a byte from the end of the frame,
+/// so nothing in a frame is decodable until all of it has arrived.
+///
+/// That sounds worse and is mostly better: `enter_chunk` is the only place the
+/// sync decoder reads at all, so suspension happens once per `CHUNK_OPS`
+/// (65536) ops rather than once per byte, and every op in between runs through
+/// the ordinary sync code — which is also why the walks cannot disagree with
+/// the encoder here, being literally the same code rather than a twin of it.
+///
+/// The real cost is the **final** chunk, whose entropy region carries no length
+/// and runs to end of stream (see `AnsEncoder::flush_chunk`): its bytes cannot
+/// be decoded until the transfer finishes, so a value's tail never overlaps.
+/// Every earlier chunk is length-prefixed and does.
+#[cfg(feature = "stream")]
+pub struct AsyncAnsDecoder<S> {
+    source: super::stream::ChunkSource<S>,
+    inner: AnsDecoder<FrameBuffer, true>,
+    /// Set once the final frame is buffered. No further frame can arrive, so
+    /// the sync decoder may then run to completion without blocking — which is
+    /// what [`AsyncEntropyDecoder::is_final`] reports.
+    reached_final: bool,
+}
+
+#[cfg(feature = "stream")]
+impl<S> std::fmt::Debug for AsyncAnsDecoder<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncAnsDecoder")
+            .field("reached_final", &self.reached_final)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> AsyncAnsDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// Build a decoder over a source, entering its first chunk.
+    pub(crate) async fn from_source(source: super::stream::ChunkSource<S>) -> Self {
+        let mut me = Self {
+            source,
+            inner: AnsDecoder {
+                reader: FrameBuffer::default(),
+                state: 0,
+                entropy: Vec::new(),
+                epos: 0,
+                incompressible: Vec::new(),
+                ipos: 0,
+                ops_left: 0,
+                error: None,
+            },
+            reached_final: false,
+        };
+        me.buffer_next_frame().await;
+        // Uniform with every later chunk: the tag is in the buffer, so the sync
+        // decoder's own `load_next_chunk` reads it and enters.
+        me.inner.load_next_chunk();
+        me.read_ahead().await;
+        me
+    }
+
+    /// Keep one complete unentered frame buffered, so a `load_next_chunk` from
+    /// *inside* sync code reads from memory instead of blocking. It has to be
+    /// possible from inside: a multi-step `AtMost` walk can exhaust a chunk
+    /// mid-symbol, and the boundary lands wherever `CHUNK_OPS` falls, not on a
+    /// value boundary.
+    async fn read_ahead(&mut self) {
+        if !self.reached_final && self.inner.reader.unentered() == 0 {
+            self.buffer_next_frame().await;
+        }
+    }
+
+    /// Pull one whole frame off the stream and append it, tag included.
+    async fn buffer_next_frame(&mut self) {
+        let tag = self.read_varint().await;
+        let mut frame = Vec::new();
+        push_varint(&mut frame, tag);
+        if tag & 1 == 0 {
+            // Final: `[raw][entropy…EOF]`, no length on the entropy region.
+            self.reached_final = true;
+            self.append_region(&mut frame, tag >> 1).await;
+            self.append_rest(&mut frame).await;
+        } else {
+            let entropy_len = self.read_varint().await;
+            let incompressible_len = self.read_varint().await;
+            push_varint(&mut frame, entropy_len);
+            push_varint(&mut frame, incompressible_len);
+            self.append_region(&mut frame, entropy_len).await;
+            self.append_region(&mut frame, incompressible_len).await;
+        }
+        self.inner.reader.push_frame(&frame);
+    }
+
+    /// Read a LEB128 varint off the stream; the async twin of `read_varint_io`.
+    async fn read_varint(&mut self) -> usize {
+        let mut v = 0usize;
+        let mut shift = 0u32;
+        loop {
+            let b = self.source.next_byte().await;
+            v |= ((b & 0x7f) as usize) << shift;
+            if b & 0x80 == 0 {
+                break;
+            }
+            shift += 7;
+            if shift >= usize::BITS {
+                break; // corrupt varint: stop rather than shift out of range
+            }
+        }
+        v
+    }
+
+    /// Append `len` bytes in bounded increments, so a corrupt declared length
+    /// cannot drive one giant allocation — as `read_region` does. A short read
+    /// leaves the region truncated, which the sync side reports.
+    async fn append_region(&mut self, out: &mut Vec<u8>, len: usize) {
+        let mut remaining = len;
+        while remaining > 0 {
+            let piece = remaining.min(1 << 16);
+            let start = out.len();
+            out.resize(start + piece, 0);
+            if self.source.read_exact(&mut out[start..]).await.is_err() {
+                out.truncate(start);
+                return;
+            }
+            remaining -= piece;
+        }
+    }
+
+    /// Append everything left in the stream, for the final chunk's unbounded
+    /// entropy region. Capped one byte past `MAX_CHUNK_ENTROPY`, exactly as
+    /// `read_final_region` does, so "full" stays distinguishable from
+    /// "overflowed".
+    async fn append_rest(&mut self, out: &mut Vec<u8>) {
+        let cap = out.len() + MAX_CHUNK_ENTROPY + 1;
+        while out.len() < cap {
+            let ready = self.source.ready_bytes();
+            if ready == 0 {
+                if self.source.is_final_chunk() {
+                    return;
+                }
+                // Nothing buffered but more is coming: one awaited byte tops the
+                // source up, and the next pass takes the rest in bulk.
+                let mut one = [0u8; 1];
+                if self.source.read_exact(&mut one).await.is_err() {
+                    return;
+                }
+                out.push(one[0]);
+                continue;
+            }
+            let want = ready.min(cap - out.len());
+            let start = out.len();
+            out.resize(start + want, 0);
+            if self.source.read_exact(&mut out[start..]).await.is_err() {
+                out.truncate(start);
+                return;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> super::AsyncEntropyDecoder for AsyncAnsDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
+
+    /// Nothing to hold back: the gate here is whole frames, not bytes.
+    const SETTLING_BYTES: usize = 0;
+
+    /// Always 0, which keeps the byte-counted fast path switched off. It is the
+    /// wrong instrument for `Ans` — what bounds a safe sync handoff is whether
+    /// another *frame* can still arrive, not how many bytes are buffered, and
+    /// [`Self::is_final`] answers that exactly rather than approximately. So no
+    /// `MAX_BYTES` is consulted on this path at all.
+    #[inline]
+    fn ready_bytes(&self) -> usize {
+        0
+    }
+
+    #[inline]
+    fn is_final(&self) -> bool {
+        self.reached_final
+    }
+
+    /// Hands over the sync decoder itself — no state to translate, since its
+    /// whole per-chunk state already lives in owned buffers and its reader
+    /// holds every remaining frame once [`Self::is_final`] holds.
+    #[inline]
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R {
+        // A view rather than a reborrow only because the associated type has to
+        // mention `'a` for `where Self: 'a` to imply `S: 'a`. The buffers move
+        // by three words each and come straight back, so this is still a
+        // handoff of the same decoder rather than a fresh one: no state is
+        // re-derived and none is copied.
+        let mut view = AnsDecoder::<&mut FrameBuffer, true> {
+            reader: &mut self.inner.reader,
+            state: self.inner.state,
+            entropy: std::mem::take(&mut self.inner.entropy),
+            epos: self.inner.epos,
+            incompressible: std::mem::take(&mut self.inner.incompressible),
+            ipos: self.inner.ipos,
+            ops_left: self.inner.ops_left,
+            error: self.inner.error.take(),
+        };
+        let result = f(&mut view);
+        self.inner.state = view.state;
+        self.inner.entropy = view.entropy;
+        self.inner.epos = view.epos;
+        self.inner.incompressible = view.incompressible;
+        self.inner.ipos = view.ipos;
+        self.inner.ops_left = view.ops_left;
+        self.inner.error = view.error;
+        result
+    }
+
+    /// A latched stream error wins over a downstream validation error, for the
+    /// reason given on the trait method; a frame-level error latched by the sync
+    /// decoder comes next, being closer to the cause than the value is.
+    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
+        if let Some(e) = self.source.take_error() {
+            return Err(e);
+        }
+        match self.inner.error.take() {
+            Some(e) => Err(e),
+            None => value,
+        }
+    }
+
+    #[inline]
+    async fn decode_bit(&mut self, ctx: &mut super::bit_context::BitContext) -> bool {
+        self.read_ahead().await;
+        super::EntropyDecoder::decode_bit(&mut self.inner, ctx)
+    }
+
+    #[inline]
+    async fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> [bool; N] {
+        self.read_ahead().await;
+        super::EntropyDecoder::decode_bits(&mut self.inner, contexts)
+    }
+
+    /// Delegates to the sync walk rather than reimplementing it asynchronously.
+    /// The walks are **not** interchangeable — a symbol step and N bit steps
+    /// narrow the coder differently and so consume different bytes — and this
+    /// sidesteps the question by running the same code the encoder was matched
+    /// against. The read-ahead is what makes it safe: the walk may cross a
+    /// chunk boundary mid-symbol, and finds the next frame already in memory.
+    #[inline]
+    async fn decode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut super::atmost::AtMostContext<MAX>,
+    ) -> super::atmost::AtMost<MAX> {
+        self.read_ahead().await;
+        super::EntropyDecoder::decode_atmost(&mut self.inner, ctx)
+    }
+
+    #[inline]
+    async fn decode_incompressible_bytes(&mut self, out: &mut [u8]) -> Result<(), std::io::Error> {
+        self.read_ahead().await;
+        super::EntropyDecoder::decode_incompressible_bytes(&mut self.inner, out)
+    }
+}
+
+#[cfg(all(test, feature = "stream"))]
+mod async_tests {
+    use super::*;
+    use crate::v2::stream::tests::Chunks;
+    use futures_executor::block_on;
+
+    /// The point of the whole exercise: a value spanning several `Ans` frames,
+    /// re-chopped at stream boundaries that have nothing to do with where the
+    /// frame boundaries fall.
+    #[test]
+    fn multi_frame_round_trips_from_a_stream() {
+        use crate::{Encoded, Incompressible};
+        type Item = (u64, Encoded<Vec<u8>, Incompressible>);
+        let mut x = 0x1234_5678_9abc_def0u64;
+        let mut rng = || {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+            x
+        };
+        // ~5 ops per item over 60k items is several times `CHUNK_OPS`, and the
+        // incompressible runs exercise the separate region that forces whole
+        // frames to be buffered.
+        let items: Vec<Item> = (0..60_000)
+            .map(|_| {
+                let len = (rng() % 5) as usize;
+                let bytes: Vec<u8> = (0..len).map(|_| rng() as u8).collect();
+                (rng(), Encoded::new(bytes))
+            })
+            .collect();
+        let encoded = Ans::encode(&items);
+        assert_eq!(
+            Ans::decode::<Vec<Item>>(&encoded).as_ref(),
+            Some(&items),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        for chunk_size in [1, 2, 7, 1000, 65536] {
+            let decoded: Vec<Item> =
+                block_on(Ans::decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, items, "chunk_size = {chunk_size}");
+        }
+    }
+
+    /// A value small enough to be a single (final) frame: `is_final` holds from
+    /// the start, so this runs entirely through the sync decoder.
+    #[test]
+    fn single_frame_round_trips_from_a_stream() {
+        let value: Vec<String> = vec![
+            "hello".to_string(),
+            "héllo — ünïcode".to_string(),
+            "x".repeat(300),
+            String::new(),
+        ];
+        let encoded = Ans::encode(&value);
+        for chunk_size in [1, 3, 64, 4096] {
+            let decoded: Vec<String> =
+                block_on(Ans::decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, value, "chunk_size = {chunk_size}");
+        }
+    }
 }

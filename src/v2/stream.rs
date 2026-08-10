@@ -288,7 +288,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::v2::decode_stream;
     use futures_executor::block_on;
@@ -297,13 +297,13 @@ mod tests {
     /// A stream over a fixed list of chunks that yields `Pending` (waking
     /// immediately) before every chunk, so the decoder's suspension path is
     /// exercised rather than a stream that is always instantly ready.
-    struct Chunks {
+    pub(crate) struct Chunks {
         chunks: std::collections::VecDeque<Bytes>,
         pending: bool,
     }
 
     impl Chunks {
-        fn new(bytes: &[u8], chunk_size: usize) -> Self {
+        pub(crate) fn new(bytes: &[u8], chunk_size: usize) -> Self {
             let all = Bytes::copy_from_slice(bytes);
             let mut chunks = std::collections::VecDeque::new();
             let mut start = 0;

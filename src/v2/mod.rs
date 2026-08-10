@@ -91,7 +91,6 @@ mod atmost;
 mod bit_context;
 mod bools;
 mod byte;
-mod bytes;
 mod floats;
 #[cfg(feature = "generate_bit_context")]
 pub mod generate_bit_context;
@@ -115,6 +114,7 @@ mod string;
 mod tuples;
 mod usizes;
 mod vecs;
+mod vecu8;
 
 use crate::{LowCardinality, Small};
 pub use ans::Ans;
@@ -339,9 +339,13 @@ pub trait EntropyDecoder {
 /// contexts, and the value all are, which is what `tokio::spawn` needs.
 pub trait AsyncEntropyDecoder {
     /// The sync decoder this one hands off to once no more input can arrive.
-    type Sync<'a>: EntropyDecoder
-    where
-        Self: 'a;
+    ///
+    /// No `where Self: 'a`: an implementor's sync decoder is *positioned* at the
+    /// async decoder's cursor but does not borrow from it — `Range` hands it a
+    /// local `Bytes`, `Ans` a borrowed frame buffer — and requiring the bound
+    /// forces every implementor to prove `S: 'a` for a lifetime the associated
+    /// type need not mention.
+    type Sync<'a>: EntropyDecoder;
 
     /// Bytes that may be emitted but not yet accounted for by the information
     /// coded so far — the margin [`Self::sync_capacity`] holds back.
@@ -591,7 +595,7 @@ async fn stream_decode_async<T, S: DecodeAsync<T>, D: AsyncEntropyDecoder>(
     decoder.into_result(value)
 }
 
-/// Decode a value from an async stream of [`Bytes`](::bytes::Bytes) chunks,
+/// Decode a value from an async stream of [`Bytes`](bytes::Bytes) chunks,
 /// decoding each chunk as it arrives rather than waiting for the whole input.
 ///
 /// Accepts the same bytes [`encode`]/[`encode_to`] produce. Uses the default
@@ -604,7 +608,7 @@ async fn stream_decode_async<T, S: DecodeAsync<T>, D: AsyncEntropyDecoder>(
 pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
 where
     crate::Normal: DecodeAsync<T>,
-    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     Range::decode_stream::<T, _, _>(stream).await
