@@ -180,7 +180,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .map(|(i, span)| {
             Warning::new_deprecated("LowCardinalityString")
                 .old("encode a String field with `#[compactly(LowCardinality)]`, which clones (reallocates) the String on every repeated value")
-                .new("use `Arc<str>` (i.e. `#[compactly(LowCardinality)] field: Arc<str>`), so a cache hit is a cheap refcount bump and deserialization shares buffers")
+                .new("use `Arc<str>` (i.e. `#[compactly(LowCardinality)] field: Arc<str>`), so a cache hit is a cheap refcount bump and deserialization shares buffers; or, if you have weighed the tradeoff and want a `String` anyway, silence this warning for the field with `#[compactly(LowCardinality, allow_string)]`")
                 .index(i)
                 .span(span)
                 .build_or_panic()
