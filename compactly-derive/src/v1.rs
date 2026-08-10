@@ -9,14 +9,9 @@ use synstructure::{BindingInfo, VariantInfo};
 struct EncodingStrategy(syn::Type);
 impl EncodingStrategy {
     fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
-        match crate::parse_compactly_attrs(&binding.ast().attrs)
-            .strategies
-            .as_slice()
-        {
-            [] => None,
-            [s] => Some(EncodingStrategy(s.clone())),
-            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
-        }
+        crate::parse_compactly_attrs(&binding.ast().attrs)
+            .single_strategy(binding)
+            .map(EncodingStrategy)
     }
 }
 

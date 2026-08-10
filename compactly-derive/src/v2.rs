@@ -42,11 +42,9 @@ impl EncodingStrategy {
             .collect()
     }
     fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
-        match Self::parse_attrs(&binding.ast().attrs).as_slice() {
-            [] => None,
-            [s] => Some(s.clone()),
-            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
-        }
+        crate::parse_compactly_attrs(&binding.ast().attrs)
+            .single_strategy(binding)
+            .map(EncodingStrategy)
     }
 }
 
@@ -450,6 +448,23 @@ fn low_cardinality_string_warns() {
             && output.contains("fn LowCardinalityString_1()"),
         "expected indexed warning fns:\n{output}"
     );
+}
+
+#[test]
+#[should_panic(expected = "unknown compactly flag `alow_string`")]
+fn misspelled_flag_is_rejected() {
+    // A snake_case bare ident that isn't a known flag (here `alow_string`, a typo
+    // of `allow_string`) must be rejected with a clear message rather than being
+    // treated as a bogus encoding strategy and panicking later with a raw
+    // BindingInfo debug dump.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Record {
+            #[compactly(LowCardinality, alow_string)]
+            recclass: String,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let _ = derive_compactly(s);
 }
 
 #[test]

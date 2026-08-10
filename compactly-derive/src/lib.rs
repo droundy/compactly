@@ -19,6 +19,26 @@ pub(crate) struct CompactlyAttrs {
     pub allow_string: bool,
 }
 
+impl CompactlyAttrs {
+    /// The single field-level encoding strategy, if any. A field may carry at
+    /// most one strategy; more than one is meaningless there, so panic — only a
+    /// container newtype legitimately carries several, and it reads `strategies`
+    /// directly. `binding` is included in the panic for diagnostics. Kept here,
+    /// rather than duplicated in the v1 and v2 derives, so the check and its
+    /// message can't drift apart.
+    pub fn single_strategy(&self, binding: &impl std::fmt::Debug) -> Option<syn::Type> {
+        match self.strategies.as_slice() {
+            [] => None,
+            [s] => Some(s.clone()),
+            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
+        }
+    }
+}
+
+/// The set of bare-ident flags `#[compactly(...)]` understands. Anything else in
+/// snake_case is rejected as a typo rather than mistaken for a strategy type.
+const KNOWN_FLAGS: &[&str] = &["allow_string"];
+
 /// Parse every `#[compactly(...)]` attribute in `attrs`, collecting the encoding
 /// strategies and recognizing bare flag idents (currently just `allow_string`).
 ///
@@ -38,11 +58,22 @@ pub(crate) fn parse_compactly_attrs(attrs: &[syn::Attribute]) -> CompactlyAttrs 
             .parse_args_with(Punctuated::<syn::Type, syn::Token![,]>::parse_terminated)
             .expect("Unrecognized compactly attribute");
         for item in items {
-            if matches!(&item, syn::Type::Path(p) if p.qself.is_none() && p.path.is_ident("allow_string"))
-            {
-                allow_string = true;
-            } else {
-                strategies.push(item);
+            match bare_ident(&item) {
+                Some(ident) if *ident == "allow_string" => allow_string = true,
+                // A bare snake_case ident that isn't a known flag is almost
+                // certainly a misspelled flag: encoding-strategy types are
+                // UpperCamelCase, so a lowercase-initial ident was never meant as
+                // one. Reject it clearly instead of pushing it into `strategies`,
+                // where it would later blow up with an opaque BindingInfo dump.
+                Some(ident)
+                    if starts_lowercase(ident)
+                        && !KNOWN_FLAGS.contains(&ident.to_string().as_str()) =>
+                {
+                    panic!(
+                        "unknown compactly flag `{ident}`; expected an encoding strategy or one of {KNOWN_FLAGS:?}"
+                    )
+                }
+                _ => strategies.push(item),
             }
         }
     }
@@ -50,6 +81,25 @@ pub(crate) fn parse_compactly_attrs(attrs: &[syn::Attribute]) -> CompactlyAttrs 
         strategies,
         allow_string,
     }
+}
+
+/// If `ty` is a bare single-segment identifier (no path qualifier, no generic
+/// arguments) — as opposed to something like `Mapping<K, V>` — return it.
+fn bare_ident(ty: &syn::Type) -> Option<&syn::Ident> {
+    match ty {
+        syn::Type::Path(p) if p.qself.is_none() => p.path.get_ident(),
+        _ => None,
+    }
+}
+
+/// Whether `ident`'s first character is lowercase (Rust's convention for values
+/// and flags, as opposed to the UpperCamelCase of strategy types).
+fn starts_lowercase(ident: &syn::Ident) -> bool {
+    ident
+        .to_string()
+        .chars()
+        .next()
+        .is_some_and(char::is_lowercase)
 }
 
 pub(crate) fn get_unique_name(
