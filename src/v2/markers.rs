@@ -37,3 +37,29 @@ impl Encode for PhantomPinned {
         Ok(PhantomPinned)
     }
 }
+
+impl<T> super::DecodeAsync<PhantomData<T>> for crate::Normal {
+    /// Carries no runtime information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        _decoder: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<PhantomData<T>, std::io::Error> {
+        Ok(PhantomData)
+    }
+}
+
+impl super::DecodeAsync<PhantomPinned> for crate::Normal {
+    /// Carries no runtime information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        _decoder: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<PhantomPinned, std::io::Error> {
+        Ok(PhantomPinned)
+    }
+}

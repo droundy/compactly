@@ -331,6 +331,43 @@ impl Lz77 {
         self.push_old_decode(out.clone());
         Ok(out)
     }
+
+    pub async fn decode_async<D: super::AsyncEntropyDecoder>(
+        &mut self,
+        reader: &mut D,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        let count =
+            <crate::Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut self.count)
+                .await?;
+        let mut out = Vec::with_capacity(super::capacity_for::<u8>(count.saturating_mul(5)));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..count {
+            sentinel.decode_async(reader).await?;
+            let chunk @ Chunk {
+                length,
+                back,
+                offset,
+                ..
+            } = <crate::Normal as super::DecodeAsync<Chunk>>::decode_async(reader, self).await?;
+            out.extend_from_slice(&chunk.literal);
+            if length == 0 {
+                // Nothing to do here.
+            } else if back == 0 {
+                // We are repeating our own string.  In this case offset
+                // counts *backwards* and must be >= 1 so we shift it.
+                let offset = out.len() - 1 - offset;
+                out.reserve(super::capacity_for::<u8>(length as usize));
+                for i in offset..offset + length as usize {
+                    out.push(out[i]);
+                }
+            } else {
+                self.shift_chunk(&chunk);
+                out.extend_from_slice(&self.old[0][offset..offset + length as usize]);
+            }
+        }
+        self.push_old_decode(out.clone());
+        Ok(out)
+    }
 }
 
 #[test]
@@ -521,6 +558,51 @@ impl Encode for Chunk {
     }
 }
 
+impl super::DecodeAsync<Chunk> for crate::Normal {
+    /// Unbounded: a literal run of arbitrary length.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Chunk, std::io::Error> {
+        let literal = <crate::Normal as super::DecodeAsync<Box<[u8]>>>::decode_async(
+            reader,
+            &mut ctx.literal,
+        )
+        .await?;
+        let length =
+            <Small as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.length).await?;
+        if length > 0 {
+            let back =
+                <Small as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.back).await?;
+            let offset = if back == 0 {
+                <crate::Normal as super::DecodeAsync<usize>>::decode_async(
+                    reader,
+                    &mut ctx.self_offset,
+                )
+                .await?
+            } else {
+                <crate::Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.offset)
+                    .await?
+            };
+            Ok(Chunk {
+                literal,
+                back,
+                offset,
+                length,
+            })
+        } else {
+            Ok(Chunk {
+                literal,
+                length,
+                back: 0,
+                offset: 0,
+            })
+        }
+    }
+}
+
 impl EncodingStrategy<Vec<u8>> for Compressible {
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
@@ -532,6 +614,18 @@ impl EncodingStrategy<Vec<u8>> for Compressible {
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
         ctx.decode(reader)
+    }
+}
+
+impl super::DecodeAsync<Vec<u8>> for Compressible {
+    /// Length-driven: an arbitrary number of bytes.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        ctx.decode_async(reader).await
     }
 }
 

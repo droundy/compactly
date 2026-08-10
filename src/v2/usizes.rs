@@ -283,6 +283,38 @@ impl EncodingStrategy<usize> for Sorted {
     }
 }
 
+impl super::DecodeAsync<usize> for Sorted {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        .saturating_add(<Small as super::DecodeAsync<usize>>::MAX_BYTES);
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = <crate::Normal as super::DecodeAsync<bool>>::decode_async(
+                reader,
+                &mut ctx.not_sorted,
+            )
+            .await?;
+            if not_sorted {
+                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.value).await?
+            } else {
+                previous
+                    + <Small as super::DecodeAsync<usize>>::decode_async(
+                        reader,
+                        &mut ctx.difference,
+                    )
+                    .await?
+            }
+        } else {
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.value).await?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+}
+
 #[test]
 fn size() {
     use super::assert_millibits;
@@ -537,6 +569,35 @@ impl Encode for isize {
     }
 }
 
+impl super::DecodeAsync<isize> for crate::Normal {
+    /// A sign bit, then the magnitude through `usize`'s scheme.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        .saturating_add(<crate::Normal as super::DecodeAsync<usize>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        let is_neg =
+            <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_negative)
+                .await?;
+        let mag: u64 =
+            <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.magnitude).await?;
+        // The capped prior only *biases* against magnitudes past the
+        // signed range — a malformed stream can still decode one, and
+        // `mag as isize` would quietly wrap it into a plausible value.
+        if mag > isize::MAX as u64 {
+            return Err(std::io::Error::other("signed magnitude out of range"));
+        }
+        if is_neg {
+            Ok(-1 - mag as isize)
+        } else {
+            Ok(mag as isize)
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct IsizeSmallContext {
     is_negative: <bool as Encode>::Context,
@@ -565,6 +626,31 @@ impl EncodingStrategy<isize> for Small {
             Ok(-1 - p as isize)
         } else {
             let p: usize = Small::decode(reader, &mut ctx.positive)?;
+            Ok(p as isize)
+        }
+    }
+}
+
+impl super::DecodeAsync<isize> for Small {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        .saturating_add(<Small as super::DecodeAsync<usize>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        if <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_negative)
+            .await?
+        {
+            let p: usize =
+                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.negative)
+                    .await?;
+            Ok(-1 - p as isize)
+        } else {
+            let p: usize =
+                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.positive)
+                    .await?;
             Ok(p as isize)
         }
     }
@@ -608,6 +694,36 @@ impl EncodingStrategy<isize> for Sorted {
             }
         } else {
             Small::decode(reader, &mut ctx.value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+}
+
+impl super::DecodeAsync<isize> for Sorted {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        .saturating_add(<Small as super::DecodeAsync<isize>>::MAX_BYTES);
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = <crate::Normal as super::DecodeAsync<bool>>::decode_async(
+                reader,
+                &mut ctx.not_sorted,
+            )
+            .await?;
+            if not_sorted {
+                <Small as super::DecodeAsync<isize>>::decode_async(reader, &mut ctx.value).await?
+            } else {
+                let diff: usize =
+                    <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.difference)
+                        .await?;
+                previous.wrapping_add(diff as isize)
+            }
+        } else {
+            <Small as super::DecodeAsync<isize>>::decode_async(reader, &mut ctx.value).await?
         };
         ctx.previous = Some(out);
         Ok(out)

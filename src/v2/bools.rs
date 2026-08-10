@@ -55,6 +55,18 @@ impl EncodingStrategy<bool> for Sorted {
     }
 }
 
+impl super::DecodeAsync<bool> for Sorted {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<bool, std::io::Error> {
+        <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, ctx).await
+    }
+}
+
 #[test]
 fn size() {
     use super::estimated_bits;

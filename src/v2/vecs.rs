@@ -52,6 +52,22 @@ impl<T: Encode> Encode for Box<[T]> {
     }
 }
 
+impl<T: Encode> super::DecodeAsync<Box<[T]>> for Normal
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<Box<[T]>, std::io::Error>> {
+        <crate::Values<Normal> as super::DecodeAsync<Box<[T]>>>::decode_awaiting(reader, ctx)
+    }
+}
+
 impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<S> {
     type Context = Context<T, S>;
     fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
@@ -77,6 +93,25 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
     }
 }
 
+impl<T, S: super::DecodeAsync<T>> super::DecodeAsync<VecDeque<T>> for crate::Values<S> {
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<VecDeque<T>, std::io::Error> {
+        let n = <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..n {
+            sentinel.decode_async(reader).await?;
+            out.push_back(S::decode_async(reader, &mut ctx.values).await?);
+        }
+        Ok(out)
+    }
+}
+
 impl<T: Encode> Encode for VecDeque<T> {
     type Context = Context<T, Normal>;
     #[inline]
@@ -89,6 +124,22 @@ impl<T: Encode> Encode for VecDeque<T> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         crate::Values::<Normal>::decode(reader, ctx)
+    }
+}
+
+impl<T: Encode> super::DecodeAsync<VecDeque<T>> for Normal
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<VecDeque<T>, std::io::Error>> {
+        <crate::Values<Normal> as super::DecodeAsync<VecDeque<T>>>::decode_awaiting(reader, ctx)
     }
 }
 
@@ -106,6 +157,26 @@ impl<T: Encode> Encode for Box<T> {
         T::decode(reader, ctx).map(Box::new)
     }
 }
+impl<T: Encode> super::DecodeAsync<Box<T>> for Normal
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    /// Exactly the inner value.
+    const MAX_BYTES: usize = <Normal as super::DecodeAsync<T>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Box<T>, std::io::Error> {
+        // Boxed: `Box<T>` is how a recursive user type breaks its cycle, so
+        // this future must not contain its own inner future by value.
+        Ok(Box::new(
+            Box::pin(<Normal as super::DecodeAsync<T>>::decode_async(reader, ctx)).await?,
+        ))
+    }
+}
+
 #[test]
 fn size() {
     use super::estimated_bits;
@@ -249,6 +320,25 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
     }
 }
 
+impl<T, S: super::DecodeAsync<T>> super::DecodeAsync<Box<[T]>> for crate::Values<S> {
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Box<[T]>, std::io::Error> {
+        let n = <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..n {
+            sentinel.decode_async(reader).await?;
+            x.push(S::decode_async(reader, &mut ctx.values).await?);
+        }
+        Ok(x.into_boxed_slice())
+    }
+}
+
 #[derive(Clone)]
 pub struct SortedContext<T: Encode> {
     previous: Vec<T>,
@@ -316,6 +406,42 @@ impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
             }
         }
         ctx.previous.clone_from(value);
+    }
+}
+
+impl<T: Encode + Clone + Eq> super::DecodeAsync<Vec<T>> for Sorted
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<T>, std::io::Error> {
+        let len: usize =
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        // Build in place in `ctx.previous` (its buffer is reused across the
+        // collection) and return one exact-size clone, instead of copying
+        // the shared prefix out and cloning the result back — the same fix
+        // that won `Sorted<String>` decode 6-8% (see OPTIMIZING.md).
+        if !ctx.previous.is_empty() {
+            let shared_prefix: usize =
+                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.shared_prefix)
+                    .await?;
+            debug_assert!(shared_prefix <= ctx.previous.len());
+            ctx.previous.truncate(shared_prefix);
+        }
+        ctx.previous.reserve(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            ctx.previous.push(
+                <Normal as super::DecodeAsync<T>>::decode_async(reader, &mut ctx.value).await?,
+            );
+        }
+        Ok(ctx.previous.clone())
     }
 }
 
@@ -438,5 +564,30 @@ fn multi_piece_incompressible_round_trips() {
         let v = Encoded::<Vec<u8>, Incompressible>::new(bytes);
         let encoded = super::encode(&v);
         assert_eq!(super::decode(&encoded).as_ref(), Some(&v), "len {len}");
+    }
+}
+
+impl super::DecodeAsync<Vec<u8>> for Incompressible {
+    /// Length-driven: an arbitrary number of bytes.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        // Grow in bounded pieces rather than one `vec![0; len]`: a corrupt or
+        // truncated stream can decode an absurd `len`, and allocating it whole
+        // would panic (capacity overflow) or speculatively allocate gigabytes
+        // before `decode_incompressible_bytes` can report the stream is short.
+        let len: usize = <Small as super::DecodeAsync<usize>>::decode_async(reader, ctx).await?;
+        let mut out = Vec::new();
+        for piece in incompressible_pieces(len) {
+            let start = out.len();
+            out.resize(start + piece, 0);
+            reader
+                .decode_incompressible_bytes(&mut out[start..])
+                .await?;
+        }
+        Ok(out)
     }
 }

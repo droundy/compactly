@@ -194,6 +194,21 @@ impl Encode for Box<str> {
     }
 }
 
+impl super::DecodeAsync<Box<str>> for crate::Normal {
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Box<str>, std::io::Error> {
+        <crate::Normal as super::DecodeAsync<String>>::decode_async(reader, ctx)
+            .await
+            .map(String::into_boxed_str)
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct SortedContext {
     previous: String,
@@ -255,6 +270,41 @@ impl EncodingStrategy<String> for Sorted {
     }
 }
 
+impl super::DecodeAsync<String> for Sorted {
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let len: usize =
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        if !ctx.previous.is_empty() {
+            let shared_prefix =
+                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.shared_prefix)
+                    .await?;
+            // `shared_prefix` counts chars; the prefix's bytes are already in
+            // place in `previous`, so find where it ends and drop the rest.
+            let prefix_bytes = ctx
+                .previous
+                .char_indices()
+                .nth(shared_prefix)
+                .map_or(ctx.previous.len(), |(i, _)| i);
+            ctx.previous.truncate(prefix_bytes);
+        }
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            ctx.previous.push(
+                <crate::Normal as super::DecodeAsync<char>>::decode_async(reader, &mut ctx.chars)
+                    .await?,
+            );
+        }
+        Ok(ctx.previous.clone())
+    }
+}
+
 #[cfg(test)]
 const COMPRESSIBLE_TEXT: &str = "Lossless compression is a class of data compression that allows the original data to be perfectly reconstructed from the compressed data with no loss of information. Lossless compression is possible because most real-world data exhibits statistical redundancy.[1] By contrast, lossy compression permits reconstruction only of an approximation of the original data, though usually with greatly improved compression rates (and therefore reduced media sizes).
 
@@ -277,6 +327,19 @@ impl EncodingStrategy<String> for Compressible {
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let bytes = ctx.decode(reader)?;
+        String::from_utf8(bytes).map_err(std::io::Error::other)
+    }
+}
+
+impl super::DecodeAsync<String> for Compressible {
+    /// Unbounded: an Lz77 match or literal run of arbitrary length.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let bytes = ctx.decode_async(reader).await?;
         String::from_utf8(bytes).map_err(std::io::Error::other)
     }
 }

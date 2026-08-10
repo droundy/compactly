@@ -219,6 +219,137 @@ impl EncodingStrategy<i8> for Sorted {
     }
 }
 
+impl super::DecodeAsync<i8> for crate::Normal {
+    /// Reinterpreted as a `u8`.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<u8>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        Ok(<crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, ctx).await? as i8)
+    }
+}
+
+impl super::DecodeAsync<u8> for Small {
+    /// A bucket symbol, then either an offset symbol or (top bucket) a bool
+    /// plus an offset symbol.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<7>>>::MAX_BYTES
+        + <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        + <crate::Normal as super::DecodeAsync<AtMost<127>>>::MAX_BYTES;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        async fn rest<const MAX: usize, D: super::AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut <AtMost<MAX> as Encode>::Context,
+        ) -> Result<u8, std::io::Error> {
+            Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<MAX>>>::decode_async(reader, ctx)
+                    .await?,
+            ) as u8)
+        }
+        let bucket = <crate::Normal as super::DecodeAsync<AtMost<7>>>::decode_async(
+            reader,
+            &mut ctx.nonzero,
+        )
+        .await?;
+        match usize::from(bucket) {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => Ok(rest::<1, D>(reader, &mut ctx.b1).await? + 2),
+            3 => Ok(rest::<3, D>(reader, &mut ctx.b2).await? + 4),
+            4 => Ok(rest::<7, D>(reader, &mut ctx.b3).await? + 8),
+            5 => Ok(rest::<15, D>(reader, &mut ctx.b4).await? + 16),
+            6 => Ok(rest::<31, D>(reader, &mut ctx.b5).await? + 32),
+            7 => {
+                if <crate::Normal as super::DecodeAsync<bool>>::decode_async(
+                    reader,
+                    &mut ctx.need_seven_bits,
+                )
+                .await?
+                {
+                    Ok(rest::<127, D>(reader, &mut ctx.b7).await? + 128)
+                } else {
+                    Ok(rest::<63, D>(reader, &mut ctx.b6).await? + 64)
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl super::DecodeAsync<i8> for Small {
+    /// Zig-zagged into `Small<u8>`.
+    const MAX_BYTES: usize = <Small as super::DecodeAsync<u8>>::MAX_BYTES;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        let z = <Small as super::DecodeAsync<u8>>::decode_async(reader, ctx).await?;
+        Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
+    }
+}
+
+impl super::DecodeAsync<u8> for Incompressible {
+    /// One byte, straight through.
+    const MAX_BYTES: usize = std::mem::size_of::<u8>();
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        let mut byte = [0u8];
+        reader.decode_incompressible_bytes(&mut byte).await?;
+        Ok(byte[0])
+    }
+}
+
+impl super::DecodeAsync<u8> for Sorted {
+    /// The first value is raw; every later one is a `Small<i8>` delta.
+    const MAX_BYTES: usize = {
+        let raw = std::mem::size_of::<u8>();
+        let delta = <Small as super::DecodeAsync<i8>>::MAX_BYTES;
+        if delta > raw {
+            delta
+        } else {
+            raw
+        }
+    };
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let delta: i8 =
+                <Small as super::DecodeAsync<i8>>::decode_async(reader, &mut ctx.delta).await?;
+            previous.wrapping_add(delta as u8)
+        } else {
+            let mut byte = [0u8];
+            reader.decode_incompressible_bytes(&mut byte).await?;
+            byte[0]
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+}
+
+impl super::DecodeAsync<i8> for Sorted {
+    const MAX_BYTES: usize = <Sorted as super::DecodeAsync<u8>>::MAX_BYTES;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        Ok(<Sorted as super::DecodeAsync<u8>>::decode_async(reader, ctx).await? as i8)
+    }
+}
+
 #[test]
 fn size() {
     use super::{assert_bits_all, estimated_bits};
