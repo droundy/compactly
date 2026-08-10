@@ -2024,7 +2024,12 @@ where
             let piece = remaining.min(1 << 16);
             let start = out.len();
             out.resize(start + piece, 0);
-            if self.source.read_exact(&mut out[start..]).await.is_err() {
+            if let Err(e) = self.source.read_exact(&mut out[start..]).await {
+                // Latch rather than discard: `read_exact` *takes* the error out
+                // of the source, so dropping it here loses it for good, and
+                // `into_result` would then report whatever the short region
+                // happened to decode to — an empty `Vec`, in the test below.
+                self.inner.error.get_or_insert(e);
                 out.truncate(start);
                 return;
             }
@@ -2047,7 +2052,8 @@ where
                 // Nothing buffered but more is coming: one awaited byte tops the
                 // source up, and the next pass takes the rest in bulk.
                 let mut one = [0u8; 1];
-                if self.source.read_exact(&mut one).await.is_err() {
+                if let Err(e) = self.source.read_exact(&mut one).await {
+                    self.inner.error.get_or_insert(e);
                     return;
                 }
                 out.push(one[0]);
@@ -2056,7 +2062,8 @@ where
             let want = ready.min(cap - out.len());
             let start = out.len();
             out.resize(start + want, 0);
-            if self.source.read_exact(&mut out[start..]).await.is_err() {
+            if let Err(e) = self.source.read_exact(&mut out[start..]).await {
+                self.inner.error.get_or_insert(e);
                 out.truncate(start);
                 return;
             }
@@ -2227,6 +2234,77 @@ mod async_tests {
             let decoded: Vec<String> =
                 block_on(Ans::decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
             assert_eq!(decoded, value, "chunk_size = {chunk_size}");
+        }
+    }
+
+    /// A stream that yields some real chunks and then fails, so the failure
+    /// lands *inside* a decode rather than at construction — the distinction
+    /// R5 drew about the sync path, which applies here for the same reason:
+    /// `AsyncAnsDecoder::into_result` prefers a latched source error over a
+    /// downstream validation error, and only a mid-stream failure exercises it.
+    struct FailAfter {
+        chunks: std::collections::VecDeque<::bytes::Bytes>,
+    }
+
+    impl futures_core::Stream for FailAfter {
+        type Item = Result<::bytes::Bytes, std::io::Error>;
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Ready(Some(match self.chunks.pop_front() {
+                Some(c) => Ok(c),
+                None => Err(std::io::Error::other("transient stream failure")),
+            }))
+        }
+    }
+
+    #[test]
+    fn stream_error_wins_over_a_decode_symptom() {
+        let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        // Enough to get a decode genuinely under way, then fail.
+        let head = ::bytes::Bytes::copy_from_slice(&encoded[..encoded.len() / 4]);
+        let source = FailAfter {
+            chunks: [head].into_iter().collect(),
+        };
+        let err = block_on(Ans::decode_stream::<Vec<u64>, _, _>(source)).unwrap_err();
+        // Asserting the *specific* error, not merely `is_err()`: a truncated
+        // stream also produces a plausible-looking decode failure, so only the
+        // message distinguishes "the transport broke" from "the bytes were
+        // nonsense" — which is the whole point of the latching rule.
+        assert!(
+            err.to_string().contains("transient stream failure"),
+            "expected the latched stream error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn truncation_agrees_with_the_sync_decoder() {
+        let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        for cut in [1, 7, encoded.len() / 3, encoded.len() - 1] {
+            let sync = Ans::decode::<Vec<u64>>(&encoded[..cut]);
+            let asynchronous = block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
+                &encoded[..cut],
+                64,
+            )));
+            // The async decoder may be *stricter*, and legitimately is: it
+            // pulls each frame whole, so a short region surfaces as a latched
+            // read error, where the sync decoder reads lazily and can zero-pad
+            // a truncated tail into a plausible short value. What it must never
+            // do is succeed where the sync decoder fails, or return a different
+            // value when both succeed.
+            match (sync, asynchronous) {
+                (Some(s), Ok(a)) => {
+                    assert_eq!(s, a, "cut={cut}: both succeeded but disagree on the value")
+                }
+                (Some(_), Err(_)) => {}
+                (None, Err(_)) => {}
+                (None, Ok(a)) => {
+                    panic!("cut={cut}: async accepted input the sync decoder rejected: {a:?}")
+                }
+            }
         }
     }
 }
