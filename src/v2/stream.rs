@@ -249,12 +249,27 @@ where
     /// desynchronize the coder.
     #[inline]
     pub(crate) async fn next_byte(&mut self) -> u8 {
-        if self.error.is_some() || !self.fill().await {
-            return 0;
+        self.next_byte_or_eof().await.unwrap_or(0)
+    }
+
+    /// Like [`Self::next_byte`], but reports a clean end of stream as `None`
+    /// instead of fabricating a zero.
+    ///
+    /// Only `Ans` frame headers need the distinction, and they need it badly:
+    /// a header is read only where another frame is due, so end of stream there
+    /// is truncation — whereas the coder bodies read past the end legitimately,
+    /// which is what `next_byte`'s zero-padding is for.
+    #[inline]
+    pub(crate) async fn next_byte_or_eof(&mut self) -> Option<u8> {
+        if self.error.is_some() {
+            return Some(0);
+        }
+        if !self.fill().await {
+            return None;
         }
         let byte = self.current[self.pos];
         self.pos += 1;
-        byte
+        Some(byte)
     }
 
     /// Fill `out` completely, awaiting as needed; the bulk read behind

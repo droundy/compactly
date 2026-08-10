@@ -24,26 +24,29 @@ fn push_varint(out: &mut Vec<u8>, mut v: usize) {
 }
 
 /// Read an unsigned LEB128 varint from the front of `bytes`, advancing it.
+/// `None` if `bytes` ran out mid-varint — a truncated header.
 ///
 /// Malformed input must not panic: this is reached from `Ans::decode`, which is
 /// `Option`-returning, for every chunk header. A continuation-bit run longer
 /// than a `usize` would otherwise shift out of range (a debug-build panic), so
-/// the shift is bounded exactly as in [`read_varint_io`].
-fn read_varint(bytes: &mut &[u8]) -> usize {
+/// the shift is bounded exactly as in [`read_varint_io`]. An over-long run is
+/// corruption rather than truncation, so it yields `Some` and is left to the
+/// decode to reject.
+fn read_varint(bytes: &mut &[u8]) -> Option<usize> {
     let mut v = 0usize;
     let mut shift = 0u32;
     while let Some((&b, rest)) = bytes.split_first() {
         *bytes = rest;
         v |= ((b & 0x7f) as usize) << shift;
         if b & 0x80 == 0 {
-            break;
+            return Some(v);
         }
         shift += 7;
         if shift >= usize::BITS {
-            break; // corrupt varint: stop rather than shift out of range
+            return Some(v); // corrupt varint: stop rather than shift out of range
         }
     }
-    v
+    None
 }
 
 /// ANS entropy encoding.
@@ -410,7 +413,9 @@ impl Ans {
         // That is the common case, and skipping the per-batch `ops_left`
         // bookkeeping is worth up to 21% of decode time — see [`Decoder`].
         // Multi-chunk streams take the tracking decoder.
-        let single_chunk = read_varint(&mut { bytes }) & 1 == 0;
+        // A truncated tag decodes as 0 here, i.e. single-chunk; the decoder it
+        // picks then reports the truncation itself, so the peek need not.
+        let single_chunk = read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0;
         if single_chunk {
             Self::decode_with::<T, false>(bytes)
         } else {
@@ -438,7 +443,11 @@ impl Ans {
     #[inline(never)]
     fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
         let mut reader = Decoder::<CHUNKED>::from(bytes);
-        T::decode(&mut reader, &mut T::Context::default()).ok()
+        let value = T::decode(&mut reader, &mut T::Context::default()).ok()?;
+        // A truncated stream can still decode to a plausible value, because the
+        // regions get clamped and the rANS decode zero-pads. Reject it here
+        // rather than hand back the wrong answer; see `saw_whole_chunks`.
+        reader.saw_whole_chunks().then_some(value)
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -470,7 +479,7 @@ impl Ans {
         // Mirror `Ans::decode`'s dispatch — including keeping the arms out of
         // line — so the benchmark measures the decoder production would
         // actually pick for these bytes.
-        if read_varint(&mut { bytes }) & 1 == 0 {
+        if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
             Self::decode_atmost_batch_with::<MAX, WHICH_WALK, false>(bytes, n)
         } else {
             Self::decode_atmost_batch_with::<MAX, WHICH_WALK, true>(bytes, n)
@@ -631,6 +640,9 @@ pub struct Decoder<'a, const CHUNKED: bool = true> {
     /// Ops left in the current chunk before the next chunk must be loaded;
     /// `usize::MAX` for the final chunk. Only read/written when `CHUNKED`.
     ops_left: usize,
+    /// Set when a frame declared a region longer than the bytes that remain —
+    /// i.e. the stream is truncated. See [`Self::saw_whole_chunks`].
+    truncated: bool,
 }
 
 /// Summarize rather than dump, for the same reason as [`AnsEncoder`]'s: `bytes`,
@@ -645,6 +657,7 @@ impl<const CHUNKED: bool> std::fmt::Debug for Decoder<'_, CHUNKED> {
             .field("incompressible_left", &self.incompressible.len())
             .field("stream_left", &self.rest.len())
             .field("ops_left", &self.ops_left)
+            .field("truncated", &self.truncated)
             .finish()
     }
 }
@@ -661,6 +674,7 @@ impl<'a, const CHUNKED: bool> From<&'a [u8]> for Decoder<'a, CHUNKED> {
             incompressible: &[],
             rest: bytes,
             ops_left: 0,
+            truncated: false,
         };
         decoder.load_next_chunk();
         decoder
@@ -673,19 +687,38 @@ impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
     /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
     /// rANS stream, so the state restarts here; the model contexts (owned by the
     /// caller) carry over, exactly as they did across the boundary on encode.
+    /// Read one header varint, noting truncation if the stream ran out inside
+    /// it. That includes running out *before* it: a frame is only ever read
+    /// where one is due, so an empty `rest` means the stream stopped on a frame
+    /// boundary — the one truncation the region-length checks cannot see, since
+    /// a cut there leaves every region that *was* delivered complete.
+    #[inline]
+    fn take_varint(&mut self, rest: &mut &'a [u8]) -> usize {
+        match read_varint(rest) {
+            Some(v) => v,
+            None => {
+                self.truncated = true;
+                0
+            }
+        }
+    }
+
     #[inline]
     fn load_next_chunk(&mut self) {
         let mut rest = self.rest;
-        let tag = read_varint(&mut rest);
+        let tag = self.take_varint(&mut rest);
         let (entropy, incompressible, rest) = if tag & 1 == 0 {
             // Final chunk: `[raw][entropy…EOF]`, so the entropy body is whatever
             // is left once the raw run is taken off the front.
-            let (incompressible, entropy) = rest.split_at((tag >> 1).min(rest.len()));
+            let raw_len = tag >> 1;
+            self.truncated |= raw_len > rest.len();
+            let (incompressible, entropy) = rest.split_at(raw_len.min(rest.len()));
             self.ops_left = usize::MAX;
             (entropy, incompressible, &rest[rest.len()..])
         } else {
-            let entropy_len = read_varint(&mut rest);
-            let incompressible_len = read_varint(&mut rest);
+            let entropy_len = self.take_varint(&mut rest);
+            let incompressible_len = self.take_varint(&mut rest);
+            self.truncated |= entropy_len.saturating_add(incompressible_len) > rest.len();
             let (entropy, rest) = rest.split_at(entropy_len.min(rest.len()));
             let (incompressible, rest) = rest.split_at(incompressible_len.min(rest.len()));
             // A non-final frame claiming 0 ops would re-enter this on the very
@@ -708,6 +741,28 @@ impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
             self.state = StateOnly { state };
             self.bytes = &entropy[STATE_BYTES..];
         }
+    }
+
+    /// Whether every chunk entered so far was present in full.
+    ///
+    /// A frame header declares its region lengths, so a truncated stream is
+    /// detectable: the declared bytes simply are not there. Without this check
+    /// [`load_next_chunk`](Self::load_next_chunk) clamps each region to what is
+    /// left and the rANS decode zero-pads past the end, which usually yields a
+    /// *plausible* short value rather than a failure — so a half-delivered
+    /// stream decodes quietly to the wrong thing.
+    ///
+    /// Chunks are entered lazily, so this reports on the prefix actually read,
+    /// not on the whole input; trailing bytes past the decoded value are
+    /// ignored, as they always have been.
+    ///
+    /// The one truncation this cannot see is a short tail of the **final**
+    /// chunk's entropy body, which carries no length field (it runs to end of
+    /// stream — see [`AnsEncoder::flush_chunk`]). The streaming decoder is blind
+    /// to it for the same reason, so the two agree.
+    #[inline]
+    fn saw_whole_chunks(&self) -> bool {
+        !self.truncated
     }
 }
 
@@ -845,34 +900,56 @@ impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
     }
 }
 
-/// Read one byte from `reader`, returning 0 at a clean EOF and — once an error is
-/// latched — never touching `reader` again (fabricating 0s), mirroring the slice
-/// decoder's zero-padding past the end of a chunk.
+/// Read one byte from `reader`, reporting a clean EOF as `None` and — once an
+/// error is latched — never touching `reader` again (fabricating 0s), mirroring
+/// the slice decoder's zero-padding past the end of a chunk.
 #[inline]
-fn read_one_byte_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> u8 {
+fn read_one_byte_io<R: std::io::Read>(
+    reader: &mut R,
+    error: &mut Option<std::io::Error>,
+) -> Option<u8> {
     if error.is_some() {
-        return 0;
+        return Some(0);
     }
     let mut buf = [0u8; 1];
     loop {
         match reader.read(&mut buf) {
-            Ok(0) => return 0,
-            Ok(_) => return buf[0],
+            Ok(0) => return None,
+            Ok(_) => return Some(buf[0]),
             Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => {
                 *error = Some(e);
-                return 0;
+                return Some(0);
             }
         }
     }
 }
 
+/// The error every decoder reports for a stream that stops where a chunk frame
+/// was due. Its own function because three decoders — slice, reader, and async —
+/// have to agree on it; see [`truncated_at_a_frame_boundary`].
+fn truncated_stream() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "truncated stream: ended where a chunk frame was due",
+    )
+}
+
 /// Read a LEB128 varint (the chunk-frame header encoding) from `reader`.
+///
+/// Every caller reads a header at a point where a frame is due, so end of stream
+/// *here* is truncation rather than a clean finish — and it is the one
+/// truncation [`read_region`]'s short-read check cannot see, because a stream cut
+/// exactly on a frame boundary leaves every region it did deliver complete. The
+/// slice decoder makes the same judgement in [`Decoder::load_next_chunk`].
 fn read_varint_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::Error>) -> usize {
     let mut v = 0usize;
     let mut shift = 0u32;
     loop {
-        let b = read_one_byte_io(reader, error);
+        let Some(b) = read_one_byte_io(reader, error) else {
+            error.get_or_insert_with(truncated_stream);
+            break;
+        };
         v |= ((b & 0x7f) as usize) << shift;
         if b & 0x80 == 0 {
             break;
@@ -1383,19 +1460,38 @@ fn ans_is_reasonable() {
 /// Count the chunk frames in an `Ans` stream (see [`Ans::flush_chunk`]), so a
 /// test can confirm it actually exercised more than the single final chunk.
 #[cfg(test)]
-fn count_chunks(mut bytes: &[u8]) -> usize {
-    let mut chunks = 0;
+fn count_chunks(bytes: &[u8]) -> usize {
+    frame_starts(bytes).len() - 1
+}
+
+/// Walk the frames of a well-formed `Ans` stream, returning the offset at which
+/// each one starts — plus a last entry for where the final chunk's entropy body
+/// begins, which is one past the end of the last frame's declared bytes.
+///
+/// That last offset is where truncation stops being detectable: every other
+/// region has a declared length, so a short one is caught, but the final entropy
+/// body runs to end of stream and a cut inside it is indistinguishable from a
+/// shorter encoding. The earlier offsets are the frame boundaries, the cuts that
+/// leave every delivered region complete and so need a check of their own.
+#[cfg(test)]
+fn frame_starts(bytes: &[u8]) -> Vec<usize> {
+    let total = bytes.len();
+    let mut starts = Vec::new();
+    let mut bytes = bytes;
     while !bytes.is_empty() {
-        let tag = read_varint(&mut bytes);
-        chunks += 1;
+        starts.push(total - bytes.len());
+        let tag = read_varint(&mut bytes).expect("truncated frame tag");
         if tag & 1 == 0 {
-            break; // the final chunk: raw run then entropy to end of stream
+            // The final chunk: raw run, then entropy to end of stream.
+            bytes = &bytes[(tag >> 1).min(bytes.len())..];
+            break;
         }
-        let entropy_len = read_varint(&mut bytes);
-        let incompressible_len = read_varint(&mut bytes);
+        let entropy_len = read_varint(&mut bytes).expect("truncated entropy length");
+        let incompressible_len = read_varint(&mut bytes).expect("truncated incompressible length");
         bytes = &bytes[(entropy_len + incompressible_len).min(bytes.len())..];
     }
-    chunks
+    starts.push(total - bytes.len());
+    starts
 }
 
 /// A value big enough to span several `CHUNK_OPS` chunks must round-trip, with
@@ -1429,6 +1525,94 @@ fn multi_chunk_round_trips() {
 
     let decoded: Vec<Item> = Ans::decode(&encoded).unwrap();
     assert_eq!(decoded, items);
+}
+
+/// A stream cut short must be **rejected**, not quietly decoded into a plausible
+/// shorter value — the failure mode a half-delivered download produces.
+///
+/// Every region but one declares its length in the frame header, so the decoder
+/// can tell the bytes are missing. The exception is the final chunk's entropy
+/// body, which runs to end of stream and so cannot be distinguished from a
+/// shorter encoding; `walk_frames` says where that begins, and everything before
+/// it must fail. Both decoders are checked, since `Decoder` and `AnsDecoder`
+/// arrive at the answer by different routes (a `truncated` flag vs. a latched
+/// short read) and it would be easy to fix one and not the other.
+#[test]
+fn truncation_is_rejected_rather_than_decoded_short() {
+    let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+    let encoded = Ans::encode(&value);
+    let starts = frame_starts(&encoded);
+    assert!(
+        starts.len() >= 3,
+        "test wants a multi-chunk stream, got {} chunk(s)",
+        starts.len() - 1
+    );
+    let final_entropy = *starts.last().unwrap();
+    assert!(final_entropy < encoded.len());
+
+    // Sample rather than sweep: each cut is a whole decode. The three explicit
+    // cuts pin the boundary itself, which is where an off-by-one would hide.
+    let step = encoded.len() / 32;
+    for cut in (0..encoded.len()).step_by(step).chain([
+        final_entropy - 1,
+        final_entropy,
+        encoded.len() - 1,
+    ]) {
+        let prefix = &encoded[..cut];
+        let slice = Ans::decode::<Vec<u64>>(prefix);
+        let reader = Ans::decode_from::<Vec<u64>, _>(prefix);
+        if cut < final_entropy {
+            assert!(
+                slice.is_none(),
+                "cut={cut}: a truncated frame decoded to a value of length {:?}",
+                slice.map(|v: Vec<u64>| v.len())
+            );
+            assert!(
+                reader.is_err(),
+                "cut={cut}: the reader decoder accepted a truncated frame"
+            );
+        } else {
+            // Past the last declared length there is nothing left to check, so
+            // the requirement is only that the two agree with each other.
+            assert_eq!(
+                slice.is_some(),
+                reader.is_ok(),
+                "cut={cut}: slice and reader decoders disagree"
+            );
+        }
+    }
+
+    assert_eq!(Ans::decode::<Vec<u64>>(&encoded), Some(value));
+}
+
+/// The truncation that the region-length checks alone cannot see: a stream cut
+/// **exactly on a frame boundary**, so every region it delivered is complete and
+/// only the absence of the next frame gives it away.
+///
+/// Worth its own test because it is the plausible one — frames are tens of
+/// kilobytes, and a transport that stops between them is ordinary — and because
+/// each decoder had to be taught it separately: an empty `rest` for the slice
+/// decoder, `read_varint_io` hitting EOF for the reader one.
+#[test]
+fn truncated_at_a_frame_boundary() {
+    let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+    let encoded = Ans::encode(&value);
+    let starts = frame_starts(&encoded);
+    assert!(starts.len() >= 3, "test wants a multi-chunk stream");
+
+    // Every boundary but offset 0 leaves at least one whole frame decoded, so
+    // the decoder gets genuinely under way before running out. Offset 0 is the
+    // degenerate case — an empty input, which is no encoding at all.
+    for &cut in &starts[..starts.len() - 1] {
+        let prefix = &encoded[..cut];
+        assert!(
+            Ans::decode::<Vec<u64>>(prefix).is_none(),
+            "cut={cut}: the slice decoder accepted a stream ending on a frame boundary"
+        );
+        let err = Ans::decode_from::<Vec<u64>, _>(prefix)
+            .expect_err("the reader decoder accepted a stream ending on a frame boundary");
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof, "{err}");
+    }
 }
 
 /// The streaming (`encode_to`/`decode_from`) and in-memory (`encode`/`decode`)
@@ -1555,13 +1739,13 @@ fn ans_decode_from_surfaces_latched_read_error() {
     // Byte length of the first (non-final) chunk: its 3-varint header plus both
     // region bodies (the frame walk `count_chunks` uses).
     let mut p: &[u8] = &encoded;
-    let tag = read_varint(&mut p);
+    let tag = read_varint(&mut p).expect("truncated frame tag");
     assert!(
         tag & 1 == 1,
         "first chunk must be non-final in a multi-chunk stream"
     );
-    let entropy_len = read_varint(&mut p);
-    let incompressible_len = read_varint(&mut p);
+    let entropy_len = read_varint(&mut p).expect("truncated entropy length");
+    let incompressible_len = read_varint(&mut p).expect("truncated incompressible length");
     let header_len = encoded.len() - p.len();
     let first_chunk_end = header_len + entropy_len + incompressible_len;
 
@@ -1997,12 +2181,17 @@ where
         self.inner.reader.push_frame(&frame);
     }
 
-    /// Read a LEB128 varint off the stream; the async twin of `read_varint_io`.
+    /// Read a LEB128 varint off the stream; the async twin of `read_varint_io`,
+    /// including its rule that end of stream inside a frame header is
+    /// truncation rather than a clean finish.
     async fn read_varint(&mut self) -> usize {
         let mut v = 0usize;
         let mut shift = 0u32;
         loop {
-            let b = self.source.next_byte().await;
+            let Some(b) = self.source.next_byte_or_eof().await else {
+                self.inner.error.get_or_insert_with(truncated_stream);
+                break;
+            };
             v |= ((b & 0x7f) as usize) << shift;
             if b & 0x80 == 0 {
                 break;
@@ -2283,27 +2472,32 @@ mod async_tests {
     fn truncation_agrees_with_the_sync_decoder() {
         let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
         let encoded = Ans::encode(&value);
-        for cut in [1, 7, encoded.len() / 3, encoded.len() - 1] {
+        // The frame boundaries among the cuts, since `AsyncAnsDecoder` reads its
+        // headers through a different varint reader than either sync decoder and
+        // so needed the end-of-stream rule taught to it a third time.
+        let cuts = [1, 7, encoded.len() / 3, encoded.len() - 1]
+            .into_iter()
+            .chain(super::frame_starts(&encoded));
+        for cut in cuts {
             let sync = Ans::decode::<Vec<u64>>(&encoded[..cut]);
             let asynchronous = block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
                 &encoded[..cut],
                 64,
             )));
-            // The async decoder may be *stricter*, and legitimately is: it
-            // pulls each frame whole, so a short region surfaces as a latched
-            // read error, where the sync decoder reads lazily and can zero-pad
-            // a truncated tail into a plausible short value. What it must never
-            // do is succeed where the sync decoder fails, or return a different
-            // value when both succeed.
-            match (sync, asynchronous) {
-                (Some(s), Ok(a)) => {
-                    assert_eq!(s, a, "cut={cut}: both succeeded but disagree on the value")
-                }
-                (Some(_), Err(_)) => {}
-                (None, Err(_)) => {}
-                (None, Ok(a)) => {
-                    panic!("cut={cut}: async accepted input the sync decoder rejected: {a:?}")
-                }
+            // Strict agreement, which the two decoders can manage because they
+            // detect truncation by the same rule: a frame header declares its
+            // region lengths, and the bytes are either there or they are not
+            // (`Decoder::saw_whole_chunks` on one side, `read_region`'s short
+            // read on the other). Neither can see a short tail of the *final*
+            // chunk's entropy body, which carries no length — so they agree
+            // there too, by both accepting it.
+            assert_eq!(
+                sync.is_some(),
+                asynchronous.is_ok(),
+                "cut={cut}: sync and async disagree about whether truncated input decodes"
+            );
+            if let (Some(s), Ok(a)) = (sync, asynchronous) {
+                assert_eq!(s, a, "cut={cut}: both succeeded but disagree on the value");
             }
         }
     }
