@@ -458,3 +458,209 @@ fn mixed_enum_variants() {
 
 // The derive's `MAX_BYTES` tests live with the async derive, which computes it
 // onto the `DecodeAsync` impl; see the async-decode work in progress.
+
+mod max_bytes {
+    use compactly::v2::{AtMost, DecodeAsync};
+    use compactly::Normal;
+
+    /// `Normal: DecodeAsync<T>` is the async counterpart of `T: Encode`, so
+    /// this is where a derived type's `MAX_BYTES` lives.
+    macro_rules! bound {
+        ($t:ty) => {
+            <Normal as DecodeAsync<$t>>::MAX_BYTES
+        };
+        ($s:ty, $t:ty) => {
+            <$s as DecodeAsync<$t>>::MAX_BYTES
+        };
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct Fields {
+        flag: bool,
+        byte: u8,
+        wide: u64,
+    }
+
+    #[derive(compactly::v2::Encode)]
+    enum Variants {
+        Nothing,
+        One(u8),
+        Several { a: u64, b: u64, c: bool },
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct WithStrategy {
+        #[compactly(Small)]
+        small: u64,
+        plain: u64,
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct HasUnbounded {
+        bounded: u8,
+        unbounded: String,
+    }
+
+    #[test]
+    fn a_struct_sums_its_fields() {
+        // A struct is one variant, so its `AtMost<0>` discriminant codes nothing.
+        assert_eq!(bound!(AtMost<0>), 0);
+        assert_eq!(bound!(Fields), bound!(bool) + bound!(u8) + bound!(u64));
+    }
+
+    #[test]
+    fn an_enum_maxes_over_variants_atop_the_discriminant() {
+        // Three variants, so an `AtMost<2>` discriminant, plus the fattest arm —
+        // not the sum of all of them, since only one is ever coded.
+        assert_eq!(
+            bound!(Variants),
+            bound!(AtMost<2>) + 2 * bound!(u64) + bound!(bool)
+        );
+    }
+
+    #[test]
+    fn a_field_uses_its_own_strategys_bound() {
+        use compactly::Small;
+        assert_eq!(bound!(WithStrategy), bound!(Small, u64) + bound!(u64));
+    }
+
+    #[test]
+    fn one_unbounded_field_makes_the_whole_type_unbounded() {
+        // Saturating, not wrapping: the safe direction, since an unbounded type
+        // simply never takes the async decoder's sync fast path.
+        assert_eq!(bound!(String), usize::MAX);
+        assert_eq!(bound!(HasUnbounded), usize::MAX);
+    }
+
+    /// The bound has to hold against real decodes, not just arithmetic. Encoding
+    /// one value alone yields its information plus the coder's final flush, so
+    /// `MAX_BYTES` plus a settling allowance must cover it.
+    #[test]
+    fn encoded_values_fit_within_the_computed_bound() {
+        const SETTLING: usize = 8;
+        for wide in [0, 1, u64::MAX, 1 << 31] {
+            for flag in [false, true] {
+                let v = Fields {
+                    flag,
+                    byte: 200,
+                    wide,
+                };
+                let n = compactly::v2::encode(&v).len();
+                assert!(
+                    n <= bound!(Fields) + SETTLING,
+                    "Fields {{ {flag}, 200, {wide} }} encoded to {n} bytes, over \
+                     its bound of {} (+{SETTLING} settling)",
+                    bound!(Fields)
+                );
+            }
+        }
+    }
+}
+
+/// The derive emits a `DecodeAsync` impl alongside `Encode`; this is the only
+/// place it can be exercised, since the lib's own tests cannot use the derive
+/// (`extern crate self as compactly` does not satisfy the generated
+/// `extern crate compactly`).
+#[cfg(feature = "stream")]
+mod async_decode {
+    use bytes::Bytes;
+    use futures_executor::block_on;
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Inner {
+        flag: bool,
+        wide: u64,
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    enum Shape {
+        Empty,
+        Tuple(u8, String),
+        Named {
+            #[compactly(Small)]
+            small: u64,
+            inner: Inner,
+            list: Vec<String>,
+        },
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Generic<T> {
+        first: T,
+        rest: Vec<T>,
+    }
+
+    /// One `Bytes` per `chunk_size` bytes, so the decoder actually suspends.
+    fn chunks(
+        bytes: &[u8],
+        chunk_size: usize,
+    ) -> impl futures_core::Stream<Item = Result<Bytes, std::io::Error>> {
+        struct Iter(std::vec::IntoIter<Bytes>);
+        impl futures_core::Stream for Iter {
+            type Item = Result<Bytes, std::io::Error>;
+            fn poll_next(
+                mut self: std::pin::Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Option<Self::Item>> {
+                std::task::Poll::Ready(self.0.next().map(Ok))
+            }
+        }
+        Iter(
+            bytes
+                .chunks(chunk_size)
+                .map(Bytes::copy_from_slice)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )
+    }
+
+    #[track_caller]
+    fn round_trips<T>(value: T)
+    where
+        T: compactly::v2::Encode + std::fmt::Debug + PartialEq,
+        compactly::Normal: compactly::v2::DecodeAsync<T>,
+    {
+        let encoded = compactly::v2::encode(&value);
+        assert_eq!(
+            compactly::v2::decode::<T>(&encoded).as_ref(),
+            Some(&value),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        for chunk_size in [1, 2, 3, 7, 64, 4096] {
+            let decoded: T =
+                block_on(compactly::v2::decode_stream(chunks(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, value, "chunk_size = {chunk_size}");
+        }
+    }
+
+    #[test]
+    fn every_variant_shape_round_trips_from_a_stream() {
+        round_trips(Shape::Empty);
+        round_trips(Shape::Tuple(200, "hello 🦀".to_string()));
+        round_trips(Shape::Named {
+            small: u64::MAX,
+            inner: Inner {
+                flag: true,
+                wide: 1 << 40,
+            },
+            list: vec!["a".to_string(), "x".repeat(300)],
+        });
+        round_trips(vec![
+            Shape::Empty,
+            Shape::Tuple(0, String::new()),
+            Shape::Empty,
+        ]);
+    }
+
+    #[test]
+    fn a_generic_derived_type_round_trips_from_a_stream() {
+        round_trips(Generic {
+            first: 7_u64,
+            rest: vec![0, 1, u64::MAX],
+        });
+        round_trips(Generic {
+            first: "first".to_string(),
+            rest: vec!["a".to_string(), "b".to_string()],
+        });
+    }
+}

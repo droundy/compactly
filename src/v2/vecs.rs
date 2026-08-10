@@ -169,10 +169,12 @@ where
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Box<T>, std::io::Error> {
-        // Boxed: `Box<T>` is how a recursive user type breaks its cycle, so
-        // this future must not contain its own inner future by value.
+        // Not boxed, despite `Box<T>` being where one would expect to break a
+        // recursive type's cycle: `Box<T>`'s context *is* `T::Context`, so a
+        // type recursing through `Box` already fails to compile on the sync
+        // path with a context layout cycle. There is no cycle left to break.
         Ok(Box::new(
-            Box::pin(<Normal as super::DecodeAsync<T>>::decode_async(reader, ctx)).await?,
+            <Normal as super::DecodeAsync<T>>::decode_async(reader, ctx).await?,
         ))
     }
 }

@@ -408,3 +408,18 @@ keep pulling while `poll_next` returns `Ready` immediately, and only ever
 suspend when the stream genuinely has nothing. That grows the sync-handoff
 batches without ever waiting for a byte we would not have waited for anyway.
 Not built: such streams are slow end to end regardless of what we do.
+
+### Note: recursive types are not supported (pre-existing)
+
+The async plan flagged recursive user types as a risk — `Tree::decode_async`
+awaiting `Box<Tree>::decode_async` makes an infinitely-sized future, wanting
+`Box::pin` at the recursion point. It turns out there is nothing to fix: a
+context holds one field per field and adds no indirection, so a recursive type
+has an infinitely-sized *context* and already fails to compile on the sync path
+with `error[E0391]: cycle detected when computing layout`. This is true through
+`Box` and `Option` exactly as much as through `Vec` — `Box<T>`'s context *is*
+`T::Context`. Verified on this branch against both shapes.
+
+So the async twins box nothing. If recursive types are ever supported, that
+work starts at the context (some `Box`ed context indirection), and the futures
+would need boxing at the same point.
