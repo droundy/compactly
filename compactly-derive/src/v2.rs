@@ -278,6 +278,30 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
     };
 
+    // `MAX_BYTES` for the derived type: the discriminant, plus the worst variant.
+    // Within a variant the fields are coded in sequence, so their bounds **sum**;
+    // across variants only one is ever coded, so they **max**. Each field
+    // contributes whatever its own strategy declares, so a field that has not
+    // opted in (`usize::MAX`) saturates the whole type to unbounded — which is
+    // the safe direction, since an unbounded type simply never takes the async
+    // decoder's sync fast path.
+    let variant_bounds = s
+        .variants()
+        .iter()
+        .map(|variant| {
+            let field_bounds = variant.bindings().iter().map(|binding| {
+                let ty = &binding.ast().ty;
+                if let Some(Some(strategy)) = binding_strategies.get(&binding.binding) {
+                    let strategy = &strategy.0;
+                    quote! { <#strategy as EncodingStrategy<#ty>>::MAX_BYTES }
+                } else {
+                    quote! { <#ty as Encode>::MAX_BYTES }
+                }
+            });
+            quote! { 0usize #(.saturating_add(#field_bounds))* }
+        })
+        .collect::<Vec<_>>();
+
     let strategies_to_impl = EncodingStrategy::parse_attrs(&s.ast().attrs);
     let impl_strategies = if strategies_to_impl.is_empty() {
         Vec::new()
@@ -299,6 +323,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             let decoded = s.variants()[0].construct(|_, _| quote! { <#strategy as EncodingStrategy<#ty>>::decode(reader, ctx)? });
             quote! {
                 impl EncodingStrategy<#typename> for #strategy {
+                    const MAX_BYTES: usize = <#strategy as EncodingStrategy<#ty>>::MAX_BYTES;
                     type Context = <#strategy as EncodingStrategy<#ty>>::Context;
                     fn encode<E: EntropyCoder>(value: &#typename, writer: &mut E, ctx: &mut Self::Context) {
                         <#strategy as EncodingStrategy<#ty>>::encode(&value.#field_name, writer, ctx)
@@ -344,6 +369,18 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
         gen impl Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
+            const MAX_BYTES: usize = {
+                let variants = [#(#variant_bounds),*];
+                let mut worst = 0usize;
+                let mut i = 0;
+                while i < variants.len() {
+                    if variants[i] > worst {
+                        worst = variants[i];
+                    }
+                    i += 1;
+                }
+                <#discriminant_type as Encode>::MAX_BYTES.saturating_add(worst)
+            };
             type Context = DerivedContext #context_generics_without_bound;
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                 match self { #encode_discriminant }
@@ -490,6 +527,7 @@ fn impl_two_strategies() {
                 }
             }
             impl EncodingStrategy<NewType> for Small {
+                const MAX_BYTES: usize = <Small as EncodingStrategy<u32>>::MAX_BYTES;
                 type Context = <Small as EncodingStrategy<u32>>::Context;
                 fn encode<E: EntropyCoder>(
                     value: &NewType,
@@ -506,6 +544,7 @@ fn impl_two_strategies() {
                 }
             }
             impl EncodingStrategy<NewType> for Sorted {
+                const MAX_BYTES: usize = <Sorted as EncodingStrategy<u32>>::MAX_BYTES;
                 type Context = <Sorted as EncodingStrategy<u32>>::Context;
                 fn encode<E: EntropyCoder>(
                     value: &NewType,
@@ -523,6 +562,18 @@ fn impl_two_strategies() {
             }
             impl Encode for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
+                const MAX_BYTES: usize = {
+                    let variants = [0usize.saturating_add(<u32 as Encode>::MAX_BYTES)];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < variants.len() {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
                 type Context = DerivedContext;
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {
@@ -601,6 +652,7 @@ fn impl_strategies() {
                 }
             }
             impl EncodingStrategy<NewType> for Sorted {
+                const MAX_BYTES: usize = <Sorted as EncodingStrategy<u32>>::MAX_BYTES;
                 type Context = <Sorted as EncodingStrategy<u32>>::Context;
                 fn encode<E: EntropyCoder>(
                     value: &NewType,
@@ -618,6 +670,18 @@ fn impl_strategies() {
             }
             impl Encode for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
+                const MAX_BYTES: usize = {
+                    let variants = [0usize.saturating_add(<u32 as Encode>::MAX_BYTES)];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < variants.len() {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
                 type Context = DerivedContext;
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {
@@ -696,6 +760,18 @@ fn impl_newtype() {
             }
             impl Encode for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
+                const MAX_BYTES: usize = {
+                    let variants = [0usize.saturating_add(<u32 as Encode>::MAX_BYTES)];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < variants.len() {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
                 type Context = DerivedContext;
                 fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                     match self {

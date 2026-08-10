@@ -94,7 +94,7 @@ fn no_value_exceeds_its_declared_max_bytes() {
     worst_bytes::<_, Normal>("u8 skewed", &skewed(0u8, 0..=255u8));
     worst_bytes::<_, Small>("Small<u8> exhaustive", &(0..=255u8).collect::<Vec<_>>());
     worst_bytes::<_, Normal>("i8 exhaustive", &(-128..=127i8).collect::<Vec<_>>());
-    atmost_cases!(1, 2, 3, 7, 15, 63, 255, 1000);
+    atmost_cases!(0, 1, 2, 3, 7, 15, 63, 255, 1000);
 
     // Wide types: extremes, every bit-length regime, and a hard skew. Every
     // power of two and its neighbours covers each `blbl` bucket and each

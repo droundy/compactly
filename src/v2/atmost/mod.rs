@@ -177,7 +177,13 @@ impl<const MAX: usize> Default for AtMostContext<MAX> {
 impl<const MAX: usize> Encode for AtMost<MAX> {
     /// One whole-symbol step when the value count fits `SymbolRange::M`, else
     /// the per-bit fallback over a tree of depth `ceil(log2(MAX + 1))`.
-    const MAX_BYTES: usize = if MAX < super::model::SymbolRange::M as usize {
+    const MAX_BYTES: usize = if MAX == 0 {
+        // One possible value carries no information, so nothing is coded at all
+        // (`walks::Walk::production` returns `None`). Worth spelling out because
+        // every derived *struct* has an `AtMost<0>` discriminant, and charging
+        // it a symbol would put phantom bytes in every derived bound.
+        0
+    } else if MAX < super::model::SymbolRange::M as usize {
         super::MAX_INFO_BYTES_PER_SYMBOL
     } else {
         (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
