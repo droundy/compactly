@@ -1641,17 +1641,27 @@ one-chunk read-ahead is gone, replaced by an explicit `ended` flag; the final
 poll is still asked for the next chunk before we need it.
 
 100k `u64` (802 KB compressed), `async-split`, instructions vs the sync slice
-decoder:
+decoder, min of 3 alternating runs under `bench`:
 
 | chunks | chunk size | before | after |
 |---|---|---|---|
-| 64 | 12.5 KB | +1.65% | +2.44% |
-| 1024 | 783 B | +9.27% | **+2.87%** |
+| 2 | 1 B + rest | +3.04% | +3.03% |
+| 16 | 50 KB | +1.26% | +2.64% |
+| 64 | 12.5 KB | +1.67% | +2.44% |
+| 256 | 3.1 KB | +3.25% | +2.47% |
+| 1024 | 783 B | +9.26% | **+2.84%** |
 
-Meteorite strings at 783-byte chunks: **−3.9%**. The small-chunk penalty the
-`MAX_BYTES` table recorded is essentially gone; what replaces it is a flat
-~0.8%, which is one memcpy of the payload — coalescing copies each byte once,
-and only when a poll actually collected something.
+**This is a flattening, not a pure win**, which is why the whole sweep is
+recorded rather than its endpoints: 1.26–9.26% became a nearly flat
+2.44–3.03%. About a point worse where chunks were already comfortable (16 and
+64), better from 3.1 KB down, 6.4 points better at 783 B. Meteorite strings at
+783-byte chunks: **−3.9%**.
+
+That ~1 point is one memcpy of the payload, paid only when a poll actually
+collected something. Hence the unchanged first row — with `chunks = 2` the
+second chunk is the whole 802 KB, past `READY_TARGET`, so the drain caps and
+coalesces nothing — and hence a transport handing over one chunk at a time as it
+is consumed pays nothing at all.
 
 Two things it did **not** change, both worth recording:
 
