@@ -1491,6 +1491,58 @@ then `COUNT=100000 [CHUNKS=n] bench perf stat -e
 cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
 ans-slice|ans-async u64|strings`.)
 
+#### …but it buys no overlap, and the instruction count could not have told us
+
+`CODER=ans ./target/release/async-decode-overlap both`, same workload and rates
+as the `Range` sweep above:
+
+| delivery rate | arrival | collect-then-decode | `Ans::decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 18.1 ms | 19.2 ms | +6.3% |
+| 100 MB/s | 8.0 ms | 24.1 ms | 24.8 ms | +2.8% |
+| 50 MB/s | 16.1 ms | 32.2 ms | 33.4 ms | +3.6% |
+| 25 MB/s | 32.1 ms | 48.3 ms | 49.7 ms | +2.9% |
+| 10 MB/s | 80.3 ms | 96.5 ms | 97.5 ms | +1.0% |
+
+`overlap ≈ arrival + decode` at every rate — the shape of the baseline, not of
+`max(arrival, decode)`. **`Ans::decode_stream` does not currently earn its
+existence**: it is collect-then-decode with extra copying. The +10.5%
+instruction count above is real and says nothing about this, which is the whole
+reason both measurements exist.
+
+The cause is that the frame drain waits. `while source.ready_bytes() > 0` tests
+that *some* bytes are ready, but `buffer_next_frame` then awaits everything it
+started — so with 53 KB frames it blocks for the rest of a frame on the strength
+of a few bytes being available, once per op, and the decode never gets ahead of
+the transport.
+
+Two further attempts, both measured, neither kept:
+
+- **Peek the frame length before committing** (parse the header out of
+  `buffered()` without consuming, drain only when `ready_bytes()` covers the
+  whole frame). This restores overlap where arrival is slow — 86.0 ms vs
+  96.6 ms at 10 MB/s, −11% — and destroys it where arrival is fast: 54.7 ms vs
+  18.1 ms at 400 MB/s, because the drain now essentially never fires and the
+  whole decode runs async. Cost went to **+417%** (117.6 B instructions), part
+  of it the per-op varint peek itself.
+- Reverting to no drain at all is the +200% first cut.
+
+The constraint underneath all three is `ChunkSource::ready_bytes()`, which
+returns `self.current.len() - self.pos` — **one stream chunk**, not everything
+delivered. An `Ans` frame is ~53 KB against 12.5 KB stream chunks, so a whole
+frame is never "ready" and the peek can never fire, however much the transport
+has actually handed over.
+
+So the fix is the one already written up under "tiny chunks" in
+plans/streaming-io-api.md, and it turns out to be load-bearing rather than a
+nicety: let `ChunkSource` keep pulling while `poll_next` returns `Ready`, so
+`ready_bytes()` reflects what has arrived rather than one chunk of it. Then the
+peek-drain fires whenever frames are genuinely in hand — everything at 400 MB/s
+(→ sync, ~17 ms) and only the arrived prefix at 10 MB/s (→ overlap) — and the
+same change lifts `Range`'s +8.9% at 783-byte chunks. It is a change to a
+structure both coders share, so it wants its own commit and its own before/after
+on both.
+
 ### `Encode::MAX_BYTES`: sync-decode anything that fits in the buffer (2026-08-09)
 
 The final-chunk handoff generalizes, and this is the version that matters. Each

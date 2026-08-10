@@ -27,7 +27,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use compactly::v2::decode_stream;
+use compactly::v2::{decode_stream, Ans};
 use futures_core::Stream;
 
 const DEFAULT_COUNT: usize = 100_000;
@@ -122,7 +122,7 @@ impl Stream for Timed {
 }
 
 /// Await every chunk, concatenate, then decode — the do-it-yourself baseline.
-async fn collect_then_decode(mut source: Timed) -> usize {
+async fn collect_then_decode(mut source: Timed, ans: bool) -> usize {
     let mut buf = Vec::new();
     loop {
         let next = std::future::poll_fn(|cx| Pin::new(&mut source).poll_next(cx)).await;
@@ -132,7 +132,11 @@ async fn collect_then_decode(mut source: Timed) -> usize {
             None => break,
         }
     }
-    compactly::v2::decode::<Vec<u64>>(&buf).unwrap().len()
+    if ans {
+        Ans::decode::<Vec<u64>>(&buf).unwrap().len()
+    } else {
+        compactly::v2::decode::<Vec<u64>>(&buf).unwrap().len()
+    }
 }
 
 fn main() {
@@ -157,7 +161,15 @@ fn main() {
             x
         })
         .collect();
-    let compressed = compactly::v2::encode(&data);
+    // `CODER=ans` measures the rANS decoder instead. Its frames are decodable
+    // only once each has arrived whole, and its *final* frame runs to end of
+    // stream, so the shape of the overlap is expected to differ.
+    let ans = std::env::var("CODER").is_ok_and(|c| c == "ans");
+    let compressed = if ans {
+        Ans::encode(&data)
+    } else {
+        compactly::v2::encode(&data)
+    };
 
     // Default the delivery rate so arrival takes about as long as a decode:
     // that is where overlap is most visible, and it is also the realistic
@@ -165,11 +177,13 @@ fn main() {
     // question moot, and one far slower hides the decode entirely.
     let baseline = {
         let t = Instant::now();
-        std::hint::black_box(
+        std::hint::black_box(if ans {
+            Ans::decode::<Vec<u64>>(&compressed).unwrap().len()
+        } else {
             compactly::v2::decode::<Vec<u64>>(&compressed)
                 .unwrap()
-                .len(),
-        );
+                .len()
+        });
         t.elapsed()
     };
     let rate_mbps = env("RATE_MBPS", 0);
@@ -193,16 +207,22 @@ fn main() {
         let source = Timed::new(&compressed, chunks, interval);
         let arrival = source.arrival_time();
         let t = Instant::now();
-        let n = block_on(collect_then_decode(source));
+        let n = block_on(collect_then_decode(source, ans));
         (t.elapsed(), arrival, n)
     };
     let run_overlap = || {
         let source = Timed::new(&compressed, chunks, interval);
         let arrival = source.arrival_time();
         let t = Instant::now();
-        let n = block_on(decode_stream::<Vec<u64>, _, _>(source))
-            .unwrap()
-            .len();
+        let n = if ans {
+            block_on(Ans::decode_stream::<Vec<u64>, _, _>(source))
+                .unwrap()
+                .len()
+        } else {
+            block_on(decode_stream::<Vec<u64>, _, _>(source))
+                .unwrap()
+                .len()
+        };
         (t.elapsed(), arrival, n)
     };
 
