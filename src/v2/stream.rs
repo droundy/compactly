@@ -514,6 +514,51 @@ pub(crate) mod tests {
         assert!(s.take_error().is_some(), "the error must still be latched");
     }
 
+    /// [`READY_TARGET`] is the bounded-buffer promise, and it is the whole
+    /// reason `drain_ready` stops asking. Without it a transport with the input
+    /// already in hand would be emptied into memory, and `decode_stream`'s peak
+    /// would be the value *plus the entire compressed input* — which is what
+    /// collect-then-decode gives you for free, so the API would have nothing
+    /// left to offer. Asserted here rather than through the allocator because
+    /// this is the mechanism, and `stats_alloc` cannot report a peak anyway.
+    #[test]
+    fn the_drain_is_bounded_however_much_has_arrived() {
+        // Deliberately not a divisor of `READY_TARGET`, so the drain has to
+        // overshoot — it tests its budget before polling, not after, so the
+        // chunk that crosses the line is taken whole.
+        const CHUNK: usize = 48 * 1024;
+        // 4.5 MB, seventeen times the target, every byte deliverable at once.
+        const N: usize = 96;
+        let mut s = source_of(
+            (0..N)
+                .map(|i| Ok(Bytes::from(vec![i as u8; CHUNK])))
+                .collect(),
+        );
+        let mut buf = vec![0u8; 4096];
+        let mut total = 0;
+        let mut peak = 0;
+        loop {
+            let ready = s.ready_bytes();
+            peak = peak.max(ready);
+            assert!(
+                ready <= READY_TARGET + CHUNK,
+                "buffered {ready} bytes, past the {READY_TARGET} target (+ one \
+                 {CHUNK}-byte chunk of overshoot, since the drain checks before \
+                 it polls)"
+            );
+            if block_on(s.read_exact(&mut buf)).is_err() {
+                break;
+            }
+            total += buf.len();
+        }
+        assert_eq!(total, N * CHUNK, "the cap must not lose bytes, only defer");
+        assert!(
+            peak >= READY_TARGET,
+            "only ever buffered {peak} bytes, so the cap was never reached and \
+             the bound above proves nothing"
+        );
+    }
+
     /// The two paths must agree: same bytes, one chunk versus many.
     #[test]
     fn single_chunk_and_multi_chunk_paths_agree() {
