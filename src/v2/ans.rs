@@ -2100,12 +2100,19 @@ impl std::io::Read for FrameBuffer {
 /// suspend to buffer the next frame.
 ///
 /// It has to exceed the most ops one call through the decoder can consume,
-/// because `read_ahead` runs once per call and not once per op: a `decode_bits`
-/// batch spends `N`, and a multi-step `AtMost` walk spends one per tree level.
-/// Both are small — the library only ever batches through `decode_bit`
-/// (`N = 1`) today, and the deepest walk is bounded by the tree height — so 256
-/// is generous by a wide margin while costing 0.4% of a chunk's `CHUNK_OPS`
-/// worth of overlap.
+/// because `read_ahead` runs once per call and not once per op.
+///
+/// **Today every call spends exactly one op, so this is insurance, not a live
+/// constraint** — setting it to 0 passes the whole test suite. The two multi-op
+/// calls are `decode_bits::<N>`, where every *encode* site passes `N = 1` and
+/// the encoder flushes between batches, and a bitwise `AtMost` walk, which
+/// `Walk::production` selects only for `MAX == 1` (one bit) or
+/// `MAX >= SymbolRange::M` — and the latter needs an `[BitContext; MAX]` context
+/// that does not survive const evaluation at that size.
+///
+/// 256 covers the bound either would have if that changed (a walk is one op per
+/// tree level, so `usize::BITS`), for 0.4% of a chunk's `CHUNK_OPS` worth of
+/// overlap. `ops_margin_covers_the_widest_call` pins both facts.
 ///
 /// Being wrong here fails loudly rather than silently: the sync decoder's
 /// `load_next_chunk` would find no frame in the buffer, and `read_varint_io`
@@ -2608,6 +2615,67 @@ mod async_tests {
             err.to_string().contains("transient stream failure"),
             "expected the latched stream error, got: {err}"
         );
+    }
+
+    /// [`OPS_MARGIN`] must exceed the ops any *single* call into the decoder can
+    /// spend, since `read_ahead` runs per call and not per op.
+    ///
+    /// Today every call spends exactly one op, so the margin is insurance rather
+    /// than load-bearing — setting it to 0 passes the whole suite. This test
+    /// pins the two facts that make that true, so a change to either fails here
+    /// rather than silently at a frame boundary:
+    ///
+    /// - The only walks that spend more than one op are the bitwise ones, and
+    ///   [`Walk::production`](crate::v2::Walk::production) selects those only for
+    ///   `MAX == 1` (a single bit) or `MAX >= SymbolRange::M`. The latter needs
+    ///   an `AtMostContext<MAX>` of `[BitContext; MAX]`, which does not survive
+    ///   const evaluation at that size — so it is unreachable in practice.
+    /// - Even if it became reachable, a bitwise walk is one op per tree level
+    ///   and `MAX` is a `usize`, so `usize::BITS` bounds it.
+    ///
+    /// `decode_bits::<N>` is the other multi-op call. Every *encode* site passes
+    /// `N = 1` (batching is decode-side only), and the encoder flushes between
+    /// batches, so a batch never straddles two chunks.
+    #[test]
+    fn ops_margin_covers_the_widest_call() {
+        use crate::v2::atmost::walks::Walk;
+        assert!(
+            OPS_MARGIN > usize::BITS as usize,
+            "a bitwise walk spends one op per tree level, bounded by usize::BITS"
+        );
+        for max in [1usize, 2, 7, 8, 255, 256, 1000, 65535] {
+            let bitwise = matches!(
+                walk_for(max),
+                Some(Walk::CompleteBitwise | Walk::UnevenBitwise)
+            );
+            assert_eq!(
+                bitwise,
+                max == 1,
+                "MAX={max}: only a single-bit walk should be bitwise below \
+                 SymbolRange::M, or `read_ahead` needs to run per op"
+            );
+        }
+    }
+
+    /// `Walk::production` is const-generic over `MAX`; this reaches it for a
+    /// runtime value by table, which is enough for the handful of `MAX`es the
+    /// test above cares about.
+    fn walk_for(max: usize) -> Option<crate::v2::atmost::walks::Walk> {
+        fn at<const MAX: usize>() -> Option<crate::v2::atmost::walks::Walk> {
+            use crate::v2::atmost::walks::Walk;
+            Walk::production::<MAX>(<Decoder<'static> as SymbolDecoder>::SPECULATES)
+        }
+        match max {
+            1 => at::<1>(),
+            2 => at::<2>(),
+            7 => at::<7>(),
+            8 => at::<8>(),
+            255 => at::<255>(),
+            256 => at::<256>(),
+            1000 => at::<1000>(),
+            65535 => at::<65535>(),
+            _ => unreachable!("add {max} to the table"),
+        }
     }
 
     #[test]
