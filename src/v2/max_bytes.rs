@@ -107,8 +107,8 @@ fn no_value_exceeds_its_declared_max_bytes() {
     worst_bytes::<_, Normal>("bool skewed", &skewed(false, [true, true, false]));
     worst_bytes::<_, Normal>("u8 exhaustive", &(0..=255u8).collect::<Vec<_>>());
     worst_bytes::<_, Normal>("u8 skewed", &skewed(0u8, 0..=255u8));
-    measure::<_, Small>("Small<u8> exhaustive", &(0..=255u8).collect::<Vec<_>>());
-    measure::<_, Normal>("i8 exhaustive", &(-128..=127i8).collect::<Vec<_>>());
+    worst_bytes::<_, Small>("Small<u8> exhaustive", &(0..=255u8).collect::<Vec<_>>());
+    worst_bytes::<_, Normal>("i8 exhaustive", &(-128..=127i8).collect::<Vec<_>>());
     atmost_cases!(0, 1, 2, 3, 7, 15, 63, 255, 1000);
 
     // Wide types: extremes, every bit-length regime, and a hard skew. Every
@@ -126,10 +126,10 @@ fn no_value_exceeds_its_declared_max_bytes() {
     worst_bytes::<_, Normal>("u64 bit-length regimes", &u64s);
     worst_bytes::<_, Normal>("u64 skewed", &skewed(0u64, [u64::MAX, 0, u64::MAX, 1]));
     worst_bytes::<_, Small>("Small<u64> skewed", &skewed(0u64, [u64::MAX, 0, u64::MAX]));
-    measure::<_, Normal>("u32 skewed", &skewed(0u32, [u32::MAX, 0, u32::MAX]));
-    measure::<_, Normal>("u128 skewed", &skewed(0u128, [u128::MAX, 0, u128::MAX]));
+    worst_bytes::<_, Normal>("u32 skewed", &skewed(0u32, [u32::MAX, 0, u32::MAX]));
+    worst_bytes::<_, Normal>("u128 skewed", &skewed(0u128, [u128::MAX, 0, u128::MAX]));
     worst_bytes::<_, Normal>("usize skewed", &skewed(0usize, [usize::MAX, 0, usize::MAX]));
-    measure::<_, Normal>("isize skewed", &skewed(0isize, [isize::MIN, 0, isize::MAX]));
+    worst_bytes::<_, Normal>("isize skewed", &skewed(0isize, [isize::MIN, 0, isize::MAX]));
 
     // Unbounded types still get measured, so the numbers are on record if we
     // ever want to bound them.
@@ -148,47 +148,47 @@ fn every_bounded_type_stays_within_its_bound() {
     use std::num::{NonZeroI16, NonZeroI64, NonZeroU16, NonZeroU64, NonZeroUsize};
 
     // Integers, every strategy that declares a bound.
-    measure::<_, Sorted>(
+    worst_bytes::<_, Sorted>(
         "Sorted<u64>",
         &(0..500u64).map(|i| i * 7).collect::<Vec<_>>(),
     );
-    measure::<_, Sorted>(
+    worst_bytes::<_, Sorted>(
         "Sorted<u64> unsorted",
         &skewed(0u64, [u64::MAX, 0, u64::MAX]),
     );
-    measure::<_, Incompressible>("Incompressible<u64>", &skewed(0u64, [u64::MAX, 7]));
-    measure::<_, Sorted>("Sorted<i64>", &skewed(0i64, [i64::MIN, i64::MAX, 0]));
-    measure::<_, Small>("Small<i64>", &skewed(0i64, [i64::MIN, i64::MAX, 0]));
-    measure::<_, Normal>("u16", &(0..=u16::MAX).step_by(7).collect::<Vec<_>>());
-    measure::<_, Small>("Small<u16>", &(0..=u16::MAX).step_by(7).collect::<Vec<_>>());
-    measure::<_, Normal>("i16", &(i16::MIN..=i16::MAX).step_by(7).collect::<Vec<_>>());
-    measure::<_, Small>("Small<i16>", &skewed(0i16, [i16::MIN, i16::MAX, 0]));
-    measure::<_, Normal>("i32 skewed", &skewed(0i32, [i32::MIN, i32::MAX, 0]));
-    measure::<_, Normal>("i128 skewed", &skewed(0i128, [i128::MIN, i128::MAX, 0]));
-    measure::<_, Small>("Small<i8>", &(-128..=127i8).collect::<Vec<_>>());
-    measure::<_, Sorted>("Sorted<u8>", &(0..=255u8).collect::<Vec<_>>());
-    measure::<_, Sorted>("Sorted<i8>", &(-128..=127i8).collect::<Vec<_>>());
-    measure::<_, Incompressible>("Incompressible<u8>", &(0..=255u8).collect::<Vec<_>>());
-    measure::<_, Sorted>("Sorted<bool>", &skewed(false, [true, false]));
+    worst_bytes::<_, Incompressible>("Incompressible<u64>", &skewed(0u64, [u64::MAX, 7]));
+    worst_bytes::<_, Sorted>("Sorted<i64>", &skewed(0i64, [i64::MIN, i64::MAX, 0]));
+    worst_bytes::<_, Small>("Small<i64>", &skewed(0i64, [i64::MIN, i64::MAX, 0]));
+    worst_bytes::<_, Normal>("u16", &(0..=u16::MAX).step_by(7).collect::<Vec<_>>());
+    worst_bytes::<_, Small>("Small<u16>", &(0..=u16::MAX).step_by(7).collect::<Vec<_>>());
+    worst_bytes::<_, Normal>("i16", &(i16::MIN..=i16::MAX).step_by(7).collect::<Vec<_>>());
+    worst_bytes::<_, Small>("Small<i16>", &skewed(0i16, [i16::MIN, i16::MAX, 0]));
+    worst_bytes::<_, Normal>("i32 skewed", &skewed(0i32, [i32::MIN, i32::MAX, 0]));
+    worst_bytes::<_, Normal>("i128 skewed", &skewed(0i128, [i128::MIN, i128::MAX, 0]));
+    worst_bytes::<_, Small>("Small<i8>", &(-128..=127i8).collect::<Vec<_>>());
+    worst_bytes::<_, Sorted>("Sorted<u8>", &(0..=255u8).collect::<Vec<_>>());
+    worst_bytes::<_, Sorted>("Sorted<i8>", &(-128..=127i8).collect::<Vec<_>>());
+    worst_bytes::<_, Incompressible>("Incompressible<u8>", &(0..=255u8).collect::<Vec<_>>());
+    worst_bytes::<_, Sorted>("Sorted<bool>", &skewed(false, [true, false]));
 
     // NonZero: coded through the plain integer behind them.
     let nz = |v: u64| NonZeroU64::new(v).unwrap();
-    measure::<_, Normal>("NonZeroU64", &skewed(nz(1), [nz(u64::MAX), nz(1)]));
-    measure::<_, Small>("Small<NonZeroU64>", &skewed(nz(1), [nz(u64::MAX), nz(1)]));
+    worst_bytes::<_, Normal>("NonZeroU64", &skewed(nz(1), [nz(u64::MAX), nz(1)]));
+    worst_bytes::<_, Small>("Small<NonZeroU64>", &skewed(nz(1), [nz(u64::MAX), nz(1)]));
     let nzi = |v: i64| NonZeroI64::new(v).unwrap();
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "NonZeroI64",
         &skewed(nzi(1), [nzi(i64::MIN), nzi(i64::MAX)]),
     );
     let nzu16 = |v: u16| NonZeroU16::new(v).unwrap();
-    measure::<_, Normal>("NonZeroU16", &skewed(nzu16(1), [nzu16(u16::MAX)]));
+    worst_bytes::<_, Normal>("NonZeroU16", &skewed(nzu16(1), [nzu16(u16::MAX)]));
     let nzi16 = |v: i16| NonZeroI16::new(v).unwrap();
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "NonZeroI16",
         &skewed(nzi16(1), [nzi16(i16::MIN), nzi16(i16::MAX)]),
     );
     let nzus = |v: usize| NonZeroUsize::new(v).unwrap();
-    measure::<_, Normal>("NonZeroUsize", &skewed(nzus(1), [nzus(usize::MAX)]));
+    worst_bytes::<_, Normal>("NonZeroUsize", &skewed(nzus(1), [nzus(usize::MAX)]));
 
     // Floats: several tiers behind selector bits, so probe each.
     let f64s: Vec<f64> = skewed(
@@ -205,26 +205,26 @@ fn every_bounded_type_stays_within_its_bound() {
             1234.5678,
         ],
     );
-    measure::<_, Normal>("f64", &f64s);
-    measure::<_, crate::Decimal>("Decimal<f64>", &f64s);
+    worst_bytes::<_, Normal>("f64", &f64s);
+    worst_bytes::<_, crate::Decimal>("Decimal<f64>", &f64s);
     let f32s: Vec<f32> = skewed(0.0f32, [1.0, -1.0, 1e30, f32::MAX, f32::MIN, 1234.5678]);
-    measure::<_, Normal>("f32", &f32s);
-    measure::<_, crate::Decimal>("Decimal<f32>", &f32s);
+    worst_bytes::<_, Normal>("f32", &f32s);
+    worst_bytes::<_, crate::Decimal>("Decimal<f32>", &f32s);
 
     // Fixed-size composites.
-    measure::<_, Normal>("()", &[(); 8]);
-    measure::<_, Normal>("(u8, u64)", &skewed((0u8, 0u64), [(255, u64::MAX)]));
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>("()", &[(); 8]);
+    worst_bytes::<_, Normal>("(u8, u64)", &skewed((0u8, 0u64), [(255, u64::MAX)]));
+    worst_bytes::<_, Normal>(
         "(bool, u8, u16, u32)",
         &skewed((false, 0u8, 0u16, 0u32), [(true, 255, u16::MAX, u32::MAX)]),
     );
-    measure::<_, Normal>("[u8; 4]", &skewed([0u8; 4], [[255u8; 4]]));
-    measure::<_, Normal>("Option<u64>", &skewed(None::<u64>, [Some(u64::MAX), None]));
-    measure::<_, Normal>("Box<u64>", &skewed(Box::new(0u64), [Box::new(u64::MAX)]));
-    measure::<_, Normal>("PhantomData", &[std::marker::PhantomData::<u64>; 8]);
+    worst_bytes::<_, Normal>("[u8; 4]", &skewed([0u8; 4], [[255u8; 4]]));
+    worst_bytes::<_, Normal>("Option<u64>", &skewed(None::<u64>, [Some(u64::MAX), None]));
+    worst_bytes::<_, Normal>("Box<u64>", &skewed(Box::new(0u64), [Box::new(u64::MAX)]));
+    worst_bytes::<_, Normal>("PhantomData", &[std::marker::PhantomData::<u64>; 8]);
 
     // Network addresses: fixed size, so all bounded.
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "Ipv4Addr",
         &skewed(
             Ipv4Addr::new(0, 0, 0, 0),
@@ -232,21 +232,21 @@ fn every_bounded_type_stays_within_its_bound() {
         ),
     );
     let v6 = |a| Ipv6Addr::from(a);
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "Ipv6Addr",
         &skewed(
             v6([0u16; 8]),
             [v6([0xffff; 8]), v6([1, 0, 2, 0, 3, 0, 4, 0])],
         ),
     );
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "IpAddr",
         &skewed(
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
             [IpAddr::V6(v6([0xffff; 8]))],
         ),
     );
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "SocketAddrV4",
         &skewed(
             SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0),
@@ -256,7 +256,7 @@ fn every_bounded_type_stays_within_its_bound() {
             )],
         ),
     );
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "SocketAddrV6",
         &skewed(
             SocketAddrV6::new(v6([0u16; 8]), 0, 0, 0),
@@ -268,7 +268,7 @@ fn every_bounded_type_stays_within_its_bound() {
             )],
         ),
     );
-    measure::<_, Normal>(
+    worst_bytes::<_, Normal>(
         "SocketAddr",
         &skewed(
             SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
@@ -283,8 +283,8 @@ fn every_bounded_type_stays_within_its_bound() {
 
     // Unbounded ones are exercised too — the assertion is vacuous, but the
     // round-trip and the reported worst case are not.
-    measure::<_, Normal>("Vec<u64>", &vec![vec![1u64, 2, 3]; 8]);
-    measure::<_, Compressible>(
+    worst_bytes::<_, Normal>("Vec<u64>", &vec![vec![1u64, 2, 3]; 8]);
+    worst_bytes::<_, Compressible>(
         "Compressible<String>",
         &vec!["the quick brown fox jumps".to_string(); 8],
     );

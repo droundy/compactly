@@ -45,6 +45,42 @@ macro_rules! impl_nonzero_uint {
     };
 }
 
+macro_rules! impl_nonzero_uint_async {
+    ($nz:ty, $uint:ty) => {
+        impl crate::v2::DecodeAsync<$nz> for crate::Normal {
+            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
+            /// when signed — so the bound is that integer's.
+            const MAX_BYTES: usize = <crate::Normal as crate::v2::DecodeAsync<$uint>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let v = <crate::Normal as crate::v2::DecodeAsync<$uint>>::decode_async(reader, ctx)
+                    .await?;
+                <$nz>::new(v.wrapping_add(1))
+                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+        }
+
+        impl crate::v2::DecodeAsync<$nz> for Small {
+            const MAX_BYTES: usize = <Small as crate::v2::DecodeAsync<$uint>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let v: $uint =
+                    <Small as crate::v2::DecodeAsync<$uint>>::decode_async(reader, ctx).await?;
+                <$nz>::new(v.wrapping_add(1))
+                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+        }
+    };
+}
+
 // Signed NonZero types use a nonzero-zigzag: negative values interleave with
 // positive ones, mapping to the corresponding unsigned type.
 //
@@ -112,19 +148,75 @@ macro_rules! impl_nonzero_int {
     };
 }
 
+macro_rules! impl_nonzero_int_async {
+    ($nz:ty, $int:ty, $uint:ty) => {
+        impl crate::v2::DecodeAsync<$nz> for crate::Normal {
+            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
+            /// when signed — so the bound is that integer's.
+            const MAX_BYTES: usize = <crate::Normal as crate::v2::DecodeAsync<$uint>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let u = <crate::Normal as crate::v2::DecodeAsync<$uint>>::decode_async(reader, ctx)
+                    .await?;
+                let v: $int = if u & 1 == 1 {
+                    u.div_ceil(2) as $int
+                } else {
+                    -((u / 2) as $int) - 1
+                };
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+        }
+
+        impl crate::v2::DecodeAsync<$nz> for Small {
+            const MAX_BYTES: usize = <Small as crate::v2::DecodeAsync<$uint>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let u: $uint =
+                    <Small as crate::v2::DecodeAsync<$uint>>::decode_async(reader, ctx).await?;
+                let v: $int = if u & 1 == 1 {
+                    u.div_ceil(2) as $int
+                } else {
+                    -((u / 2) as $int) - 1
+                };
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+        }
+    };
+}
+
 impl_nonzero_uint!(NonZeroU8, u8);
+impl_nonzero_uint_async!(NonZeroU8, u8);
 impl_nonzero_uint!(NonZeroU16, u16);
+impl_nonzero_uint_async!(NonZeroU16, u16);
 impl_nonzero_uint!(NonZeroU32, u32);
+impl_nonzero_uint_async!(NonZeroU32, u32);
 impl_nonzero_uint!(NonZeroU64, u64);
+impl_nonzero_uint_async!(NonZeroU64, u64);
 impl_nonzero_uint!(NonZeroU128, u128);
+impl_nonzero_uint_async!(NonZeroU128, u128);
 impl_nonzero_uint!(NonZeroUsize, usize);
+impl_nonzero_uint_async!(NonZeroUsize, usize);
 
 impl_nonzero_int!(NonZeroI8, i8, u8);
+impl_nonzero_int_async!(NonZeroI8, i8, u8);
 impl_nonzero_int!(NonZeroI16, i16, u16);
+impl_nonzero_int_async!(NonZeroI16, i16, u16);
 impl_nonzero_int!(NonZeroI32, i32, u32);
+impl_nonzero_int_async!(NonZeroI32, i32, u32);
 impl_nonzero_int!(NonZeroI64, i64, u64);
+impl_nonzero_int_async!(NonZeroI64, i64, u64);
 impl_nonzero_int!(NonZeroI128, i128, u128);
+impl_nonzero_int_async!(NonZeroI128, i128, u128);
 impl_nonzero_int!(NonZeroIsize, isize, usize);
+impl_nonzero_int_async!(NonZeroIsize, isize, usize);
 
 #[test]
 fn nonzero_uint_roundtrip() {

@@ -72,10 +72,60 @@ macro_rules! impl_low_cardinality {
     };
 }
 
+macro_rules! impl_low_cardinality_async {
+    ($t:ty, $mod:ident) => {
+        mod $mod {
+            use super::{CacheContext, LowCardinality};
+            impl crate::v2::DecodeAsync<$t> for LowCardinality {
+                /// Unbounded: a dictionary index over arbitrarily many values.
+                const MAX_BYTES: usize = usize::MAX;
+
+                #[inline]
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    let is_cached = <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
+                        reader,
+                        &mut ctx.is_cached,
+                    )
+                    .await?;
+                    if is_cached {
+                        let idx = <crate::Normal as crate::v2::DecodeAsync<usize>>::decode_async(
+                            reader,
+                            &mut ctx.index,
+                        )
+                        .await?;
+                        ctx.cache
+                            .get(idx)
+                            .cloned()
+                            .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+                    } else {
+                        let value = <crate::Normal as crate::v2::DecodeAsync<$t>>::decode_async(
+                            reader,
+                            &mut ctx.context,
+                        )
+                        .await?;
+                        ctx.cache.push(value.clone());
+                        Ok(value)
+                    }
+                }
+            }
+            // `CacheContext` is named only to keep the `use` honest.
+            #[allow(unused_imports)]
+            use CacheContext as _Unused;
+        }
+    };
+}
+
 impl_low_cardinality!(Vec<u8>, bytes);
+impl_low_cardinality_async!(Vec<u8>, bytes_async);
 impl_low_cardinality!(u16, mod_u16);
+impl_low_cardinality_async!(u16, mod_u16_async);
 impl_low_cardinality!(u32, mod_u32);
+impl_low_cardinality_async!(u32, mod_u32_async);
 impl_low_cardinality!(u64, mod_u64);
+impl_low_cardinality_async!(u64, mod_u64_async);
 
 // Arc<str>/Rc<str>/String share one dictionary-based implementation, generic
 // over the ref-counted pointer type `P` (`Arc<str>` for `Arc<str>` fields,
@@ -111,6 +161,15 @@ fn decode_match_len<D: super::EntropyDecoder>(
     ctx: &mut <Small as EncodingStrategy<u16>>::Context,
 ) -> Result<usize, std::io::Error> {
     let wire: u16 = Small::decode(reader, ctx)?;
+    Ok(if wire == 0 { 0 } else { wire as usize + 1 })
+}
+
+#[inline]
+async fn decode_match_len_async<D: super::AsyncEntropyDecoder>(
+    reader: &mut D,
+    ctx: &mut <Small as EncodingStrategy<u16>>::Context,
+) -> Result<usize, std::io::Error> {
+    let wire: u16 = <Small as super::DecodeAsync<u16>>::decode_async(reader, ctx).await?;
     Ok(if wire == 0 { 0 } else { wire as usize + 1 })
 }
 
@@ -321,6 +380,81 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
     Ok(value)
 }
 
+async fn decode_generic_async<P: StrPtr, D: super::AsyncEntropyDecoder>(
+    reader: &mut D,
+    ctx: &mut DictContext<P>,
+) -> Result<P, std::io::Error> {
+    let is_cached =
+        <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_cached)
+            .await?;
+    if is_cached {
+        let idx: usize =
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.index).await?;
+        return ctx
+            .dict
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality index"));
+    }
+
+    let prefix_len = decode_match_len_async(reader, &mut ctx.prefix_len).await?;
+    let mut out = String::new();
+    if prefix_len > 0 {
+        let idx: usize =
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.prefix_index)
+                .await?;
+        let entry = ctx
+            .dict
+            .get(idx)
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix index"))?;
+        // The wire-supplied length is unrelated to whatever entry the index
+        // resolved to, so slice fallibly: `get` rejects both out-of-bounds
+        // and non-char-boundary lengths.
+        let prefix = entry
+            .get(..prefix_len)
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix length"))?;
+        out.push_str(prefix);
+    }
+
+    let suffix_len = decode_match_len_async(reader, &mut ctx.suffix_len).await?;
+    let suffix_idx = if suffix_len > 0 {
+        Some(
+            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.suffix_index)
+                .await?,
+        )
+    } else {
+        None
+    };
+
+    let middle_len: usize =
+        <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.middle_len).await?;
+    for _ in 0..middle_len {
+        out.push(
+            <crate::Normal as super::DecodeAsync<char>>::decode_async(reader, &mut ctx.chars)
+                .await?,
+        );
+    }
+
+    if let Some(idx) = suffix_idx {
+        let entry = ctx
+            .dict
+            .get(idx)
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix index"))?;
+        // As with the prefix above: `checked_sub` rejects lengths longer
+        // than the entry, `get` rejects non-char-boundary starts.
+        let suffix = entry
+            .len()
+            .checked_sub(suffix_len)
+            .and_then(|start| entry.get(start..))
+            .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix length"))?;
+        out.push_str(suffix);
+    }
+
+    let value = P::from_str(&out);
+    ctx.dict.push(value.clone());
+    Ok(value)
+}
+
 impl EncodingStrategy<Arc<str>> for LowCardinality {
     type Context = DictContext<Arc<str>>;
     #[inline]
@@ -339,6 +473,20 @@ impl EncodingStrategy<Arc<str>> for LowCardinality {
     }
 }
 
+impl super::DecodeAsync<Arc<str>> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Arc<str>, std::io::Error> {
+        decode_generic_async(reader, ctx).await
+    }
+}
+
 impl EncodingStrategy<Rc<str>> for LowCardinality {
     type Context = DictContext<Rc<str>>;
     #[inline]
@@ -354,6 +502,20 @@ impl EncodingStrategy<Rc<str>> for LowCardinality {
         ctx: &mut Self::Context,
     ) -> Result<Rc<str>, std::io::Error> {
         decode_generic(reader, ctx)
+    }
+}
+
+impl super::DecodeAsync<Rc<str>> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Rc<str>, std::io::Error> {
+        decode_generic_async(reader, ctx).await
     }
 }
 
@@ -379,6 +541,22 @@ impl EncodingStrategy<String> for LowCardinality {
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         decode_generic(reader, ctx).map(|rc: Rc<str>| rc.to_string())
+    }
+}
+
+impl super::DecodeAsync<String> for LowCardinality {
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        decode_generic_async(reader, ctx)
+            .await
+            .map(|rc: Rc<str>| rc.to_string())
     }
 }
 
@@ -409,6 +587,33 @@ where
         for _ in 0..n {
             sentinel.decode(reader)?;
             x.push(LowCardinality::decode(reader, &mut ctx.1)?);
+        }
+        Ok(x)
+    }
+}
+
+impl<T> super::DecodeAsync<Vec<T>> for LowCardinality
+where
+    T: Encode,
+    LowCardinality: super::DecodeAsync<T>,
+{
+    /// Unbounded: a dictionary index over arbitrarily many values, and a
+    /// miss codes the value itself.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Vec<T>, std::io::Error> {
+        let n =
+            <crate::Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.0).await?;
+        let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..n {
+            sentinel.decode_async(reader).await?;
+            x.push(
+                <LowCardinality as super::DecodeAsync<T>>::decode_async(reader, &mut ctx.1).await?,
+            );
         }
         Ok(x)
     }

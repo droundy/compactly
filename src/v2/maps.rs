@@ -193,3 +193,96 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         Ok(map)
     }
 }
+
+impl<K: Encode + Hash + Eq, V: Encode> super::DecodeAsync<HashMap<K, V>> for Normal
+where
+    Normal: super::DecodeAsync<K> + super::EncodingStrategy<K, Context = <K as Encode>::Context>,
+    Normal: super::DecodeAsync<V> + super::EncodingStrategy<V, Context = <V as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashMap<K, V>, std::io::Error> {
+        let len = <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            let k = <Normal as super::DecodeAsync<K>>::decode_async(reader, &mut ctx.key).await?;
+            let v = <Normal as super::DecodeAsync<V>>::decode_async(reader, &mut ctx.value).await?;
+            map.insert(k, v);
+        }
+        Ok(map)
+    }
+}
+
+impl<K: Ord, V: Encode> super::DecodeAsync<BTreeMap<K, V>> for Normal
+where
+    Sorted: super::DecodeAsync<K>,
+    Normal: super::DecodeAsync<V> + super::EncodingStrategy<V, Context = <V as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<BTreeMap<K, V>, std::io::Error>> {
+        <Mapping<Sorted, Normal> as super::DecodeAsync<BTreeMap<K, V>>>::decode_awaiting(
+            reader, ctx,
+        )
+    }
+}
+
+impl<K: Ord, SK: super::DecodeAsync<K>, V, SV: super::DecodeAsync<V>>
+    super::DecodeAsync<BTreeMap<K, V>> for Mapping<SK, SV>
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeMap<K, V>, std::io::Error> {
+        let len: usize =
+            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        // Stage + collect — see the sync `decode` above for why.
+        let mut pairs = Vec::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            let k = SK::decode_async(reader, &mut ctx.key).await?;
+            let v = SV::decode_async(reader, &mut ctx.value).await?;
+            pairs.push((k, v));
+        }
+        Ok(pairs.into_iter().collect())
+    }
+}
+
+impl<K: Hash + Eq, SK: super::DecodeAsync<K>, V, SV: super::DecodeAsync<V>>
+    super::DecodeAsync<HashMap<K, V>> for Mapping<SK, SV>
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashMap<K, V>, std::io::Error> {
+        let len: usize =
+            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            let k = SK::decode_async(reader, &mut ctx.key).await?;
+            let v = SV::decode_async(reader, &mut ctx.value).await?;
+            map.insert(k, v);
+        }
+        Ok(map)
+    }
+}

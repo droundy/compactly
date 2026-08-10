@@ -46,6 +46,28 @@ impl<T: Encode> Encode for Option<T> {
     }
 }
 
+impl<T: Encode> super::DecodeAsync<Option<T>> for Normal
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    const MAX_BYTES: usize = <Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        .saturating_add(<Normal as super::DecodeAsync<T>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Option<T>, std::io::Error> {
+        if <Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_some).await? {
+            Ok(Some(
+                <Normal as super::DecodeAsync<T>>::decode_async(reader, &mut ctx.value).await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 macro_rules! option_encoding_strategy {
     ($t:ty, $strategy:ident) => {
         impl EncodingStrategy<Option<$t>> for $strategy {
@@ -76,9 +98,37 @@ macro_rules! option_encoding_strategy {
     };
 }
 
+macro_rules! option_decode_async {
+    ($t:ty, $strategy:ident) => {
+        impl super::DecodeAsync<Option<$t>> for $strategy {
+            const MAX_BYTES: usize = <Normal as super::DecodeAsync<bool>>::MAX_BYTES
+                .saturating_add(<$strategy as super::DecodeAsync<$t>>::MAX_BYTES);
+
+            async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<Option<$t>, std::io::Error> {
+                if <Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_some)
+                    .await?
+                {
+                    Ok(Some(
+                        <$strategy as super::DecodeAsync<$t>>::decode_async(reader, &mut ctx.value)
+                            .await?,
+                    ))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    };
+}
+
 option_encoding_strategy!(String, Compressible);
+option_decode_async!(String, Compressible);
 option_encoding_strategy!(u64, Small);
+option_decode_async!(u64, Small);
 option_encoding_strategy!(usize, Small);
+option_decode_async!(usize, Small);
 
 #[derive(Default, Clone)]
 pub struct LowContext<C: Default> {
@@ -105,6 +155,28 @@ where
     ) -> Result<Option<T>, std::io::Error> {
         if bool::decode(reader, &mut ctx.is_some)? {
             Ok(Some(LowCardinality::decode(reader, &mut ctx.value)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<T> super::DecodeAsync<Option<T>> for LowCardinality
+where
+    LowCardinality: super::DecodeAsync<T>,
+{
+    /// Unbounded: a dictionary index over arbitrarily many values.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Option<T>, std::io::Error> {
+        if <Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.is_some).await? {
+            Ok(Some(
+                <LowCardinality as super::DecodeAsync<T>>::decode_async(reader, &mut ctx.value)
+                    .await?,
+            ))
         } else {
             Ok(None)
         }

@@ -756,6 +756,25 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
     }
 }
 
+impl<T, S: DecodeAsync<T>> DecodeAsync<crate::Encoded<T, S>> for crate::Normal
+where
+    crate::Normal: EncodingStrategy<crate::Encoded<T, S>, Context = S::Context>,
+{
+    /// Exactly the wrapped strategy's.
+    const MAX_BYTES: usize = S::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<crate::Encoded<T, S>, std::io::Error> {
+        Ok(crate::Encoded {
+            value: S::decode_async(reader, ctx).await?,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+}
+
 impl<T: Encode> EncodingStrategy<T> for crate::Normal {
     type Context = <T as Encode>::Context;
     #[inline]

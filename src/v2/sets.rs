@@ -340,3 +340,107 @@ fn compact_btreeset() {
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048))
     ));
 }
+
+impl<T: Encode + Hash + Eq> super::DecodeAsync<HashSet<T>> for Normal
+where
+    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<HashSet<T>, std::io::Error>> {
+        <Values<Normal> as super::DecodeAsync<HashSet<T>>>::decode_awaiting(reader, ctx)
+    }
+}
+
+impl<T: Ord> super::DecodeAsync<BTreeSet<T>> for Normal
+where
+    Sorted: super::DecodeAsync<T>,
+{
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<BTreeSet<T>, std::io::Error>> {
+        <Values<Sorted> as super::DecodeAsync<BTreeSet<T>>>::decode_awaiting(reader, ctx)
+    }
+}
+
+impl super::DecodeAsync<BTreeSet<u64>> for super::Small {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<u64>, std::io::Error> {
+        let len =
+            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.size).await?;
+        // Stage + collect: bulk-build from the sorted stream, as in
+        // `Values<S> for BTreeSet` below.
+        let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
+        if len > 0 {
+            let mut prev =
+                <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.first).await?;
+            values.push(prev);
+            let mut sentinel = Sentinel::new();
+            for _ in 1..len {
+                sentinel.decode_async(reader).await?;
+                let diff: u64 =
+                    <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.diff).await?;
+                prev += diff;
+                values.push(prev);
+            }
+        }
+        Ok(values.into_iter().collect())
+    }
+}
+
+impl<T: Ord, S: super::DecodeAsync<T>> super::DecodeAsync<BTreeSet<T>> for Values<S> {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<T>, std::io::Error> {
+        let len: usize =
+            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        // Stage in a Vec — see the sync `decode` above for why `collect`
+        // rather than a per-element `insert` loop.
+        let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            values.push(S::decode_async(reader, &mut ctx.values).await?);
+        }
+        Ok(values.into_iter().collect())
+    }
+}
+
+impl<T: Hash + Eq, S: super::DecodeAsync<T>> super::DecodeAsync<HashSet<T>> for Values<S> {
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashSet<T>, std::io::Error> {
+        let len: usize =
+            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            set.insert(S::decode_async(reader, &mut ctx.values).await?);
+        }
+        Ok(set)
+    }
+}

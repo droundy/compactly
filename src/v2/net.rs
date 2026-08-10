@@ -269,3 +269,172 @@ fn net_roundtrip() {
     assert_eq!(decode::<SocketAddr>(&encode(&sock4)), Some(sock4));
     assert_eq!(decode::<SocketAddr>(&encode(&sock6)), Some(sock6));
 }
+
+impl super::DecodeAsync<Ipv4Addr> for crate::Normal {
+    /// One coded octet, then three raw ones.
+    const MAX_BYTES: usize =
+        <crate::Normal as super::DecodeAsync<u8>>::MAX_BYTES + 3 * std::mem::size_of::<u8>();
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Ipv4Addr, std::io::Error> {
+        let mut octets = [0u8; 4];
+        octets[0] = <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, ctx).await?;
+        reader.decode_incompressible_bytes(&mut octets[1..]).await?;
+        Ok(Ipv4Addr::from(octets))
+    }
+}
+
+impl super::DecodeAsync<Ipv6Addr> for crate::Normal {
+    /// Eight groups, each a zero flag and at most a whole `u16`. Loose on
+    /// purpose — property-tested rather than derived tightly.
+    const MAX_BYTES: usize = 8 * <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        + 8 * <crate::Normal as super::DecodeAsync<u16>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Ipv6Addr, std::io::Error> {
+        // Phase 1: all zero flags for octets 1–14
+        let mut z = [false; 14];
+        for (zf, c) in z.iter_mut().zip(ctx.zero.iter_mut()) {
+            *zf = <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, c).await?;
+        }
+        // Phase 2: adaptive bytes
+        let mut o = [0u8; 16];
+        o[0] =
+            <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.nz[0]).await?;
+        for i in 0..6 {
+            if !z[i] {
+                o[1 + i] = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
+                    reader,
+                    &mut ctx.nz[1 + i],
+                )
+                .await?;
+            }
+        }
+        for i in 0..2 {
+            if !z[10 + i] {
+                o[11 + i] = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
+                    reader,
+                    &mut ctx.nz[7 + i],
+                )
+                .await?;
+            }
+        }
+        // Phase 3: batch incompressible read
+        let n = z[6..10].iter().filter(|&&z| !z).count()
+            + z[12..14].iter().filter(|&&z| !z).count()
+            + 1;
+        let mut buf = [0u8; 7];
+        reader.decode_incompressible_bytes(&mut buf[..n]).await?;
+        let mut idx = 0;
+        for i in 0..4 {
+            if !z[6 + i] {
+                o[7 + i] = buf[idx];
+                idx += 1;
+            }
+        }
+        for i in 0..2 {
+            if !z[12 + i] {
+                o[13 + i] = buf[idx];
+                idx += 1;
+            }
+        }
+        o[15] = buf[idx];
+        Ok(Ipv6Addr::from(o))
+    }
+}
+
+impl super::DecodeAsync<IpAddr> for crate::Normal {
+    const MAX_BYTES: usize = {
+        let v4 = <crate::Normal as super::DecodeAsync<Ipv4Addr>>::MAX_BYTES;
+        let v6 = <crate::Normal as super::DecodeAsync<Ipv6Addr>>::MAX_BYTES;
+        let worst = if v4 > v6 { v4 } else { v6 };
+        <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES.saturating_add(worst)
+    };
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<IpAddr, std::io::Error> {
+        if <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.0).await? {
+            <crate::Normal as super::DecodeAsync<Ipv4Addr>>::decode_async(reader, &mut ctx.1)
+                .await
+                .map(IpAddr::V4)
+        } else {
+            <crate::Normal as super::DecodeAsync<Ipv6Addr>>::decode_async(reader, &mut ctx.2)
+                .await
+                .map(IpAddr::V6)
+        }
+    }
+}
+
+impl super::DecodeAsync<SocketAddrV4> for crate::Normal {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<Ipv4Addr>>::MAX_BYTES
+        + <crate::Normal as super::DecodeAsync<u16>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<SocketAddrV4, std::io::Error> {
+        let ip = <crate::Normal as super::DecodeAsync<Ipv4Addr>>::decode_async(reader, &mut ctx.0)
+            .await?;
+        let port =
+            <crate::Normal as super::DecodeAsync<u16>>::decode_async(reader, &mut ctx.1).await?;
+        Ok(SocketAddrV4::new(ip, port))
+    }
+}
+
+impl super::DecodeAsync<SocketAddrV6> for crate::Normal {
+    /// The address and port, plus `flowinfo` and `scope_id`.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<Ipv6Addr>>::MAX_BYTES
+        + <crate::Normal as super::DecodeAsync<u16>>::MAX_BYTES
+        + 2 * <crate::Normal as super::DecodeAsync<u32>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<SocketAddrV6, std::io::Error> {
+        let ip = <crate::Normal as super::DecodeAsync<Ipv6Addr>>::decode_async(reader, &mut ctx.0)
+            .await?;
+        let port =
+            <crate::Normal as super::DecodeAsync<u16>>::decode_async(reader, &mut ctx.1).await?;
+        let flowinfo =
+            <crate::Normal as super::DecodeAsync<u32>>::decode_async(reader, &mut ctx.2).await?;
+        let scope_id =
+            <crate::Normal as super::DecodeAsync<u32>>::decode_async(reader, &mut ctx.3).await?;
+        Ok(SocketAddrV6::new(ip, port, flowinfo, scope_id))
+    }
+}
+
+impl super::DecodeAsync<SocketAddr> for crate::Normal {
+    const MAX_BYTES: usize = {
+        let v4 = <crate::Normal as super::DecodeAsync<SocketAddrV4>>::MAX_BYTES;
+        let v6 = <crate::Normal as super::DecodeAsync<SocketAddrV6>>::MAX_BYTES;
+        let worst = if v4 > v6 { v4 } else { v6 };
+        <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES.saturating_add(worst)
+    };
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<SocketAddr, std::io::Error> {
+        if <crate::Normal as super::DecodeAsync<bool>>::decode_async(reader, &mut ctx.0).await? {
+            <crate::Normal as super::DecodeAsync<SocketAddrV4>>::decode_async(reader, &mut ctx.1)
+                .await
+                .map(SocketAddr::V4)
+        } else {
+            <crate::Normal as super::DecodeAsync<SocketAddrV6>>::decode_async(reader, &mut ctx.2)
+                .await
+                .map(SocketAddr::V6)
+        }
+    }
+}

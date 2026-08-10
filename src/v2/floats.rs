@@ -147,6 +147,61 @@ macro_rules! impl_float {
                 }
             }
 
+            impl crate::v2::DecodeAsync<$t> for crate::Normal {
+                /// One of a few tiers — raw bytes, `Small<i64>`, or a decimal
+                /// mantissa and power — behind a couple of selector bits.
+                /// Loose on purpose; property-tested rather than derived tightly.
+                const MAX_BYTES: usize = 4
+                    * <crate::Normal as crate::v2::DecodeAsync<bool>>::MAX_BYTES
+                    + std::mem::size_of::<$t>()
+                    + 2 * <Small as crate::v2::DecodeAsync<i64>>::MAX_BYTES;
+
+                #[inline]
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    use super::super::bit_context::BitContext;
+                    let raw = ctx.is_raw == BitContext::SATURATED_TRUE
+                        || <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
+                            reader,
+                            &mut ctx.is_raw,
+                        )
+                        .await?;
+                    if raw {
+                        let mut bytes = [0u8; $bits / 8];
+                        reader.decode_incompressible_bytes(&mut bytes).await?;
+                        return Ok($t::from_le_bytes(bytes));
+                    }
+                    let is_int = ctx.is_int == BitContext::SATURATED_TRUE
+                        || <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
+                            reader,
+                            &mut ctx.is_int,
+                        )
+                        .await?;
+                    if is_int {
+                        let intvalue = <Small as crate::v2::DecodeAsync<i64>>::decode_async(
+                            reader,
+                            &mut ctx.integer,
+                        )
+                        .await?;
+                        Ok(intvalue as $t)
+                    } else {
+                        let mantissa = <Small as crate::v2::DecodeAsync<i32>>::decode_async(
+                            reader,
+                            &mut ctx.mantissa,
+                        )
+                        .await?;
+                        let power = <Small as crate::v2::DecodeAsync<i8>>::decode_async(
+                            reader,
+                            &mut ctx.exponent,
+                        )
+                        .await?;
+                        Ok(decimal_value(mantissa, power))
+                    }
+                }
+            }
+
             // `value = ±mantissa · 10^power`, computed in f64 and narrowed.
             // Negative powers divide (`mantissa / 10^|power|`) rather than
             // multiply by a rounded `10^-|power|`, which is what lets a value
@@ -278,6 +333,38 @@ macro_rules! impl_float {
                     }
                     let mut bytes = [0u8; $bits / 8];
                     reader.decode_incompressible_bytes(&mut bytes)?;
+                    Ok($t::from_le_bytes(bytes))
+                }
+            }
+
+            impl crate::v2::DecodeAsync<$t> for Decimal {
+                /// As the default encoding, plus the non-decimal fallback.
+                const MAX_BYTES: usize = <crate::Normal as crate::v2::DecodeAsync<$t>>::MAX_BYTES;
+
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    if <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
+                        reader,
+                        &mut ctx.is_decimal,
+                    )
+                    .await?
+                    {
+                        let mantissa = <Small as crate::v2::DecodeAsync<i32>>::decode_async(
+                            reader,
+                            &mut ctx.mantissa,
+                        )
+                        .await?;
+                        let power = <Small as crate::v2::DecodeAsync<i8>>::decode_async(
+                            reader,
+                            &mut ctx.exponent,
+                        )
+                        .await?;
+                        return Ok(decimal_value(mantissa, power));
+                    }
+                    let mut bytes = [0u8; $bits / 8];
+                    reader.decode_incompressible_bytes(&mut bytes).await?;
                     Ok($t::from_le_bytes(bytes))
                 }
             }
