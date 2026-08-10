@@ -27,7 +27,7 @@
 // what the fast path costs, and `stream | slice` is the already-known cost of
 // not borrowing.
 //
-// Usage: `[COUNT=n] async-decode-cost slice|stream|async|async-split [u64|strings]`
+// Usage: `[COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async [u64|strings]`
 //
 // COUNT (default 2000) sets how many u64s per value; ITERS is derived so the
 // total number of values decoded stays fixed, keeping runtimes comparable
@@ -38,7 +38,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use compactly::v2::{decode_stream, DecodeAsync, Encode, Range};
+use compactly::v2::{decode_stream, Ans, DecodeAsync, Encode, Range};
 use compactly::Normal;
 use futures_core::Stream;
 
@@ -145,6 +145,36 @@ where
     total
 }
 
+fn decode_ans_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
+    let mut total = 0;
+    for _ in 0..iters {
+        total += std::hint::black_box(Ans::decode::<T>(compressed))
+            .unwrap()
+            .len();
+    }
+    total
+}
+
+/// `Ans` has no single-chunk look-ahead: a frame is decodable only once it has
+/// arrived whole, so the async decoder runs whatever the stream shape. What
+/// varies with `chunks` is only how the frames are cut up on the way in.
+fn decode_ans_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
+    let mut total = 0;
+    for _ in 0..iters {
+        let source = Chunks::new(compressed, chunks);
+        total += std::hint::black_box(block_on(Ans::decode_stream::<T, _, _>(source)))
+            .unwrap()
+            .len();
+    }
+    total
+}
+
 fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
 where
     Normal: DecodeAsync<T>,
@@ -211,9 +241,11 @@ where
         "stream" => decode_sync_stream::<T>(compressed, iters),
         "async" => decode_async::<T>(compressed, iters, 1),
         "async-split" => decode_async::<T>(compressed, iters, split_chunks()),
+        "ans-slice" => decode_ans_slice::<T>(compressed, iters),
+        "ans-async" => decode_ans_async::<T>(compressed, iters, split_chunks()),
         _ => {
             eprintln!(
-                "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split [u64|strings]"
+                "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async [u64|strings]"
             );
             std::process::exit(2);
         }
@@ -239,20 +271,22 @@ fn main() {
                     x
                 })
                 .collect();
-            (
-                compactly::v2::encode(&data),
-                (VALUE_BUDGET / count).max(1),
-                count,
-            )
+            let bytes = if which.starts_with("ans") {
+                Ans::encode(&data)
+            } else {
+                compactly::v2::encode(&data)
+            };
+            (bytes, (VALUE_BUDGET / count).max(1), count)
         }
         "strings" => {
             let names = meteorite_names();
             let n = names.len();
-            (
-                compactly::v2::encode(&names),
-                (STRING_VALUE_BUDGET / n).max(1),
-                n,
-            )
+            let bytes = if which.starts_with("ans") {
+                Ans::encode(&names)
+            } else {
+                compactly::v2::encode(&names)
+            };
+            (bytes, (STRING_VALUE_BUDGET / n).max(1), n)
         }
         _ => {
             eprintln!("usage: [COUNT=n] async-decode-cost slice|stream|async [u64|strings]");

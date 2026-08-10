@@ -1440,6 +1440,57 @@ The model fits from `n = 4` on, so this is understood rather than mysterious: at
 64 chunks the handoff recovers essentially nothing, because 63/64 of the decode
 happens before the last chunk arrives.
 
+### What async `Ans` decode costs, and the frame drain that fixed it (2026-08-10)
+
+`Ans` cannot decode a frame before all of it has arrived: its incompressible
+bytes live in a separate region *after* the entropy region, so a frame's first
+op can need a byte from the frame's end. The upside is that `enter_chunk` is the
+only place `AnsDecoder` reads at all, so the async decoder can delegate every op
+to the *sync* implementation and suspend only between frames — once per
+`CHUNK_OPS` (65536) ops.
+
+100k `u64` (802 KB), against the sync `Ans` slice decoder, `async-decode-cost`
+arms `ans-slice` / `ans-async`:
+
+| | cycles | instructions |
+|---|---|---|
+| first cut | +136% | **+200%** |
+| O(1) read-ahead check | — | +139% |
+| frame drain | **+4.5%** | **+10.5%** |
+
+Two fixes, and the second is the one that matters.
+
+**The read-ahead check was O(frames) per op.** `unentered()` scanned a
+`VecDeque` counting unentered frames, on every bit and every symbol. Frames are
+appended and entered in order, so the last frame's end offset answers it in one
+comparison. Worth −20% of the async path's instructions on its own, which is a
+lot for a predicate nobody would look at twice.
+
+**Buffering only one frame ahead left 14 of 15 frames on the async path.** The
+sync handoff fires when `is_final` holds — no further frame can arrive — so with
+one frame of read-ahead that only ever covered the tail. Draining every frame
+the transport has *already delivered* (`while source.ready_bytes() > 0`) brings
+`is_final` forward to the moment the last frame lands, and everything after runs
+synchronously. Nothing waits for a byte that has not arrived, so this costs no
+latency, only memory the transport had already spent — and it is the same
+principle as the tiny-chunk note in plans/streaming-io-api.md: take what is
+here, never wait for more.
+
+The residual +10.5% is the owned-buffer cost, not the async machinery: frames
+are copied into `FrameBuffer` and then into `enter_chunk`'s two region `Vec`s,
+where the slice decoder borrows. That is the same kind of overhead as `Range`'s
+`stream`-vs-`slice` gap (+15%), and it is what is left after the async cost
+itself has essentially gone. Strings behave the same: +3.9% cycles / +11.6%
+instructions on the meteorite names.
+
+Flat across `CHUNKS` (1, 64, 256) — the frame drain absorbs whatever the stream
+chunking does, so how the transport cuts the bytes stops mattering.
+
+(Reproduce: `cargo build --release --features stream --bin async-decode-cost`,
+then `COUNT=100000 [CHUNKS=n] bench perf stat -e
+cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
+ans-slice|ans-async u64|strings`.)
+
 ### `Encode::MAX_BYTES`: sync-decode anything that fits in the buffer (2026-08-09)
 
 The final-chunk handoff generalizes, and this is the version that matters. Each

@@ -1842,9 +1842,13 @@ pub struct FrameBuffer {
 
 #[cfg(feature = "stream")]
 impl FrameBuffer {
-    /// Frames buffered in full that `enter_chunk` has not consumed yet.
-    fn unentered(&self) -> usize {
-        self.ends.iter().filter(|&&end| end > self.pos).count()
+    /// Whether a complete frame is buffered that `enter_chunk` has not consumed
+    /// yet. Checked before every op, so it reads the last frame's end offset
+    /// rather than scanning: frames are appended and entered in order, so one
+    /// comparison answers it.
+    #[inline]
+    fn has_unentered(&self) -> bool {
+        self.ends.back().is_some_and(|&end| end > self.pos)
     }
 
     /// Append one complete frame, first dropping whatever the sync side has
@@ -1953,7 +1957,21 @@ where
     /// mid-symbol, and the boundary lands wherever `CHUNK_OPS` falls, not on a
     /// value boundary.
     async fn read_ahead(&mut self) {
-        if !self.reached_final && self.inner.reader.unentered() == 0 {
+        if self.reached_final {
+            return;
+        }
+        if !self.inner.reader.has_unentered() {
+            self.buffer_next_frame().await;
+        }
+        // Then take whatever else the transport has *already* delivered. Every
+        // frame buffered is one the sync decoder can cross without suspending,
+        // and once the last is in, `is_final` goes true and the whole remainder
+        // runs synchronously. Nothing here waits for a byte that has not
+        // arrived, so this cannot cost latency — only the memory the transport
+        // has already spent. The async path is therefore paid only while the
+        // decode is genuinely ahead of the network, which is the only time it
+        // buys anything.
+        while !self.reached_final && self.source.ready_bytes() > 0 {
             self.buffer_next_frame().await;
         }
     }
