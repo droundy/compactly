@@ -322,10 +322,36 @@ impl Ans {
         S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
+        let mut source = super::stream::ChunkSource::new(stream).await;
+        // The same fast path `Range::decode_stream` takes, and it matters more
+        // here: an input already in hand has no overlap to offer, and `Ans`'s
+        // slice decoder is the one that does no copying at all.
+        if let Some(whole) = source.take_if_single_chunk().await {
+            let value = Self::decode_with_result::<T>(&whole);
+            return match source.take_error() {
+                Some(e) => Err(e),
+                None => value,
+            };
+        }
         super::stream_decode_async::<T, crate::Normal, _>(
-            AsyncAnsDecoder::from_source(super::stream::ChunkSource::new(stream).await).await,
+            AsyncAnsDecoder::from_source(source).await,
         )
         .await
+    }
+
+    /// [`Self::decode`]'s dispatch, keeping the error rather than discarding it
+    /// — what [`Self::decode_stream`]'s fast path needs, since a stream decode
+    /// reports *why* it failed.
+    #[cfg(feature = "stream")]
+    fn decode_with_result<T>(bytes: &[u8]) -> std::io::Result<T>
+    where
+        crate::Normal: super::EncodingStrategy<T>,
+    {
+        if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
+            super::stream_decode_with::<T, crate::Normal, Decoder<false>>(Decoder::from(bytes))
+        } else {
+            super::stream_decode_with::<T, crate::Normal, Decoder<true>>(Decoder::from(bytes))
+        }
     }
 
     /// Encode value directly to a `Vec<u8>`.
@@ -442,12 +468,9 @@ impl Ans {
     /// measurable — it happens once per decoded value, not per op.
     #[inline(never)]
     fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
-        let mut reader = Decoder::<CHUNKED>::from(bytes);
-        let value = T::decode(&mut reader, &mut T::Context::default()).ok()?;
-        // A truncated stream can still decode to a plausible value, because the
-        // regions get clamped and the rANS decode zero-pads. Reject it here
-        // rather than hand back the wrong answer; see `saw_whole_chunks`.
-        reader.saw_whole_chunks().then_some(value)
+        // Via `into_result`, so the truncation check is the same one every other
+        // route through this decoder gets.
+        super::stream_decode::<T, Decoder<CHUNKED>>(Decoder::from(bytes)).ok()
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -838,10 +861,16 @@ impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
         Self::from(bytes)
     }
 
-    /// The slice decoder never latches an IO error, so the decode result stands.
+    /// The slice decoder never latches an IO error, but it does notice a stream
+    /// that ran out inside a frame — see [`Self::saw_whole_chunks`], which is
+    /// why the check lives here rather than in one caller: every route through
+    /// this decoder gets it, including [`Ans::decode_stream`]'s fast path.
     #[inline]
     fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        value
+        match value {
+            Ok(_) if !self.saw_whole_chunks() => Err(truncated_stream()),
+            other => other,
+        }
     }
 
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
@@ -925,13 +954,14 @@ fn read_one_byte_io<R: std::io::Read>(
     }
 }
 
-/// The error every decoder reports for a stream that stops where a chunk frame
-/// was due. Its own function because three decoders — slice, reader, and async —
-/// have to agree on it; see [`truncated_at_a_frame_boundary`].
+/// The error every decoder reports for a stream that ran out inside a chunk
+/// frame — whether short of a declared region or short of the whole frame. Its
+/// own function because three decoders — slice, reader, and async — have to
+/// agree on it; see [`truncated_at_a_frame_boundary`].
 fn truncated_stream() -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::UnexpectedEof,
-        "truncated stream: ended where a chunk frame was due",
+        "truncated stream: a chunk frame is missing or incomplete",
     )
 }
 

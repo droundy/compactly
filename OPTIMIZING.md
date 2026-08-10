@@ -1673,6 +1673,65 @@ Two things it did **not** change, both worth recording:
   worth having alongside it — and *now* it can work, because `ready_bytes` is
   finally able to cover a whole frame.
 
+### `Ans` gets the single-chunk fast path, and what it says about `FrameBuffer` (2026-08-10)
+
+`Ans::decode_stream` went straight to `AsyncAnsDecoder` — it never asked whether
+the whole input was already in hand, so a fully-buffered input ran the async
+decoder for nothing. `Range::decode_stream` has had that check since the
+single-chunk work; `Ans` now takes the same one, and it is worth more here.
+
+100k `u64` unless noted, `ans-async`, instructions:
+
+| delivery | before | after | |
+|---|---|---|---|
+| one chunk | 25.130 B | 23.571 B | **−6.2%** |
+| 20k `u64`, 64 ready chunks (160 KB, under `READY_TARGET`) | 25.133 B | 22.741 B | **−9.5%** |
+| 64 ready chunks (802 KB, over `READY_TARGET`) | 25.139 B | 25.140 B | unchanged |
+
+The second row is the one that matters: with the drain coalescing all 64 chunks,
+the fast path lands at **22.741 B against the pure slice decoder's 22.705 B —
+0.16%**. The async wrapper effectively disappears when the transport has already
+delivered. The third row is unchanged by design: past `READY_TARGET` the input
+is deliberately not all buffered, so the async decoder still runs.
+
+The truncation check moved from `Ans::decode_with` into `Decoder::into_result`,
+so every route through the slice decoder gets it rather than the one caller that
+had it — including this new fast path, which would otherwise have accepted
+truncated input that `Ans::decode` rejects.
+
+**What this says about the deeper change.** `Ans` currently copies every byte
+*four* times: transport chunk → `ChunkSource`'s coalesced buffer →
+`buffer_next_frame`'s frame `Vec` → `FrameBuffer::bytes` → `AnsDecoder`'s
+`entropy`/`incompressible` `Vec`s. The slice decoder does none of these. And
+`FrameBuffer` is a contiguous accumulator of whole frames — i.e. a second copy
+of what `ChunkSource` now maintains anyway.
+
+So the direction is *not* to give `Ans` its own chunk-queue source. It is to
+delete `FrameBuffer` and run the slice `Decoder<'a, true>` over `ChunkSource`'s
+coalesced buffer, capped at the last complete frame — the `with_sync` handoff
+`Range` already uses, saving `entropy`/`incompressible`/`rest` as offsets and
+recovering them as `len - remaining.len()`. Lifetimes are not the obstacle:
+`buffered()` hands out an owned `Bytes`, exactly so the source can be mutated
+while the sync decoder holds it. The prize is the ~5% cycles / ~19% instructions
+that §"How much does streaming cost over memory?" measured between the slice and
+reader-based decoders, and which that section attributes to cursor
+representation rather than copying — so removing the copies alone would not
+collect it.
+
+The obstacle is the **gate**. `Range` gates its handoff on bytes, via
+`MAX_BYTES`. `Ans` would have to gate on *ops*, because what it must not do is
+let the sync decoder's `load_next_chunk` run past the last complete frame — and
+ops are not bounded by bytes (an adaptive bit can emit none). That means a
+per-strategy `MAX_OPS` alongside `MAX_BYTES`, with the same property-testing
+burden the `MAX_BYTES` work carried.
+
+Unless the input has fully arrived, in which case there is nothing to run past
+and no gate is needed. That is the case just measured, and it is already at the
+slice decoder's speed. So the remaining prize is confined to *mid-stream* decode
+on a transport slower than the decoder — which is precisely the regime where
+`Ans` is waiting on bytes anyway. Worth doing only after the `read_ahead`
+eagerness fix, which is what actually gates that regime.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
