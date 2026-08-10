@@ -36,13 +36,6 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
 }
 
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
-    /// A hit codes the cache index, a miss the value; the flag is coded either way.
-    const MAX_BYTES: usize = {
-        let index = <usize as Encode>::MAX_BYTES;
-        let value = T::MAX_BYTES;
-        let worst = if index > value { index } else { value };
-        <bool as Encode>::MAX_BYTES.saturating_add(worst)
-    };
     type Context = CacheContext<T>;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -76,8 +69,6 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
 }
 
 impl Encode for Arc<str> {
-    /// Dictionary-coded strings: unbounded, like the `String` behind them.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = <LowCardinality as EncodingStrategy<Arc<str>>>::Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -126,13 +117,6 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for RcCacheContext<T> {
 }
 
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
-    /// A hit codes the cache index, a miss the value; the flag is coded either way.
-    const MAX_BYTES: usize = {
-        let index = <usize as Encode>::MAX_BYTES;
-        let value = T::MAX_BYTES;
-        let worst = if index > value { index } else { value };
-        <bool as Encode>::MAX_BYTES.saturating_add(worst)
-    };
     type Context = RcCacheContext<T>;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -166,8 +150,6 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
 }
 
 impl Encode for Rc<str> {
-    /// Dictionary-coded strings: unbounded, like the `String` behind them.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = <LowCardinality as EncodingStrategy<Rc<str>>>::Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

@@ -379,7 +379,7 @@ pub trait AsyncEntropyDecoder {
     /// over several at once, which is faster when a caller can compute how many
     /// fit (see [`Self::sync_capacity`]).
     #[inline]
-    fn sync_decode_if_there_is_room<T, S: EncodingStrategy<T>>(
+    fn sync_decode_if_there_is_room<T, S: DecodeAsync<T>>(
         &mut self,
         ctx: &mut S::Context,
     ) -> Option<Result<T, std::io::Error>> {
@@ -462,34 +462,6 @@ pub(crate) const MAX_INFO_BYTES_PER_SYMBOL: usize = 3;
 /// Normally you will derive this for your own types, although it can be
 /// implemented manually.
 pub trait Encode: Sized {
-    /// The most **information** one value of this type can account for, in
-    /// bytes, or [`usize::MAX`] when there is no bound (anything length-driven,
-    /// like a collection or a `String`).
-    ///
-    /// Deliberately *excludes* the coder's settling margin — bytes emitted but
-    /// not yet accounted for by the information coded so far. That margin is
-    /// bounded per *span*, not per value, so adding it here would count it once
-    /// per value and make sums badly wrong: seven coded bits cost seven bytes
-    /// plus one margin, not seven margins. The decoder adds its own
-    /// `SETTLING_BYTES` exactly once, in
-    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity); callers never add
-    /// it themselves.
-    ///
-    /// So this composes cleanly: **sum** over the parts a value codes in
-    /// sequence, **max** over branches it might take. Build it from
-    /// `<bool as Encode>::MAX_BYTES` (one adaptive bit),
-    /// [`MAX_INFO_BYTES_PER_SYMBOL`], and one byte per incompressible byte —
-    /// derived, not measured. A loose bound only costs batching headroom; a
-    /// **wrong** one decodes past the end of the buffer and returns plausible
-    /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
-    /// against real decodes.
-    ///
-    /// Required, deliberately: there is no default to fall through, so every
-    /// implementor has to decide. `usize::MAX` is the honest answer for anything
-    /// length-driven and costs only the fast path, so saying so is cheap — but
-    /// it should be *said*, not defaulted into.
-    const MAX_BYTES: usize;
-
     /// Context storing probability model for this type.
     type Context: Default + Clone;
 
@@ -508,33 +480,6 @@ pub trait Encode: Sized {
         self.encode(&mut m, &mut Self::Context::default());
         m
     }
-}
-
-/// The async twin of [`Encode`]'s decode half: decode a value from an
-/// [`AsyncEntropyDecoder`], suspending whenever the source has not delivered
-/// enough bytes yet.
-///
-/// Reads exactly the bytes [`Encode::encode`] produces, and must recover the
-/// same value [`Encode::decode`] does. A separate trait rather than a method on
-/// [`Encode`] so that turning the `stream` feature on cannot break an existing
-/// external `Encode` impl.
-pub trait DecodeAsync: Encode {
-    /// Decode a value with the given [`AsyncEntropyDecoder`]; the async twin of
-    /// [`Encode::decode`].
-    fn decode_async<D: AsyncEntropyDecoder>(
-        entropy_decoder: &mut D,
-        ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>>;
-}
-
-/// The async twin of [`EncodingStrategy`]'s decode half.
-pub trait DecodeAsyncStrategy<T>: EncodingStrategy<T> {
-    /// Decode a value with this strategy; the async twin of
-    /// [`EncodingStrategy::decode`].
-    fn decode_async<D: AsyncEntropyDecoder>(
-        entropy_decoder: &mut D,
-        ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<T, std::io::Error>>;
 }
 
 /// Encode the `value` into a `Vec<u8>` of bytes.`
@@ -594,6 +539,14 @@ fn stream_encode<T: Encode, E: EntropyCoder>(
 /// uniform across coders — `Ans::decode_from` first peeks the leading chunk tag
 /// to choose its single-chunk fast path — while this tail (decode + `into_result`)
 /// is identical for both, and is where the latched-error correctness lives.
+#[cfg(feature = "stream")]
+fn stream_decode_with<T, S: EncodingStrategy<T>, D: EntropyDecoder>(
+    mut decoder: D,
+) -> std::io::Result<T> {
+    let value = S::decode(&mut decoder, &mut S::Context::default());
+    decoder.into_result(value)
+}
+
 fn stream_decode<T: Encode, D: EntropyDecoder>(mut decoder: D) -> std::io::Result<T> {
     let value = T::decode(&mut decoder, &mut T::Context::default());
     decoder.into_result(value)
@@ -625,10 +578,10 @@ pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T>
 /// Shared async decode plumbing: run `decode_async` and fold the result with any
 /// latched stream error. The async twin of [`stream_decode`].
 #[cfg(feature = "stream")]
-async fn stream_decode_async<T: DecodeAsync, D: AsyncEntropyDecoder>(
+async fn stream_decode_async<T, S: DecodeAsync<T>, D: AsyncEntropyDecoder>(
     mut decoder: D,
 ) -> std::io::Result<T> {
-    let value = T::decode_async(&mut decoder, &mut T::Context::default()).await;
+    let value = S::decode_async(&mut decoder, &mut S::Context::default()).await;
     decoder.into_result(value)
 }
 
@@ -644,11 +597,11 @@ async fn stream_decode_async<T: DecodeAsync, D: AsyncEntropyDecoder>(
 #[cfg(feature = "stream")]
 pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
 where
-    T: DecodeAsync,
+    crate::Normal: DecodeAsync<T>,
     S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    Range::decode_stream(stream).await
+    Range::decode_stream::<T, _, _>(stream).await
 }
 
 /// An encoding strategy for type `T`.
@@ -663,12 +616,6 @@ where
 /// can use full paths in your derive macros, e.g.
 /// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
 pub trait EncodingStrategy<T> {
-    /// The most information one value coded with this strategy can account for,
-    /// in bytes; see [`Encode::MAX_BYTES`], whose contract this shares. A
-    /// strategy that codes differently from the type's default needs its own
-    /// figure — `Small` and `Sorted` do not cost the same as `Normal`.
-    const MAX_BYTES: usize;
-
     /// The conext (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 
@@ -680,6 +627,57 @@ pub trait EncodingStrategy<T> {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error>;
+}
+
+/// The async twin of [`EncodingStrategy`]'s decode half: decode a value from an
+/// [`AsyncEntropyDecoder`], suspending whenever the source has not delivered
+/// enough bytes yet.
+///
+/// Keyed on the *strategy* rather than the type, because the strategy is what
+/// determines the coding schedule — `Small`'s `u64` and `Normal`'s do not read
+/// the same bytes. A type's default encoding is simply the [`Normal`](crate::Normal)
+/// strategy, so `Normal: DecodeAsync<T>` is the async counterpart of
+/// `T: Encode`, and nothing here has to change if [`Encode`] is ever folded
+/// into `Normal`.
+///
+/// Reads exactly the bytes [`EncodingStrategy::encode`] produces, and must
+/// recover the same value [`EncodingStrategy::decode`] does.
+pub trait DecodeAsync<T>: EncodingStrategy<T> {
+    /// The most **information** one value coded with this strategy can account
+    /// for, in bytes, or [`usize::MAX`] when there is no bound (anything
+    /// length-driven, like a collection or a `String`).
+    ///
+    /// Deliberately *excludes* the coder's settling margin — bytes emitted but
+    /// not yet accounted for by the information coded so far. That margin is
+    /// bounded per *span*, not per value, so adding it here would count it once
+    /// per value and make sums badly wrong: seven coded bits cost seven bytes
+    /// plus one margin, not seven margins. The decoder adds its own
+    /// `SETTLING_BYTES` exactly once, in
+    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity); callers never add
+    /// it themselves.
+    ///
+    /// So this composes cleanly: **sum** over the parts a value codes in
+    /// sequence, **max** over branches it might take. Build it from
+    /// `<Normal as DecodeAsync<bool>>::MAX_BYTES` (one adaptive bit),
+    /// [`MAX_INFO_BYTES_PER_SYMBOL`], and one byte per incompressible byte —
+    /// derived, not measured. A loose bound only costs batching headroom; a
+    /// **wrong** one decodes past the end of the buffer and returns plausible
+    /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
+    /// against real decodes.
+    ///
+    /// Required, with no default to fall through: an omitted bound must not
+    /// silently become "unbounded". It lives here rather than on
+    /// [`EncodingStrategy`] because nothing but the async decoder reads it, and
+    /// a sync-only implementor should not have to compute a number for a
+    /// feature it never touches.
+    const MAX_BYTES: usize;
+
+    /// Decode a value with this strategy; the async twin of
+    /// [`EncodingStrategy::decode`].
+    fn decode_async<D: AsyncEntropyDecoder>(
+        decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<T, std::io::Error>>;
 }
 
 /// Encode a value with a specific strategy (into a `Vec<u8>`).
@@ -702,7 +700,6 @@ pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, bytes: &[u8]) -> Opt
 }
 
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
-    const MAX_BYTES: usize = S::MAX_BYTES;
     type Context = S::Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -721,7 +718,6 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
 }
 
 impl<T: Encode> EncodingStrategy<T> for crate::Normal {
-    const MAX_BYTES: usize = T::MAX_BYTES;
     type Context = <T as Encode>::Context;
     #[inline]
     fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {
@@ -732,16 +728,6 @@ impl<T: Encode> EncodingStrategy<T> for crate::Normal {
         ctx: &mut Self::Context,
     ) -> Result<T, std::io::Error> {
         T::decode(reader, ctx)
-    }
-}
-
-impl<T: DecodeAsync> DecodeAsyncStrategy<T> for crate::Normal {
-    #[inline]
-    fn decode_async<D: AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<T, std::io::Error>> {
-        T::decode_async(reader, ctx)
     }
 }
 

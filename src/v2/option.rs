@@ -23,7 +23,6 @@ impl<T, S: EncodingStrategy<T>> Clone for OptionContext<T, S> {
     }
 }
 impl<T: Encode> Encode for Option<T> {
-    const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES.saturating_add(T::MAX_BYTES);
     type Context = OptionContext<T, Normal>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -50,8 +49,6 @@ impl<T: Encode> Encode for Option<T> {
 macro_rules! option_encoding_strategy {
     ($t:ty, $strategy:ident) => {
         impl EncodingStrategy<Option<$t>> for $strategy {
-            const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES
-                .saturating_add(<$strategy as EncodingStrategy<$t>>::MAX_BYTES);
             type Context = OptionContext<$t, $strategy>;
             fn encode<E: super::EntropyCoder>(
                 value: &Option<$t>,
@@ -93,8 +90,6 @@ impl<T> EncodingStrategy<Option<T>> for LowCardinality
 where
     LowCardinality: EncodingStrategy<T>,
 {
-    /// Unbounded: a dictionary index over arbitrarily many values.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = LowContext<<LowCardinality as EncodingStrategy<T>>::Context>;
     fn encode<E: super::EntropyCoder>(value: &Option<T>, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(v) = value {

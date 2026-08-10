@@ -2,7 +2,7 @@ use crate::Sorted;
 
 use super::atmost::geometric::SeededDistribution;
 use super::ints::U64Compact;
-use super::{AtMost, DecodeAsync, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{AtMost, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -29,8 +29,6 @@ impl Default for UsizeContext {
 }
 
 impl Encode for usize {
-    /// Reuses `u64`'s hierarchical encoding exactly, so it inherits its bound.
-    const MAX_BYTES: usize = <u64 as Encode>::MAX_BYTES;
     type Context = UsizeContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -46,14 +44,16 @@ impl Encode for usize {
     }
 }
 
-impl super::DecodeAsync for usize {
+impl super::DecodeAsync<usize> for crate::Normal {
+    /// Reuses `u64`'s hierarchical encoding exactly, so it inherits its bound.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<u64>>::MAX_BYTES;
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        let v: u64 =
-            <Small as super::DecodeAsyncStrategy<u64>>::decode_async(reader, &mut ctx.0).await?;
+    ) -> Result<usize, std::io::Error> {
+        let v: u64 = <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.0).await?;
         usize::try_from(v).map_err(std::io::Error::other)
     }
 }
@@ -71,10 +71,6 @@ pub struct SmallContext {
 }
 
 impl EncodingStrategy<usize> for Small {
-    /// A bucket symbol, then either an in-bucket offset symbol or (top
-    /// bucket) the value delegated to `Small<u64>`.
-    const MAX_BYTES: usize = <AtMost<7> as Encode>::MAX_BYTES
-        .saturating_add(<Small as EncodingStrategy<u64>>::MAX_BYTES);
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
@@ -131,26 +127,56 @@ impl EncodingStrategy<usize> for Small {
     }
 }
 
-impl super::DecodeAsyncStrategy<usize> for Small {
+impl super::DecodeAsync<usize> for Small {
+    /// A bucket symbol, then either an in-bucket offset symbol or (top
+    /// bucket) the value delegated to `Small<u64>`.
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<7>>>::MAX_BYTES
+        .saturating_add(<Small as super::DecodeAsync<u64>>::MAX_BYTES);
+
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {
-        let nz = usize::from(AtMost::<7>::decode_async(reader, &mut ctx.small_nonzero).await?);
+        let nz = usize::from(
+            <crate::Normal as super::DecodeAsync<AtMost<7>>>::decode_async(
+                reader,
+                &mut ctx.small_nonzero,
+            )
+            .await?,
+        );
         match nz {
             0 => Ok(0),
             1 => Ok(1),
-            2 => Ok(usize::from(AtMost::<1>::decode_async(reader, &mut ctx.b1).await?) + 2),
-            3 => Ok(usize::from(AtMost::<3>::decode_async(reader, &mut ctx.b2).await?) + 4),
-            4 => Ok(usize::from(AtMost::<7>::decode_async(reader, &mut ctx.b3).await?) + 8),
-            5 => Ok(usize::from(AtMost::<15>::decode_async(reader, &mut ctx.b4).await?) + 16),
-            6 => Ok(usize::from(AtMost::<31>::decode_async(reader, &mut ctx.b5).await?) + 32),
-            7 => {
-                let v: u64 = <Small as super::DecodeAsyncStrategy<u64>>::decode_async(
+            2 => Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<1>>>::decode_async(reader, &mut ctx.b1)
+                    .await?,
+            ) + 2),
+            3 => Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<3>>>::decode_async(reader, &mut ctx.b2)
+                    .await?,
+            ) + 4),
+            4 => Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<7>>>::decode_async(reader, &mut ctx.b3)
+                    .await?,
+            ) + 8),
+            5 => Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<15>>>::decode_async(
                     reader,
-                    &mut ctx.large,
+                    &mut ctx.b4,
                 )
-                .await?;
+                .await?,
+            ) + 16),
+            6 => Ok(usize::from(
+                <crate::Normal as super::DecodeAsync<AtMost<31>>>::decode_async(
+                    reader,
+                    &mut ctx.b5,
+                )
+                .await?,
+            ) + 32),
+            7 => {
+                let v: u64 =
+                    <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.large)
+                        .await?;
                 add_bucket_bias(v)
             }
             _ => unreachable!(),
@@ -223,8 +249,6 @@ pub struct SortedContext {
 }
 
 impl EncodingStrategy<usize> for Sorted {
-    const MAX_BYTES: usize =
-        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<usize>>::MAX_BYTES);
     type Context = SortedContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -480,9 +504,6 @@ impl Default for IsizeContext {
 }
 
 impl Encode for isize {
-    /// A sign bit, then the magnitude through `usize`'s scheme.
-    const MAX_BYTES: usize =
-        <bool as Encode>::MAX_BYTES.saturating_add(<usize as Encode>::MAX_BYTES);
     type Context = IsizeContext;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -524,8 +545,6 @@ pub struct IsizeSmallContext {
 }
 
 impl EncodingStrategy<isize> for Small {
-    const MAX_BYTES: usize =
-        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<usize>>::MAX_BYTES);
     type Context = IsizeSmallContext;
     #[inline]
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
@@ -560,8 +579,6 @@ pub struct IsizeSortedContext {
 }
 
 impl EncodingStrategy<isize> for Sorted {
-    const MAX_BYTES: usize =
-        <bool as Encode>::MAX_BYTES.saturating_add(<Small as EncodingStrategy<isize>>::MAX_BYTES);
     type Context = IsizeSortedContext;
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {

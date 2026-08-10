@@ -3,8 +3,6 @@ use std::marker::{PhantomData, PhantomPinned};
 use super::Encode;
 
 impl<T> Encode for PhantomData<T> {
-    /// Carries no runtime information, so nothing is coded.
-    const MAX_BYTES: usize = 0;
     type Context = ();
 
     #[inline]
@@ -23,8 +21,6 @@ impl<T> Encode for PhantomData<T> {
 }
 
 impl Encode for PhantomPinned {
-    /// Carries no runtime information, so nothing is coded.
-    const MAX_BYTES: usize = 0;
     type Context = ();
 
     #[inline]

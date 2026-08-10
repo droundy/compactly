@@ -34,8 +34,6 @@ impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContex
 }
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = MapContext<K, V, Normal, Normal>;
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
         self.len().encode(writer, &mut ctx.len);
@@ -77,8 +75,6 @@ impl<K: Ord, V: Encode> Encode for BTreeMap<K, V>
 where
     Sorted: EncodingStrategy<K>,
 {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = MapContext<K, V, Sorted, Normal>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -119,8 +115,6 @@ fn btreemap() {
 impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrategy<BTreeMap<K, V>>
     for Mapping<SK, SV>
 {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
     fn encode<E: super::EntropyCoder>(
@@ -166,8 +160,6 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
 impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
     EncodingStrategy<HashMap<K, V>> for Mapping<SK, SV>
 {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
     fn encode<E: super::EntropyCoder>(

@@ -175,19 +175,6 @@ impl<const MAX: usize> Default for AtMostContext<MAX> {
 }
 
 impl<const MAX: usize> Encode for AtMost<MAX> {
-    /// One whole-symbol step when the value count fits `SymbolRange::M`, else
-    /// the per-bit fallback over a tree of depth `ceil(log2(MAX + 1))`.
-    const MAX_BYTES: usize = if MAX == 0 {
-        // One possible value carries no information, so nothing is coded at all
-        // (`walks::Walk::production` returns `None`). Worth spelling out because
-        // every derived *struct* has an `AtMost<0>` discriminant, and charging
-        // it a symbol would put phantom bytes in every derived bound.
-        0
-    } else if MAX < super::model::SymbolRange::M as usize {
-        super::MAX_INFO_BYTES_PER_SYMBOL
-    } else {
-        (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
-    };
     type Context = AtMostContext<MAX>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -202,12 +189,25 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     }
 }
 
-impl<const MAX: usize> super::DecodeAsync for AtMost<MAX> {
+impl<const MAX: usize> super::DecodeAsync<AtMost<MAX>> for crate::Normal {
+    const MAX_BYTES: usize = if MAX == 0 {
+        // One possible value carries no information, so nothing is coded at all
+        // (`walks::Walk::production` returns `None`). Worth spelling out because
+        // every derived *struct* has an `AtMost<0>` discriminant, and charging
+        // it a symbol would put phantom bytes in every derived bound.
+        0
+    } else if MAX < super::model::SymbolRange::M as usize {
+        super::MAX_INFO_BYTES_PER_SYMBOL
+    } else {
+        (usize::BITS - MAX.leading_zeros()) as usize
+            * <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+    };
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
+    ) -> Result<AtMost<MAX>, std::io::Error> {
         Ok(reader.decode_atmost(ctx).await)
     }
 }

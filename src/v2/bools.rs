@@ -7,14 +7,6 @@ use super::{bit_context::BitContext, EncodingStrategy};
 use expect_test::expect;
 
 impl Encode for bool {
-    /// One coded bit, and so the unit every other bound is built from.
-    ///
-    /// A `Probability` is `prob/256` with `prob >= 1`, so the unlikely branch
-    /// costs at most `-log2(1/256)` = 8 bits — one byte of information. (A
-    /// *single* renormalization can drain more than that from the stream, but
-    /// only as catch-up for earlier steps that drained none; that is the
-    /// coder's settling margin, counted once per handoff rather than here.)
-    const MAX_BYTES: usize = 1;
     type Context = BitContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -31,18 +23,26 @@ impl Encode for bool {
     }
 }
 
-impl super::DecodeAsync for bool {
+impl super::DecodeAsync<bool> for crate::Normal {
+    /// One coded bit, and so the unit every other bound is built from.
+    ///
+    /// A `Probability` is `prob/256` with `prob >= 1`, so the unlikely branch
+    /// costs at most `-log2(1/256)` = 8 bits — one byte of information. (A
+    /// *single* renormalization can drain more than that from the stream, but
+    /// only as catch-up for earlier steps that drained none; that is the
+    /// coder's settling margin, counted once per handoff rather than here.)
+    const MAX_BYTES: usize = 1;
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
+    ) -> Result<bool, std::io::Error> {
         Ok(reader.decode_bit(ctx).await)
     }
 }
 
 impl EncodingStrategy<bool> for Sorted {
-    const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES;
     type Context = BitContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,

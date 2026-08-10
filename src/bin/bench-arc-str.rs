@@ -69,8 +69,6 @@ mod imp {
     }
 
     impl Encode for OldStyleArcStr {
-        /// Dictionary-coded strings: unbounded.
-        const MAX_BYTES: usize = usize::MAX;
         type Context = OldStyleContext;
         fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
             let looked_up = ctx.cached.get(self.0.as_ref()).copied();
@@ -124,8 +122,6 @@ mod imp {
     }
 
     impl Encode for OldStyleString {
-        /// Dictionary-coded strings: unbounded.
-        const MAX_BYTES: usize = usize::MAX;
         type Context = OldStyleStringContext;
         fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
             let looked_up = ctx.cached.get(&self.0).copied();
@@ -332,8 +328,6 @@ mod imp {
         pub struct BTreeArcStr(pub Arc<str>);
 
         impl Encode for BTreeArcStr {
-            /// Dictionary-coded strings: unbounded.
-            const MAX_BYTES: usize = usize::MAX;
             type Context = BTreeArcStrContext;
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
                 let value = &self.0;

@@ -6,7 +6,6 @@ use crate::{Incompressible, Small, Sorted};
 use expect_test::expect;
 
 impl Encode for u8 {
-    const MAX_BYTES: usize = <AtMost<255> as Encode>::MAX_BYTES;
     type Context = <AtMost<255> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -21,18 +20,21 @@ impl Encode for u8 {
     }
 }
 
-impl super::DecodeAsync for u8 {
+impl super::DecodeAsync<u8> for crate::Normal {
+    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<255>>>::MAX_BYTES;
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        Ok(usize::from(AtMost::<255>::decode_async(reader, ctx).await?) as u8)
+    ) -> Result<u8, std::io::Error> {
+        Ok(usize::from(
+            <crate::Normal as super::DecodeAsync<AtMost<255>>>::decode_async(reader, ctx).await?,
+        ) as u8)
     }
 }
 
 impl Encode for i8 {
-    const MAX_BYTES: usize = <u8 as Encode>::MAX_BYTES;
     type Context = <u8 as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -61,11 +63,6 @@ pub struct SmallContext {
 }
 
 impl EncodingStrategy<u8> for Small {
-    /// A bucket symbol, then either an offset symbol or (top bucket) a bool
-    /// plus an offset symbol.
-    const MAX_BYTES: usize = <AtMost<7> as Encode>::MAX_BYTES
-        + <bool as Encode>::MAX_BYTES
-        + <AtMost<127> as Encode>::MAX_BYTES;
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
@@ -137,8 +134,6 @@ impl EncodingStrategy<u8> for Small {
 }
 
 impl EncodingStrategy<i8> for Small {
-    /// Zig-zagged into `Small<u8>`.
-    const MAX_BYTES: usize = <Small as EncodingStrategy<u8>>::MAX_BYTES;
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
         let v = *value as u8;
@@ -156,8 +151,6 @@ impl EncodingStrategy<i8> for Small {
 }
 
 impl EncodingStrategy<u8> for Incompressible {
-    /// One byte, straight through.
-    const MAX_BYTES: usize = std::mem::size_of::<u8>();
     type Context = ();
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, _ctx: &mut Self::Context) {
         writer.encode_incompressible_bytes(&[*value])
@@ -179,16 +172,6 @@ pub struct SortedU8Context {
 }
 
 impl EncodingStrategy<u8> for Sorted {
-    /// The first value is raw; every later one is a `Small<i8>` delta.
-    const MAX_BYTES: usize = {
-        let raw = std::mem::size_of::<u8>();
-        let delta = <Small as EncodingStrategy<i8>>::MAX_BYTES;
-        if delta > raw {
-            delta
-        } else {
-            raw
-        }
-    };
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -224,7 +207,6 @@ impl EncodingStrategy<u8> for Sorted {
 }
 
 impl EncodingStrategy<i8> for Sorted {
-    const MAX_BYTES: usize = <Sorted as EncodingStrategy<u8>>::MAX_BYTES;
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
         Sorted::encode(&(*value as u8), writer, ctx)

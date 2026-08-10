@@ -3,7 +3,7 @@ use super::atmost::geometric::{
 };
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
-use super::{DecodeAsync, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
 use crate::{Incompressible, Sorted};
 
 #[cfg(test)]
@@ -23,10 +23,6 @@ macro_rules! impl_uint {
             }
 
             impl EncodingStrategy<$t> for Sorted {
-                /// A `not_sorted` flag, then the value or the difference —
-                /// both `Small<$t>`.
-                const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES
-                    .saturating_add(<Small as EncodingStrategy<$t>>::MAX_BYTES);
                 type Context = SortedContext;
                 fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                     if let Some(previous) = ctx.previous.take() {
@@ -66,8 +62,6 @@ macro_rules! impl_uint {
             }
 
             impl EncodingStrategy<$t> for Incompressible {
-                /// Straight through, one byte per byte.
-                const MAX_BYTES: usize = std::mem::size_of::<$t>();
                 type Context = ();
                 fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, _ctx: &mut Self::Context) {
                     writer.encode_incompressible_bytes(&value.to_le_bytes())
@@ -326,14 +320,6 @@ macro_rules! impl_compact {
         }
 
         impl EncodingStrategy<$t> for Small {
-            /// The bit-length symbol, then at most one bucket-offset symbol,
-            /// then the mantissa: whole bytes go through the incompressible
-            /// path (one byte each) and the partial top byte costs up to 7
-            /// coded bits.
-            const MAX_BYTES: usize = <AtMost<$blbl_max> as Encode>::MAX_BYTES
-                + crate::v2::MAX_INFO_BYTES_PER_SYMBOL
-                + (($bits - 1) / 8) * std::mem::size_of::<u8>()
-                + 7 * <bool as Encode>::MAX_BYTES;
             type Context = $context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
@@ -404,21 +390,41 @@ macro_rules! impl_compact {
             }
         }
 
-        impl crate::v2::DecodeAsyncStrategy<$t> for Small {
+        impl crate::v2::DecodeAsync<$t> for Small {
+            /// The bit-length symbol, then at most one bucket-offset symbol,
+            /// then the mantissa: whole bytes go through the incompressible
+            /// path (one byte each) and the partial top byte costs up to 7
+            /// coded bits.
+            const MAX_BYTES: usize =
+                <crate::Normal as crate::v2::DecodeAsync<AtMost<$blbl_max>>>::MAX_BYTES
+                    + crate::v2::MAX_INFO_BYTES_PER_SYMBOL
+                    + (($bits - 1) / 8) * std::mem::size_of::<u8>()
+                    + 7 * <crate::Normal as crate::v2::DecodeAsync<bool>>::MAX_BYTES;
+
             #[inline]
             fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
                 async {
-                let blbl = usize::from(AtMost::<$blbl_max>::decode_async(reader, &mut ctx.blbl).await?);
+                let blbl = usize::from(
+                    <crate::Normal as crate::v2::DecodeAsync<AtMost<$blbl_max>>>::decode_async(
+                        reader, &mut ctx.blbl,
+                    )
+                    .await?,
+                );
                 let bl: usize = if blbl <= 1 {
                     blbl
                 } else if blbl == $blbl_max {
                     $bits
                 } else {
                     let offset = match blbl {
-                        $($code => usize::from(AtMost::<$max>::decode_async(reader, &mut ctx.$bucket).await?),)*
+                        $($code => usize::from(
+                            <crate::Normal as crate::v2::DecodeAsync<AtMost<$max>>>::decode_async(
+                                reader, &mut ctx.$bucket,
+                            )
+                            .await?,
+                        ),)*
                         _ => unreachable!(),
                     };
                     (1usize << (blbl - 1)) + offset
@@ -435,7 +441,12 @@ macro_rules! impl_compact {
                     reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes]).await?;
                 }
                 for i in 0..partial_bits {
-                    if bool::decode_async(reader, &mut ctx.partial[lz][i]).await? {
+                    if <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
+                        reader,
+                        &mut ctx.partial[lz][i],
+                    )
+                    .await?
+                    {
                         value_bytes[full_bytes] |= 1 << i;
                     }
                 }
@@ -465,7 +476,6 @@ macro_rules! impl_compact {
         }
 
         impl Encode for $t {
-            const MAX_BYTES: usize = <Small as EncodingStrategy<$t>>::MAX_BYTES;
             type Context = $default_context;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -480,13 +490,16 @@ macro_rules! impl_compact {
             }
         }
 
-        impl crate::v2::DecodeAsync for $t {
+        impl crate::v2::DecodeAsync<$t> for crate::Normal {
+            /// Reuses `Small`'s scheme exactly, differing only in the seeded prior.
+            const MAX_BYTES: usize = <Small as crate::v2::DecodeAsync<$t>>::MAX_BYTES;
+
             #[inline]
             fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
-                <Small as crate::v2::DecodeAsyncStrategy<$t>>::decode_async(reader, &mut ctx.0)
+                <Small as crate::v2::DecodeAsync<$t>>::decode_async(reader, &mut ctx.0)
             }
         }
     };
@@ -514,13 +527,6 @@ pub struct U16Compact {
 }
 
 impl EncodingStrategy<u16> for Small {
-    /// `u16`'s legacy single-tree scheme: one leading-zero symbol, a
-    /// disambiguating bool, then at most one whole mantissa byte and seven
-    /// partial bits.
-    const MAX_BYTES: usize = <AtMost<15> as Encode>::MAX_BYTES
-        + <bool as Encode>::MAX_BYTES
-        + std::mem::size_of::<u8>()
-        + 7 * <bool as Encode>::MAX_BYTES;
     type Context = U16Compact;
     #[inline]
     fn encode<E: EntropyCoder>(value: &u16, writer: &mut E, ctx: &mut Self::Context) {
@@ -601,8 +607,6 @@ impl Default for U16Default {
 }
 
 impl Encode for u16 {
-    /// Reuses `Small`'s scheme exactly, differing only in the seeded prior.
-    const MAX_BYTES: usize = <Small as EncodingStrategy<u16>>::MAX_BYTES;
     type Context = U16Default;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -827,9 +831,6 @@ macro_rules! impl_signed_default_hierarchical {
         }
 
         impl Encode for $signed {
-            /// A sign bit, then the magnitude through `Small<$unsigned>`.
-            const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES
-                .saturating_add(<Small as EncodingStrategy<$unsigned>>::MAX_BYTES);
             type Context = NormalContext;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -894,14 +895,6 @@ macro_rules! impl_signed_default_legacy {
         }
 
         impl Encode for $signed {
-            /// The legacy scheme: a sign bit, up to `$bits - 1` leading-zero
-            /// bools, then either a whole `u8` symbol or the mantissa as raw
-            /// bytes plus at most seven partial bits. Summed rather than
-            /// maxed over those last two branches — margin is free here.
-            const MAX_BYTES: usize = ($bits as usize) * <bool as Encode>::MAX_BYTES
-                + <u8 as Encode>::MAX_BYTES
-                + ($bits as usize - 1) / 8
-                + 7 * <bool as Encode>::MAX_BYTES;
             type Context = NormalContext;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -1005,8 +998,6 @@ macro_rules! impl_signed {
             }
 
             impl EncodingStrategy<$signed> for Small {
-                /// Zig-zagged into the unsigned strategy.
-                const MAX_BYTES: usize = <Small as EncodingStrategy<$unsigned>>::MAX_BYTES;
                 type Context = Context;
                 #[inline]
                 fn encode<E: EntropyCoder>(
@@ -1050,8 +1041,6 @@ macro_rules! impl_signed {
             }
 
             impl EncodingStrategy<$signed> for Sorted {
-                const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES
-                    .saturating_add(<Small as EncodingStrategy<$signed>>::MAX_BYTES);
                 type Context = SortedContext;
                 fn encode<E: EntropyCoder>(
                     value: &$signed,

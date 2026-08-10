@@ -2,8 +2,6 @@ use super::{Encode, EntropyCoder, EntropyDecoder};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 impl Encode for Ipv4Addr {
-    /// One coded octet, then three raw ones.
-    const MAX_BYTES: usize = <u8 as Encode>::MAX_BYTES + 3 * std::mem::size_of::<u8>();
     // Octet 0 has ~5 bits of real entropy (structured prefix); octets 1–3 are
     // near-uniform (7.7–7.8 bits) with essentially no zero bytes in real-world
     // data, so storing them incompressibly is 5× faster with negligible size cost.
@@ -49,9 +47,6 @@ pub struct Ipv6Context {
 }
 
 impl Encode for Ipv6Addr {
-    /// Eight groups, each a zero flag and at most a whole `u16`. Loose on
-    /// purpose — property-tested rather than derived tightly.
-    const MAX_BYTES: usize = 8 * <bool as Encode>::MAX_BYTES + 8 * <u16 as Encode>::MAX_BYTES;
     type Context = Ipv6Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -140,12 +135,6 @@ impl Encode for Ipv6Addr {
 }
 
 impl Encode for IpAddr {
-    const MAX_BYTES: usize = {
-        let v4 = <std::net::Ipv4Addr as Encode>::MAX_BYTES;
-        let v6 = <std::net::Ipv6Addr as Encode>::MAX_BYTES;
-        let worst = if v4 > v6 { v4 } else { v6 };
-        <bool as Encode>::MAX_BYTES.saturating_add(worst)
-    };
     type Context = (
         <bool as Encode>::Context,
         <Ipv4Addr as Encode>::Context,
@@ -178,7 +167,6 @@ impl Encode for IpAddr {
 }
 
 impl Encode for SocketAddrV4 {
-    const MAX_BYTES: usize = <std::net::Ipv4Addr as Encode>::MAX_BYTES + <u16 as Encode>::MAX_BYTES;
     type Context = (<Ipv4Addr as Encode>::Context, <u16 as Encode>::Context);
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -197,10 +185,6 @@ impl Encode for SocketAddrV4 {
 }
 
 impl Encode for SocketAddrV6 {
-    /// The address and port, plus `flowinfo` and `scope_id`.
-    const MAX_BYTES: usize = <std::net::Ipv6Addr as Encode>::MAX_BYTES
-        + <u16 as Encode>::MAX_BYTES
-        + 2 * <u32 as Encode>::MAX_BYTES;
     type Context = (
         <Ipv6Addr as Encode>::Context,
         <u16 as Encode>::Context,
@@ -228,12 +212,6 @@ impl Encode for SocketAddrV6 {
 }
 
 impl Encode for SocketAddr {
-    const MAX_BYTES: usize = {
-        let v4 = <std::net::SocketAddrV4 as Encode>::MAX_BYTES;
-        let v6 = <std::net::SocketAddrV6 as Encode>::MAX_BYTES;
-        let worst = if v4 > v6 { v4 } else { v6 };
-        <bool as Encode>::MAX_BYTES.saturating_add(worst)
-    };
     type Context = (
         <bool as Encode>::Context,
         <SocketAddrV4 as Encode>::Context,

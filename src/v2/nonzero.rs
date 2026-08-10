@@ -10,9 +10,6 @@ use std::num::{
 macro_rules! impl_nonzero_uint {
     ($nz:ty, $uint:ty) => {
         impl Encode for $nz {
-            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
-            /// when signed — so the bound is that integer's.
-            const MAX_BYTES: usize = <$uint as Encode>::MAX_BYTES;
             type Context = <$uint as Encode>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -30,7 +27,6 @@ macro_rules! impl_nonzero_uint {
         }
 
         impl EncodingStrategy<$nz> for Small {
-            const MAX_BYTES: usize = <Small as EncodingStrategy<$uint>>::MAX_BYTES;
             type Context = <Small as EncodingStrategy<$uint>>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$nz, writer: &mut E, ctx: &mut Self::Context) {
@@ -61,9 +57,6 @@ macro_rules! impl_nonzero_uint {
 macro_rules! impl_nonzero_int {
     ($nz:ty, $int:ty, $uint:ty) => {
         impl Encode for $nz {
-            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
-            /// when signed — so the bound is that integer's.
-            const MAX_BYTES: usize = <$uint as Encode>::MAX_BYTES;
             type Context = <$uint as Encode>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -91,7 +84,6 @@ macro_rules! impl_nonzero_int {
         }
 
         impl EncodingStrategy<$nz> for Small {
-            const MAX_BYTES: usize = <Small as EncodingStrategy<$uint>>::MAX_BYTES;
             type Context = <Small as EncodingStrategy<$uint>>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$nz, writer: &mut E, ctx: &mut Self::Context) {

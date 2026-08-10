@@ -376,19 +376,22 @@ impl Range {
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
-        T: super::DecodeAsync,
+        crate::Normal: super::DecodeAsync<T>,
         S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
         let mut source = super::stream::ChunkSource::new(stream).await;
         if let Some(whole) = source.take_if_single_chunk().await {
-            let value = super::stream_decode::<T, _>(Decoder::new(&whole));
+            let value = super::stream_decode_with::<T, crate::Normal, _>(Decoder::new(&whole));
             return match source.take_error() {
                 Some(e) => Err(e),
                 None => value,
             };
         }
-        super::stream_decode_async::<T, _>(AsyncRangeDecoder::from_source(source).await).await
+        super::stream_decode_async::<T, crate::Normal, _>(
+            AsyncRangeDecoder::from_source(source).await,
+        )
+        .await
     }
 }
 impl From<Range> for Vec<u8> {

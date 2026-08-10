@@ -1,8 +1,6 @@
 use super::Encode;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
-    /// `N` elements and no length — `N` is known at compile time.
-    const MAX_BYTES: usize = T::MAX_BYTES.saturating_mul(N);
     type Context = T::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {

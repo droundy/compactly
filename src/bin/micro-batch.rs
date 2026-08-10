@@ -18,8 +18,6 @@ type Ctx = [<bool as Encode>::Context; N];
 #[derive(PartialEq)]
 struct Seq([bool; N]);
 impl Encode for Seq {
-    /// `N` independent bits.
-    const MAX_BYTES: usize = N * <bool as Encode>::MAX_BYTES;
     type Context = Ctx;
     #[inline]
     fn encode<E: EntropyCoder>(&self, w: &mut E, c: &mut Self::Context) {
@@ -40,8 +38,6 @@ impl Encode for Seq {
 #[derive(PartialEq)]
 struct Batch([bool; N]);
 impl Encode for Batch {
-    /// `N` independent bits.
-    const MAX_BYTES: usize = N * <bool as Encode>::MAX_BYTES;
     type Context = Ctx;
     #[inline]
     fn encode<E: EntropyCoder>(&self, w: &mut E, c: &mut Self::Context) {

@@ -7,8 +7,6 @@ use std::collections::VecDeque;
 use expect_test::expect;
 
 impl<T: Encode> Encode for Vec<T> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, Normal>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -23,19 +21,23 @@ impl<T: Encode> Encode for Vec<T> {
     }
 }
 
-impl<T: super::DecodeAsync> super::DecodeAsync for Vec<T> {
+impl<T: Encode> super::DecodeAsync<Vec<T>> for Normal
+where
+    Normal: super::DecodeAsync<T>,
+{
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
     #[inline]
     fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>> {
-        <crate::Values<Normal> as super::DecodeAsyncStrategy<Vec<T>>>::decode_async(reader, ctx)
+    ) -> impl std::future::Future<Output = Result<Vec<T>, std::io::Error>> {
+        <crate::Values<Normal> as super::DecodeAsync<Vec<T>>>::decode_async(reader, ctx)
     }
 }
 
 impl<T: Encode> Encode for Box<[T]> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, Normal>;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -51,8 +53,6 @@ impl<T: Encode> Encode for Box<[T]> {
 }
 
 impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<S> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, S>;
     fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
@@ -78,8 +78,6 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
 }
 
 impl<T: Encode> Encode for VecDeque<T> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, Normal>;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -95,7 +93,6 @@ impl<T: Encode> Encode for VecDeque<T> {
 }
 
 impl<T: Encode> Encode for Box<T> {
-    const MAX_BYTES: usize = T::MAX_BYTES;
     type Context = T::Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -150,8 +147,6 @@ impl<T, S: EncodingStrategy<T>> Clone for Context<T, S> {
 }
 
 impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, S>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -176,13 +171,15 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
     }
 }
 
-impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for crate::Values<S> {
+impl<T, S: super::DecodeAsync<T>> super::DecodeAsync<Vec<T>> for crate::Values<S> {
+    /// Length-driven: an arbitrary number of elements.
+    const MAX_BYTES: usize = usize::MAX;
+
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
-        let n = <Small as super::DecodeAsyncStrategy<usize>>::decode_async(reader, &mut ctx.len)
-            .await?;
+        let n = <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         // Information one element accounts for: its marker plus the element.
@@ -192,7 +189,7 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
         // `usize::MAX` default) from wrapping to something small; it stays
         // unbounded, so the capacity is 0 and the loop never leaves the async
         // path.
-        const fn per_element<T, S: super::DecodeAsyncStrategy<T>>() -> usize {
+        const fn per_element<T, S: super::DecodeAsync<T>>() -> usize {
             Sentinel::MAX_BYTES.saturating_add(S::MAX_BYTES)
         }
         let mut decoded = 0;
@@ -228,8 +225,6 @@ impl<T, S: super::DecodeAsyncStrategy<T>> super::DecodeAsyncStrategy<Vec<T>> for
 }
 
 impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context<T, S>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -273,8 +268,6 @@ impl<T: Encode> Default for SortedContext<T> {
 }
 
 impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
-    /// Length-driven: an arbitrary number of elements.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = SortedContext<T>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -357,8 +350,6 @@ fn incompressible_pieces(len: usize) -> impl Iterator<Item = usize> {
 }
 
 impl EncodingStrategy<Vec<u8>> for Incompressible {
-    /// Length-driven: an arbitrary number of bytes.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = <Small as EncodingStrategy<usize>>::Context;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, ctx);

@@ -36,8 +36,6 @@ impl Default for CharContext {
 }
 
 impl Encode for char {
-    /// A leading byte, then up to two continuation bytes.
-    const MAX_BYTES: usize = 3 * <u8 as Encode>::MAX_BYTES;
     type Context = CharContext;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -78,24 +76,38 @@ impl Encode for char {
     }
 }
 
-impl super::DecodeAsync for char {
+impl super::DecodeAsync<char> for crate::Normal {
+    /// A leading byte, then up to two continuation bytes.
+    const MAX_BYTES: usize = 3 * <crate::Normal as super::DecodeAsync<u8>>::MAX_BYTES;
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        let byte = u8::decode_async(reader, &mut ctx.first).await?;
+    ) -> Result<char, std::io::Error> {
+        let byte =
+            <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.first).await?;
         if byte < 128 {
             return Ok(char::from(byte));
         }
         let x = if byte < 192 {
             let high = (byte & 0x3f) as u32;
-            let low = u8::decode_async(reader, &mut ctx.one_chunk).await? as u32;
+            let low =
+                <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.one_chunk)
+                    .await? as u32;
             (high << 8) | low
         } else {
             let top = (byte & 0x3f) as u32;
-            let a = u8::decode_async(reader, &mut ctx.two_chunk_a).await? as u32;
-            let b = u8::decode_async(reader, &mut ctx.two_chunk_b).await? as u32;
+            let a = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
+                reader,
+                &mut ctx.two_chunk_a,
+            )
+            .await? as u32;
+            let b = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
+                reader,
+                &mut ctx.two_chunk_b,
+            )
+            .await? as u32;
             (top << 16) | (a << 8) | b
         };
         char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
@@ -109,8 +121,6 @@ pub struct Context {
 }
 
 impl Encode for String {
-    /// Length-driven: an arbitrary number of characters.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -137,19 +147,24 @@ impl Encode for String {
     }
 }
 
-impl super::DecodeAsync for String {
+impl super::DecodeAsync<String> for crate::Normal {
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
     #[inline]
     async fn decode_async<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<Self, std::io::Error> {
-        let len = <Small as super::DecodeAsyncStrategy<usize>>::decode_async(reader, &mut ctx.len)
-            .await?;
+    ) -> Result<String, std::io::Error> {
+        let len = <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
         let mut out = String::with_capacity(super::capacity_for::<u8>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode_async(reader).await?;
-            out.push(char::decode_async(reader, &mut ctx.chars).await?);
+            out.push(
+                <crate::Normal as super::DecodeAsync<char>>::decode_async(reader, &mut ctx.chars)
+                    .await?,
+            );
         }
         Ok(out)
     }
@@ -165,8 +180,6 @@ pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Con
 }
 
 impl Encode for Box<str> {
-    /// Length-driven: an arbitrary number of characters.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = Context;
     #[inline]
     fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
@@ -190,8 +203,6 @@ pub struct SortedContext {
 }
 
 impl EncodingStrategy<String> for Sorted {
-    /// Length-driven: an arbitrary number of characters.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = SortedContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -256,8 +267,6 @@ Lossless data compression is used in many applications. For example, it is used 
 Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
 impl EncodingStrategy<String> for Compressible {
-    /// Length-driven: an arbitrary number of characters.
-    const MAX_BYTES: usize = usize::MAX;
     type Context = super::bytes::Lz77;
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value.as_bytes(), writer)

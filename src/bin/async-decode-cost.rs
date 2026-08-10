@@ -38,7 +38,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use compactly::v2::{decode_stream, DecodeAsync, Range};
+use compactly::v2::{decode_stream, DecodeAsync, Encode, Range};
+use compactly::Normal;
 use futures_core::Stream;
 
 /// How many chunks the `async-split` arm delivers. 2 (a single byte, then the
@@ -118,7 +119,10 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn decode_slice<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> usize {
+fn decode_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(compactly::v2::decode::<T>(compressed))
@@ -128,7 +132,10 @@ fn decode_slice<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> usize 
     total
 }
 
-fn decode_sync_stream<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> usize {
+fn decode_sync_stream<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(Range::decode_from::<T, _>(compressed))
@@ -138,7 +145,10 @@ fn decode_sync_stream<T: DecodeAsync + Len>(compressed: &[u8], iters: usize) -> 
     total
 }
 
-fn decode_async<T: DecodeAsync + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
+fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
     let mut total = 0;
     for _ in 0..iters {
         let source = Chunks::new(compressed, chunks);
@@ -192,7 +202,10 @@ fn meteorite_names() -> Vec<String> {
     out.into_iter().collect()
 }
 
-fn run<T: DecodeAsync + Len>(which: &str, compressed: &[u8], iters: usize) -> usize {
+fn run<T: Encode + Len>(which: &str, compressed: &[u8], iters: usize) -> usize
+where
+    Normal: DecodeAsync<T>,
+{
     match which {
         "slice" => decode_slice::<T>(compressed, iters),
         "stream" => decode_sync_stream::<T>(compressed, iters),
