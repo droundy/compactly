@@ -2235,17 +2235,20 @@ where
         while out.len() < cap {
             let ready = self.source.ready_bytes();
             if ready == 0 {
-                if self.source.is_final_chunk() {
-                    return;
-                }
-                // Nothing buffered but more is coming: one awaited byte tops the
-                // source up, and the next pass takes the rest in bulk.
-                let mut one = [0u8; 1];
-                if let Err(e) = self.source.read_exact(&mut one).await {
+                // Nothing buffered: one awaited byte tops the source up, and the
+                // next pass takes the rest in bulk. This region has no length
+                // field, so a clean end of stream *is* its terminator — which is
+                // why the read must be one that can report end of stream rather
+                // than `read_exact`, whose whole job is to call it truncation.
+                let byte = self.source.next_byte_or_eof().await;
+                if let Some(e) = self.source.take_error() {
                     self.inner.error.get_or_insert(e);
                     return;
                 }
-                out.push(one[0]);
+                match byte {
+                    Some(b) => out.push(b),
+                    None => return,
+                }
                 continue;
             }
             let want = ready.min(cap - out.len());

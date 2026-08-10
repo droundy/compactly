@@ -1624,6 +1624,55 @@ Superseded: the non-blocking-drain idea recorded here previously. It would still
 help the pathological small-chunk case, but the reason it was interesting —
 reaching the final chunk sooner — no longer gates anything.
 
+### `ChunkSource` coalescing: `ready_bytes` means what has arrived (2026-08-10)
+
+`ChunkSource::ready_bytes()` returned `current.len() - pos` — **one stream
+chunk**, whatever else the transport had already handed over. Both async
+decoders steer by that number (`sync_decode_if_there_is_room` compares it
+against `SETTLING_BYTES + MAX_BYTES`), so a producer emitting small chunks made
+the comparison fail even when the whole input had in fact arrived.
+
+`ChunkSource` now polls the stream until it goes `Pending`, coalescing
+everything already delivered into one contiguous run — capped at `READY_TARGET`
+(256 KiB) so a fast transport is not simply drained into memory, which would
+give up the bounded-buffer property the streaming decoder exists for. The
+one-chunk read-ahead is gone, replaced by an explicit `ended` flag; the final
+`Pending` poll has already registered the waker, so a transport that fetches on
+poll is still asked for the next chunk before we need it.
+
+100k `u64` (802 KB compressed), `async-split`, instructions vs the sync slice
+decoder:
+
+| chunks | chunk size | before | after |
+|---|---|---|---|
+| 64 | 12.5 KB | +1.65% | +2.44% |
+| 1024 | 783 B | +9.27% | **+2.87%** |
+
+Meteorite strings at 783-byte chunks: **−3.9%**. The small-chunk penalty the
+`MAX_BYTES` table recorded is essentially gone; what replaces it is a flat
+~0.8%, which is one memcpy of the payload — coalescing copies each byte once,
+and only when a poll actually collected something.
+
+Two things it did **not** change, both worth recording:
+
+- `Range` overlap is unmoved at every rate (400 → 10 MB/s), which is right: it
+  had no overlap problem.
+- `Ans` overlap is still `arrival + decode`, and the `Ans` instruction count is
+  unchanged to within noise. So `ready_bytes` under-reporting was *not* the
+  reason `Ans::decode_stream` buys no overlap. The real reason is now clear and
+  is in `AsyncAnsDecoder::read_ahead`: it awaits the *whole* next frame before
+  decoding the current one, so the two never overlap. With 53 KB frames at
+  10 MB/s that is 5.3 ms of waiting against 1.1 ms of decoding, fifteen times
+  over — which is exactly the measured `arrival + decode`.
+
+  The fix is to stop being eager: the next frame only has to be buffered before
+  the sync decoder can actually reach it, which `ops_left` bounds (a frame is
+  `CHUNK_OPS` = 65536 ops). Deferring the await until `ops_left` approaches zero
+  would let a frame's decode run while its successor arrives, giving
+  `arrival + one frame's decode` instead. The `next_frame_is_ready` peek is
+  worth having alongside it — and *now* it can work, because `ready_bytes` is
+  finally able to cover a whole frame.
+
 ## TODO (in rough priority order)
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —

@@ -398,7 +398,7 @@ would be needed — a much larger API. Out of scope here; the immediate win is n
   in the format except via where runs land. Start with something like a few KiB
   and tune.
 
-### Note: tiny chunks
+### Note: tiny chunks — BUILT (2026-08-10)
 
 A stream of very small `Bytes` (783 B chunks measured +8.9% instructions vs
 +1.7% at 12.5 KB) could be improved by coalescing, but the obvious form of that
@@ -407,7 +407,13 @@ exists to save. The version that is actually free is to deepen the read-ahead:
 keep pulling while `poll_next` returns `Ready` immediately, and only ever
 suspend when the stream genuinely has nothing. That grows the sync-handoff
 batches without ever waiting for a byte we would not have waited for anyway.
-Not built: such streams are slow end to end regardless of what we do.
+
+Built, as `ChunkSource::drain_ready`. 783-byte chunks went +9.3% → **+2.9%** on
+`u64` and −3.9% on strings, against a flat ~0.8% for the coalescing copy at
+large chunks. The drain is capped at `READY_TARGET` (256 KiB) so a fast
+transport cannot be emptied into memory; see OPTIMIZING.md for the numbers and
+for what it did *not* fix (`Ans` overlap, whose cause turned out to lie
+elsewhere).
 
 ### Note: recursive types are not supported (pre-existing)
 

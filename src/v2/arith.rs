@@ -955,7 +955,7 @@ where
         };
         let result = f(&mut sync);
         debug_assert!(
-            !sync.bytes.is_empty() || self.source.is_final_chunk(),
+            !sync.bytes.is_empty() || self.source.is_complete(),
             "sync decode consumed every buffered byte without reaching end of \
              stream: some type's MAX_BYTES is too small"
         );
@@ -1022,7 +1022,7 @@ where
 
     #[inline]
     fn is_final(&self) -> bool {
-        self.source.is_final_chunk()
+        self.source.is_complete()
     }
 
     #[inline]

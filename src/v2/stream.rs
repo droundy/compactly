@@ -34,28 +34,23 @@ pub(crate) struct ChunkSource<S> {
     /// Boxed rather than requiring `S: Unpin`: one allocation for a whole
     /// decode is not worth constraining what callers may pass.
     stream: Pin<Box<S>>,
+    /// Everything delivered and not yet consumed, as one contiguous run.
+    ///
+    /// Contiguity is a requirement, not a convenience: [`Self::buffered`] hands
+    /// this to a sync decoder that will read up to [`Self::ready_bytes`] of it,
+    /// so the two must describe the same bytes. Coalescing is what
+    /// [`Self::drain_ready`] pays for that, and it pays only when it actually
+    /// collected something.
     current: Bytes,
     pos: usize,
-    /// The next chunk, fetched while `current` was still being read.
+    /// The stream has said it has nothing more, or has failed: it must not be
+    /// polled again.
     ///
-    /// **The invariant**, established by [`ChunkSource::new`] and restored by
-    /// [`ChunkSource::fill`] at every chunk promotion: this is `Some` unless the
-    /// stream has ended or failed. Two things follow, and they are why the
-    /// read-ahead is maintained rather than fetched on demand:
-    ///
-    /// - `queued.is_none() && error.is_none()` *is* end of stream, so
-    ///   [`ChunkSource::is_final_chunk`] answers without polling and there is no
-    ///   separate `exhausted` flag to keep in step.
-    /// - Exhausting `current` never has to wait, because the next chunk was
-    ///   asked for a whole chunk earlier.
-    ///
-    /// It also fuses the stream for free. [`Stream::poll_next`] documents that
-    /// polling after it returns `None` "may panic, block forever, or cause other
-    /// kinds of problems", and only a `FusedStream` promises otherwise — but the
-    /// sole caller of the stream is [`ChunkSource::read_ahead`], which is only
-    /// ever entered when the previous poll yielded a chunk, and which returns
-    /// the moment it sees `None`. So a second poll past the end cannot happen.
-    queued: Option<Bytes>,
+    /// [`Stream::poll_next`] documents that polling after it returns `None`
+    /// "may panic, block forever, or cause other kinds of problems", and only a
+    /// `FusedStream` promises otherwise. Every poll in this module is guarded by
+    /// this flag, which fuses the stream for us.
+    ended: bool,
     error: Option<std::io::Error>,
 }
 
@@ -65,34 +60,46 @@ impl<S> std::fmt::Debug for ChunkSource<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChunkSource")
             .field("buffered", &(self.current.len() - self.pos))
-            .field("read_ahead", &self.queued.as_ref().map(Bytes::len))
+            .field("ended", &self.ended)
             .field("error", &self.error)
             .finish_non_exhaustive()
     }
 }
+
+/// How much [`ChunkSource::drain_ready`] will accumulate before it stops asking
+/// for more, even when the transport has data waiting.
+///
+/// The drain exists so that `ready_bytes` reflects what has *arrived* rather
+/// than one chunk of it, but without a limit a fast transport would be emptied
+/// into memory and the streaming decoder's whole point — peak memory of the
+/// value plus a bounded buffer, rather than the value plus the compressed
+/// input — would be lost. Leaving the surplus in the transport's own buffer is
+/// also what applies backpressure to it.
+///
+/// 256 KiB is chosen against the largest thing a decoder asks to have in hand
+/// at once: an `Ans` chunk frame, whose entropy region is bounded by
+/// `MAX_CHUNK_ENTROPY` (~128 KB) with the incompressible region beside it. The
+/// `Range` decoder needs only a value's `MAX_BYTES`, which is tiny, so it is
+/// not the constraint.
+const READY_TARGET: usize = 1 << 18;
 
 impl<S, E> ChunkSource<S>
 where
     S: Stream<Item = Result<Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    /// Build a source and **prime it**: fetch the first chunk and the
-    /// read-ahead behind it, so the invariant on `queued` holds from the start.
-    ///
-    /// Priming here rather than lazily on first use is what removes the
-    /// "not yet started" state — without it, `queued.is_none()` would be
-    /// ambiguous between "nothing fetched yet" and "nothing left", and telling
-    /// them apart would need the extra flag this design does without.
+    /// Build a source and **prime it**: await the first chunk, then take
+    /// whatever else the transport already has, so a decode starts with
+    /// everything that has arrived rather than with one chunk of it.
     pub(crate) async fn new(stream: S) -> Self {
         let mut source = ChunkSource {
             stream: Box::pin(stream),
             current: Bytes::new(),
             pos: 0,
-            queued: None,
+            ended: false,
             error: None,
         };
-        source.current = source.take_from_stream().await.unwrap_or_default();
-        source.read_ahead().await;
+        source.fill().await;
         source
     }
 
@@ -109,85 +116,117 @@ where
         std::future::poll_fn(move |cx| stream.as_mut().poll_next(cx)).await
     }
 
-    /// One chunk straight from the stream, latching a failure into `error`.
-    /// `None` for either end of stream or failure.
+    /// One chunk straight from the stream, latching a failure into `error` and
+    /// marking the stream not to be polled again. `None` for either end of
+    /// stream or failure.
     async fn take_from_stream(&mut self) -> Option<Bytes> {
         match self.poll_stream().await {
-            None => None,
+            None => {
+                self.ended = true;
+                None
+            }
             Some(Ok(chunk)) => Some(chunk),
             Some(Err(e)) => {
                 self.error = Some(std::io::Error::other(e));
+                self.ended = true;
                 None
             }
         }
     }
 
-    /// Restore the one-chunk read-ahead, so that [`Self::is_final_chunk`] can
-    /// answer and so exhausting `current` need not wait.
+    /// Take everything the transport can hand over **without suspending**, and
+    /// coalesce it with whatever is still unread.
     ///
-    /// Awaiting here is the point, not an oversight: it is what makes the
-    /// invariant hold. The cost is that decoding starts one chunk later than it
-    /// strictly could; the benefit is that it then never stalls at a chunk
-    /// boundary, because the next chunk was requested a whole chunk earlier.
-    /// Over a stream of `n` chunks that trades one interval of latency for
-    /// `n - 1` avoided stalls.
+    /// This is what makes [`Self::ready_bytes`] mean "what has arrived" rather
+    /// than "what is in the chunk I happen to be holding". The difference is not
+    /// cosmetic: both async decoders decide whether to run their fast sync path
+    /// by comparing `ready_bytes` against what a decode step needs, and a
+    /// producer that delivers 800-byte chunks was making that comparison fail
+    /// even when the whole input had in fact arrived.
     ///
-    /// Empty chunks are skipped rather than queued, so that `queued.is_some()`
-    /// means "there is real data ahead". Queueing an empty chunk would leave
-    /// [`Self::is_final_chunk`] answering `false` on a stream that in fact has
-    /// nothing left — costing the single-chunk fast path to any producer that
-    /// pads with empty chunks.
+    /// Coalescing costs one allocation and one copy of the ready bytes, and only
+    /// when the poll actually collected something — a transport handing over one
+    /// chunk at a time as it is consumed pays nothing, and neither does one
+    /// handing over the whole input as a single chunk.
     ///
-    /// Returning immediately on `None` is what fuses the stream: this is the
-    /// only place the stream is polled after construction, and it is only
-    /// reached when the previous poll produced a chunk.
-    async fn read_ahead(&mut self) {
-        debug_assert!(self.queued.is_none(), "read-ahead already in hand");
-        while self.error.is_none() {
-            match self.take_from_stream().await {
-                Some(chunk) if chunk.is_empty() => continue,
-                Some(chunk) => {
-                    self.queued = Some(chunk);
-                    return;
-                }
-                None => return,
-            }
+    /// The final poll returning `Pending` has already registered our waker with
+    /// the stream, so a transport that starts a fetch when polled has been asked
+    /// for the next chunk before we need it. That is the read-ahead this used to
+    /// maintain explicitly, obtained here as a side effect of asking.
+    async fn drain_ready(&mut self) {
+        if self.ended || self.error.is_some() || self.ready_bytes() >= READY_TARGET {
+            return;
         }
+        let unread = self.ready_bytes();
+        let mut extra: Vec<Bytes> = Vec::new();
+        let mut collected = 0usize;
+        {
+            // Borrow the stream and the two flags separately from the buffer, so
+            // the closure can run while `self` still owns what the collected
+            // chunks will be folded into.
+            let stream = &mut self.stream;
+            let (ended, error) = (&mut self.ended, &mut self.error);
+            std::future::poll_fn(|cx| {
+                while unread + collected < READY_TARGET {
+                    match stream.as_mut().poll_next(cx) {
+                        std::task::Poll::Pending => break,
+                        std::task::Poll::Ready(None) => {
+                            *ended = true;
+                            break;
+                        }
+                        std::task::Poll::Ready(Some(Ok(chunk))) => {
+                            collected += chunk.len();
+                            extra.push(chunk);
+                        }
+                        std::task::Poll::Ready(Some(Err(e))) => {
+                            *error = Some(std::io::Error::other(e));
+                            *ended = true;
+                            break;
+                        }
+                    }
+                }
+                std::task::Poll::Ready(())
+            })
+            .await;
+        }
+        if collected == 0 {
+            return;
+        }
+        let mut buf = Vec::with_capacity(unread + collected);
+        buf.extend_from_slice(&self.current[self.pos..]);
+        for chunk in &extra {
+            buf.extend_from_slice(chunk);
+        }
+        self.current = Bytes::from(buf);
+        self.pos = 0;
     }
 
-    /// Make the current chunk non-empty if possible, and restore the read-ahead.
-    /// Returns false at a clean end of stream or once an error is latched.
+    /// Make sure at least one unread byte is in hand, awaiting the transport if
+    /// there is none. Returns false at a clean end of stream or once an error is
+    /// latched.
     ///
-    /// Maintains the invariant that whenever this returns true, `queued` holds
-    /// the next chunk *or* the stream is known to be finished or failed.
-    ///
-    /// A loop rather than an `if` only because the *first* chunk may be empty:
-    /// [`Self::new`] takes it straight from the stream, while every later chunk
-    /// comes from `queued`, which [`Self::read_ahead`] never fills with an empty
-    /// one.
+    /// The loop is for empty chunks, which a producer may legitimately emit.
     async fn fill(&mut self) -> bool {
         while self.pos == self.current.len() {
-            // No read-ahead means no more data — the invariant says so, with no
-            // need to poll and find out.
-            let Some(next) = self.queued.take() else {
+            if self.ended || self.error.is_some() {
+                return false;
+            }
+            let Some(chunk) = self.take_from_stream().await else {
                 return false;
             };
-            self.current = next;
+            // Nothing unread, so adopting the chunk costs no copy — which is why
+            // `drain_ready` is the only place that ever coalesces.
+            self.current = chunk;
             self.pos = 0;
-            // Restoring the read-ahead belongs here, with the promotion that
-            // consumed it, and not after the loop: the invariant is established
-            // when `current` changes and holds until it changes again, so doing
-            // it after the loop would re-check it on every single byte, which
-            // measured 1.2% of the async path's instructions.
-            self.read_ahead().await;
+            self.drain_ready().await;
         }
         true
     }
 
-    /// Whether the chunk in hand is the last one. Free, by the invariant: no
-    /// read-ahead and no error means the stream is spent.
-    pub(crate) fn is_final_chunk(&self) -> bool {
-        self.queued.is_none() && self.error.is_none()
+    /// Whether every byte of the input is now in hand — the stream has finished
+    /// cleanly and what remains unread is all there will ever be.
+    pub(crate) fn is_complete(&self) -> bool {
+        self.ended && self.error.is_none()
     }
 
     /// Bytes already buffered, decodable without awaiting anything.
@@ -211,32 +250,63 @@ where
         self.pos += n;
     }
 
+    /// Fold `chunk` in behind whatever is still unread.
+    ///
+    /// Free when nothing is unread, which is how [`Self::fill`] always calls it;
+    /// otherwise it copies, and callers with several chunks in hand should
+    /// coalesce them in one pass instead of calling this repeatedly.
+    fn append(&mut self, chunk: Bytes) {
+        if self.pos == self.current.len() {
+            self.current = chunk;
+        } else {
+            let mut buf = Vec::with_capacity(self.ready_bytes() + chunk.len());
+            buf.extend_from_slice(&self.current[self.pos..]);
+            buf.extend_from_slice(&chunk);
+            self.current = Bytes::from(buf);
+        }
+        self.pos = 0;
+    }
+
     /// The whole input, if the stream turns out to deliver it in a single chunk.
     ///
-    /// Worth a look-ahead poll because a single-chunk input has **no overlap
+    /// Worth an extra poll because a single-chunk input has **no overlap
     /// available** — every byte arrives at once — so running it through the
     /// async decoder is pure loss, and the caller can hand the buffer to the
     /// (measurably faster) sync slice decoder instead. An empty stream counts as
     /// a single empty chunk, so it decodes exactly as `v2::decode(&[])` does.
+    /// On `None` nothing is lost: any chunk polled is kept, and the source is
+    /// ready to continue asynchronously.
     ///
-    /// This needs no look-ahead of its own: [`Self::fill`] already maintains
-    /// one, so the question is just whether the first chunk is also the last.
-    /// On `None` the source is untouched and ready to continue asynchronously.
-    ///
-    /// The one case the read-ahead pessimizes is a stream that delivers all its
-    /// data and then delays signalling end of stream: the decode waits for that
-    /// signal rather than starting. Bodies with a known length end promptly, so
-    /// this is the right default, but it is why the read-ahead is exactly one
-    /// chunk deep and not a general "buffer until EOF".
+    /// This is the one place that *awaits* an answer the decode does not yet
+    /// need — [`Self::drain_ready`] never suspends, so on a transport that goes
+    /// `Pending` before signalling end it would not find out. The case that
+    /// costs is a stream which delivers all its data and then delays end of
+    /// stream: the decode waits for the signal rather than starting. Bodies with
+    /// a known length end promptly, so this is the right default, and it is why
+    /// the wait is exactly one poll deep rather than a "buffer until EOF".
     pub(crate) async fn take_if_single_chunk(&mut self) -> Option<Bytes> {
         if !self.fill().await {
             // Empty stream: a single (empty) chunk, unless the emptiness is
             // itself an error, in which case the async path surfaces it.
             return self.error.is_none().then(Bytes::new);
         }
+        while !self.ended && self.error.is_none() {
+            match self.take_from_stream().await {
+                // An empty chunk settles nothing; ask again.
+                Some(chunk) if chunk.is_empty() => continue,
+                Some(chunk) => {
+                    // Not a single chunk after all. Keep the bytes and take
+                    // anything else already waiting, then decode asynchronously.
+                    self.append(chunk);
+                    self.drain_ready().await;
+                    break;
+                }
+                None => break,
+            }
+        }
         // `pos == 0` is what makes this "the *whole* input" rather than merely
         // "the rest of it" — true only before any byte has been read.
-        (self.is_final_chunk() && self.pos == 0).then(|| self.current.clone())
+        (self.is_complete() && self.pos == 0).then(|| self.current.clone())
     }
 
     /// One byte, awaiting the next chunk if the current one is used up; 0 at a
@@ -389,11 +459,23 @@ pub(crate) mod tests {
             Some(&b""[..])
         );
 
-        // Two chunks: not single, and nothing may be lost by the look-ahead.
+        // Two chunks that are *both already there*: still the whole input, and
+        // still the sync decoder's job. How a ready transport chose to split its
+        // buffer says nothing about whether overlap is available, and before the
+        // drain this case went down the async path for nothing.
         let mut s = source_of(vec![
             Ok(Bytes::from_static(b"abc")),
             Ok(Bytes::from_static(b"de")),
         ]);
+        assert_eq!(
+            block_on(s.take_if_single_chunk()).as_deref(),
+            Some(&b"abcde"[..]),
+            "chunks already in hand should coalesce, not force the async path"
+        );
+
+        // Two chunks with a real suspension between them: overlap *is* available
+        // here, so the async path it is — and nothing may be lost deciding that.
+        let mut s = block_on(ChunkSource::new(Chunks::new(b"abcde", 3)));
         assert!(block_on(s.take_if_single_chunk()).is_none());
         let mut rest = [0u8; 5];
         block_on(s.read_exact(&mut rest)).unwrap();
