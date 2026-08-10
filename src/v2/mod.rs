@@ -189,7 +189,7 @@ pub trait EntropyCoder: Sized {
         self.encode_bits(std::array::from_mut(context), [bit]);
     }
 
-    /// Encode the `value` into a `Vec<u8>` of bytes.`
+    /// Encode the `value` into a `Vec<u8>` of bytes.
     fn encode<T: Encode>(value: &T) -> Self
     where
         Self: Default,
@@ -335,7 +335,7 @@ pub trait Encode: Sized {
     }
 }
 
-/// Encode the `value` into a `Vec<u8>` of bytes.`
+/// Encode the `value` into a `Vec<u8>` of bytes.
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut writer = arith::Range::default();
     value.encode(&mut writer, &mut T::Context::default());
@@ -430,9 +430,9 @@ pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T>
 /// Note that besides implementing existing strategies for your own types, you
 /// can also create entirely new strategies in your crates.  If you do that, you
 /// can use full paths in your derive macros, e.g.
-/// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
+/// `#[compactly(your_crate::SuperCoolEncodingStrategy)]`.
 pub trait EncodingStrategy<T> {
-    /// The conext (i.e. probability model) for this encoding strategy applied to this type.
+    /// The context (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 
     /// Encode the value with this strategy.

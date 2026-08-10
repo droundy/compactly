@@ -49,7 +49,7 @@ pub trait Encode: Sized {
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
-    /// Extimate the number of millibits required for this value.
+    /// Estimate the number of millibits required for this value.
     ///
     /// Returns `None` if this estimation has not been implemented.
     #[expect(unused_variables)]
@@ -60,14 +60,14 @@ pub trait Encode: Sized {
         None
     }
 
-    /// Decode value from ['Reader<R>`].
+    /// Decode value from the [`Reader<R>`].
     fn decode<R: Read>(
         reader: &mut Reader<R>,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
 }
 
-/// Encode the `value` into a `Vec<u8>` of bytes.`
+/// Encode the `value` into a `Vec<u8>` of bytes.
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut out = Vec::with_capacity(8);
     {
@@ -98,9 +98,9 @@ pub fn decode<T: Encode>(mut bytes: &[u8]) -> Option<T> {
 /// Note that besides implementing existing strategies for your own types, you
 /// can also create entirely new strategies in your crates.  If you do that, you
 /// can use full paths in your derive macros, e.g.
-/// `#[compactly(your_crate::SuperCoolEncodingStratgy]`.
+/// `#[compactly(your_crate::SuperCoolEncodingStrategy)]`.
 pub trait EncodingStrategy<T>: Copy {
-    /// The conext (i.e. probability model) for this encoding strategy applied to this type.
+    /// The context (i.e. probability model) for this encoding strategy applied to this type.
     type Context: Default + Clone;
 
     /// Encode the value with this strategy.
@@ -110,7 +110,7 @@ pub trait EncodingStrategy<T>: Copy {
         ctx: &mut Self::Context,
     ) -> Result<(), std::io::Error>;
 
-    /// Estimate the size of the encoded value using this stratgy.
+    /// Estimate the size of the encoded value using this strategy.
     #[expect(unused_variables)]
     fn millibits(value: &T, ctx: &mut Self::Context) -> Option<usize> {
         None

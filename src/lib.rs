@@ -4,7 +4,7 @@
 //! This crate provides a serialization framework fundamentally similar to
 //! [serde](https://docs.rs/serde) or [bincode](https://docs.rs/bincode), which
 //! enables you to derive a trait [`Encode`] and then use this trait to
-//! [`encode`] and to ['decode`] your data, but much more compactly than bincode
+//! [`encode`] and to [`decode`] your data, but much more compactly than bincode
 //! or other formats.
 //!
 //! # How to use
@@ -35,7 +35,7 @@
 //!
 //! # Using a stable format
 //!
-//! If you are encoding your data for temmporary use (e.g. a cache or network
+//! If you are encoding your data for temporary use (e.g. a cache or network
 //! transit with the same version of `compactly`), the above works great.
 //! However, if you are looking to encode your data persistently across
 //! versions, you will want to use `compactly::v1` which will result in a
@@ -57,7 +57,7 @@
 //! # Enabling improved encoding strategies
 //!
 //! In order for `compactly` to optimally compress your data, you can provide
-//! hints (an [`EncodingStrategy`]) as to what kind of distribution of values
+//! hints (an [`EncodingStrategy`](v2::EncodingStrategy)) as to what kind of distribution of values
 //! you expect.  This will change the format, so you'll want to get this right
 //! *before* saving your encoded data into long-term storage.
 //!
@@ -85,8 +85,8 @@
 //! | [LowCardinality] | Low cardinality | There are few values which are frequently repeated, so store each value only once.  Be aware that this could double memory use, as it will store a mapping between values and `usize`.  For string fields prefer `Arc<str>` (or `Rc<str>` when you don't need `Send`/`Sync`) over `String` (see [LowCardinality]): a cache hit then costs a refcount bump instead of a fresh allocation. |
 //! | [Sorted] | Values probably sorted | Assume that the values are likely to arrive in sorted order.  Typically this will lead to storing differences between successive values. |
 //! | [Compressible] | Expensive compression may be used | Take whatever time is needed to compress this data.  For `String` and `Vec<u8>` this enables [LZ77-style compression](https://en.wikipedia.org/wiki/LZ77_and_LZ78) which can be very slow, but also can provide very good compression for natural language data. |
-//! | [Values<S>] | Apply strategy to values of a collection | e.g. `Values<Small>` assumes all values in a `Vec` or `HashSet` are small |
-//! | [Mapping<K,V>] | Apply strategies to keys and values of a collection | e.g. `Mapping<Sorted,Normal>` is the `Normal` strategy for a `BTreeMap`, but you might prefer a `Mapping<LowCardinality,Small>` if you will be storing a large collection of these maps with a limited number of keys, and the values are small. |
+//! | [`Values<S>`](Values) | Apply strategy to values of a collection | e.g. `Values<Small>` assumes all values in a `Vec` or `HashSet` are small |
+//! | [`Mapping<K,V>`](Mapping) | Apply strategies to keys and values of a collection | e.g. `Mapping<Sorted,Normal>` is the `Normal` strategy for a `BTreeMap`, but you might prefer a `Mapping<LowCardinality,Small>` if you will be storing a large collection of these maps with a limited number of keys, and the values are small. |
 //!
 //! # How does compactly work?
 //!
@@ -94,8 +94,8 @@
 //! [adaptive](https://en.wikipedia.org/wiki/Adaptive_coding) [range
 //! coding](https://en.wikipedia.org/wiki/Range_coding).  Each type that can be
 //! encoded (and really each strategy for each type) has a
-//! [Context][Encode::Context]. which is a type that holds the model for the
-//! distribution of values. As the data is necoded, this model is updated (this
+//! [Context][Encode::Context], which is a type that holds the model for the
+//! distribution of values. As the data is encoded, this model is updated (this
 //! is the essence of [adaptive
 //! coding](https://en.wikipedia.org/wiki/Adaptive_coding)),
 //!
@@ -108,7 +108,7 @@
 //! When you derive [`Encode`] for a struct (or enum), compactly will create a
 //! new [`Encode::Context`] which stores distinct `Context` values for each
 //! field of your struct (or enum), which means that as your data is encoded,
-//! compactly will adaptivly learn the distinct patterns of values for each
+//! compactly will adaptively learn the distinct patterns of values for each
 //! field.
 
 mod encoded;
