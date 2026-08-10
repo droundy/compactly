@@ -402,7 +402,7 @@ macro_rules! impl_compact {
                     + 7 * <crate::Normal as crate::v2::DecodeAsync<bool>>::MAX_BYTES;
 
             #[inline]
-            fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
+            fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
@@ -495,7 +495,7 @@ macro_rules! impl_compact {
             const MAX_BYTES: usize = <Small as crate::v2::DecodeAsync<$t>>::MAX_BYTES;
 
             #[inline]
-            fn decode_async<D: crate::v2::AsyncEntropyDecoder>(
+            fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {

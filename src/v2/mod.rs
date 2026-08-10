@@ -383,7 +383,13 @@ pub trait AsyncEntropyDecoder {
         &mut self,
         ctx: &mut S::Context,
     ) -> Option<Result<T, std::io::Error>> {
-        if self.sync_capacity(S::MAX_BYTES) == 0 {
+        // A comparison rather than [`Self::sync_capacity`]'s division: this is a
+        // per-*value* gate, and `S::MAX_BYTES` is a constant, so it folds to one
+        // compare against a constant. `sync_capacity` keeps the division for
+        // batch loops, where it is amortised over the whole batch.
+        if !self.is_final()
+            && self.ready_bytes() < Self::SETTLING_BYTES.saturating_add(S::MAX_BYTES)
+        {
             return None;
         }
         Some(self.with_sync(|sync| S::decode(sync, ctx)))
@@ -672,12 +678,45 @@ pub trait DecodeAsync<T>: EncodingStrategy<T> {
     /// feature it never touches.
     const MAX_BYTES: usize;
 
-    /// Decode a value with this strategy; the async twin of
-    /// [`EncodingStrategy::decode`].
-    fn decode_async<D: AsyncEntropyDecoder>(
+    /// Decode a value with this strategy, from a source that may run dry
+    /// part-way through; the async twin of [`EncodingStrategy::decode`].
+    ///
+    /// **Implement this, but call [`Self::decode_async`]**, which wraps it with
+    /// the fast path below. Nothing stops a caller reaching for this one
+    /// directly; it would simply be slower.
+    fn decode_awaiting<D: AsyncEntropyDecoder>(
         decoder: &mut D,
         ctx: &mut Self::Context,
     ) -> impl std::future::Future<Output = Result<T, std::io::Error>>;
+
+    /// Decode a value with this strategy — the method callers should use.
+    ///
+    /// Hands the whole value to the *sync* decoder whenever [`MAX_BYTES`] of it
+    /// is certainly buffered already, and only falls back to
+    /// [`Self::decode_awaiting`] when it might have to wait. Being the default
+    /// rather than something each call site opens by hand is the point: a site
+    /// that forgot would still be *correct*, just permanently slow, so no test
+    /// would catch the omission.
+    ///
+    /// [`MAX_BYTES`]: Self::MAX_BYTES
+    #[inline]
+    fn decode_async<D: AsyncEntropyDecoder>(
+        decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<T, std::io::Error>>
+    where
+        Self: Sized,
+    {
+        async {
+            // Bound to a `let` so the borrows of `decoder` and `ctx` end before
+            // the fallback needs them again.
+            let attempt = decoder.sync_decode_if_there_is_room::<T, Self>(ctx);
+            match attempt {
+                Some(result) => result,
+                None => Self::decode_awaiting(decoder, ctx).await,
+            }
+        }
+    }
 }
 
 /// Encode a value with a specific strategy (into a `Vec<u8>`).

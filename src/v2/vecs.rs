@@ -29,11 +29,11 @@ where
     const MAX_BYTES: usize = usize::MAX;
 
     #[inline]
-    fn decode_async<D: super::AsyncEntropyDecoder>(
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> impl std::future::Future<Output = Result<Vec<T>, std::io::Error>> {
-        <crate::Values<Normal> as super::DecodeAsync<Vec<T>>>::decode_async(reader, ctx)
+        <crate::Values<Normal> as super::DecodeAsync<Vec<T>>>::decode_awaiting(reader, ctx)
     }
 }
 
@@ -175,7 +175,7 @@ impl<T, S: super::DecodeAsync<T>> super::DecodeAsync<Vec<T>> for crate::Values<S
     /// Length-driven: an arbitrary number of elements.
     const MAX_BYTES: usize = usize::MAX;
 
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {

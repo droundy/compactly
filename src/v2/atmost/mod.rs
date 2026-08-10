@@ -204,7 +204,7 @@ impl<const MAX: usize> super::DecodeAsync<AtMost<MAX>> for crate::Normal {
     };
 
     #[inline]
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<AtMost<MAX>, std::io::Error> {

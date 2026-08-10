@@ -34,7 +34,7 @@ impl super::DecodeAsync<bool> for crate::Normal {
     const MAX_BYTES: usize = 1;
 
     #[inline]
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<bool, std::io::Error> {

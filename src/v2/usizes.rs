@@ -49,7 +49,7 @@ impl super::DecodeAsync<usize> for crate::Normal {
     const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<u64>>::MAX_BYTES;
 
     #[inline]
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {
@@ -133,7 +133,7 @@ impl super::DecodeAsync<usize> for Small {
     const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<7>>>::MAX_BYTES
         .saturating_add(<Small as super::DecodeAsync<u64>>::MAX_BYTES);
 
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {

@@ -24,7 +24,7 @@ impl super::DecodeAsync<u8> for crate::Normal {
     const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<255>>>::MAX_BYTES;
 
     #[inline]
-    async fn decode_async<D: super::AsyncEntropyDecoder>(
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
