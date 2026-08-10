@@ -1325,6 +1325,28 @@ Not measured, but implied: the string workload pays only +10.5% cycles for the
 machinery, so its floor is ~1.1x sync decode and it should beat the baseline at
 essentially any delivery rate. The integer path is the one in trouble.
 
+**Re-measured after `MAX_BYTES` landed (2026-08-09), and the conclusion above is
+now obsolete in the good direction.** Same bin, same workload, same 64 chunks:
+
+| delivery rate | arrival | collect-then-decode | `decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 22.6 ms | 21.4 ms | **−5.4%** |
+| 100 MB/s | 8.0 ms | 28.7 ms | 21.4 ms | −25.4% |
+| 50 MB/s | 16.0 ms | 36.6 ms | 21.7 ms | **−40.6%** |
+| 25 MB/s | 32.1 ms | 52.9 ms | 32.6 ms | −38.3% |
+| 10 MB/s | 80.2 ms | 101.2 ms | 81.1 ms | −19.8% |
+
+The floor moved from 35.7 ms to **21.4 ms against a 21.0 ms sync decode** — a
+1.02x ratio where it was 1.68x. That is +1.7%, which is exactly the instruction
+count measured for 64 chunks in the `MAX_BYTES` section below, so the two
+methods agree from opposite directions a second time.
+
+**There is no break-even rate any more**: `decode_stream` beats
+collect-then-decode at every rate measured, including 400 MB/s where arrival is
+nearly free and the baseline pays only decode. The paragraph above predicting
+"−26% at 100 MB/s were the machinery free" was right about the mechanism and
+close on the number — measured −25.4%.
+
 ### Single-chunk inputs skip the async decoder entirely, for free (2026-08-09)
 
 A stream that delivers everything in one chunk has **no overlap available** —
