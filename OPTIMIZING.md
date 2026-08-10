@@ -1782,7 +1782,61 @@ never-suspending benchmark, where the pump does real work on every interval and
 none of the overlap it buys is visible. That is the same lesson as
 §"…but it buys no overlap" in reverse, and the reason both measurements exist.
 
+### How much is left in `Ans` async decode, and what `MAX_OPS` would cost (2026-08-10)
+
+With overlap working, the question "is the slice decoder worth reaching for
+mid-stream?" becomes measurable: how far is `Ans::decode_stream` from
+`max(arrival, sync_decode)`, the best any decoder could do?
+
+| rate | arrival | sync decode | ideal `max()` | overlap | headroom |
+|---|---|---|---|---|---|
+| 400 MB/s | 2.01 ms | 16.83 ms | 16.83 ms | 19.03 ms | 11.6% |
+| 200 MB/s | 4.01 ms | 16.74 ms | 16.74 ms | 20.77 ms | 19.4% |
+| 100 MB/s | 8.03 ms | 16.92 ms | 16.92 ms | 23.30 ms | 27.4% |
+| 75 MB/s | 10.70 ms | 16.91 ms | 16.91 ms | 25.01 ms | 32.4% |
+| 50 MB/s | 16.05 ms | 16.78 ms | 16.78 ms | 28.79 ms | **41.7%** |
+| 35 MB/s | 22.93 ms | 16.70 ms | 22.93 ms | 34.05 ms | 32.7% |
+| 25 MB/s | 32.10 ms | 16.83 ms | 32.10 ms | 40.24 ms | 20.2% |
+| 15 MB/s | 53.50 ms | 16.81 ms | 53.50 ms | 55.81 ms | 4.1% |
+| 10 MB/s | 80.26 ms | 16.86 ms | 80.26 ms | 81.37 ms | 1.4% |
+
+Headroom is ~0 at both extremes and peaks **where arrival and decode are
+balanced**. That shape is the diagnosis: fast, and `reached_final` goes true so
+whole values run through the sync decoder; slow, and the decode is hidden
+whatever it costs; in between, frames arrive just too late for the
+`next_frame_has_arrived` peek, so ops run through the async path at roughly
+double the sync cost. (The 400 MB/s residual is the startup transient — the
+first couple of ms of decode before everything has arrived.)
+
+The lever is to let whole values decode through the sync decoder *mid-stream*,
+which `sync_decode_if_there_is_room` already implements — Ans just reports
+`ready_bytes() = 0` so it never fires. What it needs is a gate proving the value
+cannot run past the buffered frames.
+
+**`MAX_BYTES` is nearly that gate but not quite, and the near-miss is worth
+recording.** `MAX_BYTES` is additive per operation with weights 1 (bit), 3
+(symbol), 1 (raw byte); every operation contributes at least 1, so
+`ops <= MAX_BYTES` — and since `Ans` crosses a chunk when `ops_left` hits zero,
+`ops_left >= S::MAX_BYTES` would gate it with **no new constant and no new API**,
+just `ready_bytes()` returning `ops_left`. It fails on exactly one case: a
+tree-coded symbol charges 3 for information but a *bitwise* walk spends one op
+per tree level, so `AtMost<1000>` can spend ~10 ops against a `MAX_BYTES` of 3
+(`src/v2/atmost/mod.rs`). The symbol walk is fine (one step, one op).
+
+So a sound gate needs a real `MAX_OPS`: the same additive structure the derive
+already computes for `MAX_BYTES`, with leaf weights of 1 per bit, 1 per symbol
+*step*, 1 per incompressible run, and the walk's depth where the bitwise walk is
+chosen. That is a mirror of the `MAX_BYTES` work — including its property tests,
+which is the part that took the effort. Worth ~40% at the crossover rate;
+not started.
+
 ## TODO (in rough priority order)
+
+1. **`MAX_OPS` for mid-stream `Ans` sync handoff** — see the section above.
+   Worth up to 41.7% where arrival and decode are balanced, ~0 at either
+   extreme. Mirrors `Encode::MAX_BYTES` in structure; `MAX_BYTES` itself is
+   *not* a sound substitute (bitwise `AtMost` walks spend more ops than it
+   bounds).
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:
