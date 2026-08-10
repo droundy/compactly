@@ -193,6 +193,10 @@ pub struct Sorted;
 /// `Arc<str>` form decodes ~17% faster with the `Range` coder and ~23% faster
 /// with `Ans`, at identical encoded size.)
 ///
+/// If you have weighed the tradeoff and want a `String` field anyway, silence
+/// the warning for that one field with the `allow_string` flag:
+/// `#[compactly(LowCardinality, allow_string)]`.
+///
 /// Note that to deserialize an `Arc<str>`/`Rc<str>` with `serde` you must enable
 /// serde's `rc` feature.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
