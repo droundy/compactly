@@ -535,19 +535,7 @@ impl Ans {
         }
         checksum
     }
-    /// Finish encoding: flush the final chunk and return the framed stream.
-    ///
-    /// The stream is a sequence of chunks, each opening with a varint tag whose
-    /// low bit distinguishes the two frame shapes (see
-    /// [`AnsEncoder::flush_chunk`]). Non-final chunks — flushed during recording
-    /// once the op buffer reaches [`CHUNK_OPS`] — are
-    /// `[op_count * 2 + 1][entropy-len][incompressible-len][entropy][incompressible]`.
-    /// The final chunk is `[raw-len * 2][incompressible][entropy]`, its entropy
-    /// running to the end of the stream: nothing follows it, so that length would
-    /// be redundant. `entropy` is the chunk's self-contained rANS stream (state
-    /// then body, in decode order). The contexts adapt continuously across chunk
-    /// boundaries, so chunking costs only one rANS state-flush (plus the frame
-    /// header) per chunk.
+    /// Finish encoding and return the completed byte stream.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")

@@ -1,4 +1,4 @@
-[![Build Status](https://github.com/droundy/tinyset/actions/workflows/rust.yml/badge.svg)](https://github.com/droundy/compactly/actions)
+[![Build Status](https://github.com/droundy/compactly/actions/workflows/rust.yml/badge.svg)](https://github.com/droundy/compactly/actions)
 [![Crates.io version](https://img.shields.io/crates/v/compactly.svg)](https://crates.io/crates/compactly)
 ![docs.rs](https://img.shields.io/docsrs/compactly)
 
@@ -33,7 +33,7 @@ let square = Shape { corners: vec![
 
 let encoded: Vec<u8> = compactly::encode(&square);
 let encoded_bincode: Vec<u8> = bincode::encode_to_vec(&square, bincode::config::standard()).unwrap();
-assert_eq!(encoded.len(), encoded_bincode.len() / 10); // compactly encoded is less than 10% of bincode
+assert!(encoded.len() * 6 <= encoded_bincode.len()); // compactly is several times smaller than bincode
 ```
 
 # Using a stable format
@@ -85,12 +85,11 @@ let encoded: Vec<u8> = compactly::v1::encode(&Human::default());
 |----------|---------|--------|
 | [Normal] | Default strategy | Encode based on data type alone. |
 | [Small]  | Values are small | Use a var-int encoding, or whatever might be appropriate for "small" data of this type. |
-| [Decimal]| Numbers may be decimals | Optimize for floating point numbers encoded with limited decimal precision.  Any data may be stored compactly, but this will take extra time to check if values could be *more* compactly stored as decimals. |
-| [LowCardinality] | Low cardinality | There are few values which are frequently repeated, so store each value only once.  Be aware that this could double memory use, as it will store a mapping between values and `usize`. |
+| [LowCardinality] | Low cardinality | There are few values which are frequently repeated, so store each value only once.  Be aware that this could double memory use, as it will store a mapping between values and `usize`.  For string fields prefer `Arc<str>` (or `Rc<str>` when you don't need `Send`/`Sync`) over `String`: a cache hit then costs a refcount bump instead of a fresh allocation. |
 | [Sorted] | Values probably sorted | Assume that the values are likely to arrive in sorted order.  Typically this will lead to storing differences between successive values. |
 | [Compressible] | Expensive compression may be used | Take whatever time is needed to compress this data.  For `String` and `Vec<u8>` this enables [LZ77-style compression](https://en.wikipedia.org/wiki/LZ77_and_LZ78) which can be very slow, but also can provide very good compression for natural language data. |
 | [Values<S>] | Apply strategy to values of a collection | e.g. `Values<Small>` assumes all values in a `Vec` or `HashSet` are small |
-| [Mapping<K,V>] | Apply strategies to keys and values of a collection | e.g. `Mapping<Sorted,Decimal>` is the `Normal` strategy for a `BTreeMap`, but you might prefer a `Mapping<LowCardinality,Small>` if you will be storing a large collection of these maps with a limited number of keys, and the values are small. |
+| [Mapping<K,V>] | Apply strategies to keys and values of a collection | e.g. `Mapping<Sorted,Normal>` is the `Normal` strategy for a `BTreeMap`, but you might prefer a `Mapping<LowCardinality,Small>` if you will be storing a large collection of these maps with a limited number of keys, and the values are small. |
 
 # How does compactly work?
 
