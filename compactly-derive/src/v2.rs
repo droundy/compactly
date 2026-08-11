@@ -35,24 +35,16 @@ fn type_mentions_string(ty: &syn::Type) -> bool {
 struct EncodingStrategy(syn::Type);
 impl EncodingStrategy {
     fn parse_attrs(attrs: &[Attribute]) -> Vec<EncodingStrategy> {
-        attrs
-            .iter()
-            .filter_map(|a| {
-                if a.path().is_ident("compactly") {
-                    let strategy: syn::Type = a.parse_args().expect("Unrecognize strategy");
-                    Some(EncodingStrategy(strategy))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
+        crate::parse_compactly_attrs(attrs)
+            .strategies
+            .into_iter()
+            .map(EncodingStrategy)
+            .collect()
     }
     fn parse(binding: &BindingInfo) -> Option<EncodingStrategy> {
-        match Self::parse_attrs(&binding.ast().attrs).as_slice() {
-            [] => None,
-            [s] => Some(s.clone()),
-            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
-        }
+        crate::parse_compactly_attrs(&binding.ast().attrs)
+            .single_strategy(binding)
+            .map(EncodingStrategy)
     }
 }
 
@@ -164,7 +156,8 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     // Emit a deprecation-style compiler warning for the `LowCardinality<String>`
     // antipattern: on a repeated value, the String variant clones (reallocates)
     // the cached String, whereas `LowCardinality<Arc<str>>` turns a cache hit into
-    // a cheap refcount bump and uses less memory after deserialization.
+    // a cheap refcount bump and uses less memory after deserialization. A field
+    // can opt out with `#[compactly(LowCardinality, allow_string)]`.
     let antipattern_warnings = s
         .variants()
         .iter()
@@ -172,7 +165,10 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .filter_map(|binding| {
             let strategy = binding_strategies.get(&binding.binding)?.as_ref()?;
             let ty = &binding.ast().ty;
-            if is_low_cardinality(&strategy.0) && type_mentions_string(ty) {
+            if is_low_cardinality(&strategy.0)
+                && type_mentions_string(ty)
+                && !crate::parse_compactly_attrs(&binding.ast().attrs).allow_string
+            {
                 Some(ty.span())
             } else {
                 None
@@ -182,7 +178,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .map(|(i, span)| {
             Warning::new_deprecated("LowCardinalityString")
                 .old("encode a String field with `#[compactly(LowCardinality)]`, which clones (reallocates) the String on every repeated value")
-                .new("use `Arc<str>` (i.e. `#[compactly(LowCardinality)] field: Arc<str>`), so a cache hit is a cheap refcount bump and deserialization shares buffers")
+                .new("use `Arc<str>` (i.e. `#[compactly(LowCardinality)] field: Arc<str>`), so a cache hit is a cheap refcount bump and deserialization shares buffers; or, if you have weighed the tradeoff and want a `String` anyway, silence this warning for the field with `#[compactly(LowCardinality, allow_string)]`")
                 .index(i)
                 .span(span)
                 .build_or_panic()
@@ -423,8 +419,8 @@ fn field_named_discriminant_is_renamed() {
 #[test]
 fn low_cardinality_string_warns() {
     // A `LowCardinality<String>` field should expand to a deprecation warning
-    // steering the user toward `Arc<str>`; non-String LowCardinality fields and
-    // `Arc<str>` fields should not.
+    // steering the user toward `Arc<str>`; non-String LowCardinality fields,
+    // `Arc<str>` fields, and fields carrying the `allow_string` opt-out should not.
     let di: syn::DeriveInput = syn::parse_quote! {
         pub struct Record {
             #[compactly(LowCardinality)]
@@ -435,6 +431,8 @@ fn low_cardinality_string_warns() {
             shared: std::sync::Arc<str>,
             #[compactly(LowCardinality)]
             count: u32,
+            #[compactly(LowCardinality, allow_string)]
+            silenced: String,
         }
     };
     let s = synstructure::Structure::new(&di);
@@ -450,6 +448,23 @@ fn low_cardinality_string_warns() {
             && output.contains("fn LowCardinalityString_1()"),
         "expected indexed warning fns:\n{output}"
     );
+}
+
+#[test]
+#[should_panic(expected = "unknown compactly flag `alow_string`")]
+fn misspelled_flag_is_rejected() {
+    // A snake_case bare ident that isn't a known flag (here `alow_string`, a typo
+    // of `allow_string`) must be rejected with a clear message rather than being
+    // treated as a bogus encoding strategy and panicking later with a raw
+    // BindingInfo debug dump.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Record {
+            #[compactly(LowCardinality, alow_string)]
+            recclass: String,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let _ = derive_compactly(s);
 }
 
 #[test]

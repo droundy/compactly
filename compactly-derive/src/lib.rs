@@ -43,6 +43,99 @@ decl_derive!(
     v2::derive_compactly
 );
 
+/// Parsed contents of the `#[compactly(...)]` attributes on a field or container.
+pub(crate) struct CompactlyAttrs {
+    /// Encoding-strategy types (e.g. `Small`, `LowCardinality`, `Mapping<K, V>`).
+    /// At most one is meaningful per field; a container newtype may carry several.
+    pub strategies: Vec<syn::Type>,
+    /// Whether the `allow_string` flag was present, opting this field out of the
+    /// `LowCardinality<String>` deprecation warning emitted by the v2 derive.
+    pub allow_string: bool,
+}
+
+impl CompactlyAttrs {
+    /// The single field-level encoding strategy, if any. A field may carry at
+    /// most one strategy; more than one is meaningless there, so panic — only a
+    /// container newtype legitimately carries several, and it reads `strategies`
+    /// directly. `binding` is included in the panic for diagnostics. Kept here,
+    /// rather than duplicated in the v1 and v2 derives, so the check and its
+    /// message can't drift apart.
+    pub fn single_strategy(&self, binding: &impl std::fmt::Debug) -> Option<syn::Type> {
+        match self.strategies.as_slice() {
+            [] => None,
+            [s] => Some(s.clone()),
+            _ => panic!("Cannot support multiple encoding strategies: {binding:?}"),
+        }
+    }
+}
+
+/// The set of bare-ident flags `#[compactly(...)]` understands. Anything else in
+/// snake_case is rejected as a typo rather than mistaken for a strategy type.
+const KNOWN_FLAGS: &[&str] = &["allow_string"];
+
+/// Parse every `#[compactly(...)]` attribute in `attrs`, collecting the encoding
+/// strategies and recognizing bare flag idents (currently just `allow_string`).
+///
+/// The contents are a comma-separated list, so `#[compactly(LowCardinality,
+/// allow_string)]` yields the `LowCardinality` strategy with `allow_string` set.
+/// The flag is shared by both derives so a type deriving `EncodeV1` and
+/// `EncodeV2` can carry it without the v1 derive choking on it.
+pub(crate) fn parse_compactly_attrs(attrs: &[syn::Attribute]) -> CompactlyAttrs {
+    use syn::punctuated::Punctuated;
+    let mut strategies = Vec::new();
+    let mut allow_string = false;
+    for a in attrs {
+        if !a.path().is_ident("compactly") {
+            continue;
+        }
+        let items = a
+            .parse_args_with(Punctuated::<syn::Type, syn::Token![,]>::parse_terminated)
+            .expect("Unrecognized compactly attribute");
+        for item in items {
+            match bare_ident(&item) {
+                Some(ident) if *ident == "allow_string" => allow_string = true,
+                // A bare snake_case ident that isn't a known flag is almost
+                // certainly a misspelled flag: encoding-strategy types are
+                // UpperCamelCase, so a lowercase-initial ident was never meant as
+                // one. Reject it clearly instead of pushing it into `strategies`,
+                // where it would later blow up with an opaque BindingInfo dump.
+                Some(ident)
+                    if starts_lowercase(ident)
+                        && !KNOWN_FLAGS.contains(&ident.to_string().as_str()) =>
+                {
+                    panic!(
+                        "unknown compactly flag `{ident}`; expected an encoding strategy or one of {KNOWN_FLAGS:?}"
+                    )
+                }
+                _ => strategies.push(item),
+            }
+        }
+    }
+    CompactlyAttrs {
+        strategies,
+        allow_string,
+    }
+}
+
+/// If `ty` is a bare single-segment identifier (no path qualifier, no generic
+/// arguments) — as opposed to something like `Mapping<K, V>` — return it.
+fn bare_ident(ty: &syn::Type) -> Option<&syn::Ident> {
+    match ty {
+        syn::Type::Path(p) if p.qself.is_none() => p.path.get_ident(),
+        _ => None,
+    }
+}
+
+/// Whether `ident`'s first character is lowercase (Rust's convention for values
+/// and flags, as opposed to the UpperCamelCase of strategy types).
+fn starts_lowercase(ident: &syn::Ident) -> bool {
+    ident
+        .to_string()
+        .chars()
+        .next()
+        .is_some_and(char::is_lowercase)
+}
+
 pub(crate) fn get_unique_name(
     bound_names: &std::collections::BTreeSet<proc_macro2::Ident>,
     prefix: &str,

@@ -239,6 +239,38 @@ fn low_cardinality() {
 }
 
 #[test]
+#[deny(deprecated)]
+fn low_cardinality_string_allow_string() {
+    // `allow_string` opts a `LowCardinality<String>` field out of the deprecation
+    // warning that otherwise steers you toward `Arc<str>`. `#[deny(deprecated)]`
+    // on this test makes the opt-out load-bearing: if a regression dropped the
+    // flag, the derive-generated deprecation marker would become a hard error
+    // right here. Deriving both `v1::Encode` and `v2::Encode` also proves the flag
+    // is tolerated by the v1 derive (which never emits the warning) and that the
+    // field still round-trips through both formats.
+    #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Data {
+        #[compactly(LowCardinality, allow_string)]
+        value: String,
+    }
+
+    assert_bits!(
+        Data {
+            value: String::from("hello")
+        },
+        expect!["v1: 37 bits, v2: 37 bits"]
+    );
+    assert_bits!(
+        (0..1024)
+            .map(|v| Data {
+                value: format!("class-{}", v % 3)
+            })
+            .collect::<Vec<_>>(),
+        expect!["v1: 1897 bits, v2: 1870 bits"]
+    );
+}
+
+#[test]
 fn unnamed_variants() {
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
     enum _SomeEnum {
