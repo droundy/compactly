@@ -83,6 +83,19 @@
 //! that don't use those strategies.
 pub use compactly_derive::EncodeV2 as Encode;
 
+/// Derive [`Encode`](macro@Encode) **and** the [`DecodeAsync`] twin that
+/// [`decode_stream`] needs.
+///
+/// Use this in place of `#[derive(Encode)]` on a type you intend to decode from
+/// a stream. `DecodeAsync` is required transitively, so every type reachable
+/// through the fields needs it too.
+///
+/// It is a separate derive rather than part of `Encode` because the impl it adds
+/// requires `Normal: DecodeAsync<FieldTy>` for every field — a bound a
+/// hand-written `Encode` impl cannot satisfy, and one that has no business
+/// reaching users who never enable the `stream` feature.
+pub use compactly_derive::EncodeV2Async as EncodeAsync;
+
 mod ans;
 mod arc;
 mod arith;
@@ -383,6 +396,15 @@ pub trait AsyncEntropyDecoder {
     const SETTLING_BYTES: usize;
 
     /// Bytes already buffered, decodable without awaiting.
+    ///
+    /// **Only meaningful through [`Self::sync_capacity`]**, which is the sole
+    /// caller — it is an input to the byte-counted handoff test, not a report on
+    /// the buffer. An implementor whose real safe-handoff condition is not a byte
+    /// count is expected to return `0` here to opt out of that test and gate on
+    /// [`Self::is_final`] instead, which is exactly what `Ans` does: nothing in
+    /// one of its frames is decodable until all of it has arrived, so it has no
+    /// meaningful partial count to report. Do not read this as "how much is
+    /// buffered".
     fn ready_bytes(&self) -> usize;
 
     /// Whether no more input can arrive, so any amount may be consumed.
@@ -439,7 +461,9 @@ pub trait AsyncEntropyDecoder {
     /// possible: a batch of elements beats one at a time, since the sync decoder
     /// then keeps its state register-resident across all of them.
     ///
-    /// **Only call when [`Self::can_sync`] agrees** for everything `f` decodes.
+    /// **Only call within the budget [`Self::sync_capacity`] reports** — it must
+    /// cover everything `f` decodes. [`Self::sync_decode_if_there_is_room`] is
+    /// the safe single-value form that applies that check for you.
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
     /// Finish decoding, reporting why the value cannot be trusted if it cannot;
@@ -488,6 +512,16 @@ pub trait AsyncEntropyDecoder {
 
     /// Decode one whole [`AtMost<MAX>`](AtMost); the async twin of
     /// [`EntropyDecoder::decode_atmost`].
+    ///
+    /// **This default always walks bitwise, and that must match what the encoder
+    /// did.** The two walks are not interchangeable: a symbol step narrows the
+    /// coder over the whole `MAX`-slot interval, while bit steps narrow it one
+    /// `Probability` split per level, so they consume
+    /// *different bytes* for the same value and a mismatch desyncs the coder
+    /// silently. Both shipped implementations override this to follow
+    /// [`Walk::production`](Walk::production), exactly as their sync
+    /// counterparts do; a coder whose encoder ever symbol-codes an `AtMost`
+    /// must override it too rather than inherit this.
     #[inline]
     fn decode_atmost<const MAX: usize>(
         &mut self,
@@ -552,8 +586,9 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 ///
 /// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Decoder::new(bytes);
-    T::decode(&mut reader, &mut T::Context::default()).ok()
+    arith::Decoder::new(bytes)
+        .decode_value::<T, crate::Normal>()
+        .ok()
 }
 
 /// Eager pre-allocation size for a length decoded from untrusted input.
@@ -695,6 +730,20 @@ pub trait DecodeAsync<T>: EncodingStrategy<T> {
     /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
     /// against real decodes.
     ///
+    /// # Correctness
+    ///
+    /// **An understated bound is silent data corruption, not a panic.** It lets
+    /// the sync handoff read past what has actually arrived, where the coder
+    /// zero-pads and yields a plausible wrong value — no `Err`, no crash. The
+    /// backstop in
+    /// [`with_sync`](AsyncEntropyDecoder::with_sync) is a `debug_assert!`, so it
+    /// is **compiled out in release**, and `v2::max_bytes` can only cover the
+    /// types listed in it. This is a public trait you are invited to implement,
+    /// so if you write one: derive the bound from the coding schedule rather
+    /// than measuring a sample, round *up* when unsure, and add a case to
+    /// `v2::max_bytes` — a sample tells you what one value happened to cost, not
+    /// what the worst one can.
+    ///
     /// Required, with no default to fall through: an omitted bound must not
     /// silently become "unbounded". It lives here rather than on
     /// [`EncodingStrategy`] because nothing but the async decoder reads it, and
@@ -758,8 +807,7 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
 pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Decoder::new(bytes);
-    S::decode(&mut reader, &mut S::Context::default()).ok()
+    arith::Decoder::new(bytes).decode_value::<T, S>().ok()
 }
 
 impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {

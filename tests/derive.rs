@@ -32,7 +32,7 @@ macro_rules! assert_bits {
 
 #[test]
 fn singlet_tuple() {
-    #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode)]
     pub struct Tuple(usize);
 
     assert_bits!(Tuple(0), expect!["v1: 3 bits, v2: 1 bits"]);
@@ -42,7 +42,7 @@ fn singlet_tuple() {
 
 #[test]
 fn pair_tuple() {
-    #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode)]
     pub struct Tuple(usize, bool);
 
     assert_bits!(Tuple(0, false), expect!["v1: 4 bits, v2: 2 bits"]);
@@ -53,7 +53,9 @@ fn pair_tuple() {
 
 #[test]
 fn zero_size() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub struct Tuple;
 
     assert_bits!(Tuple, expect!["v1: 0 bits, v2: 0 bits"]);
@@ -64,7 +66,7 @@ fn zero_size() {
 #[test]
 fn derive_strategy_for_newtype() {
     use compactly::{v1, v2, Compressible, Mapping, Small, Sorted};
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::EncodeAsync, v1::Encode)]
     #[compactly(Sorted)]
     pub struct NewType(u32);
 
@@ -77,14 +79,14 @@ fn derive_strategy_for_newtype() {
     //     33
     // );
 
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::Encode, v1::Encode)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, v2::EncodeAsync, v1::Encode)]
     #[compactly(Sorted)]
     #[compactly(Small)]
     pub struct Both(u32);
 
     assert_eq!(v2::encode_with(Sorted, &Both(0)).len(), 1);
 
-    #[derive(Clone, Debug, PartialEq, v2::Encode, v1::Encode)]
+    #[derive(Clone, Debug, PartialEq, v2::EncodeAsync, v1::Encode)]
     #[compactly(Mapping<Small, Compressible>)]
     pub struct Map(std::collections::BTreeMap<u32, String>);
 
@@ -94,7 +96,9 @@ fn derive_strategy_for_newtype() {
 
 #[test]
 fn record() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub struct Tuple {
         size: usize,
         happy: bool,
@@ -121,7 +125,9 @@ fn record() {
 
 #[test]
 fn simple_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum A {
         A,
         B,
@@ -132,7 +138,9 @@ fn simple_enum() {
     assert_bits!(A::A, expect!["v1: 2 bits, v2: 2 bits"]);
     assert_bits!(A::D, expect!["v1: 1 bits, v2: 2 bits"]);
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum Bool {
         True,
         False,
@@ -144,7 +152,9 @@ fn simple_enum() {
 
 #[test]
 fn bigger_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum A {
         A,
         B,
@@ -165,7 +175,9 @@ fn bigger_enum() {
 
 #[test]
 fn weird_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum A {
         A { age: usize },
         B { age: bool },
@@ -177,7 +189,9 @@ fn weird_enum() {
 
 #[test]
 fn fancy_enum() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum A {
         A {
             #[compactly(Small)]
@@ -191,7 +205,9 @@ fn fancy_enum() {
     assert_bits!(A::A { age: 51 }, expect!["v1: 12 bits, v2: 11 bits"]);
     assert_bits!(A::B { big: false }, expect!["v1: 2 bits, v2: 2 bits"]);
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     pub enum B {
         A { age: u64 },
         B { big: bool },
@@ -203,7 +219,9 @@ fn fancy_enum() {
 
 #[test]
 fn simplest_generics() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct A<T> {
         value: T,
     }
@@ -213,7 +231,9 @@ fn simplest_generics() {
 
 #[test]
 fn low_cardinality() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct Data {
         #[compactly(LowCardinality)]
         value: u64,
@@ -240,7 +260,7 @@ fn low_cardinality() {
 
 #[test]
 fn unnamed_variants() {
-    #[derive(compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(compactly::v2::EncodeAsync, compactly::v1::Encode)]
     enum _SomeEnum {
         ValueHolder(String),
         OtherValue(u16),
@@ -248,7 +268,7 @@ fn unnamed_variants() {
         FourthValue(_SubEnum),
     }
 
-    #[derive(compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(compactly::v2::EncodeAsync, compactly::v1::Encode)]
     enum _SubEnum {
         One,
         Two,
@@ -258,7 +278,9 @@ fn unnamed_variants() {
 #[test]
 fn doc_comments_on_fields() {
     /// A struct with doc comments on the struct and its fields.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct Documented {
         /// The value field.
         value: u8,
@@ -299,7 +321,9 @@ fn doc_comments_on_fields() {
 fn const_generic_array_field() {
     // Const generic param used directly in a field type — requires the param
     // to be forwarded to DerivedContext (previously a compile error).
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct Buffer<const N: usize> {
         data: [u8; N],
     }
@@ -330,7 +354,9 @@ fn field_named_discriminant() {
     // A user field named `discriminant` used to collide with the hardcoded
     // `discriminant` field generated in DerivedContext. It should be renamed
     // automatically (to `discriminant_0`) to avoid the conflict.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct HasDiscriminant {
         discriminant: u8,
         value: bool,
@@ -366,7 +392,9 @@ fn const_generic_independent() {
     // A struct with a const generic parameter that does NOT appear in any field type.
     // DerivedContext is generated without the const param, which is fine here
     // because none of the context field types reference it.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct Tagged<const TAG: usize> {
         value: u32,
     }
@@ -389,7 +417,9 @@ fn const_generic_independent() {
 
 #[test]
 fn multiple_type_params() {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     struct Pair<A, B> {
         first: A,
         second: B,
@@ -427,7 +457,9 @@ fn multiple_type_params() {
 #[test]
 fn mixed_enum_variants() {
     // Enum mixing unit, tuple, and named-struct variants.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    #[derive(
+        Clone, Copy, Debug, PartialEq, Eq, compactly::v2::EncodeAsync, compactly::v1::Encode,
+    )]
     enum Mixed {
         Unit,
         Tuple(u8, bool),
@@ -474,28 +506,28 @@ mod max_bytes {
         };
     }
 
-    #[derive(compactly::v2::Encode)]
+    #[derive(compactly::v2::EncodeAsync)]
     struct Fields {
         flag: bool,
         byte: u8,
         wide: u64,
     }
 
-    #[derive(compactly::v2::Encode)]
+    #[derive(compactly::v2::EncodeAsync)]
     enum Variants {
         Nothing,
         One(u8),
         Several { a: u64, b: u64, c: bool },
     }
 
-    #[derive(compactly::v2::Encode)]
+    #[derive(compactly::v2::EncodeAsync)]
     struct WithStrategy {
         #[compactly(Small)]
         small: u64,
         plain: u64,
     }
 
-    #[derive(compactly::v2::Encode)]
+    #[derive(compactly::v2::EncodeAsync)]
     struct HasUnbounded {
         bounded: u8,
         unbounded: String,
@@ -566,13 +598,13 @@ mod async_decode {
     use bytes::Bytes;
     use futures_executor::block_on;
 
-    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    #[derive(compactly::v2::EncodeAsync, Debug, PartialEq)]
     struct Inner {
         flag: bool,
         wide: u64,
     }
 
-    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    #[derive(compactly::v2::EncodeAsync, Debug, PartialEq)]
     enum Shape {
         Empty,
         Tuple(u8, String),
@@ -584,7 +616,7 @@ mod async_decode {
         },
     }
 
-    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    #[derive(compactly::v2::EncodeAsync, Debug, PartialEq)]
     struct Generic<T> {
         first: T,
         rest: Vec<T>,
@@ -662,5 +694,51 @@ mod async_decode {
             first: "first".to_string(),
             rest: vec!["a".to_string(), "b".to_string()],
         });
+    }
+}
+
+/// R2: `#[derive(v2::Encode)]` must **not** require a `DecodeAsync` twin for its
+/// fields.
+///
+/// A hand-written `v2::Encode` impl is a documented, supported pattern, and such
+/// a type has no async twin unless its author writes one. When the async impl
+/// was emitted from the plain derive, using one as a field failed to compile —
+/// including for users who never enable the `stream` feature — with
+/// `the trait bound Normal: DecodeAsync<Manual> is not satisfied`.
+///
+/// This compiling *is* the test; the round-trip just keeps it honest.
+mod sync_derive_needs_no_async_twin {
+    use compactly::v2::{Encode, EntropyCoder, EntropyDecoder};
+
+    #[derive(Debug, PartialEq)]
+    struct Manual(bool);
+
+    impl Encode for Manual {
+        type Context = <bool as Encode>::Context;
+        fn encode<E: EntropyCoder>(&self, encoder: &mut E, ctx: &mut Self::Context) {
+            self.0.encode(encoder, ctx)
+        }
+        fn decode<D: EntropyDecoder>(
+            decoder: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            Ok(Manual(bool::decode(decoder, ctx)?))
+        }
+    }
+
+    #[derive(Debug, PartialEq, compactly::v2::Encode)]
+    struct Holder {
+        field: Manual,
+        count: u32,
+    }
+
+    #[test]
+    fn round_trips() {
+        let value = Holder {
+            field: Manual(true),
+            count: 42,
+        };
+        let bytes = compactly::v2::encode(&value);
+        assert_eq!(compactly::v2::decode::<Holder>(&bytes), Some(value));
     }
 }

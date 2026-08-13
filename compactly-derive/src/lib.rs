@@ -9,6 +9,8 @@ decl_derive!([EncodeV1, attributes(compactly)] => v1::derive_compactly);
 
 decl_derive!([EncodeV2, attributes(compactly)] => v2::derive_compactly);
 
+decl_derive!([EncodeV2Async, attributes(compactly)] => v2::derive_compactly_async);
+
 pub(crate) fn get_unique_name(
     bound_names: &std::collections::BTreeSet<proc_macro2::Ident>,
     prefix: &str,

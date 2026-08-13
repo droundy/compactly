@@ -703,11 +703,6 @@ impl<'a, const CHUNKED: bool> From<&'a [u8]> for Decoder<'a, CHUNKED> {
 }
 
 impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
-    /// Enter the next chunk from `self.rest`: parse its frame, initialize the
-    /// rANS state from the entropy body, point `incompressible` at its raw run,
-    /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
-    /// rANS stream, so the state restarts here; the model contexts (owned by the
-    /// caller) carry over, exactly as they did across the boundary on encode.
     /// Read one header varint, noting truncation if the stream ran out inside
     /// it. That includes running out *before* it: a frame is only ever read
     /// where one is due, so an empty `rest` means the stream stopped on a frame
@@ -724,6 +719,11 @@ impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
         }
     }
 
+    /// Enter the next chunk from `self.rest`: parse its frame, initialize the
+    /// rANS state from the entropy body, point `incompressible` at its raw run,
+    /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
+    /// rANS stream, so the state restarts here; the model contexts (owned by the
+    /// caller) carry over, exactly as they did across the boundary on encode.
     #[inline]
     fn load_next_chunk(&mut self) {
         let mut rest = self.rest;
@@ -1066,6 +1066,25 @@ fn read_final_region<R: std::io::Read>(
     out
 }
 
+/// The error for a *non*-final chunk whose declared entropy length is past what
+/// any chunk can legitimately hold, or `None` if it is in range.
+///
+/// A non-final frame declares its region lengths, so this is decidable before a
+/// byte of the region is buffered — worth checking, because both lengths come
+/// straight off the wire and a buffering reader would otherwise grow to whatever
+/// a hostile transport was willing to send. [`MAX_CHUNK_ENTROPY`] is exactly the
+/// legitimate bound: a chunk is flushed at [`CHUNK_OPS`], and that caps the
+/// entropy it can emit.
+///
+/// **Only the entropy region.** The incompressible region has no such bound —
+/// one `encode_incompressible_bytes` op appends a caller-supplied slice of any
+/// length — so a large `Incompressible` field legitimately produces a large
+/// region, and capping it would reject valid streams.
+fn oversized_entropy_region(entropy_len: usize) -> Option<std::io::Error> {
+    (entropy_len > MAX_CHUNK_ENTROPY)
+        .then(|| std::io::Error::other("corrupt stream: chunk exceeds the maximum entropy size"))
+}
+
 /// Streaming ANS decoder: pulls one chunk frame at a time from `R` rather than
 /// indexing a whole slice, so decoding a large value need only hold one chunk's
 /// entropy + incompressible bytes at once. Reads the same bytes
@@ -1141,6 +1160,14 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
         } else {
             let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
             let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
+            if let Some(e) = oversized_entropy_region(entropy_len) {
+                self.error.get_or_insert(e);
+                self.entropy = Vec::new();
+                self.incompressible = Vec::new();
+                self.ops_left = usize::MAX;
+                self.ipos = 0;
+                return;
+            }
             self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
             self.incompressible =
                 read_region(&mut self.reader, incompressible_len, &mut self.error);
@@ -1613,6 +1640,38 @@ fn truncation_is_rejected_rather_than_decoded_short() {
     assert_eq!(Ans::decode::<Vec<u64>>(&encoded), Some(value));
 }
 
+/// R13: both v2 coders must reject empty input, and for the same reason.
+///
+/// `Range` used to accept it and hand back a zero-padded value (`decode::<u32>`
+/// returned `Some(0)`) while `Ans` rejected it as a missing frame tag. That was
+/// an inconsistency rather than a property of the formats: **neither** coder can
+/// encode anything in zero bytes — even a zero-size value settles the range into
+/// one byte under `Range`, and carries a frame tag under `Ans` — so empty input
+/// is not an encoding of anything under either.
+#[test]
+fn both_coders_reject_empty_input() {
+    use crate::v2::Range;
+
+    // Neither coder can produce an empty encoding, even for a zero-size value.
+    assert_eq!(Range::encode(&()).len(), 1);
+    assert_eq!(Ans::encode(&()).len(), 1);
+
+    // So empty input decodes to nothing, for both coders and both types.
+    assert_eq!(Range::decode::<()>(&[]), None);
+    assert_eq!(Range::decode::<u32>(&[]), None);
+    assert_eq!(Ans::decode::<()>(&[]), None);
+    assert_eq!(Ans::decode::<u32>(&[]), None);
+
+    // The reader entry points agree with the slice ones.
+    assert!(Range::decode_from::<u32, _>([].as_slice()).is_err());
+    assert!(Ans::decode_from::<u32, _>([].as_slice()).is_err());
+
+    // And a one-byte encoding still round-trips, so the check rejects only the
+    // genuinely empty case rather than anything short.
+    assert_eq!(Range::decode::<()>(&Range::encode(&())), Some(()));
+    assert_eq!(Ans::decode::<()>(&Ans::encode(&())), Some(()));
+}
+
 /// The truncation that the region-length checks alone cannot see: a stream cut
 /// **exactly on a frame boundary**, so every region it delivered is complete and
 /// only the absence of the next frame gives it away.
@@ -2010,6 +2069,39 @@ fn final_frame_costs_one_byte() {
     );
 }
 
+/// A *non*-final chunk declares its entropy length, so an oversized one is
+/// rejected on the declaration rather than after buffering it — otherwise a
+/// hostile transport chooses how much the reader holds. The incompressible
+/// region is deliberately not capped; see [`oversized_entropy_region`].
+#[test]
+fn oversized_non_final_chunk_is_rejected() {
+    let mut bytes = Vec::new();
+    push_varint(&mut bytes, 3); // tag: non-final, 1 op
+    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1); // entropy_len, one past the cap
+    push_varint(&mut bytes, 0); // incompressible_len
+    bytes.extend_from_slice(&[0xab; 64]);
+
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
+        .expect_err("a non-final chunk past the cap must be rejected");
+    // On the cap's own message: this stream fails for other reasons too, so a
+    // bare `is_err` would pass with no cap at all.
+    assert!(
+        err.to_string().contains("exceeds the maximum entropy size"),
+        "expected the size cap to reject this, got: {err}"
+    );
+
+    // A legitimately large *incompressible* region must still be accepted: it
+    // has no bound, so capping it would reject valid data.
+    use crate::{Encoded, Incompressible};
+    let big: Encoded<Vec<u8>, Incompressible> = Encoded::new(vec![0x5a; 4 << 20]);
+    let encoded = Ans::encode(&big);
+    assert_eq!(
+        Ans::decode_from::<Encoded<Vec<u8>, Incompressible>, _>(encoded.as_slice())
+            .expect("a 4 MiB incompressible region is legitimate"),
+        big
+    );
+}
+
 /// The final chunk's entropy body has no length field, so the streaming reader
 /// reads it to EOF — capped, or a stream could make it buffer without bound.
 #[test]
@@ -2292,7 +2384,13 @@ where
             return false;
         };
         let header = buffered.len() - rest.len();
-        let need = header + entropy_len + incompressible_len;
+        // Saturating for the same reason `load_next_chunk` is: both lengths come
+        // straight off the wire, where a 10-byte varint can declare a value near
+        // `usize::MAX`, and plain `+` panics (debug) or wraps into a bogus
+        // "arrived" (release) on a crafted header.
+        let need = header
+            .saturating_add(entropy_len)
+            .saturating_add(incompressible_len);
         if ready >= need {
             self.next_frame_bytes = 1;
             true
@@ -2315,6 +2413,14 @@ where
         } else {
             let entropy_len = self.read_varint().await;
             let incompressible_len = self.read_varint().await;
+            // Before buffering a byte of it: a declared length past the cap can
+            // only be corruption, and buffering first is what a hostile
+            // transport would want. Mirrors the sync `enter_chunk`.
+            if let Some(e) = oversized_entropy_region(entropy_len) {
+                self.inner.error.get_or_insert(e);
+                self.reached_final = true;
+                return;
+            }
             push_varint(&mut frame, entropy_len);
             push_varint(&mut frame, incompressible_len);
             self.append_region(&mut frame, entropy_len).await;
@@ -2513,6 +2619,46 @@ mod async_tests {
     use super::*;
     use crate::v2::stream::tests::Chunks;
     use futures_executor::block_on;
+
+    /// A crafted frame header must not overflow the "has the next frame
+    /// arrived?" arithmetic. Both region lengths come straight off the wire,
+    /// where a 10-byte varint reaches `usize::MAX`, so `next_frame_has_arrived`
+    /// sums them saturatingly exactly as the sync `load_next_chunk` does.
+    ///
+    /// Without that, this panics with `attempt to add with overflow` under the
+    /// test profile, and in release wraps to a small `need` — reporting a frame
+    /// as wholly arrived when almost none of it is. Reachable from the public
+    /// `decode_stream`, which is documented as taking arbitrary transports.
+    #[test]
+    fn crafted_frame_lengths_do_not_overflow_the_arrival_check() {
+        // Keep a real, *non-final* first frame: the look-ahead only runs while
+        // the decoder still expects another frame, so a final first frame (what
+        // any small value encodes to) never reaches the arithmetic at all.
+        let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        let starts = frame_starts(&encoded);
+        assert!(starts.len() >= 3, "test wants a multi-frame stream");
+
+        let mut bytes = encoded[..starts[1]].to_vec();
+        // In place of the second frame, a header declaring both regions as
+        // `usize::MAX`. Tag is odd (non-final) so the length pair is read.
+        push_varint(&mut bytes, 3);
+        push_varint(&mut bytes, usize::MAX);
+        push_varint(&mut bytes, usize::MAX);
+        bytes.extend_from_slice(&[0u8; 64]);
+
+        // Small chunks so `Chunks`' Pending/Ready alternation forces the async
+        // decoder rather than the single-chunk fast path.
+        let decoded = block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
+            &bytes, 16,
+        )));
+        // The requirement is that it does not panic; a header promising
+        // `usize::MAX` bytes can never be satisfied, so this cannot succeed.
+        assert!(
+            decoded.is_err(),
+            "a frame declaring usize::MAX regions must fail, not decode"
+        );
+    }
 
     /// The point of the whole exercise: a value spanning several `Ans` frames,
     /// re-chopped at stream boundaries that have nothing to do with where the

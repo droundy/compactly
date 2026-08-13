@@ -300,9 +300,12 @@ impl Range {
         <Self as EntropyCoder>::encode(value).into()
     }
     /// Decode some encoded bytes.
+    ///
+    /// Empty input is rejected: every encoding is at least one byte, so there is
+    /// nothing it could be an encoding of. `Ans::decode` rejects it too, for the
+    /// matching reason that its frame tag is missing.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = Decoder::new(bytes);
-        T::decode(&mut reader, &mut T::Context::default()).ok()
+        Decoder::new(bytes).decode_value::<T, crate::Normal>().ok()
     }
     /// Whether `Range`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -553,6 +556,14 @@ impl<W: std::io::Write> SymbolCoder for RangeEncoder<W> {
     }
 }
 
+/// Empty input is not an encoding of anything; see [`Decoder::empty_input`].
+fn empty_input() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "empty input: every encoding is at least one byte",
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder<'a> {
     /// The single flat delay-interleave stream: entropy bytes with each
@@ -563,6 +574,14 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
     state: ArithState,
     value: u64,
+    /// Whether this decoder was handed nothing at all.
+    ///
+    /// Every encoding is at least one byte — even a zero-size value settles the
+    /// range into one — so empty input cannot be a valid encoding of anything,
+    /// and decoding it would otherwise zero-pad into a plausible value.
+    /// Reported by [`finish`](EntropyDecoder::finish), which is how `Ans`
+    /// reports the same thing, so the two coders agree on empty input.
+    empty_input: bool,
 }
 
 #[cfg(test)]
@@ -644,6 +663,7 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     type Reader = &'a [u8];
 
     fn new(bytes: &'a [u8]) -> Self {
+        let empty_input = bytes.is_empty();
         let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
             (u64::from_be_bytes(first), rest)
         } else {
@@ -655,13 +675,17 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             bytes,
             state: ArithState::default(),
             value,
+            empty_input,
         }
     }
 
-    /// The slice decoder reads no IO and its buffer is whole, so the decode
-    /// result always stands.
+    /// The slice decoder reads no IO, so the only thing it can report is having
+    /// been handed nothing; see [`Self::empty_input`].
     #[inline]
     fn finish(self) -> std::io::Result<()> {
+        if self.empty_input {
+            return Err(empty_input());
+        }
         Ok(())
     }
 
@@ -757,6 +781,9 @@ pub(crate) struct RangeDecoder<R: std::io::Read> {
     state: ArithState,
     value: u64,
     error: Option<std::io::Error>,
+    /// Whether the reader was already at end of stream; see
+    /// [`Decoder::empty_input`].
+    empty_input: bool,
 }
 
 impl<R: std::io::Read> RangeDecoder<R> {
@@ -794,8 +821,23 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
     fn new(mut reader: R) -> Self {
         // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
         let mut error = None;
-        let mut value = 0u64;
-        for _ in 0..8 {
+        // The first byte doubles as the emptiness check, and has to be read
+        // separately to get one: `read_one_byte` maps end of stream to `0`,
+        // which is indistinguishable from a legitimate leading zero byte.
+        let mut first = [0u8; 1];
+        let empty_input = loop {
+            match reader.read(&mut first) {
+                Ok(0) => break true,
+                Ok(_) => break false,
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    error = Some(e);
+                    break false;
+                }
+            }
+        };
+        let mut value = first[0] as u64;
+        for _ in 1..8 {
             value = (value << 8) + read_one_byte(&mut reader, &mut error) as u64;
         }
         Self {
@@ -803,12 +845,23 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
             state: ArithState::default(),
             value,
             error,
+            empty_input,
         }
     }
 
-    /// Fails with any read error latched during decoding.
+    /// Fails with any read error latched during decoding, or with having been
+    /// handed nothing at all; see [`Decoder::empty_input`].
+    ///
+    /// A latched error wins: it is the root cause, and a reader that failed
+    /// immediately also looks empty.
     fn finish(mut self) -> std::io::Result<()> {
-        self.error.take().map_or(Ok(()), Err)
+        if let Some(e) = self.error.take() {
+            return Err(e);
+        }
+        if self.empty_input {
+            return Err(empty_input());
+        }
+        Ok(())
     }
 
     #[inline]
@@ -933,7 +986,7 @@ where
     /// starting one.
     ///
     /// **Precondition:** `f` must not need more than
-    /// [`can_sync`](super::AsyncEntropyDecoder::can_sync) reported available —
+    /// [`sync_capacity`](super::AsyncEntropyDecoder::sync_capacity) reported —
     /// i.e. either the input is complete, or every value `f` decodes has a
     /// `MAX_BYTES` that fits in what is buffered. Running the slice decoder past
     /// the end of a *non*-final chunk zero-pads and returns plausible, wrong
@@ -950,6 +1003,11 @@ where
             bytes: &rest,
             state: self.state,
             value: self.value,
+            // A mid-stream continuation, never a fresh decode: this decoder is
+            // positioned at the async cursor and its `finish` is never called,
+            // so an empty `rest` here means "nothing buffered right now", not
+            // "the input was empty".
+            empty_input: false,
         };
         let result = f(&mut sync);
         debug_assert!(
