@@ -52,6 +52,17 @@ pub(crate) struct ChunkSource<S> {
     /// this flag, which fuses the stream for us.
     ended: bool,
     error: Option<std::io::Error>,
+    /// Whether the transport ever failed — **sticky**, unlike [`Self::error`],
+    /// which [`Self::take_error`] moves out to whoever will report it.
+    ///
+    /// [`Self::is_complete`] must not say "the stream finished cleanly" once a
+    /// failure has happened, and it cannot ask `error` that: by the time anyone
+    /// checks, the error has usually been taken. That matters because
+    /// `is_complete` is what `AsyncRangeDecoder::is_final` reports, and a true
+    /// `is_final` hands the sync decoder `usize::MAX` capacity — i.e. licence to
+    /// run to the end of the buffer — which is exactly wrong over an incomplete
+    /// one.
+    failed: bool,
 }
 
 impl<S> std::fmt::Debug for ChunkSource<S> {
@@ -62,6 +73,7 @@ impl<S> std::fmt::Debug for ChunkSource<S> {
             .field("buffered", &(self.current.len() - self.pos))
             .field("ended", &self.ended)
             .field("error", &self.error)
+            .field("failed", &self.failed)
             .finish_non_exhaustive()
     }
 }
@@ -98,6 +110,7 @@ where
             pos: 0,
             ended: false,
             error: None,
+            failed: false,
         };
         source.fill().await;
         source
@@ -128,6 +141,7 @@ where
             Some(Ok(chunk)) => Some(chunk),
             Some(Err(e)) => {
                 self.error = Some(std::io::Error::other(e));
+                self.failed = true;
                 self.ended = true;
                 None
             }
@@ -165,7 +179,7 @@ where
             // the closure can run while `self` still owns what the collected
             // chunks will be folded into.
             let stream = &mut self.stream;
-            let (ended, error) = (&mut self.ended, &mut self.error);
+            let (ended, error, failed) = (&mut self.ended, &mut self.error, &mut self.failed);
             std::future::poll_fn(|cx| {
                 while unread + collected < READY_TARGET {
                     match stream.as_mut().poll_next(cx) {
@@ -180,6 +194,7 @@ where
                         }
                         std::task::Poll::Ready(Some(Err(e))) => {
                             *error = Some(std::io::Error::other(e));
+                            *failed = true;
                             *ended = true;
                             break;
                         }
@@ -226,7 +241,7 @@ where
     /// Whether every byte of the input is now in hand — the stream has finished
     /// cleanly and what remains unread is all there will ever be.
     pub(crate) fn is_complete(&self) -> bool {
-        self.ended && self.error.is_none()
+        self.ended && !self.failed
     }
 
     /// Bytes already buffered, decodable without awaiting anything.
@@ -636,6 +651,52 @@ pub(crate) mod tests {
                 block_on(decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
             assert_eq!(decoded, value, "chunk_size = {chunk_size}");
         }
+    }
+
+    /// R4: once the transport has failed, `is_complete` must never again say the
+    /// stream finished cleanly — even after the error has been taken out to be
+    /// reported.
+    ///
+    /// It gates the unconditional sync handoff (`is_final` ⇒ `usize::MAX`
+    /// capacity), so a "clean" answer here is licence to run the sync decoder to
+    /// the end of an incomplete buffer.
+    #[test]
+    fn a_failed_transport_never_looks_complete_again() {
+        /// Yields one chunk, then fails.
+        struct FailsAfterOne(bool);
+        impl Stream for FailsAfterOne {
+            type Item = Result<Bytes, std::io::Error>;
+            fn poll_next(
+                mut self: Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                if self.0 {
+                    Poll::Ready(Some(Err(std::io::Error::other("transport died"))))
+                } else {
+                    self.0 = true;
+                    Poll::Ready(Some(Ok(Bytes::from_static(b"hello"))))
+                }
+            }
+        }
+
+        block_on(async {
+            let mut source = ChunkSource::new(FailsAfterOne(false)).await;
+            // Drive it until the failure lands: consume what arrived, then ask
+            // for more.
+            source.advance(source.ready_bytes());
+            source.next_byte_or_eof().await;
+            assert!(
+                !source.is_complete(),
+                "a failed transport must not report a clean finish"
+            );
+            let err = source.take_error().expect("the failure must be reported");
+            assert!(err.to_string().contains("transport died"));
+            // The whole point: taking the error must not launder the failure.
+            assert!(
+                !source.is_complete(),
+                "is_complete went clean once the error was taken"
+            );
+        });
     }
 
     /// On truncated input the async decoder must behave exactly as the sync one

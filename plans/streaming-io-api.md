@@ -246,10 +246,30 @@ automatic. The existing `encode(&T) -> Vec<u8>` becomes a thin wrapper over
 `encode_to` with a `Vec` sink (identical bytes, since the format is now the
 framed one).
 
-## Async API — OPEN, needs exploration
+## Async API — SETTLED for decode; the exploration below is superseded
 
-This is deliberately unsettled. Two independent questions: (1) what is the async
-**boundary abstraction**, and (2) how does the sync coder **drive** it.
+> **Note (async decode is BUILT).** `v2::decode_stream`, `AsyncEntropyDecoder`
+> and `DecodeAsync` ship, over exactly the boundary abstraction question (1)
+> below recommends: `Stream<Item = Result<Bytes, E>>`, runtime-neutral, behind
+> the opt-in `stream` feature.
+>
+> **Question (2) resolved differently from the leaning below.** No
+> `spawn_blocking`, no bounded-channel bridge, no coroutine crate: the traversal
+> is a plain recursive `async fn`/`impl Future` all the way down, so it suspends
+> in place and needs no second stack. The premise that ruled this out — "the sync
+> traversal cannot become a `poll_next` generator" — was about *generators*
+> specifically and does not bind: each frame simply becomes a future.
+>
+> The naive version of that costs +151% instructions on `u64`, which is why the
+> shipped design adds `MAX_BYTES` and hands whole values to the **sync** decoder
+> whenever their bound is certainly buffered, leaving the async path for the
+> moments there is genuinely nothing to decode. That lands at +1.7%. See
+> OPTIMIZING.md for the measurements.
+>
+> Async **encode** remains open, and the reasoning below still applies to it.
+
+This section is deliberately unsettled. Two independent questions: (1) what is
+the async **boundary abstraction**, and (2) how does the sync coder **drive** it.
 
 ### (1) Boundary abstraction: prefer a stream of `Bytes` chunks over raw `AsyncRead`/`AsyncWrite`
 
@@ -377,15 +397,18 @@ would be needed — a much larger API. Out of scope here; the immediate win is n
   it. First implementation step.
 - **D5 (settled)** v2 only; do not touch v1. This is 1.0 prep — land the format
   change (D2) before freezing.
-- **D3 (open, explore)** async is unsettled. Leaning: a `Bytes`-chunk boundary
-  (matching hyper bodies / S3 `ByteStream` / `object_store`) driven by a
-  `spawn_blocking` + bounded-channel bridge, since the sync traversal can't be a
-  `poll_next` generator. Prototype a `Stream`/`TryStream` surface vs a small
-  `async fn`-in-trait `ChunkSink`/`ChunkSource` against real S3 + hyper before
-  committing. Sync API + format land first and don't depend on this.
+- **D3 (settled for decode; encode still open)** the boundary is a `Bytes` chunk
+  stream, as the leaning said. The *drive* is not: no `spawn_blocking` bridge and
+  no channel — the traversal is a plain recursive `async fn` that suspends in
+  place, with `MAX_BYTES` handing whole values to the sync decoder whenever they
+  are certainly buffered. The "can't be a `poll_next` generator" premise was
+  about generators and never ruled out per-frame futures. Shipped as
+  `v2::decode_stream` behind the `stream` feature. Async **encode** is still
+  open.
 - **D4 (folded into D3)** ecosystem: keep the boundary runtime-neutral (`bytes`,
-  `futures::Stream` aren't tokio-specific); confine executor coupling to a
-  feature-gated `spawn_blocking` adapter (`tokio` first).
+  `futures::Stream` aren't tokio-specific). **Settled better than planned:** no
+  executor coupling exists at all — `stream` pulls only `bytes` and
+  `futures-core`, and no `spawn_blocking` adapter was needed.
 - **Error model (proposed)** deferred-latched `io::Error` surfaced at
   `finish`/top-level, so the infallible hot-path coder trait is unchanged.
 - **`W` (pinned): `W = 8`.** The `Range` decoder window is a `u64` filled from
