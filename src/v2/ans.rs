@@ -1161,20 +1161,25 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
             let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
             let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
             if let Some(e) = oversized_entropy_region(entropy_len) {
+                // Reject on the declaration, without reading a byte of it. This
+                // must fall through to the seeding below rather than return:
+                // latching an error does not stop decoding, and leaving `epos`
+                // at the previous chunk's value with an empty `entropy` breaks
+                // the invariant the hot paths index on.
                 self.error.get_or_insert(e);
                 self.entropy = Vec::new();
                 self.incompressible = Vec::new();
                 self.ops_left = usize::MAX;
-                self.ipos = 0;
-                return;
+            } else {
+                self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
+                self.incompressible =
+                    read_region(&mut self.reader, incompressible_len, &mut self.error);
+                // A non-final frame claiming 0 ops would re-enter this on the
+                // very next op; treat it as unbounded so corrupt input cannot
+                // spin here.
+                let op_count = tag >> 1;
+                self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
             }
-            self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
-            self.incompressible =
-                read_region(&mut self.reader, incompressible_len, &mut self.error);
-            // A non-final frame claiming 0 ops would re-enter this on the very
-            // next op; treat it as unbounded so corrupt input cannot spin here.
-            let op_count = tag >> 1;
-            self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
         }
         self.ipos = 0;
         if self.entropy.len() < STATE_BYTES {
@@ -2099,6 +2104,38 @@ fn oversized_non_final_chunk_is_rejected() {
         Ans::decode_from::<Encoded<Vec<u8>, Incompressible>, _>(encoded.as_slice())
             .expect("a 4 MiB incompressible region is legitimate"),
         big
+    );
+}
+
+/// Rejecting an oversized region must leave the decoder's `epos <=
+/// entropy.len()` invariant intact, since the hot paths index `entropy[epos..]`
+/// unclamped and the rejection does not stop decoding — it latches an error and
+/// the caller reads on until it finishes the value.
+///
+/// The frame has to be spliced in *after* a real one, unlike
+/// `oversized_non_final_chunk_is_rejected` above: `epos` starts at 0, so a bad
+/// first frame cannot expose a missed reset. Only a preceding frame that
+/// actually decoded advances `epos` past the emptied region's length.
+#[test]
+fn rejecting_an_oversized_chunk_leaves_the_decoder_indexable() {
+    let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+    let encoded = Ans::encode(&value);
+    let starts = frame_starts(&encoded);
+    assert!(starts.len() >= 3, "test wants a multi-frame stream");
+
+    // The first frame intact, so decoding it drives `epos` well past 0, then a
+    // second frame declaring an entropy region one byte past the cap.
+    let mut bytes = encoded[..starts[1]].to_vec();
+    push_varint(&mut bytes, 3); // tag: non-final, 1 op
+    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1);
+    push_varint(&mut bytes, 0);
+    bytes.extend_from_slice(&[0xab; 64]);
+
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
+        .expect_err("a non-final chunk past the cap must be rejected");
+    assert!(
+        err.to_string().contains("exceeds the maximum entropy size"),
+        "expected the size cap to reject this, got: {err}"
     );
 }
 

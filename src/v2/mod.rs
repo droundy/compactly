@@ -81,10 +81,16 @@
 //! This format should be unmodified after the 1.0 release, except for addition
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
+
+/// Derive [`Encode`](trait@Encode): the sync impl, which is all most types need.
+///
+/// Reach for [`EncodeAsync`](macro@EncodeAsync) instead on a type you will decode
+/// from a stream with `decode_stream` — it derives this *and* the async twin that
+/// requires. Adding the `stream` feature later means switching the derive here.
 pub use compactly_derive::EncodeV2 as Encode;
 
 /// Derive [`Encode`](macro@Encode) **and** the [`DecodeAsync`] twin that
-/// [`decode_stream`] needs.
+/// `decode_stream` needs.
 ///
 /// Use this in place of `#[derive(Encode)]` on a type you intend to decode from
 /// a stream. `DecodeAsync` is required transitively, so every type reachable
@@ -272,12 +278,14 @@ pub trait EntropyDecoder {
     /// reason it cannot. The decode-side twin of [`EntropyCoder::finish`].
     ///
     /// Consumes the decoder because the answer is not known until decoding has
-    /// stopped. Two things can make a decode untrustworthy: an IO error latched
-    /// mid-read, and (for framed formats) a chunk frame that never fully arrived.
-    /// Both are reported here rather than from the decoding methods because coder
+    /// stopped. Three things can make a decode untrustworthy: an IO error latched
+    /// mid-read, (for framed formats) a chunk frame that never fully arrived, and
+    /// empty input, which no encoding can produce — even `()` costs a byte. All
+    /// are reported here rather than from the decoding methods because coder
     /// decode is **infallible** — running past the data zero-pads rather than
-    /// erroring — so nothing downstream is in a position to notice. In-memory
-    /// slice decoders over a complete buffer have neither failure mode.
+    /// erroring — so nothing downstream is in a position to notice. An in-memory
+    /// slice decoder over a complete buffer can only ever report the last of the
+    /// three.
     ///
     /// [`Self::decode_value`] applies it, and is where the precedence rule lives.
     fn finish(self) -> std::io::Result<()>;
@@ -467,8 +475,8 @@ pub trait AsyncEntropyDecoder {
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
     /// Finish decoding, reporting why the value cannot be trusted if it cannot;
-    /// the async twin of [`EntropyDecoder::finish`], covering the same two failure
-    /// modes plus an error latched by the chunk source itself.
+    /// the async twin of [`EntropyDecoder::finish`], covering the same three
+    /// failure modes plus an error latched by the chunk source itself.
     fn finish(self) -> std::io::Result<()>;
 
     /// Decode a whole value with strategy `S` and finish the decoder; the async
