@@ -1,11 +1,16 @@
 # Async streaming encode for `Range` (mirror of the async decode PR)
 
-Status: **design (revision 2)**, to be built on top of the async **decode** work
+Status: **design (revision 3)**, to be built on top of the async **decode** work
 (PR #46, branch `async-decode`), which this branch is based on and **assumes
 lands first**. Reuses that branch's `stream` feature, its `bytes` /
-`futures-core` dependencies, its `MAX_BYTES` machinery, and the
-`ChunkSource`/`AsyncRangeDecoder` shape as the template to mirror. No executor,
-no tokio; `futures-core` only.
+`futures-core` dependencies, and the `ChunkSource`/`AsyncRangeDecoder` shape as
+the template to mirror. No executor, no tokio; `futures-core` only.
+
+Revision 3 fixes three more review findings: the "no value is ever split across
+a chunk" claim was overstated (containers do suspend inside their own value);
+the derive cannot gate on `MAX_BYTES` at macro-expansion time, so it emits its
+body unconditionally; and the `Send + Sync` assertion could not name an
+`impl Stream` return type.
 
 Revision 2 corrects four things review found in the first draft, each noted
 inline where it applies: the `Stream` front end's `Rc` made it `!Send` and
@@ -70,9 +75,14 @@ Encode inverts both asymmetries, and they compound in our favour:
 
 1. **We choose the chunk boundaries.** The compressed form is one flat byte
    stream (delay-interleave: no format frames), sliceable at *any* offset. So
-   chunking is purely a matter of **draining the output buffer** when convenient
-   — it is completely independent of the value structure, and **no value is ever
-   split across a chunk**. A value therefore never has to suspend *mid-encode*.
+   chunking is purely a matter of **draining the output buffer** when convenient:
+   a boundary is never *forced* on us mid-value the way an arriving chunk's
+   boundary is forced on the decoder. Every suspension point is one we placed —
+   so a **bounded-small value never suspends mid-encode**, which is most of the
+   type surface and something the decoder can promise for no type at all.
+   Containers do suspend inside their own value, at the `drain_if_full` they
+   place *between* elements; their bytes span chunks by design, which is
+   harmless because `take_ready` may cut anywhere already written (below).
 2. **One continuous coder the whole time.** The async encoder holds a single
    `RangeEncoder<BytesMut>` and both sync and async code call methods on that
    same object. There is **no state handoff** — nothing like the decoder's
@@ -86,7 +96,7 @@ Consequently the async encode surface is the **inverse** of the decode surface:
 | default per type | **async**, suspends at every read | **sync**, appends to the buffer |
 | special-cased | sync fast path (`with_sync`), for *bounded* types | async override, for *large / unbounded* types |
 | coder-state handoff | yes (`with_sync`, `Sync<'a>`) | **none** (one `RangeEncoder`) |
-| gate | `MAX_BYTES` finiteness → may go sync | `MAX_BYTES` large/∞ → must go async |
+| gate | `MAX_BYTES` finiteness, checked at run time | none — each impl picks default or override |
 
 ## The core idea: sync by default, containers yield
 
@@ -219,9 +229,9 @@ Notes:
   and its per-byte suspension points are bypassed by
   `sync_decode_if_there_is_room` in the common case. Measure it; do not assert
   it.
-- **No `MAX_BYTES` gate at runtime.** `MAX_BYTES` is used only at *derive time*
-  to decide which types get an override (below); the runtime path never consults
-  it.
+- **No `MAX_BYTES` gate anywhere.** Unlike decode, neither the runtime path nor
+  the derive consults it: which types override is a per-impl decision fixed in
+  the source (below).
 - **The tail** (delay-interleave withheld runs + the coder's final settled byte)
   is produced by the same `RangeEncoder::finish` logic the sync path already has;
   it just lands in the buffer and drains as ordinary chunks.
@@ -280,15 +290,26 @@ impl.
 
 ## Which types implement `encode_async`
 
-Reuse the async-decode branch's per-type `MAX_BYTES` (finite ⇒ bounded).
+A per-impl decision, made once when the impl is written — not computed by the
+derive or checked at run time. The async-decode branch's per-type `MAX_BYTES`
+(finite ⇒ bounded) is the guide for making it, and a concrete const a
+hand-written bounded-but-large impl can test against `L`.
 
-- **Derive:** a struct/enum inherits the sync default **iff every field is
-  bounded** (finite `MAX_BYTES`) *and* the total is below a "large" threshold
-  `L`; otherwise the derive emits a field-recursive `encode_async` that calls
-  each field's `encode_async` (so an unbounded/large field reaches its own
-  override and yields). This is the mirror of the decoder derive's `MAX_BYTES`
-  computation and `decode_variants_async`, and reuses the same generic-bound
-  plumbing (`Normal: EncodeAsync<#t>` predicates, the recursion base case).
+- **Derive:** emit the field-recursive `encode_async` — each field's own
+  `encode_async` in field order — **unconditionally**, one codegen path for
+  every derived type. Do *not* try to skip it for all-bounded-small structs:
+  `MAX_BYTES` is an associated const, resolved for a generic field type only at
+  monomorphization, and a proc-macro sees syntax. Nothing is lost, for the same
+  reason transparent wrappers forward unconditionally (above) — a field that
+  inherits the sync default is reached through an `async fn` that never awaits,
+  i.e. exactly the sync call an inlined version would have made. The const gate
+  stays where it already lives, in each field type's own default-vs-override
+  choice. (This is *not* a mirror of the decode derive's `MAX_BYTES` gate, which
+  is a **runtime** check inside `decode_async`'s provided default,
+  `sync_decode_if_there_is_room`; that derive likewise always emits
+  `decode_awaiting`. What carries over is only `decode_variants_async`'s shape
+  and the generic-bound plumbing — `Normal: EncodeAsync<#t>` predicates, the
+  recursion base case.)
 - **Hand-written overrides** — the container/large strategies, ~a dozen:
   `Vec<T>`/slices, `String` + byte blobs (`Vec<u8>`), `BTreeMap`/`BTreeSet`
   (+ hash variants), `Compressible` (Lz77), `Arc<str>` dictionary encoding,
@@ -443,14 +464,23 @@ to any strategy's `encode_async`. So the plan requires a **compile-time
 assertion**, in the same commit as the front end:
 
 ```rust
+// Takes a *value*, because `encode_stream` returns an opaque `impl Stream`:
+// there is no type name to pass as a parameter. The fn is never called; naming
+// it in a `const _` block is enough to typecheck it.
 const _: () = {
-    fn assert_send_sync<S: Stream<Item = std::io::Result<Bytes>> + Send + Sync + 'static>() {}
-    fn check() { assert_send_sync::<EncodeStream<Vec<String>>>(); }
+    fn assert_send_sync<S: Stream<Item = std::io::Result<Bytes>> + Send + Sync + 'static>(_: S) {}
+    fn check() { assert_send_sync(encode_stream(Vec::<String>::new())); }
 };
 ```
 
 plus a test that actually hands the stream to a `Send + Sync + 'static` bound, so
 the guarantee is checked rather than hoped for.
+
+The alternative — a named `pub struct EncodeStream<T>`, which callers could
+spell in a struct field and the assertion could take as a type parameter —
+needs the future boxed as `dyn Future + Send`, making `Send` an unconditional
+requirement rather than one that leaks through from `T`. Keep `impl Stream`
+unless a caller actually needs the name.
 
 Correctness of "every `Pending` is a parked chunk": in this front end the sink is
 `YieldSink` and the encode traversal awaits **nothing else** (it is pure CPU plus
@@ -468,7 +498,8 @@ composed.
 - **Cancellation** is a real path here, not a corner: the consumer can drop the
   stream at any poll, dropping a `Pin<Box<Future>>` that holds the value, every
   live `Context`, and the coder mid-traversal. The decode branch tests this
-  (`tests/cancel.rs`, `fd0009f`); encode must too — see the correctness surface.
+  (`tests/cancel.rs`, `fd0009f` "Test that cancelling a decode frees
+  everything"); encode must too — see the correctness surface.
 
 ### Front end 2 — push into a caller's sink
 
@@ -572,9 +603,9 @@ branch at all, which is also *cheaper* than the latch it replaces.
    `Arc<str>`, `Sorted`, `LowCardinality`), the large-bounded case of big fixed
    arrays, and the **transparent wrappers** (`Option`, `Box`, `Result`, tuples).
    `Incompressible` is *not* in this step; see the limitation above.
-5. **Derive `EncodeAsync`**, gating on `MAX_BYTES` finiteness + `L` exactly as
-   the decode derive gates on `MAX_BYTES`; port its generic-bound plumbing
-   (bounds on type *parameters*, per `dee3bbf`).
+5. **Derive `EncodeAsync`**, emitting the field-recursive body unconditionally
+   (no `MAX_BYTES` gate — see above); port the decode derive's generic-bound
+   plumbing (bounds on type *parameters*, per `dee3bbf`).
 6. **Ship both front ends** under `stream`; optional `tokio` adapters + S3 /
    reqwest examples behind a `tokio` feature.
 
