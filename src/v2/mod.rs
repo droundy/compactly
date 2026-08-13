@@ -255,15 +255,46 @@ pub trait EntropyDecoder {
     /// yourself for an unbuffered source (a `&[u8]` needs none).
     fn new(reader: Self::Reader) -> Self;
 
-    /// Fold a decode result together with any IO error latched while reading.
+    /// Finish decoding: `Ok(())` if the value just decoded can be trusted, or the
+    /// reason it cannot. The decode-side twin of [`EntropyCoder::finish`].
     ///
-    /// A latched read error **wins** even when `value` is itself `Err`: coder
-    /// decode is infallible, so a mid-stream IO failure zero-pads instead of
-    /// erroring, and the fabricated bits then often trip some unrelated validation
-    /// (a zero `NonZero`, a bad `char`) deeper in `Encode::decode`. Returning that
-    /// downstream symptom would silently drop the real root cause. In-memory slice
-    /// decoders never latch, so they just return `value`.
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T>;
+    /// Consumes the decoder because the answer is not known until decoding has
+    /// stopped. Two things can make a decode untrustworthy: an IO error latched
+    /// mid-read, and (for framed formats) a chunk frame that never fully arrived.
+    /// Both are reported here rather than from the decoding methods because coder
+    /// decode is **infallible** — running past the data zero-pads rather than
+    /// erroring — so nothing downstream is in a position to notice. In-memory
+    /// slice decoders over a complete buffer have neither failure mode.
+    ///
+    /// [`Self::decode_value`] applies it, and is where the precedence rule lives.
+    fn finish(self) -> std::io::Result<()>;
+
+    /// Decode a whole value with strategy `S` and finish the decoder — **the**
+    /// way to use one, and why [`Self::finish`] is rarely called by hand.
+    ///
+    /// Decoding and finishing are necessarily two steps: [`EncodingStrategy::decode`]
+    /// recurses on a borrowed `&mut Self`, while finishing consumes the decoder,
+    /// because what it reports is not known until decoding has stopped. Pairing
+    /// them here means no call site has to, and a caller who reached for the
+    /// pieces separately could still forget the second.
+    ///
+    /// **`finish`'s error wins** even when the decode itself returned `Err` — note
+    /// the `?` below runs first. The fabricated bits from a short read or a
+    /// missing frame routinely trip some unrelated validation (a zero `NonZero`,
+    /// a bad `char`) deeper in `Encode::decode`, and returning that downstream
+    /// symptom would silently drop the root cause that produced it.
+    ///
+    /// For a type's default encoding use [`Normal`](crate::Normal) as `S`.
+    #[inline]
+    fn decode_value<T, S: EncodingStrategy<T>>(mut self) -> std::io::Result<T>
+    where
+        Self: Sized,
+    {
+        // Bound to a `let` so the borrow of `self` ends before it is consumed.
+        let value = S::decode(&mut self, &mut S::Context::default());
+        self.finish()?;
+        value
+    }
 
     /// Decode `N` bits, each with its own independent probability context.
     ///
@@ -411,10 +442,28 @@ pub trait AsyncEntropyDecoder {
     /// **Only call when [`Self::can_sync`] agrees** for everything `f` decodes.
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
-    /// Fold a decode result together with any error latched while reading; see
-    /// [`EntropyDecoder::into_result`], whose rule this shares — a latched
-    /// source error wins over a downstream validation error.
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T>;
+    /// Finish decoding, reporting why the value cannot be trusted if it cannot;
+    /// the async twin of [`EntropyDecoder::finish`], covering the same two failure
+    /// modes plus an error latched by the chunk source itself.
+    fn finish(self) -> std::io::Result<()>;
+
+    /// Decode a whole value with strategy `S` and finish the decoder; the async
+    /// twin of [`EntropyDecoder::decode_value`], pairing the two steps and
+    /// applying the same precedence rule for the same reason.
+    #[inline]
+    fn decode_value<T, S: DecodeAsync<T>>(
+        mut self,
+    ) -> impl std::future::Future<Output = std::io::Result<T>>
+    where
+        Self: Sized,
+    {
+        async move {
+            // Bound to a `let` so the borrow of `self` ends before it is consumed.
+            let value = S::decode_async(&mut self, &mut S::Context::default()).await;
+            self.finish()?;
+            value
+        }
+    }
 
     /// Decode `N` bits, each with its own context. The async twin of
     /// [`EntropyDecoder::decode_bits`], and likewise the core required
@@ -543,25 +592,6 @@ fn stream_encode<T: Encode, E: EntropyCoder>(
     encoder.finish()
 }
 
-/// Shared decode plumbing: run `T::decode` and fold the result with any latched
-/// IO error (the [`EntropyDecoder::into_result`] rule). Takes an **already-built**
-/// decoder rather than constructing one, because decoder construction is not
-/// uniform across coders — `Ans::decode_from` first peeks the leading chunk tag
-/// to choose its single-chunk fast path — while this tail (decode + `into_result`)
-/// is identical for both, and is where the latched-error correctness lives.
-#[cfg(feature = "stream")]
-fn stream_decode_with<T, S: EncodingStrategy<T>, D: EntropyDecoder>(
-    mut decoder: D,
-) -> std::io::Result<T> {
-    let value = S::decode(&mut decoder, &mut S::Context::default());
-    decoder.into_result(value)
-}
-
-fn stream_decode<T: Encode, D: EntropyDecoder>(mut decoder: D) -> std::io::Result<T> {
-    let value = T::decode(&mut decoder, &mut T::Context::default());
-    decoder.into_result(value)
-}
-
 /// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
 /// as they are produced rather than buffering the whole compressed output. The
 /// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds
@@ -583,16 +613,6 @@ pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io:
 /// [`BufReader`](std::io::BufReader) yourself.
 pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
     Range::decode_from(reader)
-}
-
-/// Shared async decode plumbing: run `decode_async` and fold the result with any
-/// latched stream error. The async twin of [`stream_decode`].
-#[cfg(feature = "stream")]
-async fn stream_decode_async<T, S: DecodeAsync<T>, D: AsyncEntropyDecoder>(
-    mut decoder: D,
-) -> std::io::Result<T> {
-    let value = S::decode_async(&mut decoder, &mut S::Context::default()).await;
-    decoder.into_result(value)
 }
 
 /// Decode a value from an async stream of [`Bytes`](bytes::Bytes) chunks,

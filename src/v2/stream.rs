@@ -29,7 +29,7 @@ use futures_core::Stream;
 /// Matches the sync streaming decoders' behaviour at the edges so the two agree
 /// on bad input as well as good: a clean end of stream yields zero bytes (as
 /// `read_one_byte` does past EOF), and a stream error is latched rather than
-/// returned, to be surfaced by `into_result`.
+/// returned, to be surfaced by `finish`.
 pub(crate) struct ChunkSource<S> {
     /// Boxed rather than requiring `S: Unpin`: one allocation for a whole
     /// decode is not worth constraining what callers may pass.
@@ -103,7 +103,7 @@ where
         source
     }
 
-    /// Take any latched stream error, for `into_result`.
+    /// Take any latched stream error, for `finish`.
     pub(crate) fn take_error(&mut self) -> Option<std::io::Error> {
         self.error.take()
     }

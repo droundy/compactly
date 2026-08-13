@@ -1,5 +1,7 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, SHIFT};
+#[cfg(feature = "stream")]
+use super::AsyncEntropyDecoder;
 use super::{EntropyCoder, EntropyDecoder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -360,7 +362,7 @@ impl Range {
     /// byte** for the whole stream, so wrap an unbuffered source like a `File` in a
     /// [`BufReader`](std::io::BufReader) yourself or performance will suffer.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
-        super::stream_decode::<T, _>(RangeDecoder::new(reader))
+        RangeDecoder::new(reader).decode_value::<T, crate::Normal>()
     }
 
     /// Decode a value from an async stream of [`Bytes`](bytes::Bytes) chunks,
@@ -382,16 +384,16 @@ impl Range {
     {
         let mut source = super::stream::ChunkSource::new(stream).await;
         if let Some(whole) = source.take_if_single_chunk().await {
-            let value = super::stream_decode_with::<T, crate::Normal, _>(Decoder::new(&whole));
+            let value = Decoder::new(&whole).decode_value::<T, crate::Normal>();
             return match source.take_error() {
                 Some(e) => Err(e),
                 None => value,
             };
         }
-        super::stream_decode_async::<T, crate::Normal, _>(
-            AsyncRangeDecoder::from_source(source).await,
-        )
-        .await
+        AsyncRangeDecoder::from_source(source)
+            .await
+            .decode_value::<T, crate::Normal>()
+            .await
     }
 }
 impl From<Range> for Vec<u8> {
@@ -656,10 +658,11 @@ impl<'a> EntropyDecoder for Decoder<'a> {
         }
     }
 
-    /// The slice decoder never latches an IO error, so the decode result stands.
+    /// The slice decoder reads no IO and its buffer is whole, so the decode
+    /// result always stands.
     #[inline]
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        value
+    fn finish(self) -> std::io::Result<()> {
+        Ok(())
     }
 
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
@@ -747,7 +750,7 @@ fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::E
 /// in memory. Reads the same bytes [`Range`]/[`RangeEncoder`] produce and
 /// recovers identical values (the decode arithmetic is the slice [`Decoder`]'s;
 /// only the byte source differs). IO errors are latched and surfaced by
-/// [`RangeDecoder::into_result`]; a clean EOF yields zero bytes, which the
+/// [`RangeDecoder::finish`]; a clean EOF yields zero bytes, which the
 /// higher-level `Encode::decode` validation catches.
 pub(crate) struct RangeDecoder<R: std::io::Read> {
     reader: R,
@@ -803,14 +806,9 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
         }
     }
 
-    /// Return `value` unless a read error was latched during decoding — the
-    /// latched IO error wins even when `value` is itself `Err` (see the trait
-    /// method's contract).
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// Fails with any read error latched during decoding.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.error.take().map_or(Ok(()), Err)
     }
 
     #[inline]
@@ -870,7 +868,7 @@ pub(crate) const SETTLING_BYTES: usize = std::mem::size_of::<u64>();
 ///
 /// Reads the same bytes [`Range`]/[`RangeEncoder`] produce and recovers
 /// identical values, including at the edges — a stream error is latched and
-/// surfaced by [`into_result`](super::AsyncEntropyDecoder::into_result), and a
+/// surfaced by [`finish`](super::AsyncEntropyDecoder::finish), and a
 /// clean end of stream yields zero bytes, exactly as [`RangeDecoder`] does.
 #[cfg(feature = "stream")]
 pub struct AsyncRangeDecoder<S> {
@@ -1030,13 +1028,9 @@ where
         self.with_sync(f)
     }
 
-    /// A latched stream error wins over a downstream validation error, for the
-    /// reason given on the trait method.
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match self.source.take_error() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// Fails with any error latched by the chunk source.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.source.take_error().map_or(Ok(()), Err)
     }
 
     /// Overrides the trait's per-bit default with the fused whole-symbol walk,
@@ -1607,15 +1601,30 @@ mod tests {
         assert_eq!(decoded, items);
     }
 
-    /// R2: once a read error is latched, [`EntropyDecoder::into_result`] must
-    /// surface *that* IO error even when `T::decode` itself returned an `Err`.
+    /// R2: once a read error is latched, [`EntropyDecoder::decode_value`] must
+    /// surface *that* IO error even when the decode itself returned an `Err`.
     /// Coder decode is infallible, so a mid-stream failure zero-pads and the
     /// fabricated bits often trip an unrelated downstream validation (a zero
     /// `NonZero`, a bad `char`); returning that symptom would silently drop the
     /// real root cause. Before the fix `Range::decode_from` did `T::decode(..)?`,
     /// propagating the downstream error and losing the latched one.
     #[test]
-    fn into_result_prefers_latched_error_over_downstream() {
+    fn decode_value_prefers_latched_error_over_downstream() {
+        /// Stands in for the validation a zero-padded tail trips, without
+        /// depending on which bits any real type happens to reject.
+        #[derive(Debug)]
+        struct AlwaysFails;
+        impl crate::v2::Encode for AlwaysFails {
+            type Context = ();
+            fn encode<E: EntropyCoder>(&self, _: &mut E, _: &mut Self::Context) {}
+            fn decode<D: EntropyDecoder>(
+                _: &mut D,
+                _: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Err(std::io::Error::other("downstream validation symptom"))
+            }
+        }
+
         // Fails on the very first read, so an IO error latches during
         // construction and the whole stream is fabricated zeros thereafter.
         let reader = FlakyReader {
@@ -1624,11 +1633,8 @@ mod tests {
             calls: std::rc::Rc::new(std::cell::Cell::new(0)),
             fail_at: vec![0],
         };
-        let decoder = RangeDecoder::new(reader);
-        let downstream: std::io::Result<u8> =
-            Err(std::io::Error::other("downstream validation symptom"));
-        let err = decoder
-            .into_result(downstream)
+        let err = RangeDecoder::new(reader)
+            .decode_value::<AlwaysFails, crate::Normal>()
             .expect_err("a latched read error must surface as Err");
         assert!(
             err.to_string().contains("transient read failure"),
@@ -1636,17 +1642,18 @@ mod tests {
              validation error, got: {err}"
         );
 
-        // With nothing latched, both an Ok and an Err pass through unchanged.
-        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
-        assert_eq!(clean.into_result::<u8>(Ok(42)).unwrap(), 42);
+        // With nothing latched there is no root cause to prefer, so the decode's
+        // own error stands and `finish` reports nothing.
         let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
         assert_eq!(
             clean
-                .into_result::<u8>(Err(std::io::Error::other("kept")))
+                .decode_value::<AlwaysFails, crate::Normal>()
                 .unwrap_err()
                 .to_string(),
-            "kept"
+            "downstream validation symptom"
         );
+        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
+        assert!(EntropyDecoder::finish(clean).is_ok());
     }
 }
 

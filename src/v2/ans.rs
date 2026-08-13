@@ -1,6 +1,8 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
+#[cfg(feature = "stream")]
+use super::AsyncEntropyDecoder;
 use super::{EntropyCoder, EntropyDecoder};
 mod bytebuf;
 use bytebuf::Bytes;
@@ -327,31 +329,23 @@ impl Ans {
         // here: an input already in hand has no overlap to offer, and `Ans`'s
         // slice decoder is the one that does no copying at all.
         if let Some(whole) = source.take_if_single_chunk().await {
-            let value = Self::decode_with_result::<T>(&whole);
+            // `Self::decode`'s dispatch, but keeping the error rather than
+            // discarding it — a stream decode reports *why* it failed.
+            let bytes: &[u8] = &whole;
+            let value = if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
+                Decoder::<false>::from(bytes).decode_value::<T, crate::Normal>()
+            } else {
+                Decoder::<true>::from(bytes).decode_value::<T, crate::Normal>()
+            };
             return match source.take_error() {
                 Some(e) => Err(e),
                 None => value,
             };
         }
-        super::stream_decode_async::<T, crate::Normal, _>(
-            AsyncAnsDecoder::from_source(source).await,
-        )
-        .await
-    }
-
-    /// [`Self::decode`]'s dispatch, keeping the error rather than discarding it
-    /// — what [`Self::decode_stream`]'s fast path needs, since a stream decode
-    /// reports *why* it failed.
-    #[cfg(feature = "stream")]
-    fn decode_with_result<T>(bytes: &[u8]) -> std::io::Result<T>
-    where
-        crate::Normal: super::EncodingStrategy<T>,
-    {
-        if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
-            super::stream_decode_with::<T, crate::Normal, Decoder<false>>(Decoder::from(bytes))
-        } else {
-            super::stream_decode_with::<T, crate::Normal, Decoder<true>>(Decoder::from(bytes))
-        }
+        AsyncAnsDecoder::from_source(source)
+            .await
+            .decode_value::<T, crate::Normal>()
+            .await
     }
 
     /// Encode value directly to a `Vec<u8>`.
@@ -402,15 +396,17 @@ impl Ans {
     /// One arm of [`Self::decode_from`]'s dispatch; kept out of line for the
     /// same reason as [`Self::decode_with`]. The latched-IO-error-wins rule (a
     /// mid-stream read failure must not be masked by a downstream `T::decode`
-    /// validation error) lives in [`stream_decode`](super::stream_decode) via
-    /// [`AnsDecoder`]'s `into_result`.
+    /// validation error) lives in
+    /// [`decode_value`](super::EntropyDecoder::decode_value) via [`AnsDecoder`]'s
+    /// `finish`.
     #[inline(never)]
     fn decode_from_with<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
         reader: R,
         tag: usize,
         error: Option<std::io::Error>,
     ) -> std::io::Result<T> {
-        super::stream_decode::<T, _>(AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error))
+        AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error)
+            .decode_value::<T, crate::Normal>()
     }
     /// [`Self::decode_from`] with the chunk-boundary tracking forced rather than
     /// chosen from the first tag, so a benchmark can measure both instantiations
@@ -468,9 +464,11 @@ impl Ans {
     /// measurable — it happens once per decoded value, not per op.
     #[inline(never)]
     fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
-        // Via `into_result`, so the truncation check is the same one every other
+        // Via `finish`, so the truncation check is the same one every other
         // route through this decoder gets.
-        super::stream_decode::<T, Decoder<CHUNKED>>(Decoder::from(bytes)).ok()
+        Decoder::<CHUNKED>::from(bytes)
+            .decode_value::<T, crate::Normal>()
+            .ok()
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -861,15 +859,19 @@ impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
         Self::from(bytes)
     }
 
-    /// The slice decoder never latches an IO error, but it does notice a stream
-    /// that ran out inside a frame — see [`Self::saw_whole_chunks`], which is
-    /// why the check lives here rather than in one caller: every route through
-    /// this decoder gets it, including [`Ans::decode_stream`]'s fast path.
+    /// The slice decoder reads no IO, but it does notice a buffer that ran out
+    /// inside a frame — see [`Self::saw_whole_chunks`], which is why the check
+    /// lives here rather than in one caller: every route through this decoder
+    /// gets it, including [`Ans::decode_stream`]'s fast path.
+    ///
+    /// Truncation takes precedence over whatever the decode itself returned,
+    /// since the missing frame is what fabricated the bits that tripped it.
     #[inline]
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match value {
-            Ok(_) if !self.saw_whole_chunks() => Err(truncated_stream()),
-            other => other,
+    fn finish(self) -> std::io::Result<()> {
+        if self.saw_whole_chunks() {
+            Ok(())
+        } else {
+            Err(truncated_stream())
         }
     }
 
@@ -995,7 +997,7 @@ fn read_varint_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::
 /// Read `len` bytes from `reader` into a fresh buffer, in bounded increments so a
 /// corrupt/huge declared length can't drive one giant allocation. A short read
 /// latches the error and returns the partial buffer; the rANS decode then
-/// zero-pads / reports insufficient bytes, and `into_result` surfaces the error.
+/// zero-pads / reports insufficient bytes, and `finish` surfaces the error.
 fn read_region<R: std::io::Read>(
     reader: &mut R,
     len: usize,
@@ -1069,7 +1071,7 @@ fn read_final_region<R: std::io::Read>(
 /// entropy + incompressible bytes at once. Reads the same bytes
 /// [`Ans`]/[`AnsEncoder`] produce and recovers identical values (the per-chunk
 /// arithmetic is the slice [`Decoder`]'s; only the byte source differs). IO
-/// errors are latched and surfaced by [`AnsDecoder::into_result`].
+/// errors are latched and surfaced by [`AnsDecoder::finish`].
 ///
 /// `CHUNKED` plays exactly the role it does on [`Decoder`]: an even first tag
 /// means the whole value is one final chunk, so `CHUNKED = false` compiles the
@@ -1205,14 +1207,10 @@ impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHU
         Self::with_first_tag(reader, tag, error)
     }
 
-    /// Return `value` unless a read error was latched during decoding — the
-    /// latched IO error wins even when `value` is itself `Err` (see the trait
-    /// method's contract).
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// Fails with any read error latched during decoding; a frame that ran out
+    /// mid-read latches [`truncated_stream`] rather than setting a separate flag.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.error.take().map_or(Ok(()), Err)
     }
 
     #[inline]
@@ -1696,10 +1694,9 @@ fn streaming_matches_in_memory() {
     }
 }
 
-/// The "latched IO error wins" rule now lives in the shared
-/// [`AnsDecoder::into_result`] (reached via `stream_decode`), where the round-trip
-/// tests above never exercise it. This covers all three things the consolidation
-/// put on that path:
+/// The "latched IO error wins" rule lives in [`EntropyDecoder::decode_value`],
+/// fed by [`AnsDecoder::finish`], where the round-trip tests above never
+/// exercise it. This covers all three things the consolidation put on that path:
 ///  - a construction-time latch (first chunk tag unreadable) beating a downstream
 ///    `Err`, at the trait method directly;
 ///  - a read failure **mid-decode, inside `load_next_chunk`** of a genuine
@@ -1730,20 +1727,19 @@ fn ans_decode_from_surfaces_latched_read_error() {
         }
     }
 
-    // (a) Construction-time latch beats a downstream `Err`, at the trait method.
+    // (a) A construction-time latch is reported, at the trait method. That it
+    // then beats a downstream `Err` is `decode_value`'s rule, covered by
+    // `arith`'s `decode_value_prefers_latched_error_over_downstream`.
     let decoder = AnsDecoder::<FailAfter, true>::new(FailAfter {
         data: Vec::new(),
         pos: 0,
         fail_after: 0,
     });
-    let downstream: std::io::Result<u8> =
-        Err(std::io::Error::other("downstream validation symptom"));
-    let err = decoder
-        .into_result(downstream)
-        .expect_err("a latched read error must surface as Err");
+    let err = EntropyDecoder::finish(decoder)
+        .expect_err("a read error latched during construction must be reported");
     assert!(
         err.to_string().contains("transient read failure"),
-        "the latched IO error must win over the downstream error, got: {err}"
+        "the latched IO error must be the one reported, got: {err}"
     );
 
     // (b) Mid-decode failure inside `load_next_chunk` of a real multi-chunk
@@ -2362,7 +2358,7 @@ where
             if let Err(e) = self.source.read_exact(&mut out[start..]).await {
                 // Latch rather than discard: `read_exact` *takes* the error out
                 // of the source, so dropping it here loses it for good, and
-                // `into_result` would then report whatever the short region
+                // `decode_value` would then report whatever the short region
                 // happened to decode to — an empty `Vec`, in the test below.
                 self.inner.error.get_or_insert(e);
                 out.truncate(start);
@@ -2466,17 +2462,13 @@ where
         result
     }
 
-    /// A latched stream error wins over a downstream validation error, for the
-    /// reason given on the trait method; a frame-level error latched by the sync
-    /// decoder comes next, being closer to the cause than the value is.
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        if let Some(e) = self.source.take_error() {
-            return Err(e);
-        }
-        match self.inner.error.take() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// A stream-level error comes first, being closer to the cause than a
+    /// frame-level one the sync decoder latched from the bytes it did receive.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.source
+            .take_error()
+            .or_else(|| self.inner.error.take())
+            .map_or(Ok(()), Err)
     }
 
     #[inline]
@@ -2577,8 +2569,8 @@ mod async_tests {
 
     /// A stream that yields some real chunks and then fails, so the failure
     /// lands *inside* a decode rather than at construction — the distinction
-    /// R5 drew about the sync path, which applies here for the same reason:
-    /// `AsyncAnsDecoder::into_result` prefers a latched source error over a
+    /// R5 drew about the sync path, which applies here for the same reason: the
+    /// latched source error `AsyncAnsDecoder::finish` reports must beat a
     /// downstream validation error, and only a mid-stream failure exercises it.
     struct FailAfter {
         chunks: std::collections::VecDeque<::bytes::Bytes>,
