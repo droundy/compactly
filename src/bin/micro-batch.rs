@@ -7,8 +7,7 @@
 // same byte stream both ways is a clean A/B of the batch machinery.
 //
 // Usage: `micro-batch seq|batch`   (decode ITERS× under `perf stat`)
-use compactly::v2::Strategy as _;
-use compactly::v2::{Ans, Encode, EntropyCoder, EntropyDecoder};
+use compactly::v2::{Ans, Encode, EntropyCoder, EntropyDecoder, Strategy as _};
 use compactly::Normal;
 
 const N: usize = 16; // bits per group (compile-time batch width)

@@ -34,7 +34,8 @@
 //! two distributions independently).
 
 use compactly::v2::{Ans, AtMost, Range, Walk, WALKS};
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use scaling::bench_gen_env;
 
 /// Values per batch for a given `MAX`: large enough that the fixed per-call
