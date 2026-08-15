@@ -487,3 +487,70 @@ fn mixed_enum_variants() {
         );
     }
 }
+
+/// Strategies now lift through the transparent wrappers `Option` and `Box`
+/// automatically, for *any* strategy the inner type supports.
+///
+/// Before `Encode` took its strategy as a parameter, `Normal`'s blanket impl
+/// covered every type and so overlapped any `impl<T, S> EncodingStrategy<W<T>>
+/// for S`. Wrapper support had to be enumerated by hand — `src/v2/option.rs`
+/// carried a macro listing `(type, strategy)` pairs — and every combination
+/// nobody thought to add simply did not compile. These do now.
+#[test]
+fn strategies_lift_through_option_and_box() {
+    #[derive(Debug, PartialEq, compactly::v2::Encode)]
+    struct Wrapped {
+        #[compactly(Small)]
+        small_option: Option<u32>,
+        #[compactly(Small)]
+        small_box: Box<u64>,
+        #[compactly(Small)]
+        small_boxed_option: Option<Box<usize>>,
+        #[compactly(Compressible)]
+        compressible_option: Option<String>,
+        #[compactly(LowCardinality)]
+        low_cardinality_option: Option<u64>,
+        #[compactly(Sorted)]
+        sorted_option: Option<u8>,
+    }
+
+    for v in [
+        Wrapped {
+            small_option: None,
+            small_box: Box::new(0),
+            small_boxed_option: None,
+            compressible_option: None,
+            low_cardinality_option: None,
+            sorted_option: None,
+        },
+        Wrapped {
+            small_option: Some(7),
+            small_box: Box::new(1_000_000),
+            small_boxed_option: Some(Box::new(42)),
+            compressible_option: Some("aaaaaaaaaaaaaaaaaaaa".to_string()),
+            low_cardinality_option: Some(9),
+            sorted_option: Some(3),
+        },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
+    }
+}
+
+/// A `Box<T>` costs nothing on the wire: it encodes exactly as the `T` inside,
+/// under the default strategy and under a named one alike.
+#[test]
+fn box_is_transparent_on_the_wire() {
+    assert_eq!(
+        compactly::v2::encode(&Box::new(1234_u64)),
+        compactly::v2::encode(&1234_u64),
+    );
+    assert_eq!(
+        compactly::v2::encode_with(compactly::Small, &Box::new(1234_u64)),
+        compactly::v2::encode_with(compactly::Small, &1234_u64),
+    );
+}

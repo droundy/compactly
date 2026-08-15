@@ -1,5 +1,5 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodingStrategy};
+use super::{Encode, Strategy};
 use crate::{Mapping, Normal, Sorted};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
@@ -7,12 +7,12 @@ use std::hash::Hash;
 #[cfg(test)]
 use expect_test::expect;
 
-pub struct MapContext<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> {
+pub struct MapContext<K: Encode<SK>, V: Encode<SV>, SK, SV> {
     len: <usize as Encode>::Context,
-    key: SK::Context,
-    value: SV::Context,
+    key: <K as Encode<SK>>::Context,
+    value: <V as Encode<SV>>::Context,
 }
-impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Default for MapContext<K, V, SK, SV> {
+impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Default for MapContext<K, V, SK, SV> {
     fn default() -> Self {
         Self {
             len: Default::default(),
@@ -21,7 +21,7 @@ impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Default for MapCont
         }
     }
 }
-impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContext<K, V, SK, SV> {
+impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Clone for MapContext<K, V, SK, SV> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
@@ -33,20 +33,20 @@ impl<K, V, SK: EncodingStrategy<K>, SV: EncodingStrategy<V>> Clone for MapContex
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.len().encode(writer, &mut ctx.len);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
-        for (k, v) in self {
+        for (k, v) in value {
             sentinel.encode(writer);
-            k.encode(writer, &mut ctx.key);
-            v.encode(writer, &mut ctx.value);
+            Normal::encode(k, writer, &mut ctx.key);
+            Normal::encode(v, writer, &mut ctx.value);
         }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let len = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut map = Self::with_capacity(super::capacity_for::<(K, V)>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
@@ -71,12 +71,12 @@ fn hashmap() {
 
 impl<K: Ord, V: Encode> Encode for BTreeMap<K, V>
 where
-    Sorted: EncodingStrategy<K>,
+    K: Encode<Sorted>,
 {
     type Context = MapContext<K, V, Sorted, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Mapping::<Sorted, Normal>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Mapping::<Sorted, Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -110,9 +110,7 @@ fn btreemap() {
     );
 }
 
-impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrategy<BTreeMap<K, V>>
-    for Mapping<SK, SV>
-{
+impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTreeMap<K, V> {
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
     fn encode<E: super::EntropyCoder>(
@@ -120,12 +118,12 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            SK::encode(k, writer, &mut ctx.key);
-            SV::encode(v, writer, &mut ctx.value);
+            <K as Encode<SK>>::encode(k, writer, &mut ctx.key);
+            <V as Encode<SV>>::encode(v, writer, &mut ctx.value);
         }
     }
     #[inline]
@@ -133,7 +131,7 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeMap<K, V>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         // Stage + collect: the keys arrive in sorted order, and `FromIterator`
         // bulk-builds packed nodes from sorted input in O(n) — see
         // `Values<S> for BTreeSet` in sets.rs. Identical to the old insert
@@ -147,17 +145,15 @@ impl<K: Ord, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>> EncodingStrate
         for _ in 0..len {
             sentinel.decode(reader)?;
             pairs.push((
-                SK::decode(reader, &mut ctx.key)?,
-                SV::decode(reader, &mut ctx.value)?,
+                <K as Encode<SK>>::decode(reader, &mut ctx.key)?,
+                <V as Encode<SV>>::decode(reader, &mut ctx.value)?,
             ));
         }
         Ok(pairs.into_iter().collect())
     }
 }
 
-impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
-    EncodingStrategy<HashMap<K, V>> for Mapping<SK, SV>
-{
+impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for HashMap<K, V> {
     type Context = MapContext<K, V, SK, SV>;
     #[inline]
     fn encode<E: super::EntropyCoder>(
@@ -165,12 +161,12 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            SK::encode(k, writer, &mut ctx.key);
-            SV::encode(v, writer, &mut ctx.value);
+            <K as Encode<SK>>::encode(k, writer, &mut ctx.key);
+            <V as Encode<SV>>::encode(v, writer, &mut ctx.value);
         }
     }
     #[inline]
@@ -178,14 +174,14 @@ impl<K: Hash + Eq, SK: EncodingStrategy<K>, V, SV: EncodingStrategy<V>>
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<HashMap<K, V>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
             map.insert(
-                SK::decode(reader, &mut ctx.key)?,
-                SV::decode(reader, &mut ctx.value)?,
+                <K as Encode<SK>>::decode(reader, &mut ctx.key)?,
+                <V as Encode<SV>>::decode(reader, &mut ctx.value)?,
             );
         }
         Ok(map)

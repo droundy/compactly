@@ -60,8 +60,10 @@ let encoded: Vec<u8> = compactly::v1::encode(&Human::default());
 # Enabling improved encoding strategies
 
 In order for `compactly` to optimally compress your data, you can provide
-hints (an [`EncodingStrategy`]) as to what kind of distribution of values
-you expect.  This will change the format, so you'll want to get this right
+hints (a [`Strategy`]) as to what kind of distribution of values
+you expect.  A strategy is a second type parameter on `Encode`, so
+`Encode<Small>` for a type is that same type coded a different way, and a
+field selects one with a `#[compactly(...)]` attribute.  This will change the format, so you'll want to get this right
 *before* saving your encoded data into long-term storage.
 
 ## Example

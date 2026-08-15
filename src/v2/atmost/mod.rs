@@ -177,8 +177,8 @@ impl<const MAX: usize> Default for AtMostContext<MAX> {
 impl<const MAX: usize> Encode for AtMost<MAX> {
     type Context = AtMostContext<MAX>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_atmost(ctx, *self)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        writer.encode_atmost(ctx, *value)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -222,7 +222,7 @@ fn size() {
         for i in 0..=MAX {
             let v = AtMost::<MAX>::new(i);
             assert_eq!(
-                super::Encode::millibits(&v),
+                super::millibits(&v),
                 super::Millibits::bits(bits),
                 "AtMost::<{MAX}>::new({i}) should cost exactly {bits} bits"
             );

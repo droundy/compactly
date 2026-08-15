@@ -1,18 +1,18 @@
 use super::sentinel::Sentinel;
 use crate::{Normal, Small, Sorted, Values};
 
-use super::{Encode, EncodingStrategy};
+use super::{Encode, Strategy};
 use std::collections::{BTreeSet, HashSet};
 use std::hash::Hash;
 
 #[cfg(test)]
 use expect_test::expect;
 
-pub struct SetContext<T, S: EncodingStrategy<T>> {
+pub struct SetContext<T: Encode<S>, S> {
     len: <usize as Encode>::Context,
-    values: S::Context,
+    values: <T as Encode<S>>::Context,
 }
-impl<T, S: EncodingStrategy<T>> Default for SetContext<T, S> {
+impl<T: Encode<S>, S> Default for SetContext<T, S> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -21,7 +21,7 @@ impl<T, S: EncodingStrategy<T>> Default for SetContext<T, S> {
         }
     }
 }
-impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
+impl<T: Encode<S>, S> Clone for SetContext<T, S> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
@@ -33,8 +33,8 @@ impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Values::<Normal>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Values::<Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -61,12 +61,12 @@ fn hashset() {
 
 impl<T: Ord> Encode for BTreeSet<T>
 where
-    Sorted: EncodingStrategy<T>,
+    T: Encode<Sorted>,
 {
     type Context = SetContext<T, Sorted>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Values::<Sorted>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Values::<Sorted>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -80,18 +80,18 @@ where
 #[derive(Default, Clone)]
 pub struct CompactU64Set {
     size: <usize as Encode>::Context,
-    first: <Small as EncodingStrategy<u64>>::Context,
-    diff: <Small as EncodingStrategy<u64>>::Context,
+    first: <u64 as Encode<Small>>::Context,
+    diff: <u64 as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<BTreeSet<u64>> for super::Small {
+impl Encode<super::Small> for BTreeSet<u64> {
     type Context = CompactU64Set;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<u64>,
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.size);
+        Normal::encode(&value.len(), writer, &mut ctx.size);
         let mut iter = value.iter().copied();
         if let Some(mut prev) = iter.next() {
             Small::encode(&prev, writer, &mut ctx.first);
@@ -107,7 +107,7 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<u64>, std::io::Error> {
-        let len = usize::decode(reader, &mut ctx.size)?;
+        let len = <usize as Encode>::decode(reader, &mut ctx.size)?;
         // Stage + collect: bulk-build from the sorted stream, as in
         // `Values<S> for BTreeSet` below.
         let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
@@ -126,25 +126,25 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
     }
 }
 
-impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S> {
+impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<T>,
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<T>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         // Stage in a Vec: the elements arrive in sorted order, and
         // `FromIterator` bulk-builds packed nodes from sorted input in O(n) —
         // measured ~4.7x faster than per-element `insert` on 38k strings
@@ -161,7 +161,7 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
-            values.push(S::decode(reader, &mut ctx.values)?);
+            values.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
         }
         Ok(values.into_iter().collect())
     }
@@ -188,17 +188,17 @@ impl Ord for OrdOnFirstField {
 #[cfg(test)]
 impl Encode for OrdOnFirstField {
     type Context = (<i32 as Encode>::Context, <char as Encode>::Context);
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self(
-            i32::decode(reader, &mut ctx.0)?,
-            char::decode(reader, &mut ctx.1)?,
+            <i32 as Encode>::decode(reader, &mut ctx.0)?,
+            <char as Encode>::decode(reader, &mut ctx.1)?,
         ))
     }
 }
@@ -215,19 +215,17 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     // valid stream.
     let mut writer = super::Range::default();
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
-    2_usize.encode(&mut writer, &mut ctx.len);
-    OrdOnFirstField(1, 'a').encode(&mut writer, &mut ctx.values);
-    OrdOnFirstField(1, 'b').encode(&mut writer, &mut ctx.values);
+    Normal::encode(&2_usize, &mut writer, &mut ctx.len);
+    Normal::encode(&OrdOnFirstField(1, 'a'), &mut writer, &mut ctx.values);
+    Normal::encode(&OrdOnFirstField(1, 'b'), &mut writer, &mut ctx.values);
     let bytes = writer.into_vec();
 
     use super::EntropyDecoder;
     let mut reader = super::arith::Decoder::new(&bytes);
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
-    let decoded = <Values<crate::Normal> as EncodingStrategy<BTreeSet<OrdOnFirstField>>>::decode(
-        &mut reader,
-        &mut ctx,
-    )
-    .unwrap();
+    let decoded =
+        <BTreeSet<OrdOnFirstField> as Encode<Values<crate::Normal>>>::decode(&mut reader, &mut ctx)
+            .unwrap();
 
     // `collect`'s `FromIterator` keeps *every* Eq-distinct element of the
     // Ord-equal run (a technically-malformed set of len 2); the old
@@ -242,26 +240,26 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     );
 }
 
-impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {
+impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<HashSet<T>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
-            set.insert(S::decode(reader, &mut ctx.values)?);
+            set.insert(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
         }
         Ok(set)
     }

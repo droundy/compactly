@@ -6,7 +6,7 @@ impl<T> Encode for PhantomData<T> {
     type Context = ();
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, _encoder: &mut E, _ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(_value: &Self, _encoder: &mut E, _ctx: &mut Self::Context) {
         // PhantomData carries no runtime information, so encoding is a no-op
     }
 
@@ -24,7 +24,7 @@ impl Encode for PhantomPinned {
     type Context = ();
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, _encoder: &mut E, _ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(_value: &Self, _encoder: &mut E, _ctx: &mut Self::Context) {
         // PhantomData carries no runtime information, so encoding is a no-op
     }
 

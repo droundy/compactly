@@ -1,4 +1,5 @@
-use super::Encode;
+use super::{Encode, Strategy};
+use crate::Normal;
 
 #[cfg(test)]
 use expect_test::expect;
@@ -6,7 +7,7 @@ use expect_test::expect;
 impl Encode for () {
     type Context = ();
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, _writer: &mut E, _ctx: &mut Self::Context) {}
+    fn encode<E: super::EntropyCoder>(_value: &Self, _writer: &mut E, _ctx: &mut Self::Context) {}
     #[inline]
     fn decode<D: super::EntropyDecoder>(
         _reader: &mut D,
@@ -20,9 +21,9 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     type Context = (T1::Context, T2::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1)
     }
 
     #[inline]
@@ -41,10 +42,10 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     type Context = (T1::Context, T2::Context, T3::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2)
     }
 
     #[inline]
@@ -64,11 +65,11 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     type Context = (T1::Context, T2::Context, T3::Context, T4::Context);
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2);
-        self.3.encode(writer, &mut ctx.3)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2);
+        Normal::encode(&value.3, writer, &mut ctx.3)
     }
 
     #[inline]
@@ -95,12 +96,12 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2);
-        self.3.encode(writer, &mut ctx.3);
-        self.4.encode(writer, &mut ctx.4)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2);
+        Normal::encode(&value.3, writer, &mut ctx.3);
+        Normal::encode(&value.4, writer, &mut ctx.4)
     }
 
     #[inline]
@@ -131,13 +132,13 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2);
-        self.3.encode(writer, &mut ctx.3);
-        self.4.encode(writer, &mut ctx.4);
-        self.5.encode(writer, &mut ctx.5)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2);
+        Normal::encode(&value.3, writer, &mut ctx.3);
+        Normal::encode(&value.4, writer, &mut ctx.4);
+        Normal::encode(&value.5, writer, &mut ctx.5)
     }
 
     #[inline]
@@ -170,14 +171,14 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2);
-        self.3.encode(writer, &mut ctx.3);
-        self.4.encode(writer, &mut ctx.4);
-        self.5.encode(writer, &mut ctx.5);
-        self.6.encode(writer, &mut ctx.6)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2);
+        Normal::encode(&value.3, writer, &mut ctx.3);
+        Normal::encode(&value.4, writer, &mut ctx.4);
+        Normal::encode(&value.5, writer, &mut ctx.5);
+        Normal::encode(&value.6, writer, &mut ctx.6)
     }
 
     #[inline]
@@ -220,15 +221,15 @@ impl<
     );
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
-        self.2.encode(writer, &mut ctx.2);
-        self.3.encode(writer, &mut ctx.3);
-        self.4.encode(writer, &mut ctx.4);
-        self.5.encode(writer, &mut ctx.5);
-        self.6.encode(writer, &mut ctx.6);
-        self.7.encode(writer, &mut ctx.7)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
+        Normal::encode(&value.2, writer, &mut ctx.2);
+        Normal::encode(&value.3, writer, &mut ctx.3);
+        Normal::encode(&value.4, writer, &mut ctx.4);
+        Normal::encode(&value.5, writer, &mut ctx.5);
+        Normal::encode(&value.6, writer, &mut ctx.6);
+        Normal::encode(&value.7, writer, &mut ctx.7)
     }
 
     #[inline]
