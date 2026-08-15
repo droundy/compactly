@@ -1,9 +1,12 @@
 use super::sentinel::Sentinel;
 mod init;
 
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::{Compressible, Small, Sorted};
 
+#[cfg(test)]
+use super::millibits;
+use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -41,16 +44,16 @@ impl Encode for char {
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let x = u32::from(*value);
         if x < 128 {
-            (x as u8).encode(writer, &mut ctx.first);
+            Normal::encode(&(x as u8), writer, &mut ctx.first);
         } else if x < ONE_CHUNK_CUTOFF {
             // Byte: `10` tag + high bits `x >> 8` (< 64); then the low byte.
-            (0x80 | (x >> 8) as u8).encode(writer, &mut ctx.first);
-            (x as u8).encode(writer, &mut ctx.one_chunk);
+            Normal::encode(&(0x80 | (x >> 8) as u8), writer, &mut ctx.first);
+            Normal::encode(&(x as u8), writer, &mut ctx.one_chunk);
         } else {
             // Byte: `11` tag + top bits `x >> 16` (<= 16); then two low bytes.
-            (0xc0 | (x >> 16) as u8).encode(writer, &mut ctx.first);
-            ((x >> 8) as u8).encode(writer, &mut ctx.two_chunk_a);
-            (x as u8).encode(writer, &mut ctx.two_chunk_b);
+            Normal::encode(&(0xc0 | (x >> 16) as u8), writer, &mut ctx.first);
+            Normal::encode(&((x >> 8) as u8), writer, &mut ctx.two_chunk_a);
+            Normal::encode(&(x as u8), writer, &mut ctx.two_chunk_b);
         }
     }
     #[inline]
@@ -90,7 +93,7 @@ impl Encode for String {
         let mut sentinel = Sentinel::new();
         for b in value.chars() {
             sentinel.encode(writer);
-            b.encode(writer, &mut ctx.chars);
+            Normal::encode(&b, writer, &mut ctx.chars);
         }
     }
     #[inline]
@@ -114,7 +117,7 @@ pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Con
     let mut sentinel = Sentinel::new();
     for c in s.chars() {
         sentinel.encode(writer);
-        c.encode(writer, &mut ctx.chars);
+        Normal::encode(&c, writer, &mut ctx.chars);
     }
 }
 
@@ -173,7 +176,7 @@ impl Encode<Sorted> for String {
             let mut sentinel = Sentinel::new();
             for c in value.chars() {
                 sentinel.encode(writer);
-                c.encode(writer, &mut ctx.chars);
+                Normal::encode(&c, writer, &mut ctx.chars);
             }
         } else {
             let shared_prefix = value
@@ -187,7 +190,7 @@ impl Encode<Sorted> for String {
             let mut sentinel = Sentinel::new();
             for c in value.chars().skip(shared_prefix) {
                 sentinel.encode(writer);
-                c.encode(writer, &mut ctx.chars);
+                Normal::encode(&c, writer, &mut ctx.chars);
             }
         }
         ctx.previous.clone_from(value);
@@ -259,9 +262,9 @@ fn size() {
 
         format!(
             "normal: {:?} ({} bits), small: {:?} ({} bits)",
-            normal.millibits(),
+            millibits(&normal),
             super::encoded_bits!(value.iter().map(|s| s.to_string()).collect::<Vec<String>>()),
-            small.millibits(),
+            millibits(&small),
             super::encoded_bits!(value
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_string()))
@@ -271,9 +274,9 @@ fn size() {
     expect!["normal: 8934 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
-    expect!["1000 mb"].assert_eq(&true.millibits().to_string());
-    expect!["4593 mb"].assert_eq(&'a'.millibits().to_string());
-    expect!["24038 mb"].assert_eq(&'😊'.millibits().to_string());
+    expect!["1000 mb"].assert_eq(&millibits(&true).to_string());
+    expect!["4593 mb"].assert_eq(&millibits(&'a').to_string());
+    expect!["24038 mb"].assert_eq(&millibits(&'😊').to_string());
     expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(""));
     expect!["normal: 8 bits, small: 16 bits"].assert_eq(&compare_small_bits("a"));
     expect!["normal: 12 bits, small: 22 bits"].assert_eq(&compare_small_bits("aa"));
@@ -305,15 +308,15 @@ fn size() {
 
     expect!["normal: Millibits(3000) (3 bits), small: Millibits(3000) (3 bits)"]
         .assert_eq(&compare_vecs(&[]));
-    expect!["5866 mb"].assert_eq(&'h'.millibits().to_string());
-    expect!["8866 mb"].assert_eq(&"h".to_string().millibits().to_string());
+    expect!["5866 mb"].assert_eq(&millibits(&'h').to_string());
+    expect!["8866 mb"].assert_eq(&millibits(&"h".to_string()).to_string());
 
     let s = "aaaaaaaaaaaaaaaa".to_string();
-    expect!["33974 mb"].assert_eq(&s.millibits().to_string());
+    expect!["33974 mb"].assert_eq(&millibits(&s).to_string());
     expect!["34"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = "hello world this is a string".to_string();
-    expect!["140933 mb"].assert_eq(&s.millibits().to_string());
+    expect!["140933 mb"].assert_eq(&millibits(&s).to_string());
     expect!["141"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(11866) (12 bits), small: Millibits(19264) (19 bits)"]

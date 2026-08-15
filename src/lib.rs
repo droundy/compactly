@@ -126,7 +126,7 @@ pub mod v2;
 pub(crate) use string_set::StringSet;
 
 #[cfg(feature = "v2")]
-pub use v2::{decode, encode, Encode, EncodeExt, Strategy};
+pub use v2::{decode, encode, Encode, Strategy};
 
 /// A wrapper around a value causing it to be encoded with a particular strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

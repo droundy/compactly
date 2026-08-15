@@ -1,6 +1,10 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, SHIFT};
+#[cfg(test)]
+use super::Strategy;
 use super::{EntropyCoder, EntropyDecoder};
+#[cfg(test)]
+use crate::Normal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithState {
@@ -1385,11 +1389,15 @@ mod tests {
 
 #[test]
 fn range_debug_summarizes_rather_than_dumping() {
-    use super::{Encode, EncodeExt};
+    use super::Encode;
     // A large in-progress encode must not format its whole output buffer.
     let big: Vec<u64> = (0..50_000).collect();
     let mut coder = Range::default();
-    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    Normal::encode(
+        &big,
+        &mut coder,
+        &mut <Vec<u64> as Encode>::Context::default(),
+    );
     let shown = format!("{coder:?}");
     assert!(
         shown.len() < 300,

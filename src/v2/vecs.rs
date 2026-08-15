@@ -1,5 +1,5 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
 
@@ -236,7 +236,7 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
             let mut sentinel = Sentinel::new();
             for b in value {
                 sentinel.encode(writer);
-                b.encode(writer, &mut ctx.value);
+                Normal::encode(b, writer, &mut ctx.value);
             }
         } else {
             let shared_prefix = value
@@ -250,7 +250,7 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
             let mut sentinel = Sentinel::new();
             for b in &value[shared_prefix..] {
                 sentinel.encode(writer);
-                b.encode(writer, &mut ctx.value);
+                Normal::encode(b, writer, &mut ctx.value);
             }
         }
         ctx.previous.clone_from(value);

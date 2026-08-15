@@ -1,5 +1,5 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodeExt, Strategy};
+use super::{Encode, Strategy};
 use crate::{Mapping, Normal, Sorted};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -36,12 +36,12 @@ impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Clone for MapContext<K, V, SK, SV> {
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            k.encode(writer, &mut ctx.key);
-            v.encode(writer, &mut ctx.value);
+            Normal::encode(k, writer, &mut ctx.key);
+            Normal::encode(v, writer, &mut ctx.value);
         }
     }
     fn decode<D: super::EntropyDecoder>(
@@ -120,7 +120,7 @@ impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTr
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
@@ -163,7 +163,7 @@ impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> f
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);

@@ -3,6 +3,10 @@ use super::bit_context::BitContext;
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
 use super::{EntropyCoder, EntropyDecoder};
 mod bytes;
+#[cfg(test)]
+use super::Strategy;
+#[cfg(test)]
+use crate::Normal;
 use bytes::Bytes;
 
 type State = u32;
@@ -1692,11 +1696,15 @@ fn r6_op_is_compact() {
 /// the whole input. Both must summarize instead.
 #[test]
 fn debug_summarizes_rather_than_dumping() {
-    use super::{Encode, EncodeExt};
+    use super::Encode;
     let big: Vec<u64> = (0..50_000).collect();
 
     let mut coder = Ans::default();
-    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    Normal::encode(
+        &big,
+        &mut coder,
+        &mut <Vec<u64> as Encode>::Context::default(),
+    );
     let shown = format!("{coder:?}");
     assert!(
         shown.len() < 300,

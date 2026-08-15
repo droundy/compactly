@@ -1,6 +1,7 @@
 #[cfg(feature = "nonmax")]
 mod nonmax {
-    use super::super::{Encode, EncodeExt};
+    use super::super::{Encode, Strategy};
+    use crate::Normal;
 
     macro_rules! impl_encode_nonmax {
         ($ty:ty, $equiv:ty) => {
@@ -12,7 +13,7 @@ mod nonmax {
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    value.get().encode(writer, ctx)
+                    Normal::encode(&value.get(), writer, ctx)
                 }
                 #[inline]
                 fn decode<D: super::super::EntropyDecoder>(
@@ -43,7 +44,8 @@ mod nonmax {
 
 #[cfg(feature = "uuid")]
 mod uuid {
-    use super::super::{Encode, EncodeExt};
+    use super::super::{Encode, Strategy};
+    use crate::Normal;
     use uuid::Uuid;
 
     impl Encode for Uuid {
@@ -54,7 +56,7 @@ mod uuid {
             writer: &mut E,
             ctx: &mut Self::Context,
         ) {
-            value.as_u64_pair().encode(writer, ctx)
+            Normal::encode(&value.as_u64_pair(), writer, ctx)
         }
         #[inline]
         fn decode<D: super::super::EntropyDecoder>(

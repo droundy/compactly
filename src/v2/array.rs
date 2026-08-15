@@ -1,11 +1,13 @@
-use super::{Encode, EncodeExt};
+use super::Encode;
+use super::Strategy;
+use crate::Normal;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         for v in value {
-            v.encode(writer, ctx);
+            Normal::encode(v, writer, ctx);
         }
     }
     #[inline]

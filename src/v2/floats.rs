@@ -1,6 +1,8 @@
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder};
+use super::{Encode, EntropyCoder, EntropyDecoder};
 use crate::{Decimal, Small};
 
+use super::Strategy;
+use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -90,22 +92,22 @@ macro_rules! impl_float {
                     // anything else falls back to raw.
                     if ctx.is_int == BitContext::SATURATED_TRUE {
                         if let Some(iv) = big_int {
-                            false.encode(writer, &mut ctx.is_raw);
+                            Normal::encode(&false, writer, &mut ctx.is_raw);
                             <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
                         } else {
-                            true.encode(writer, &mut ctx.is_raw);
+                            Normal::encode(&true, writer, &mut ctx.is_raw);
                             writer.encode_incompressible_bytes(&value.to_le_bytes());
                         }
                         return;
                     }
                     let is_raw = decimal.is_none() && big_int.is_none();
-                    is_raw.encode(writer, &mut ctx.is_raw);
+                    Normal::encode(&is_raw, writer, &mut ctx.is_raw);
                     if is_raw {
                         writer.encode_incompressible_bytes(&value.to_le_bytes());
                         return;
                     }
                     let is_int = big_int.is_some();
-                    is_int.encode(writer, &mut ctx.is_int);
+                    Normal::encode(&is_int, writer, &mut ctx.is_int);
                     if let Some(iv) = big_int {
                         <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
                     } else {
@@ -245,7 +247,7 @@ macro_rules! impl_float {
                     // integers, extreme magnitudes) stores its raw bits
                     // incompressibly.
                     let decimal = to_decimal(*value);
-                    decimal.is_some().encode(writer, &mut ctx.is_decimal);
+                    Normal::encode(&decimal.is_some(), writer, &mut ctx.is_decimal);
                     if let Some((mantissa, power)) = decimal {
                         <i32 as Encode<Small>>::encode(&mantissa, writer, &mut ctx.mantissa);
                         <i8 as Encode<Small>>::encode(&power, writer, &mut ctx.exponent);

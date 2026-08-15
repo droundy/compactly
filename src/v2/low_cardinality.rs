@@ -1,8 +1,9 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodeExt, LowCardinality, Strategy};
+use super::{Encode, LowCardinality, Strategy};
 use crate::Small;
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
+use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -31,7 +32,8 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> Default for CacheContext<T> {
 macro_rules! impl_low_cardinality {
     ($t:ty, $mod:ident) => {
         mod $mod {
-            use super::{CacheContext, Encode, EncodeExt, LowCardinality};
+            use super::{CacheContext, Encode, LowCardinality, Strategy};
+            use crate::Normal;
             impl Encode<LowCardinality> for $t {
                 type Context = CacheContext<$t>;
                 #[inline]
@@ -41,12 +43,12 @@ macro_rules! impl_low_cardinality {
                     ctx: &mut Self::Context,
                 ) {
                     let looked_up = ctx.cached.get(value).copied();
-                    looked_up.is_some().encode(writer, &mut ctx.is_cached);
+                    Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
                     if let Some(idx) = looked_up {
-                        idx.encode(writer, &mut ctx.index)
+                        Normal::encode(&idx, writer, &mut ctx.index)
                     } else {
                         ctx.cached.insert(value.clone(), ctx.cached.len());
-                        value.encode(writer, &mut ctx.context)
+                        Normal::encode(value, writer, &mut ctx.context)
                     }
                 }
                 #[inline]
@@ -173,11 +175,11 @@ fn encode_exact_or_bit<P: StrPtr, E: super::EntropyCoder>(
     ctx: &mut DictContext<P>,
 ) -> bool {
     if let Some(idx) = ctx.dict.get_exact(value) {
-        true.encode(writer, &mut ctx.is_cached);
+        Normal::encode(&true, writer, &mut ctx.is_cached);
         Small::encode(&idx, writer, &mut ctx.index);
         return true;
     }
-    false.encode(writer, &mut ctx.is_cached);
+    Normal::encode(&false, writer, &mut ctx.is_cached);
     false
 }
 
@@ -254,7 +256,7 @@ fn encode_miss<P: StrPtr, E: super::EntropyCoder>(
     let middle = &value[prefix_len..value.len() - suffix_len];
     Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
     for c in middle.chars() {
-        c.encode(writer, &mut ctx.chars);
+        Normal::encode(&c, writer, &mut ctx.chars);
     }
 }
 
@@ -392,7 +394,7 @@ where
         <T as Encode<LowCardinality>>::Context,
     );
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.0);
+        Normal::encode(&value.len(), writer, &mut ctx.0);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);

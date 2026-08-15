@@ -1,5 +1,6 @@
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::LowCardinality;
+use crate::Normal;
 use std::{collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {
@@ -40,12 +41,12 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let looked_up = ctx.cached.get(value).copied();
-        looked_up.is_some().encode(writer, &mut ctx.is_cached);
+        Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
-            idx.encode(writer, &mut ctx.index)
+            Normal::encode(&idx, writer, &mut ctx.index)
         } else {
             ctx.cached.insert(value.clone(), ctx.cached.len());
-            value.deref().encode(writer, &mut ctx.context)
+            Normal::encode(value.deref(), writer, &mut ctx.context)
         }
     }
     #[inline]
@@ -121,12 +122,12 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let looked_up = ctx.cached.get(value).copied();
-        looked_up.is_some().encode(writer, &mut ctx.is_cached);
+        Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
-            idx.encode(writer, &mut ctx.index)
+            Normal::encode(&idx, writer, &mut ctx.index)
         } else {
             ctx.cached.insert(value.clone(), ctx.cached.len());
-            value.deref().encode(writer, &mut ctx.context)
+            Normal::encode(value.deref(), writer, &mut ctx.context)
         }
     }
     #[inline]

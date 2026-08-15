@@ -1,4 +1,5 @@
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+use crate::Normal;
 use crate::Small;
 use std::num::{
     NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
@@ -13,7 +14,7 @@ macro_rules! impl_nonzero_uint {
             type Context = <$uint as Encode>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-                (value.get() - 1).encode(writer, ctx)
+                Normal::encode(&(value.get() - 1), writer, ctx)
             }
             #[inline]
             fn decode<D: EntropyDecoder>(
@@ -66,7 +67,7 @@ macro_rules! impl_nonzero_int {
                 } else {
                     ((-(v + 1)) as $uint) * 2
                 };
-                encoded.encode(writer, ctx)
+                Normal::encode(&encoded, writer, ctx)
             }
             #[inline]
             fn decode<D: EntropyDecoder>(

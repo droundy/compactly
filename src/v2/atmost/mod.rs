@@ -222,7 +222,7 @@ fn size() {
         for i in 0..=MAX {
             let v = AtMost::<MAX>::new(i);
             assert_eq!(
-                super::EncodeExt::millibits(&v),
+                super::millibits(&v),
                 super::Millibits::bits(bits),
                 "AtMost::<{MAX}>::new({i}) should cost exactly {bits} bits"
             );

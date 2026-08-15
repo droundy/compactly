@@ -1,7 +1,10 @@
 use super::atmost::AtMost;
-use super::{Encode, EncodeExt, Strategy};
+use super::{Encode, Strategy};
 use crate::{Incompressible, Small, Sorted};
 
+#[cfg(test)]
+use super::millibits;
+use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -9,7 +12,7 @@ impl Encode for u8 {
     type Context = <AtMost<255> as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        AtMost::<255>::new(*value as usize).encode(writer, ctx)
+        Normal::encode(&AtMost::<255>::new(*value as usize), writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -24,7 +27,7 @@ impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        (*value as u8).encode(writer, ctx)
+        Normal::encode(&(*value as u8), writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -55,37 +58,37 @@ impl Encode<Small> for u8 {
         let bucket = |code: usize| AtMost::<7>::new(code);
         let rest = |first: u8| (*value - first) as usize;
         match *value {
-            0 => bucket(0).encode(writer, &mut ctx.nonzero),
-            1 => bucket(1).encode(writer, &mut ctx.nonzero),
+            0 => Normal::encode(&bucket(0), writer, &mut ctx.nonzero),
+            1 => Normal::encode(&bucket(1), writer, &mut ctx.nonzero),
             2..4 => {
-                bucket(2).encode(writer, &mut ctx.nonzero);
-                AtMost::<1>::new(rest(2)).encode(writer, &mut ctx.b1)
+                Normal::encode(&bucket(2), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<1>::new(rest(2)), writer, &mut ctx.b1)
             }
             4..8 => {
-                bucket(3).encode(writer, &mut ctx.nonzero);
-                AtMost::<3>::new(rest(4)).encode(writer, &mut ctx.b2)
+                Normal::encode(&bucket(3), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<3>::new(rest(4)), writer, &mut ctx.b2)
             }
             8..16 => {
-                bucket(4).encode(writer, &mut ctx.nonzero);
-                AtMost::<7>::new(rest(8)).encode(writer, &mut ctx.b3)
+                Normal::encode(&bucket(4), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<7>::new(rest(8)), writer, &mut ctx.b3)
             }
             16..32 => {
-                bucket(5).encode(writer, &mut ctx.nonzero);
-                AtMost::<15>::new(rest(16)).encode(writer, &mut ctx.b4)
+                Normal::encode(&bucket(5), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<15>::new(rest(16)), writer, &mut ctx.b4)
             }
             32..64 => {
-                bucket(6).encode(writer, &mut ctx.nonzero);
-                AtMost::<31>::new(rest(32)).encode(writer, &mut ctx.b5)
+                Normal::encode(&bucket(6), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<31>::new(rest(32)), writer, &mut ctx.b5)
             }
             64..128 => {
-                bucket(7).encode(writer, &mut ctx.nonzero);
-                false.encode(writer, &mut ctx.need_seven_bits);
-                AtMost::<63>::new(rest(64)).encode(writer, &mut ctx.b6)
+                Normal::encode(&bucket(7), writer, &mut ctx.nonzero);
+                Normal::encode(&false, writer, &mut ctx.need_seven_bits);
+                Normal::encode(&AtMost::<63>::new(rest(64)), writer, &mut ctx.b6)
             }
             128..=255 => {
-                bucket(7).encode(writer, &mut ctx.nonzero);
-                true.encode(writer, &mut ctx.need_seven_bits);
-                AtMost::<127>::new(rest(128)).encode(writer, &mut ctx.b7)
+                Normal::encode(&bucket(7), writer, &mut ctx.nonzero);
+                Normal::encode(&true, writer, &mut ctx.need_seven_bits);
+                Normal::encode(&AtMost::<127>::new(rest(128)), writer, &mut ctx.b7)
             }
         }
     }
@@ -247,7 +250,7 @@ fn small() {
             println!("Checking {v}");
             let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
             assert_eq!(
-                Encoded::<u8, Small>::new(v).millibits(),
+                millibits(&Encoded::<u8, Small>::new(v)),
                 super::Millibits::bits(bits.parse().unwrap()),
                 "millibits estimate disagrees for {v}"
             );
@@ -269,7 +272,7 @@ fn small() {
     expect!["10"].assert_eq(&size_of(64..128));
     expect!["11"].assert_eq(&size_of(128..255));
     assert_eq!(
-        Encoded::<u8, Small>::new(255u8).millibits(),
+        millibits(&Encoded::<u8, Small>::new(255u8)),
         super::Millibits::bits(11)
     );
 }
@@ -320,7 +323,7 @@ fn small_i8() {
     // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
     // Mirror the small_u8 test for u8=255: verify the millibits entropy estimate directly.
     assert_eq!(
-        crate::Encoded::<i8, Small>::new(-128).millibits(),
+        millibits(&crate::Encoded::<i8, Small>::new(-128)),
         super::Millibits::bits(11)
     );
 }

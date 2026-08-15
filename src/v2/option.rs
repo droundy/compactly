@@ -1,5 +1,6 @@
 use super::Encode;
-use super::EncodeExt;
+use super::Strategy;
+use crate::Normal;
 
 /// Context for an `Option<T>` encoded with strategy `S`: one bit saying whether
 /// the value is present, plus whatever context `T` needs under `S`.
@@ -35,10 +36,10 @@ impl<T: Encode<S>, S> Encode<S> for Option<T> {
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(v) = value {
-            true.encode(writer, &mut ctx.is_some);
+            Normal::encode(&true, writer, &mut ctx.is_some);
             <T as Encode<S>>::encode(v, writer, &mut ctx.value)
         } else {
-            false.encode(writer, &mut ctx.is_some)
+            Normal::encode(&false, writer, &mut ctx.is_some)
         }
     }
     #[inline]

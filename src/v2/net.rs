@@ -1,4 +1,6 @@
-use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder};
+use super::Strategy;
+use super::{Encode, EntropyCoder, EntropyDecoder};
+use crate::Normal;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 impl Encode for Ipv4Addr {
@@ -9,7 +11,7 @@ impl Encode for Ipv4Addr {
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let o = value.octets();
-        o[0].encode(writer, ctx);
+        Normal::encode(&o[0], writer, ctx);
         writer.encode_incompressible_bytes(&o[1..]);
     }
     #[inline]
@@ -54,18 +56,18 @@ impl Encode for Ipv6Addr {
         // Phase 1: all zero flags for octets 1–14
         let z: [bool; 14] = std::array::from_fn(|i| o[i + 1] == 0);
         for (zf, c) in z.iter().zip(ctx.zero.iter_mut()) {
-            zf.encode(writer, c);
+            Normal::encode(zf, writer, c);
         }
         // Phase 2: adaptive bytes
-        o[0].encode(writer, &mut ctx.nz[0]);
+        Normal::encode(&o[0], writer, &mut ctx.nz[0]);
         for i in 0..6 {
             if !z[i] {
-                o[1 + i].encode(writer, &mut ctx.nz[1 + i]);
+                Normal::encode(&o[1 + i], writer, &mut ctx.nz[1 + i]);
             }
         }
         for i in 0..2 {
             if !z[10 + i] {
-                o[11 + i].encode(writer, &mut ctx.nz[7 + i]);
+                Normal::encode(&o[11 + i], writer, &mut ctx.nz[7 + i]);
             }
         }
         // Phase 3: incompressible bytes in one batch
@@ -144,12 +146,12 @@ impl Encode for IpAddr {
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         match value {
             IpAddr::V4(addr) => {
-                true.encode(writer, &mut ctx.0);
-                addr.encode(writer, &mut ctx.1);
+                Normal::encode(&true, writer, &mut ctx.0);
+                Normal::encode(addr, writer, &mut ctx.1);
             }
             IpAddr::V6(addr) => {
-                false.encode(writer, &mut ctx.0);
-                addr.encode(writer, &mut ctx.2);
+                Normal::encode(&false, writer, &mut ctx.0);
+                Normal::encode(addr, writer, &mut ctx.2);
             }
         }
     }
@@ -170,8 +172,8 @@ impl Encode for SocketAddrV4 {
     type Context = (<Ipv4Addr as Encode>::Context, <u16 as Encode>::Context);
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        value.ip().encode(writer, &mut ctx.0);
-        value.port().encode(writer, &mut ctx.1);
+        Normal::encode(value.ip(), writer, &mut ctx.0);
+        Normal::encode(&value.port(), writer, &mut ctx.1);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -193,10 +195,10 @@ impl Encode for SocketAddrV6 {
     );
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        value.ip().encode(writer, &mut ctx.0);
-        value.port().encode(writer, &mut ctx.1);
-        value.flowinfo().encode(writer, &mut ctx.2);
-        value.scope_id().encode(writer, &mut ctx.3);
+        Normal::encode(value.ip(), writer, &mut ctx.0);
+        Normal::encode(&value.port(), writer, &mut ctx.1);
+        Normal::encode(&value.flowinfo(), writer, &mut ctx.2);
+        Normal::encode(&value.scope_id(), writer, &mut ctx.3);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -221,12 +223,12 @@ impl Encode for SocketAddr {
     fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         match value {
             SocketAddr::V4(addr) => {
-                true.encode(writer, &mut ctx.0);
-                addr.encode(writer, &mut ctx.1);
+                Normal::encode(&true, writer, &mut ctx.0);
+                Normal::encode(addr, writer, &mut ctx.1);
             }
             SocketAddr::V6(addr) => {
-                false.encode(writer, &mut ctx.0);
-                addr.encode(writer, &mut ctx.2);
+                Normal::encode(&false, writer, &mut ctx.0);
+                Normal::encode(addr, writer, &mut ctx.2);
             }
         }
     }

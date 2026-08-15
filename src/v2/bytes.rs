@@ -1,10 +1,12 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodeExt, Strategy};
+use super::{Encode, Strategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
 // mod buffer;
 
+#[cfg(test)]
+use super::millibits;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -118,7 +120,7 @@ impl Lz77 {
         while let Some(chunk) =
             ctx.eager_chunk(&mut value, &mut sofar, &mut hash_head, &mut hash_next)
         {
-            chunk.encode(&mut super::Millibits::new(0), &mut ctx);
+            Normal::encode(&chunk, &mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
         out
@@ -287,11 +289,11 @@ impl Lz77 {
 
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
         let chunks = self.eager(value);
-        chunks.len().encode(writer, &mut self.count);
+        Normal::encode(&chunks.len(), writer, &mut self.count);
         let mut sentinel = Sentinel::new();
         for chunk in chunks {
             sentinel.encode(writer);
-            chunk.encode(writer, self);
+            Normal::encode(&chunk, writer, self);
             self.shift_chunk(&chunk);
         }
         self.push_old(value.to_vec());
@@ -356,12 +358,12 @@ fn eager() {
         let mut ctx = Lz77::default();
         let mut millibits_of_literals = super::Millibits::new(0);
         for chunk in Lz77::default().eager(b"aaa") {
-            chunk.encode(&mut millibits_of_literals, &mut ctx);
+            Normal::encode(&chunk, &mut millibits_of_literals, &mut ctx);
         }
         assert_eq!(millibits_of_literals, super::Millibits::new(22988));
-        let mb_of_vec = Lz77::default().eager(b"aaa").millibits();
+        let mb_of_vec = millibits(&Lz77::default().eager(b"aaa"));
         assert_eq!(mb_of_vec, super::Millibits::new(25988));
-        let mb_of_string = b"aaa".to_vec().millibits();
+        let mb_of_string = millibits(&b"aaa".to_vec());
         assert_eq!(mb_of_string, super::Millibits::new(19988));
     }
     assert_eq!(
@@ -480,14 +482,14 @@ impl Encode for Chunk {
             back,
             offset,
         } = value;
-        literal.encode(writer, &mut ctx.literal);
+        Normal::encode(literal, writer, &mut ctx.literal);
         Small::encode(length, writer, &mut ctx.length);
         if *length > 0 {
             Small::encode(back, writer, &mut ctx.back);
             if *back == 0 {
-                offset.encode(writer, &mut ctx.self_offset);
+                Normal::encode(offset, writer, &mut ctx.self_offset);
             } else {
-                offset.encode(writer, &mut ctx.offset);
+                Normal::encode(offset, writer, &mut ctx.offset);
             }
         }
     }
@@ -571,9 +573,9 @@ fn size() {
 
         format!(
             "normal: {:?} ({} bits), small: {:?} ({} bits)",
-            normal.millibits(),
+            millibits(&normal),
             super::encoded_bits!(value.iter().map(|s| s.to_vec()).collect::<Vec<Vec<u8>>>()),
-            small.millibits(),
+            millibits(&small),
             super::encoded_bits!(value
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_vec()))
@@ -583,26 +585,24 @@ fn size() {
     expect!["normal: 8989 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
-    expect!["1000 mb"].assert_eq(&true.millibits().to_string());
-    expect!["4593 mb"].assert_eq(&'a'.millibits().to_string());
+    expect!["1000 mb"].assert_eq(&millibits(&true).to_string());
+    expect!["4593 mb"].assert_eq(&millibits(&'a').to_string());
     expect!["14000 mb"].assert_eq(
-        &Chunk {
+        &millibits(&Chunk {
             literal: b"a".to_vec().into_boxed_slice(),
             length: 0,
             back: 0,
             offset: 0,
-        }
-        .millibits()
+        })
         .to_string(),
     );
     expect!["11256 mb"].assert_eq(
-        &Chunk {
+        &millibits(&Chunk {
             literal: Box::new([]),
             back: 0,
             offset: 0,
             length: 2,
-        }
-        .millibits()
+        })
         .to_string(),
     );
     expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(b""));
@@ -634,14 +634,14 @@ fn size() {
 
     expect!["normal: Millibits(3000) (3 bits), small: Millibits(3000) (3 bits)"]
         .assert_eq(&compare_vecs(&[]));
-    expect!["11000 mb"].assert_eq(&b"h".to_vec().millibits().to_string());
+    expect!["11000 mb"].assert_eq(&millibits(&b"h".to_vec()).to_string());
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    expect!["39549 mb"].assert_eq(&s.millibits().to_string());
+    expect!["39549 mb"].assert_eq(&millibits(&s).to_string());
     expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = b"hello world this is a string".to_vec();
-    expect!["165201 mb"].assert_eq(&s.millibits().to_string());
+    expect!["165201 mb"].assert_eq(&millibits(&s).to_string());
     expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(14000) (14 bits), small: Millibits(19264) (19 bits)"]

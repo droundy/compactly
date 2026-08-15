@@ -237,7 +237,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::v2::AtMost::<#max_discriminant>::new(#discriminant).encode(writer, &mut ctx.discriminant);
+            Normal::encode(&compactly::v2::AtMost::<#max_discriminant>::new(#discriminant), writer, &mut ctx.discriminant);
         }
     });
 
@@ -308,7 +308,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::v2::{Encode, EncodeExt as _, EntropyCoder, EntropyDecoder};
+        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
         use compactly::{Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal, Sorted, Values};
 
         #(#antipattern_warnings)*
@@ -477,7 +477,7 @@ fn impl_two_strategies() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EncodeExt as _, EntropyCoder, EntropyDecoder};
+            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
             use compactly::{
                 Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
                 Sorted, Values,
@@ -544,8 +544,11 @@ fn impl_two_strategies() {
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::AtMost::<0usize>::new(0usize)
-                                .encode(writer, &mut ctx.discriminant);
+                            Normal::encode(
+                                &compactly::v2::AtMost::<0usize>::new(0usize),
+                                writer,
+                                &mut ctx.discriminant,
+                            );
                         }
                     }
                     match value {
@@ -599,7 +602,7 @@ fn impl_strategies() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EncodeExt as _, EntropyCoder, EntropyDecoder};
+            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
             use compactly::{
                 Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
                 Sorted, Values,
@@ -650,8 +653,11 @@ fn impl_strategies() {
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::AtMost::<0usize>::new(0usize)
-                                .encode(writer, &mut ctx.discriminant);
+                            Normal::encode(
+                                &compactly::v2::AtMost::<0usize>::new(0usize),
+                                writer,
+                                &mut ctx.discriminant,
+                            );
                         }
                     }
                     match value {
@@ -704,7 +710,7 @@ fn impl_newtype() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EncodeExt as _, EntropyCoder, EntropyDecoder};
+            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
             use compactly::{
                 Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
                 Sorted, Values,
@@ -739,8 +745,11 @@ fn impl_newtype() {
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::AtMost::<0usize>::new(0usize)
-                                .encode(writer, &mut ctx.discriminant);
+                            Normal::encode(
+                                &compactly::v2::AtMost::<0usize>::new(0usize),
+                                writer,
+                                &mut ctx.discriminant,
+                            );
                         }
                     }
                     match value {

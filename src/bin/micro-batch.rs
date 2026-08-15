@@ -7,7 +7,9 @@
 // same byte stream both ways is a clean A/B of the batch machinery.
 //
 // Usage: `micro-batch seq|batch`   (decode ITERS× under `perf stat`)
-use compactly::v2::{Ans, Encode, EncodeExt, EntropyCoder, EntropyDecoder};
+use compactly::v2::Strategy as _;
+use compactly::v2::{Ans, Encode, EntropyCoder, EntropyDecoder};
+use compactly::Normal;
 
 const N: usize = 16; // bits per group (compile-time batch width)
 const GROUPS: usize = 100_000;
@@ -22,7 +24,7 @@ impl Encode for Seq {
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, w: &mut E, c: &mut Self::Context) {
         for (b, ctx) in value.0.iter().zip(c.iter_mut()) {
-            b.encode(w, ctx);
+            Normal::encode(b, w, ctx);
         }
     }
     #[inline]
@@ -42,7 +44,7 @@ impl Encode for Batch {
     #[inline]
     fn encode<E: EntropyCoder>(value: &Self, w: &mut E, c: &mut Self::Context) {
         for (b, ctx) in value.0.iter().zip(c.iter_mut()) {
-            b.encode(w, ctx);
+            Normal::encode(b, w, ctx);
         }
     }
     #[inline]

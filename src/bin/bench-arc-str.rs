@@ -28,7 +28,8 @@
 //! still compiles this bin.
 #[cfg(feature = "v2")]
 mod imp {
-    use compactly::v2::{decode, encode, Encode, EncodeExt as _, EntropyCoder, EntropyDecoder};
+    use compactly::v2::{decode, encode, Encode, EntropyCoder, EntropyDecoder, Strategy as _};
+    use compactly::Normal;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Instant;
@@ -72,12 +73,12 @@ mod imp {
         type Context = OldStyleContext;
         fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
             let looked_up = ctx.cached.get(value.0.as_ref()).copied();
-            looked_up.is_some().encode(writer, &mut ctx.is_cached);
+            Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
             if let Some(idx) = looked_up {
-                idx.encode(writer, &mut ctx.index)
+                Normal::encode(&idx, writer, &mut ctx.index)
             } else {
                 ctx.cached.insert(value.0.clone(), ctx.cached.len());
-                value.0.to_string().encode(writer, &mut ctx.string_ctx)
+                Normal::encode(&value.0.to_string(), writer, &mut ctx.string_ctx)
             }
         }
         fn decode<D: EntropyDecoder>(
@@ -125,12 +126,12 @@ mod imp {
         type Context = OldStyleStringContext;
         fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
             let looked_up = ctx.cached.get(&value.0).copied();
-            looked_up.is_some().encode(writer, &mut ctx.is_cached);
+            Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
             if let Some(idx) = looked_up {
-                idx.encode(writer, &mut ctx.index)
+                Normal::encode(&idx, writer, &mut ctx.index)
             } else {
                 ctx.cached.insert(value.0.clone(), ctx.cached.len());
-                value.0.encode(writer, &mut ctx.string_ctx)
+                Normal::encode(&value.0, writer, &mut ctx.string_ctx)
             }
         }
         fn decode<D: EntropyDecoder>(
@@ -161,8 +162,8 @@ mod imp {
     /// here, not in the library, so this benchmark can compare the treap
     /// against exactly what it replaced without checking out an old commit.
     mod btree_variant {
-        use compactly::v2::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
-        use compactly::Small;
+        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+        use compactly::{Normal, Small};
         use std::collections::{BTreeMap, HashMap};
         use std::ops::Bound;
         use std::sync::Arc;
@@ -334,10 +335,10 @@ mod imp {
                 let prefix_match = ctx.dict.prefix_match(value);
 
                 if let Some(PrefixMatch::Exact(idx)) = prefix_match {
-                    true.encode(writer, &mut ctx.is_cached);
+                    Normal::encode(&true, writer, &mut ctx.is_cached);
                     return Small::encode(&idx, writer, &mut ctx.index);
                 }
-                false.encode(writer, &mut ctx.is_cached);
+                Normal::encode(&false, writer, &mut ctx.is_cached);
 
                 let (mut prefix_len, mut prefix_idx) = match prefix_match {
                     Some(PrefixMatch::Prefix(idx, matched)) if !matched.is_empty() => {
@@ -391,7 +392,7 @@ mod imp {
                 let middle = &value[prefix_len..value.len() - suffix_len];
                 Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
                 for c in middle.chars() {
-                    c.encode(writer, &mut ctx.chars);
+                    Normal::encode(&c, writer, &mut ctx.chars);
                 }
 
                 ctx.dict.insert(value.clone());

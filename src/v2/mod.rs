@@ -197,7 +197,7 @@ pub trait EntropyCoder: Sized {
         Self: Default,
     {
         let mut writer = Self::default();
-        value.encode(&mut writer, &mut T::Context::default());
+        <T as Encode>::encode(value, &mut writer, &mut T::Context::default());
         writer
     }
 
@@ -326,8 +326,9 @@ pub trait EntropyDecoder {
 /// Because the strategy is a parameter rather than a separate trait, the
 /// methods here are associated functions taking `value: &Self`, not `&self`
 /// methods — a type implementing several strategies would make `value.encode(…)`
-/// ambiguous. For the common default-strategy case, [`EncodeExt`] provides that
-/// method syntax back, and [`Strategy`] provides `Small::encode(&value, …)`.
+/// ambiguous. Call a codec through its strategy instead — [`Strategy`] gives
+/// every strategy `Normal::encode(&value, …)` / `Small::decode(reader, …)`, so
+/// the default is spelled the same way as every other strategy.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be encoded with the `{S}` strategy",
     label = "no `{S}` encoding for `{Self}`",
@@ -347,35 +348,19 @@ pub trait Encode<S = crate::Normal>: Sized {
     ) -> Result<Self, std::io::Error>;
 }
 
-/// Method syntax for the default ([`Normal`](crate::Normal)) encoding.
+/// Estimate the encoded size of `value` under its default encoding, without
+/// producing any bytes.
 ///
-/// Implemented automatically for every type that implements
-/// `Encode<Normal>`, so `value.encode(coder, ctx)` keeps working even though
-/// [`Encode`] itself is generic over the strategy. It is pinned to the default
-/// strategy, which is what makes the method call unambiguous.
-pub trait EncodeExt: Encode<crate::Normal> {
-    /// Encode this value with its default encoding.
-    #[inline]
-    fn encode<E: EntropyCoder>(
-        &self,
-        encoder: &mut E,
-        ctx: &mut <Self as Encode<crate::Normal>>::Context,
-    ) {
-        <Self as Encode<crate::Normal>>::encode(self, encoder, ctx)
-    }
-
-    /// Estimate the size of this value
-    fn millibits(&self) -> Millibits {
-        let mut m = Millibits::default();
-        EncodeExt::encode(
-            self,
-            &mut m,
-            &mut <Self as Encode<crate::Normal>>::Context::default(),
-        );
-        m
-    }
+/// Crate-private: this exists for the size assertions in the codec unit tests.
+/// If it ever becomes user-facing it should be a `pub fn` alongside [`encode`],
+/// not a method — a method would only be able to sugar the default strategy,
+/// leaving `Small`, `Compressible`, … spelled a different way.
+#[cfg(test)]
+pub(crate) fn millibits<T: Encode>(value: &T) -> Millibits {
+    let mut m = Millibits::default();
+    <T as Encode>::encode(value, &mut m, &mut <T as Encode>::Context::default());
+    m
 }
-impl<T: Encode<crate::Normal>> EncodeExt for T {}
 
 /// Marker for the strategy types, giving them `Small::encode(&value, …)` syntax.
 ///
@@ -447,7 +432,7 @@ impl<V> Strategy for crate::Values<V> {}
 /// Encode the `value` into a `Vec<u8>` of bytes.
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut writer = arith::Range::default();
-    value.encode(&mut writer, &mut T::Context::default());
+    <T as Encode>::encode(value, &mut writer, &mut T::Context::default());
     writer.into_vec()
 }
 
@@ -491,7 +476,7 @@ fn stream_encode<T: Encode, E: EntropyCoder>(
     writer: E::Writer,
 ) -> std::io::Result<E::Writer> {
     let mut encoder = E::new(writer);
-    value.encode(&mut encoder, &mut T::Context::default());
+    <T as Encode>::encode(value, &mut encoder, &mut T::Context::default());
     encoder.finish()
 }
 
@@ -632,7 +617,7 @@ pub(crate) use encoded_bits;
 macro_rules! estimated_bits {
     ($v:expr) => {{
         let v = $v;
-        let bits = crate::v2::EncodeExt::millibits(&v).as_bits();
+        let bits = crate::v2::millibits(&v).as_bits();
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
@@ -675,7 +660,7 @@ pub(crate) use assert_bits_all;
 macro_rules! assert_millibits {
     ($v:expr, $expected:expr) => {{
         let v = $v;
-        let entropy = crate::v2::EncodeExt::millibits(&v);
+        let entropy = crate::v2::millibits(&v);
         let encoded = super::encode(&v);
         let decoded = super::decode(&encoded);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");

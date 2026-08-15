@@ -1,7 +1,7 @@
 use super::sentinel::Sentinel;
 use crate::{Normal, Small, Sorted, Values};
 
-use super::{Encode, EncodeExt, Strategy};
+use super::{Encode, Strategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
@@ -93,7 +93,7 @@ impl Encode<super::Small> for BTreeSet<u64> {
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.size);
+        Normal::encode(&value.len(), writer, &mut ctx.size);
         let mut iter = value.iter().copied();
         if let Some(mut prev) = iter.next() {
             Small::encode(&prev, writer, &mut ctx.first);
@@ -135,7 +135,7 @@ impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
@@ -191,8 +191,8 @@ impl Ord for OrdOnFirstField {
 impl Encode for OrdOnFirstField {
     type Context = (<i32 as Encode>::Context, <char as Encode>::Context);
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        value.0.encode(writer, &mut ctx.0);
-        value.1.encode(writer, &mut ctx.1);
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -217,9 +217,9 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     // valid stream.
     let mut writer = super::Range::default();
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
-    2_usize.encode(&mut writer, &mut ctx.len);
-    OrdOnFirstField(1, 'a').encode(&mut writer, &mut ctx.values);
-    OrdOnFirstField(1, 'b').encode(&mut writer, &mut ctx.values);
+    Normal::encode(&2_usize, &mut writer, &mut ctx.len);
+    Normal::encode(&OrdOnFirstField(1, 'a'), &mut writer, &mut ctx.values);
+    Normal::encode(&OrdOnFirstField(1, 'b'), &mut writer, &mut ctx.values);
     let bytes = writer.into_vec();
 
     use super::EntropyDecoder;
@@ -245,7 +245,7 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
 impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
