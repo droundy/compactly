@@ -1,7 +1,6 @@
 use crate::Sorted;
 
-use super::byte::UBits;
-use super::{Encode, EncodingStrategy, Small, ULessThan};
+use super::{byte::UBits, Encode, EncodingStrategy, Small, ULessThan};
 use std::io::{Read, Write};
 
 #[cfg(test)]

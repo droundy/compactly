@@ -2,8 +2,7 @@ use compactly::v2::Ans;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 
 trait Encodable:
     compactly::v1::Encode + compactly::v2::Encode + Serialize + DeserializeOwned + PartialEq + Debug

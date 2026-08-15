@@ -3,12 +3,13 @@ use compactly::v2::Ans;
 use rand::{Rng, SeedableRng};
 use scaling::{bench_gen_env, bench_scaling_gen};
 
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use stats_alloc::{Region, StatsAlloc, INSTRUMENTED_SYSTEM};
-use std::alloc::System;
-use std::collections::{BTreeSet, HashSet};
-use std::fmt::Debug;
+use std::{
+    alloc::System,
+    collections::{BTreeSet, HashSet},
+    fmt::Debug,
+};
 
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;

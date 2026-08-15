@@ -1,8 +1,10 @@
 use super::sentinel::Sentinel;
 use super::{Encode, Strategy};
 use crate::{Mapping, Normal, Sorted};
-use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+};
 
 #[cfg(test)]
 use expect_test::expect;

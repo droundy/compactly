@@ -7,8 +7,7 @@
     clippy::legacy_numeric_constants,
     clippy::manual_is_multiple_of
 )]
-use std::collections::BTreeSet;
-use std::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Debug};
 
 use compactly::{LowCardinality, Small, Values};
 

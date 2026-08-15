@@ -1,8 +1,10 @@
 use super::{Encode, EncodingStrategy};
 use crate::{Mapping, Normal, Sorted};
-use std::collections::{BTreeMap, HashMap};
-use std::hash::Hash;
-use std::io::{Read, Write};
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+    io::{Read, Write},
+};
 
 #[cfg(test)]
 use expect_test::expect;

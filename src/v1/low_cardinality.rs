@@ -1,7 +1,5 @@
 use super::{Encode, EncodingStrategy, LowCardinality};
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::sync::Arc;
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 #[cfg(test)]
 use expect_test::expect;
