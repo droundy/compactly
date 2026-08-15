@@ -1,9 +1,8 @@
 use super::sentinel::Sentinel;
 use super::{Encode, LowCardinality, Strategy};
-use crate::Small;
+use crate::{Normal, Small};
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

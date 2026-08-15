@@ -1,10 +1,9 @@
 use super::atmost::AtMost;
 use super::{Encode, Strategy};
-use crate::{Incompressible, Small, Sorted};
+use crate::{Incompressible, Normal, Small, Sorted};
 
 #[cfg(test)]
 use super::millibits;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

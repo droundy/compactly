@@ -1,4 +1,4 @@
-use crate::Sorted;
+use crate::{Normal, Sorted};
 
 use super::atmost::geometric::SeededDistribution;
 use super::ints::U64Compact;
@@ -6,7 +6,6 @@ use super::{AtMost, Encode, EntropyCoder, EntropyDecoder, Small, Strategy};
 
 #[cfg(test)]
 use super::millibits;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

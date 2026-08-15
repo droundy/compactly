@@ -1,12 +1,10 @@
-use crate::Sorted;
+use crate::{Normal, Sorted};
 
 use super::bit_context::BitContext;
-use super::Encode;
+use super::{Encode, Strategy};
 
 #[cfg(test)]
 use super::millibits;
-use super::Strategy;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

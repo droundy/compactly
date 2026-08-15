@@ -1,7 +1,6 @@
-use super::Encode;
-
-use super::Strategy;
+use super::{Encode, Strategy};
 use crate::Normal;
+
 #[cfg(test)]
 use expect_test::expect;
 

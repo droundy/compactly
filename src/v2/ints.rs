@@ -4,11 +4,10 @@ use super::atmost::geometric::{
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::{Encode, EntropyCoder, EntropyDecoder, Small, Strategy};
-use crate::{Incompressible, Sorted};
+use crate::{Incompressible, Normal, Sorted};
 
 #[cfg(test)]
 use super::millibits;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

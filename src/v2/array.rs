@@ -1,5 +1,4 @@
-use super::Encode;
-use super::Strategy;
+use super::{Encode, Strategy};
 use crate::Normal;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {

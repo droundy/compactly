@@ -1,8 +1,6 @@
-use super::{Encode, EntropyCoder, EntropyDecoder};
-use crate::{Decimal, Small};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+use crate::{Decimal, Normal, Small};
 
-use super::Strategy;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 

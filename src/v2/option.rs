@@ -1,5 +1,4 @@
-use super::Encode;
-use super::Strategy;
+use super::{Encode, Strategy};
 use crate::Normal;
 
 /// Context for an `Option<T>` encoded with strategy `S`: one bit saying whether

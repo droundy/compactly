@@ -1,5 +1,4 @@
-use super::Strategy;
-use super::{Encode, EntropyCoder, EntropyDecoder};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::Normal;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 

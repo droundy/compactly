@@ -1,6 +1,5 @@
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
-use crate::Normal;
-use crate::Small;
+use crate::{Normal, Small};
 use std::num::{
     NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
     NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,

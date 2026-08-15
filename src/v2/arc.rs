@@ -1,6 +1,5 @@
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
-use crate::LowCardinality;
-use crate::Normal;
+use crate::{LowCardinality, Normal};
 use std::{collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {

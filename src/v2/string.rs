@@ -2,11 +2,10 @@ use super::sentinel::Sentinel;
 mod init;
 
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
-use crate::{Compressible, Small, Sorted};
+use crate::{Compressible, Normal, Small, Sorted};
 
 #[cfg(test)]
 use super::millibits;
-use crate::Normal;
 #[cfg(test)]
 use expect_test::expect;
 
