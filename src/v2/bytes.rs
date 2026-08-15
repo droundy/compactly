@@ -1,10 +1,12 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodingStrategy};
+use super::{Encode, Strategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
 // mod buffer;
 
+#[cfg(test)]
+use super::millibits;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -50,8 +52,8 @@ pub struct Lz77 {
     /// removed — evictions cause false positives but never false negatives.
     old_filter: OldFilter,
     count: <usize as Encode>::Context,
-    literal: <Values<Normal> as EncodingStrategy<Vec<u8>>>::Context,
-    back: <Small as EncodingStrategy<u8>>::Context,
+    literal: <Vec<u8> as Encode<Values<Normal>>>::Context,
+    back: <u8 as Encode<Small>>::Context,
     /// The default `usize` encoding (tiny-seeded `U64Compact`) rather than
     /// `Small<usize>`: a Lz77 offset is usually large, and `Small<usize>`
     /// would spend an extra `AtMost<7>` bucket symbol before recursing into
@@ -62,7 +64,7 @@ pub struct Lz77 {
     /// with bits to spare; see OPTIMIZING.md.
     offset: <usize as Encode>::Context,
     self_offset: <usize as Encode>::Context,
-    length: <Small as EncodingStrategy<u8>>::Context,
+    length: <u8 as Encode<Small>>::Context,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -118,7 +120,7 @@ impl Lz77 {
         while let Some(chunk) =
             ctx.eager_chunk(&mut value, &mut sofar, &mut hash_head, &mut hash_next)
         {
-            chunk.encode(&mut super::Millibits::new(0), &mut ctx);
+            Normal::encode(&chunk, &mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
         out
@@ -287,11 +289,11 @@ impl Lz77 {
 
     pub fn encode<E: super::EntropyCoder>(&mut self, value: &[u8], writer: &mut E) {
         let chunks = self.eager(value);
-        chunks.len().encode(writer, &mut self.count);
+        Normal::encode(&chunks.len(), writer, &mut self.count);
         let mut sentinel = Sentinel::new();
         for chunk in chunks {
             sentinel.encode(writer);
-            chunk.encode(writer, self);
+            Normal::encode(&chunk, writer, self);
             self.shift_chunk(&chunk);
         }
         self.push_old(value.to_vec());
@@ -301,7 +303,7 @@ impl Lz77 {
         &mut self,
         reader: &mut D,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let count = usize::decode(reader, &mut self.count)?;
+        let count = <usize as Encode>::decode(reader, &mut self.count)?;
         let mut out = Vec::with_capacity(super::capacity_for::<u8>(count.saturating_mul(5)));
         let mut sentinel = Sentinel::new();
         for _ in 0..count {
@@ -356,12 +358,12 @@ fn eager() {
         let mut ctx = Lz77::default();
         let mut millibits_of_literals = super::Millibits::new(0);
         for chunk in Lz77::default().eager(b"aaa") {
-            chunk.encode(&mut millibits_of_literals, &mut ctx);
+            Normal::encode(&chunk, &mut millibits_of_literals, &mut ctx);
         }
         assert_eq!(millibits_of_literals, super::Millibits::new(22988));
-        let mb_of_vec = Lz77::default().eager(b"aaa").millibits();
+        let mb_of_vec = millibits(&Lz77::default().eager(b"aaa"));
         assert_eq!(mb_of_vec, super::Millibits::new(25988));
-        let mb_of_string = b"aaa".to_vec().millibits();
+        let mb_of_string = millibits(&b"aaa".to_vec());
         assert_eq!(mb_of_string, super::Millibits::new(19988));
     }
     assert_eq!(
@@ -473,21 +475,21 @@ Lossless compression is used in cases where it is important that the original an
 
 impl Encode for Chunk {
     type Context = Lz77;
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let Chunk {
             literal,
             length,
             back,
             offset,
-        } = self;
-        literal.encode(writer, &mut ctx.literal);
+        } = value;
+        Normal::encode(literal, writer, &mut ctx.literal);
         Small::encode(length, writer, &mut ctx.length);
         if *length > 0 {
             Small::encode(back, writer, &mut ctx.back);
             if *back == 0 {
-                offset.encode(writer, &mut ctx.self_offset);
+                Normal::encode(offset, writer, &mut ctx.self_offset);
             } else {
-                offset.encode(writer, &mut ctx.offset);
+                Normal::encode(offset, writer, &mut ctx.offset);
             }
         }
     }
@@ -496,13 +498,13 @@ impl Encode for Chunk {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let literal = <Box<[u8]> as Encode>::decode(reader, &mut ctx.literal)?;
-        let length = <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
+        let length = <u8 as Encode<Small>>::decode(reader, &mut ctx.length)?;
         if length > 0 {
             let back = Small::decode(reader, &mut ctx.back)?;
             let offset = if back == 0 {
-                usize::decode(reader, &mut ctx.self_offset)?
+                <usize as Encode>::decode(reader, &mut ctx.self_offset)?
             } else {
-                usize::decode(reader, &mut ctx.offset)?
+                <usize as Encode>::decode(reader, &mut ctx.offset)?
             };
             Ok(Chunk {
                 literal,
@@ -521,7 +523,7 @@ impl Encode for Chunk {
     }
 }
 
-impl EncodingStrategy<Vec<u8>> for Compressible {
+impl Encode<Compressible> for Vec<u8> {
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value, writer)
@@ -571,9 +573,9 @@ fn size() {
 
         format!(
             "normal: {:?} ({} bits), small: {:?} ({} bits)",
-            normal.millibits(),
+            millibits(&normal),
             super::encoded_bits!(value.iter().map(|s| s.to_vec()).collect::<Vec<Vec<u8>>>()),
-            small.millibits(),
+            millibits(&small),
             super::encoded_bits!(value
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_vec()))
@@ -583,26 +585,24 @@ fn size() {
     expect!["normal: 8989 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
-    expect!["1000 mb"].assert_eq(&true.millibits().to_string());
-    expect!["4593 mb"].assert_eq(&'a'.millibits().to_string());
+    expect!["1000 mb"].assert_eq(&millibits(&true).to_string());
+    expect!["4593 mb"].assert_eq(&millibits(&'a').to_string());
     expect!["14000 mb"].assert_eq(
-        &Chunk {
+        &millibits(&Chunk {
             literal: b"a".to_vec().into_boxed_slice(),
             length: 0,
             back: 0,
             offset: 0,
-        }
-        .millibits()
+        })
         .to_string(),
     );
     expect!["11256 mb"].assert_eq(
-        &Chunk {
+        &millibits(&Chunk {
             literal: Box::new([]),
             back: 0,
             offset: 0,
             length: 2,
-        }
-        .millibits()
+        })
         .to_string(),
     );
     expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(b""));
@@ -634,14 +634,14 @@ fn size() {
 
     expect!["normal: Millibits(3000) (3 bits), small: Millibits(3000) (3 bits)"]
         .assert_eq(&compare_vecs(&[]));
-    expect!["11000 mb"].assert_eq(&b"h".to_vec().millibits().to_string());
+    expect!["11000 mb"].assert_eq(&millibits(&b"h".to_vec()).to_string());
 
     let s = b"aaaaaaaaaaaaaaaa".to_vec();
-    expect!["39549 mb"].assert_eq(&s.millibits().to_string());
+    expect!["39549 mb"].assert_eq(&millibits(&s).to_string());
     expect!["40"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = b"hello world this is a string".to_vec();
-    expect!["165201 mb"].assert_eq(&s.millibits().to_string());
+    expect!["165201 mb"].assert_eq(&millibits(&s).to_string());
     expect!["165"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(14000) (14 bits), small: Millibits(19264) (19 bits)"]

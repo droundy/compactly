@@ -1,16 +1,18 @@
-use crate::Sorted;
+use crate::{Normal, Sorted};
 
-use super::Encode;
-use super::{bit_context::BitContext, EncodingStrategy};
+use super::bit_context::BitContext;
+use super::{Encode, Strategy};
 
+#[cfg(test)]
+use super::millibits;
 #[cfg(test)]
 use expect_test::expect;
 
 impl Encode for bool {
     type Context = BitContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_bit(ctx, *self);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        writer.encode_bit(ctx, *value);
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -23,16 +25,16 @@ impl Encode for bool {
     }
 }
 
-impl EncodingStrategy<bool> for Sorted {
+impl Encode<Sorted> for bool {
     type Context = BitContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<bool, std::io::Error> {
-        bool::decode(reader, ctx)
+        <bool as Encode>::decode(reader, ctx)
     }
     fn encode<E: super::EntropyCoder>(value: &bool, writer: &mut E, ctx: &mut Self::Context) {
-        value.encode(writer, ctx)
+        Normal::encode(value, writer, ctx)
     }
 }
 
@@ -55,13 +57,13 @@ fn millibits_required() {
     let mut bc = BitContext::default();
     assert_eq!(bc.probability().as_f64(), 0.5);
 
-    assert_eq!(false.millibits(), Millibits::bits(1));
-    assert_eq!(true.millibits(), Millibits::bits(1));
+    assert_eq!(millibits(&false), Millibits::bits(1));
+    assert_eq!(millibits(&true), Millibits::bits(1));
 
     macro_rules! assert_millibits {
         ($bit:literal, $ctx:expr, $expected:expr) => {{
             let mut mb = Millibits::new(0);
-            $bit.encode(&mut mb, $ctx);
+            Normal::encode(&$bit, &mut mb, $ctx);
             assert_eq!(mb, $expected);
         }};
     }

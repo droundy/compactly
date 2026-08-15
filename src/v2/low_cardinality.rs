@@ -1,6 +1,6 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodingStrategy, LowCardinality};
-use crate::Small;
+use super::{Encode, LowCardinality, Strategy};
+use crate::{Normal, Small};
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
 #[cfg(test)]
@@ -31,8 +31,9 @@ impl<T: Encode + Clone + Hash + PartialEq + Eq> Default for CacheContext<T> {
 macro_rules! impl_low_cardinality {
     ($t:ty, $mod:ident) => {
         mod $mod {
-            use super::{CacheContext, Encode, EncodingStrategy, LowCardinality};
-            impl EncodingStrategy<$t> for LowCardinality {
+            use super::{CacheContext, Encode, LowCardinality, Strategy};
+            use crate::Normal;
+            impl Encode<LowCardinality> for $t {
                 type Context = CacheContext<$t>;
                 #[inline]
                 fn encode<E: super::super::EntropyCoder>(
@@ -41,12 +42,12 @@ macro_rules! impl_low_cardinality {
                     ctx: &mut Self::Context,
                 ) {
                     let looked_up = ctx.cached.get(value).copied();
-                    looked_up.is_some().encode(writer, &mut ctx.is_cached);
+                    Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
                     if let Some(idx) = looked_up {
-                        idx.encode(writer, &mut ctx.index)
+                        Normal::encode(&idx, writer, &mut ctx.index)
                     } else {
                         ctx.cached.insert(value.clone(), ctx.cached.len());
-                        value.encode(writer, &mut ctx.context)
+                        Normal::encode(value, writer, &mut ctx.context)
                     }
                 }
                 #[inline]
@@ -54,15 +55,15 @@ macro_rules! impl_low_cardinality {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
-                    let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+                    let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
                     if is_cached {
-                        let idx = usize::decode(reader, &mut ctx.index)?;
+                        let idx = <usize as Encode>::decode(reader, &mut ctx.index)?;
                         ctx.cache
                             .get(idx)
                             .cloned()
                             .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
                     } else {
-                        let value = <$t>::decode(reader, &mut ctx.context)?;
+                        let value = <$t as Encode>::decode(reader, &mut ctx.context)?;
                         ctx.cache.push(value.clone());
                         Ok(value)
                     }
@@ -98,7 +99,7 @@ impl_low_cardinality!(u64, mod_u64);
 fn encode_match_len<E: super::EntropyCoder>(
     len: usize,
     writer: &mut E,
-    ctx: &mut <Small as EncodingStrategy<u16>>::Context,
+    ctx: &mut <u16 as Encode<Small>>::Context,
 ) {
     debug_assert_ne!(len, 1, "length-1 matches must be rejected before encoding");
     let wire = if len == 0 { 0 } else { (len - 1) as u16 };
@@ -108,7 +109,7 @@ fn encode_match_len<E: super::EntropyCoder>(
 #[inline]
 fn decode_match_len<D: super::EntropyDecoder>(
     reader: &mut D,
-    ctx: &mut <Small as EncodingStrategy<u16>>::Context,
+    ctx: &mut <u16 as Encode<Small>>::Context,
 ) -> Result<usize, std::io::Error> {
     let wire: u16 = Small::decode(reader, ctx)?;
     Ok(if wire == 0 { 0 } else { wire as usize + 1 })
@@ -118,12 +119,12 @@ fn decode_match_len<D: super::EntropyDecoder>(
 pub struct DictContext<P> {
     dict: crate::StringSet<P>,
     is_cached: <bool as Encode>::Context,
-    index: <Small as EncodingStrategy<usize>>::Context,
-    prefix_len: <Small as EncodingStrategy<u16>>::Context,
-    prefix_index: <Small as EncodingStrategy<usize>>::Context,
-    suffix_len: <Small as EncodingStrategy<u16>>::Context,
-    suffix_index: <Small as EncodingStrategy<usize>>::Context,
-    middle_len: <Small as EncodingStrategy<usize>>::Context,
+    index: <usize as Encode<Small>>::Context,
+    prefix_len: <u16 as Encode<Small>>::Context,
+    prefix_index: <usize as Encode<Small>>::Context,
+    suffix_len: <u16 as Encode<Small>>::Context,
+    suffix_index: <usize as Encode<Small>>::Context,
+    middle_len: <usize as Encode<Small>>::Context,
     chars: <char as Encode>::Context,
 }
 
@@ -173,11 +174,11 @@ fn encode_exact_or_bit<P: StrPtr, E: super::EntropyCoder>(
     ctx: &mut DictContext<P>,
 ) -> bool {
     if let Some(idx) = ctx.dict.get_exact(value) {
-        true.encode(writer, &mut ctx.is_cached);
+        Normal::encode(&true, writer, &mut ctx.is_cached);
         Small::encode(&idx, writer, &mut ctx.index);
         return true;
     }
-    false.encode(writer, &mut ctx.is_cached);
+    Normal::encode(&false, writer, &mut ctx.is_cached);
     false
 }
 
@@ -254,7 +255,7 @@ fn encode_miss<P: StrPtr, E: super::EntropyCoder>(
     let middle = &value[prefix_len..value.len() - suffix_len];
     Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
     for c in middle.chars() {
-        c.encode(writer, &mut ctx.chars);
+        Normal::encode(&c, writer, &mut ctx.chars);
     }
 }
 
@@ -262,7 +263,7 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
     reader: &mut D,
     ctx: &mut DictContext<P>,
 ) -> Result<P, std::io::Error> {
-    let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+    let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
     if is_cached {
         let idx: usize = Small::decode(reader, &mut ctx.index)?;
         return ctx
@@ -321,7 +322,7 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
     Ok(value)
 }
 
-impl EncodingStrategy<Arc<str>> for LowCardinality {
+impl Encode<LowCardinality> for Arc<str> {
     type Context = DictContext<Arc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Arc<str>, writer: &mut E, ctx: &mut Self::Context) {
@@ -339,7 +340,7 @@ impl EncodingStrategy<Arc<str>> for LowCardinality {
     }
 }
 
-impl EncodingStrategy<Rc<str>> for LowCardinality {
+impl Encode<LowCardinality> for Rc<str> {
     type Context = DictContext<Rc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Rc<str>, writer: &mut E, ctx: &mut Self::Context) {
@@ -363,7 +364,7 @@ impl EncodingStrategy<Rc<str>> for LowCardinality {
 // `String` allocation on decode (unlike `Arc<str>`/`Rc<str>`, `String` can't
 // share the cached buffer), so prefer `Arc<str>`/`Rc<str>` fields when you
 // can; see `LowCardinality`'s docs.
-impl EncodingStrategy<String> for LowCardinality {
+impl Encode<LowCardinality> for String {
     type Context = DictContext<Rc<str>>;
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
@@ -382,17 +383,17 @@ impl EncodingStrategy<String> for LowCardinality {
     }
 }
 
-impl<T> EncodingStrategy<Vec<T>> for LowCardinality
+impl<T> Encode<LowCardinality> for Vec<T>
 where
     T: Encode,
-    LowCardinality: EncodingStrategy<T>,
+    T: Encode<LowCardinality>,
 {
     type Context = (
         <usize as Encode>::Context,
-        <LowCardinality as EncodingStrategy<T>>::Context,
+        <T as Encode<LowCardinality>>::Context,
     );
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.0);
+        Normal::encode(&value.len(), writer, &mut ctx.0);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
@@ -403,7 +404,7 @@ where
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<T>, std::io::Error> {
-        let n = usize::decode(reader, &mut ctx.0)?;
+        let n = <usize as Encode>::decode(reader, &mut ctx.0)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
         for _ in 0..n {

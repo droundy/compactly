@@ -23,10 +23,12 @@
 //!    one bit, `SymbolRange` for one whole tree symbol — plus `BitModel`,
 //!    a context's hot-path data fused into a single table load.
 //!
-//! 3. **Codecs** — [`Encode`] impls (and [`EncodingStrategy`] variants) for
-//!    each type decide *which* bits and symbols to code under *which*
-//!    contexts. The derive macro generates a `Context` struct with one field
-//!    per struct field, so every field's model adapts independently.
+//! 3. **Codecs** — [`Encode`] impls for each type decide *which* bits and
+//!    symbols to code under *which* contexts. `Encode<S>` is parameterized by
+//!    the [strategy](Strategy) `S` (defaulting to [`Normal`](crate::Normal)),
+//!    so `Encode<Small> for u64` is the same type coded a different way. The
+//!    derive macro generates a `Context` struct with one field per struct
+//!    field, so every field's model adapts independently.
 //!
 //! ## The unit of coding is a sub-interval
 //!
@@ -195,7 +197,7 @@ pub trait EntropyCoder: Sized {
         Self: Default,
     {
         let mut writer = Self::default();
-        value.encode(&mut writer, &mut T::Context::default());
+        <T as Encode>::encode(value, &mut writer, &mut T::Context::default());
         writer
     }
 
@@ -314,31 +316,123 @@ pub trait EntropyDecoder {
 ///
 /// Normally you will derive this for your own types, although it can be
 /// implemented manually.
-pub trait Encode: Sized {
+///
+/// The parameter `S` selects the *encoding strategy* — the way this type is
+/// turned into bits. It defaults to [`Normal`](crate::Normal), so the bound
+/// `T: Encode` means "`T` has the default encoding", and implementing
+/// `Encode<Small> for T` is what makes `#[compactly(Small)]` work on a field of
+/// type `T`. A type may implement as many strategies as make sense for it.
+///
+/// Because the strategy is a parameter rather than a separate trait, the
+/// methods here are associated functions taking `value: &Self`, not `&self`
+/// methods — a type implementing several strategies would make `value.encode(…)`
+/// ambiguous. Call a codec through its strategy instead — [`Strategy`] gives
+/// every strategy `Normal::encode(&value, …)` / `Small::decode(reader, …)`, so
+/// the default is spelled the same way as every other strategy.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be encoded with the `{S}` strategy",
+    label = "no `{S}` encoding for `{Self}`",
+    note = "add `#[derive(Encode)]` to `{Self}` if it is your own type, or pick a strategy it supports"
+)]
+pub trait Encode<S = crate::Normal>: Sized {
     /// Context storing probability model for this type.
     type Context: Default + Clone;
 
-    /// Encode this value with the given [`EntropyCoder`].
-    fn encode<E: EntropyCoder>(&self, encoder: &mut E, ctx: &mut Self::Context);
+    /// Encode `value` with the given [`EntropyCoder`].
+    fn encode<E: EntropyCoder>(value: &Self, encoder: &mut E, ctx: &mut Self::Context);
 
     /// Decode a value with the given [`EntropyDecoder`].
     fn decode<D: EntropyDecoder>(
         entropy_decoder: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
+}
 
-    /// Estimate the size of this value
-    fn millibits(&self) -> Millibits {
-        let mut m = Millibits::default();
-        self.encode(&mut m, &mut Self::Context::default());
-        m
+/// Estimate the encoded size of `value` under its default encoding, without
+/// producing any bytes.
+///
+/// Crate-private: this exists for the size assertions in the codec unit tests.
+/// If it ever becomes user-facing it should be a `pub fn` alongside [`encode`],
+/// not a method — a method would only be able to sugar the default strategy,
+/// leaving `Small`, `Compressible`, … spelled a different way.
+#[cfg(test)]
+pub(crate) fn millibits<T: Encode>(value: &T) -> Millibits {
+    let mut m = Millibits::default();
+    <T as Encode>::encode(value, &mut m, &mut <T as Encode>::Context::default());
+    m
+}
+
+/// Marker for the strategy types, giving them `Small::encode(&value, …)` syntax.
+///
+/// This is pure sugar over [`Encode`]: `Small::encode(&v, coder, ctx)` is
+/// `<T as Encode<Small>>::encode(&v, coder, ctx)`. It is opt-in per strategy
+/// rather than blanket-implemented, so these names never land on the types
+/// being *encoded*.
+///
+/// You can define entirely new strategies in your own crate: declare the marker
+/// type, implement `Encode<YourStrategy>` for the types it should apply to, and
+/// implement this trait to get the calling syntax. Name it by full path in a
+/// derive attribute — `#[compactly(your_crate::SuperCoolStrategy)]`.
+///
+/// ```
+/// use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+///
+/// pub struct SuperCoolStrategy;
+/// impl Strategy for SuperCoolStrategy {}
+///
+/// impl Encode<SuperCoolStrategy> for u8 {
+///     type Context = <u8 as Encode>::Context;
+///     fn encode<E: EntropyCoder>(value: &u8, w: &mut E, ctx: &mut Self::Context) {
+///         <u8 as Encode>::encode(value, w, ctx)
+///     }
+///     fn decode<D: EntropyDecoder>(r: &mut D, ctx: &mut Self::Context)
+///         -> Result<u8, std::io::Error> {
+///         <u8 as Encode>::decode(r, ctx)
+///     }
+/// }
+///
+/// // and it lifts through the transparent wrappers for free:
+/// let bytes = compactly::v2::encode_with(SuperCoolStrategy, &Some(Box::new(7u8)));
+/// assert_eq!(
+///     compactly::v2::decode_with(SuperCoolStrategy, &bytes),
+///     Some(Some(Box::new(7u8))),
+/// );
+/// ```
+pub trait Strategy: Sized {
+    /// Encode `value` with this strategy.
+    #[inline]
+    fn encode<T: Encode<Self>, E: EntropyCoder>(
+        value: &T,
+        writer: &mut E,
+        ctx: &mut <T as Encode<Self>>::Context,
+    ) {
+        <T as Encode<Self>>::encode(value, writer, ctx)
+    }
+
+    /// Decode a value using this strategy.
+    #[inline]
+    fn decode<T: Encode<Self>, D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut <T as Encode<Self>>::Context,
+    ) -> Result<T, std::io::Error> {
+        <T as Encode<Self>>::decode(reader, ctx)
     }
 }
+
+impl Strategy for crate::Normal {}
+impl Strategy for crate::Small {}
+impl Strategy for crate::Compressible {}
+impl Strategy for crate::Incompressible {}
+impl Strategy for crate::Sorted {}
+impl Strategy for crate::LowCardinality {}
+impl Strategy for crate::Decimal {}
+impl<K, V> Strategy for crate::Mapping<K, V> {}
+impl<V> Strategy for crate::Values<V> {}
 
 /// Encode the `value` into a `Vec<u8>` of bytes.
 pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
     let mut writer = arith::Range::default();
-    value.encode(&mut writer, &mut T::Context::default());
+    <T as Encode>::encode(value, &mut writer, &mut T::Context::default());
     writer.into_vec()
 }
 
@@ -382,7 +476,7 @@ fn stream_encode<T: Encode, E: EntropyCoder>(
     writer: E::Writer,
 ) -> std::io::Result<E::Writer> {
     let mut encoder = E::new(writer);
-    value.encode(&mut encoder, &mut T::Context::default());
+    <T as Encode>::encode(value, &mut encoder, &mut T::Context::default());
     encoder.finish()
 }
 
@@ -420,38 +514,17 @@ pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T>
     Range::decode_from(reader)
 }
 
-/// An encoding strategy for type `T`.
-///
-/// You *can* implement this for your own types, if you want them to support
-/// e.g. `Small` encodings.  But I expect this to be unusual.  It would be
-/// possible to create a `Derive` macro for this, but I don't think it is
-/// needed.  If you want such a macro file an issue.
-///
-/// Note that besides implementing existing strategies for your own types, you
-/// can also create entirely new strategies in your crates.  If you do that, you
-/// can use full paths in your derive macros, e.g.
-/// `#[compactly(your_crate::SuperCoolEncodingStrategy)]`.
-pub trait EncodingStrategy<T> {
-    /// The context (i.e. probability model) for this encoding strategy applied to this type.
-    type Context: Default + Clone;
-
-    /// Encode the value with this strategy.
-    fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context);
-
-    /// Decode the value using this strategy.
-    fn decode<D: EntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<T, std::io::Error>;
-}
-
 /// Encode a value with a specific strategy (into a `Vec<u8>`).
 ///
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
-pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8> {
+pub fn encode_with<S: Strategy, T: Encode<S>>(_: S, value: &T) -> Vec<u8> {
     let mut writer = Range::default();
-    S::encode(value, &mut writer, &mut S::Context::default());
+    S::encode(
+        value,
+        &mut writer,
+        &mut <T as Encode<S>>::Context::default(),
+    );
     writer.into_vec()
 }
 
@@ -459,16 +532,16 @@ pub fn encode_with<T: Encode, S: EncodingStrategy<T>>(_: S, value: &T) -> Vec<u8
 ///
 /// I don't expect this to be used in practice, but it can be helpful for
 /// testing.
-pub fn decode_with<T: Encode, S: EncodingStrategy<T>>(_: S, bytes: &[u8]) -> Option<T> {
+pub fn decode_with<S: Strategy, T: Encode<S>>(_: S, bytes: &[u8]) -> Option<T> {
     let mut reader = arith::Decoder::new(bytes);
-    S::decode(&mut reader, &mut S::Context::default()).ok()
+    S::decode(&mut reader, &mut <T as Encode<S>>::Context::default()).ok()
 }
 
-impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
-    type Context = S::Context;
+impl<T: Encode<S>, S> Encode<crate::Normal> for crate::Encoded<T, S> {
+    type Context = <T as Encode<S>>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        S::encode(&self.value, writer, ctx)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        <T as Encode<S>>::encode(&value.value, writer, ctx)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -476,23 +549,9 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
-            value: S::decode(reader, ctx)?,
+            value: <T as Encode<S>>::decode(reader, ctx)?,
             _phantom: std::marker::PhantomData,
         })
-    }
-}
-
-impl<T: Encode> EncodingStrategy<T> for crate::Normal {
-    type Context = <T as Encode>::Context;
-    #[inline]
-    fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {
-        value.encode(writer, ctx)
-    }
-    fn decode<D: EntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<T, std::io::Error> {
-        T::decode(reader, ctx)
     }
 }
 
@@ -558,7 +617,7 @@ pub(crate) use encoded_bits;
 macro_rules! estimated_bits {
     ($v:expr) => {{
         let v = $v;
-        let bits = crate::v2::Encode::millibits(&v).as_bits();
+        let bits = crate::v2::millibits(&v).as_bits();
         let bytes = super::encode(&v);
         let decoded = super::decode(&bytes);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
@@ -601,7 +660,7 @@ pub(crate) use assert_bits_all;
 macro_rules! assert_millibits {
     ($v:expr, $expected:expr) => {{
         let v = $v;
-        let entropy = crate::v2::Encode::millibits(&v);
+        let entropy = crate::v2::millibits(&v);
         let encoded = super::encode(&v);
         let decoded = super::decode(&encoded);
         assert_eq!(decoded, Some(v), "decoded value is incorrect");
