@@ -6,6 +6,7 @@ description = "Compactly encode data types using adaptive arithmetic coding"
 license = "MIT OR Apache-2.0"
 authors = ["David Roundy <daveroundy@gmail.com>"]
 readme = "README.md"
+repository = "https://github.com/droundy/compactly"
 
 [features]
 
