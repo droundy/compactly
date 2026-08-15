@@ -1,7 +1,12 @@
 use super::sentinel::Sentinel;
 use super::{Encode, EncodingStrategy, LowCardinality};
 use crate::Small;
-use std::{borrow::Borrow, collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
+use std::borrow::Borrow;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::ops::Deref;
+use std::rc::Rc;
+use std::sync::Arc;
 
 #[cfg(test)]
 use expect_test::expect;

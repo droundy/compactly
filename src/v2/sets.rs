@@ -2,10 +2,8 @@ use super::sentinel::Sentinel;
 use crate::{Normal, Small, Sorted, Values};
 
 use super::{Encode, EncodingStrategy};
-use std::{
-    collections::{BTreeSet, HashSet},
-    hash::Hash,
-};
+use std::collections::{BTreeSet, HashSet};
+use std::hash::Hash;
 
 #[cfg(test)]
 use expect_test::expect;

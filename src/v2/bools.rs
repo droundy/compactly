@@ -1,7 +1,7 @@
 use crate::Sorted;
 
-use super::Encode;
-use super::{bit_context::BitContext, EncodingStrategy};
+use super::bit_context::BitContext;
+use super::{Encode, EncodingStrategy};
 
 #[cfg(test)]
 use expect_test::expect;

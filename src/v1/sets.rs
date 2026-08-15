@@ -1,11 +1,9 @@
 use crate::{Normal, Small, Sorted, Values};
 
 use super::{Encode, EncodingStrategy};
-use std::{
-    collections::{BTreeSet, HashSet},
-    hash::Hash,
-    io::{Read, Write},
-};
+use std::collections::{BTreeSet, HashSet};
+use std::hash::Hash;
+use std::io::{Read, Write};
 
 #[cfg(test)]
 use expect_test::expect;

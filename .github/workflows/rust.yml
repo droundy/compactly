@@ -23,6 +23,20 @@ jobs:
     - name: Run tests all features
       run: cargo test --all-features
 
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      # Nightly, not stable: `imports_granularity` in rustfmt.toml is an
+      # unstable option, and stable rustfmt *warns and then ignores it* rather
+      # than failing. A stable `cargo fmt --check` would therefore pass on
+      # unmerged imports and enforce nothing about them.
+    - uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: rustfmt
+    - name: Check formatting
+      run: cargo fmt --all --check
+
   clippy:
     runs-on: ubuntu-latest
     steps:
