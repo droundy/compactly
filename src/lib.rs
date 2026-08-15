@@ -57,8 +57,11 @@
 //! # Enabling improved encoding strategies
 //!
 //! In order for `compactly` to optimally compress your data, you can provide
-//! hints (an [`EncodingStrategy`](v2::EncodingStrategy)) as to what kind of distribution of values
-//! you expect.  This will change the format, so you'll want to get this right
+//! hints (a [`Strategy`](v2::Strategy)) as to what kind of distribution of values
+//! you expect.  A strategy is the second type parameter of
+//! [`Encode`](v2::Encode) — `Encode<Small>` for a type is that same type coded a
+//! different way — and a field picks one with a `#[compactly(...)]` attribute.
+//! This will change the format, so you'll want to get this right
 //! *before* saving your encoded data into long-term storage.
 //!
 //! ## Example
@@ -123,7 +126,7 @@ pub mod v2;
 pub(crate) use string_set::StringSet;
 
 #[cfg(feature = "v2")]
-pub use v2::{decode, encode, Encode};
+pub use v2::{decode, encode, Encode, EncodeExt, Strategy};
 
 /// A wrapper around a value causing it to be encoded with a particular strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

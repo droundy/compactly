@@ -1471,7 +1471,7 @@ optimize down to the fused path. Keep both decoders. (Reproducer:
 
 ## New strategy ideas (compression rate, often also decode speed)
 
-These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
+These are *new strategy types* (new `Encode<S>` impls), not coder-level speed tweaks, so they
 live a little outside this doc's primary "make decode faster" scope. They are here
 because several also *help* decode: a strategy that turns a full value into a
 1-bit-plus-tiny-index hit replaces a whole tree-walk (#2) with a couple of bit

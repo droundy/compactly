@@ -1,7 +1,7 @@
 use crate::Sorted;
 
 use super::Encode;
-use super::{bit_context::BitContext, EncodingStrategy};
+use super::{bit_context::BitContext, EncodeExt};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -9,8 +9,8 @@ use expect_test::expect;
 impl Encode for bool {
     type Context = BitContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_bit(ctx, *self);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        writer.encode_bit(ctx, *value);
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -23,13 +23,13 @@ impl Encode for bool {
     }
 }
 
-impl EncodingStrategy<bool> for Sorted {
+impl Encode<Sorted> for bool {
     type Context = BitContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<bool, std::io::Error> {
-        bool::decode(reader, ctx)
+        <bool as Encode>::decode(reader, ctx)
     }
     fn encode<E: super::EntropyCoder>(value: &bool, writer: &mut E, ctx: &mut Self::Context) {
         value.encode(writer, ctx)

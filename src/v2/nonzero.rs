@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
 use crate::Small;
 use std::num::{
     NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
@@ -12,22 +12,22 @@ macro_rules! impl_nonzero_uint {
         impl Encode for $nz {
             type Context = <$uint as Encode>::Context;
             #[inline]
-            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                (self.get() - 1).encode(writer, ctx)
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                (value.get() - 1).encode(writer, ctx)
             }
             #[inline]
             fn decode<D: EntropyDecoder>(
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let v = <$uint>::decode(reader, ctx)?;
+                let v = <$uint as Encode>::decode(reader, ctx)?;
                 <$nz>::new(v.wrapping_add(1))
                     .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
         }
 
-        impl EncodingStrategy<$nz> for Small {
-            type Context = <Small as EncodingStrategy<$uint>>::Context;
+        impl Encode<Small> for $nz {
+            type Context = <$uint as Encode<Small>>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$nz, writer: &mut E, ctx: &mut Self::Context) {
                 Small::encode(&(value.get() - 1), writer, ctx)
@@ -59,8 +59,8 @@ macro_rules! impl_nonzero_int {
         impl Encode for $nz {
             type Context = <$uint as Encode>::Context;
             #[inline]
-            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                let v = self.get();
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                let v = value.get();
                 let encoded: $uint = if v > 0 {
                     (v as $uint) * 2 - 1
                 } else {
@@ -73,7 +73,7 @@ macro_rules! impl_nonzero_int {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let u = <$uint>::decode(reader, ctx)?;
+                let u = <$uint as Encode>::decode(reader, ctx)?;
                 let v: $int = if u & 1 == 1 {
                     u.div_ceil(2) as $int
                 } else {
@@ -83,8 +83,8 @@ macro_rules! impl_nonzero_int {
             }
         }
 
-        impl EncodingStrategy<$nz> for Small {
-            type Context = <Small as EncodingStrategy<$uint>>::Context;
+        impl Encode<Small> for $nz {
+            type Context = <$uint as Encode<Small>>::Context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$nz, writer: &mut E, ctx: &mut Self::Context) {
                 let v = value.get();

@@ -75,8 +75,9 @@ Both versions share the same overall design — only the entropy coder differs.
 ### Core traits
 
 **In `v2`** ([src/v2/mod.rs](src/v2/mod.rs)):
-- `Encode` — types that can be encoded; has an associated `Context` (the adaptive probability model) and `encode`/`decode` methods
-- `EncodingStrategy<T>` — alternate encodings for a type (e.g. `Small`, `LowCardinality`); plug-in strategies used via `#[compactly(Small)]` derive attributes
+- `Encode<S = Normal>` — types that can be encoded; has an associated `Context` (the adaptive probability model) and `encode`/`decode` **associated functions** (they take `value: &Self`, not `&self`, so a type with several strategies has no ambiguous method call). `S` is the encoding strategy: `Encode<Small> for u64` is the same type coded a different way, selected per field via `#[compactly(Small)]`. There is no separate `EncodingStrategy` trait — the strategy is a parameter, so wrapper types like `Option<T>` and `Box<T>` lift *every* strategy generically in one impl.
+- `EncodeExt` — blanket-implemented sugar pinned to `Normal`, restoring `value.encode(coder, ctx)` method syntax and `millibits()`. Import it wherever you call `.encode(...)`.
+- `Strategy` — opt-in marker on the strategy types giving `Small::encode(&v, coder, ctx)` / `Small::decode(r, ctx)` syntax. Not blanket-implemented (that would make `u8::encode` ambiguous) and not inherent methods (that would collide with v1's identically-spelled calls on the same shared marker types).
 - `EntropyCoder` — something that can accept bits with probabilities (`Range`, `Ans`, `Millibits` all implement this)
 - `EntropyDecoder` — the read side
 

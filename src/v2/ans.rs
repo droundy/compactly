@@ -1692,7 +1692,7 @@ fn r6_op_is_compact() {
 /// the whole input. Both must summarize instead.
 #[test]
 fn debug_summarizes_rather_than_dumping() {
-    use super::Encode;
+    use super::{Encode, EncodeExt};
     let big: Vec<u64> = (0..50_000).collect();
 
     let mut coder = Ans::default();

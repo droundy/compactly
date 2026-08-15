@@ -1,5 +1,5 @@
 use super::atmost::AtMost;
-use super::{Encode, EncodingStrategy};
+use super::{Encode, EncodeExt, Strategy};
 use crate::{Incompressible, Small, Sorted};
 
 #[cfg(test)]
@@ -8,8 +8,8 @@ use expect_test::expect;
 impl Encode for u8 {
     type Context = <AtMost<255> as Encode>::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        AtMost::<255>::new(*self as usize).encode(writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        AtMost::<255>::new(*value as usize).encode(writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -23,8 +23,8 @@ impl Encode for u8 {
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        (*self as u8).encode(writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        (*value as u8).encode(writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -48,7 +48,7 @@ pub struct SmallContext {
     b7: <AtMost<127> as Encode>::Context,
 }
 
-impl EncodingStrategy<u8> for Small {
+impl Encode<Small> for u8 {
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
@@ -119,7 +119,7 @@ impl EncodingStrategy<u8> for Small {
     }
 }
 
-impl EncodingStrategy<i8> for Small {
+impl Encode<Small> for i8 {
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
         let v = *value as u8;
@@ -131,12 +131,12 @@ impl EncodingStrategy<i8> for Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<i8, std::io::Error> {
-        let z = <Small as EncodingStrategy<u8>>::decode(reader, ctx)?;
+        let z = <u8 as Encode<Small>>::decode(reader, ctx)?;
         Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
     }
 }
 
-impl EncodingStrategy<u8> for Incompressible {
+impl Encode<Incompressible> for u8 {
     type Context = ();
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, _ctx: &mut Self::Context) {
         writer.encode_incompressible_bytes(&[*value])
@@ -154,10 +154,10 @@ impl EncodingStrategy<u8> for Incompressible {
 #[derive(Default, Clone)]
 pub struct SortedU8Context {
     previous: Option<u8>,
-    delta: <Small as EncodingStrategy<i8>>::Context,
+    delta: <i8 as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<u8> for Sorted {
+impl Encode<Sorted> for u8 {
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -192,7 +192,7 @@ impl EncodingStrategy<u8> for Sorted {
     }
 }
 
-impl EncodingStrategy<i8> for Sorted {
+impl Encode<Sorted> for i8 {
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
         Sorted::encode(&(*value as u8), writer, ctx)
@@ -201,7 +201,7 @@ impl EncodingStrategy<i8> for Sorted {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<i8, std::io::Error> {
-        <Sorted as EncodingStrategy<u8>>::decode(reader, ctx).map(|v| v as i8)
+        <u8 as Encode<Sorted>>::decode(reader, ctx).map(|v| v as i8)
     }
 }
 

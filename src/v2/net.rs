@@ -1,4 +1,4 @@
-use super::{Encode, EntropyCoder, EntropyDecoder};
+use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 impl Encode for Ipv4Addr {
@@ -7,8 +7,8 @@ impl Encode for Ipv4Addr {
     // data, so storing them incompressibly is 5× faster with negligible size cost.
     type Context = <u8 as Encode>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let o = self.octets();
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let o = value.octets();
         o[0].encode(writer, ctx);
         writer.encode_incompressible_bytes(&o[1..]);
     }
@@ -18,7 +18,7 @@ impl Encode for Ipv4Addr {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let mut octets = [0u8; 4];
-        octets[0] = u8::decode(reader, ctx)?;
+        octets[0] = <u8 as Encode>::decode(reader, ctx)?;
         reader.decode_incompressible_bytes(&mut octets[1..])?;
         Ok(Ipv4Addr::from(octets))
     }
@@ -49,8 +49,8 @@ pub struct Ipv6Context {
 impl Encode for Ipv6Addr {
     type Context = Ipv6Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let o = self.octets();
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let o = value.octets();
         // Phase 1: all zero flags for octets 1–14
         let z: [bool; 14] = std::array::from_fn(|i| o[i + 1] == 0);
         for (zf, c) in z.iter().zip(ctx.zero.iter_mut()) {
@@ -95,19 +95,19 @@ impl Encode for Ipv6Addr {
         // Phase 1: all zero flags for octets 1–14
         let mut z = [false; 14];
         for (zf, c) in z.iter_mut().zip(ctx.zero.iter_mut()) {
-            *zf = bool::decode(reader, c)?;
+            *zf = <bool as Encode>::decode(reader, c)?;
         }
         // Phase 2: adaptive bytes
         let mut o = [0u8; 16];
-        o[0] = u8::decode(reader, &mut ctx.nz[0])?;
+        o[0] = <u8 as Encode>::decode(reader, &mut ctx.nz[0])?;
         for i in 0..6 {
             if !z[i] {
-                o[1 + i] = u8::decode(reader, &mut ctx.nz[1 + i])?;
+                o[1 + i] = <u8 as Encode>::decode(reader, &mut ctx.nz[1 + i])?;
             }
         }
         for i in 0..2 {
             if !z[10 + i] {
-                o[11 + i] = u8::decode(reader, &mut ctx.nz[7 + i])?;
+                o[11 + i] = <u8 as Encode>::decode(reader, &mut ctx.nz[7 + i])?;
             }
         }
         // Phase 3: batch incompressible read
@@ -141,8 +141,8 @@ impl Encode for IpAddr {
         <Ipv6Addr as Encode>::Context,
     );
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        match self {
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        match value {
             IpAddr::V4(addr) => {
                 true.encode(writer, &mut ctx.0);
                 addr.encode(writer, &mut ctx.1);
@@ -158,7 +158,7 @@ impl Encode for IpAddr {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        if bool::decode(reader, &mut ctx.0)? {
+        if <bool as Encode>::decode(reader, &mut ctx.0)? {
             Ipv4Addr::decode(reader, &mut ctx.1).map(IpAddr::V4)
         } else {
             Ipv6Addr::decode(reader, &mut ctx.2).map(IpAddr::V6)
@@ -169,9 +169,9 @@ impl Encode for IpAddr {
 impl Encode for SocketAddrV4 {
     type Context = (<Ipv4Addr as Encode>::Context, <u16 as Encode>::Context);
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.ip().encode(writer, &mut ctx.0);
-        self.port().encode(writer, &mut ctx.1);
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        value.ip().encode(writer, &mut ctx.0);
+        value.port().encode(writer, &mut ctx.1);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -179,7 +179,7 @@ impl Encode for SocketAddrV4 {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let ip = Ipv4Addr::decode(reader, &mut ctx.0)?;
-        let port = u16::decode(reader, &mut ctx.1)?;
+        let port = <u16 as Encode>::decode(reader, &mut ctx.1)?;
         Ok(SocketAddrV4::new(ip, port))
     }
 }
@@ -192,11 +192,11 @@ impl Encode for SocketAddrV6 {
         <u32 as Encode>::Context,
     );
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.ip().encode(writer, &mut ctx.0);
-        self.port().encode(writer, &mut ctx.1);
-        self.flowinfo().encode(writer, &mut ctx.2);
-        self.scope_id().encode(writer, &mut ctx.3);
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        value.ip().encode(writer, &mut ctx.0);
+        value.port().encode(writer, &mut ctx.1);
+        value.flowinfo().encode(writer, &mut ctx.2);
+        value.scope_id().encode(writer, &mut ctx.3);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -204,9 +204,9 @@ impl Encode for SocketAddrV6 {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let ip = Ipv6Addr::decode(reader, &mut ctx.0)?;
-        let port = u16::decode(reader, &mut ctx.1)?;
-        let flowinfo = u32::decode(reader, &mut ctx.2)?;
-        let scope_id = u32::decode(reader, &mut ctx.3)?;
+        let port = <u16 as Encode>::decode(reader, &mut ctx.1)?;
+        let flowinfo = <u32 as Encode>::decode(reader, &mut ctx.2)?;
+        let scope_id = <u32 as Encode>::decode(reader, &mut ctx.3)?;
         Ok(SocketAddrV6::new(ip, port, flowinfo, scope_id))
     }
 }
@@ -218,8 +218,8 @@ impl Encode for SocketAddr {
         <SocketAddrV6 as Encode>::Context,
     );
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        match self {
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        match value {
             SocketAddr::V4(addr) => {
                 true.encode(writer, &mut ctx.0);
                 addr.encode(writer, &mut ctx.1);
@@ -235,7 +235,7 @@ impl Encode for SocketAddr {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        if bool::decode(reader, &mut ctx.0)? {
+        if <bool as Encode>::decode(reader, &mut ctx.0)? {
             SocketAddrV4::decode(reader, &mut ctx.1).map(SocketAddr::V4)
         } else {
             SocketAddrV6::decode(reader, &mut ctx.2).map(SocketAddr::V6)

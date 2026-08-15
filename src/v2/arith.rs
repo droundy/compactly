@@ -1385,7 +1385,7 @@ mod tests {
 
 #[test]
 fn range_debug_summarizes_rather_than_dumping() {
-    use super::Encode;
+    use super::{Encode, EncodeExt};
     // A large in-progress encode must not format its whole output buffer.
     let big: Vec<u64> = (0..50_000).collect();
     let mut coder = Range::default();

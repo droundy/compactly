@@ -2,7 +2,7 @@ use crate::Sorted;
 
 use super::atmost::geometric::SeededDistribution;
 use super::ints::U64Compact;
-use super::{AtMost, Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{AtMost, Encode, EncodeExt, EntropyCoder, EntropyDecoder, Small, Strategy};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -31,8 +31,8 @@ impl Default for UsizeContext {
 impl Encode for usize {
     type Context = UsizeContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Small::encode(&(*self as u64), writer, &mut ctx.0)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&(*value as u64), writer, &mut ctx.0)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -53,10 +53,10 @@ pub struct SmallContext {
     b4: <AtMost<15> as Encode>::Context,
     b5: <AtMost<31> as Encode>::Context,
     // Values >= 64 are delegated to Small<u64>.
-    large: <Small as EncodingStrategy<u64>>::Context,
+    large: <u64 as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<usize> for Small {
+impl Encode<Small> for usize {
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
@@ -173,11 +173,11 @@ fn add_bucket_bias_rejects_values_past_the_target_width() {
 pub struct SortedContext {
     previous: Option<usize>,
     not_sorted: <bool as Encode>::Context,
-    value: <Small as EncodingStrategy<usize>>::Context,
-    difference: <Small as EncodingStrategy<usize>>::Context,
+    value: <usize as Encode<Small>>::Context,
+    difference: <usize as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<usize> for Sorted {
+impl Encode<Sorted> for usize {
     type Context = SortedContext;
     fn encode<E: super::EntropyCoder>(value: &usize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -198,11 +198,11 @@ impl EncodingStrategy<usize> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<usize, std::io::Error> {
         let out = if let Some(previous) = ctx.previous.take() {
-            let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+            let not_sorted = <bool as Encode>::decode(reader, &mut ctx.not_sorted)?;
             if not_sorted {
                 Small::decode(reader, &mut ctx.value)?
             } else {
-                previous + <Small as EncodingStrategy<usize>>::decode(reader, &mut ctx.difference)?
+                previous + <usize as Encode<Small>>::decode(reader, &mut ctx.difference)?
             }
         } else {
             Small::decode(reader, &mut ctx.value)?
@@ -435,13 +435,13 @@ impl Default for IsizeContext {
 impl Encode for isize {
     type Context = IsizeContext;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let is_neg = *self < 0;
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let is_neg = *value < 0;
         is_neg.encode(writer, &mut ctx.is_negative);
         let mag: usize = if is_neg {
-            self.abs_diff(-1)
+            value.abs_diff(-1)
         } else {
-            self.abs_diff(0)
+            value.abs_diff(0)
         };
         Small::encode(&(mag as u64), writer, &mut ctx.magnitude);
     }
@@ -450,7 +450,7 @@ impl Encode for isize {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+        let is_neg = <bool as Encode>::decode(reader, &mut ctx.is_negative)?;
         let mag: u64 = Small::decode(reader, &mut ctx.magnitude)?;
         // The capped prior only *biases* against magnitudes past the
         // signed range — a malformed stream can still decode one, and
@@ -469,11 +469,11 @@ impl Encode for isize {
 #[derive(Default, Clone)]
 pub struct IsizeSmallContext {
     is_negative: <bool as Encode>::Context,
-    positive: <Small as EncodingStrategy<usize>>::Context,
-    negative: <Small as EncodingStrategy<usize>>::Context,
+    positive: <usize as Encode<Small>>::Context,
+    negative: <usize as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<isize> for Small {
+impl Encode<Small> for isize {
     type Context = IsizeSmallContext;
     #[inline]
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
@@ -489,7 +489,7 @@ impl EncodingStrategy<isize> for Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<isize, std::io::Error> {
-        if bool::decode(reader, &mut ctx.is_negative)? {
+        if <bool as Encode>::decode(reader, &mut ctx.is_negative)? {
             let p: usize = Small::decode(reader, &mut ctx.negative)?;
             Ok(-1 - p as isize)
         } else {
@@ -503,11 +503,11 @@ impl EncodingStrategy<isize> for Small {
 pub struct IsizeSortedContext {
     previous: Option<isize>,
     not_sorted: <bool as Encode>::Context,
-    value: <Small as EncodingStrategy<isize>>::Context,
-    difference: <Small as EncodingStrategy<usize>>::Context,
+    value: <isize as Encode<Small>>::Context,
+    difference: <usize as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<isize> for Sorted {
+impl Encode<Sorted> for isize {
     type Context = IsizeSortedContext;
     fn encode<E: EntropyCoder>(value: &isize, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -528,7 +528,7 @@ impl EncodingStrategy<isize> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<isize, std::io::Error> {
         let out = if let Some(previous) = ctx.previous.take() {
-            let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+            let not_sorted = <bool as Encode>::decode(reader, &mut ctx.not_sorted)?;
             if not_sorted {
                 Small::decode(reader, &mut ctx.value)?
             } else {

@@ -1,5 +1,5 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodingStrategy};
+use super::{Encode, EncodeExt, Strategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
@@ -50,8 +50,8 @@ pub struct Lz77 {
     /// removed — evictions cause false positives but never false negatives.
     old_filter: OldFilter,
     count: <usize as Encode>::Context,
-    literal: <Values<Normal> as EncodingStrategy<Vec<u8>>>::Context,
-    back: <Small as EncodingStrategy<u8>>::Context,
+    literal: <Vec<u8> as Encode<Values<Normal>>>::Context,
+    back: <u8 as Encode<Small>>::Context,
     /// The default `usize` encoding (tiny-seeded `U64Compact`) rather than
     /// `Small<usize>`: a Lz77 offset is usually large, and `Small<usize>`
     /// would spend an extra `AtMost<7>` bucket symbol before recursing into
@@ -62,7 +62,7 @@ pub struct Lz77 {
     /// with bits to spare; see OPTIMIZING.md.
     offset: <usize as Encode>::Context,
     self_offset: <usize as Encode>::Context,
-    length: <Small as EncodingStrategy<u8>>::Context,
+    length: <u8 as Encode<Small>>::Context,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -301,7 +301,7 @@ impl Lz77 {
         &mut self,
         reader: &mut D,
     ) -> Result<Vec<u8>, std::io::Error> {
-        let count = usize::decode(reader, &mut self.count)?;
+        let count = <usize as Encode>::decode(reader, &mut self.count)?;
         let mut out = Vec::with_capacity(super::capacity_for::<u8>(count.saturating_mul(5)));
         let mut sentinel = Sentinel::new();
         for _ in 0..count {
@@ -473,13 +473,13 @@ Lossless compression is used in cases where it is important that the original an
 
 impl Encode for Chunk {
     type Context = Lz77;
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         let Chunk {
             literal,
             length,
             back,
             offset,
-        } = self;
+        } = value;
         literal.encode(writer, &mut ctx.literal);
         Small::encode(length, writer, &mut ctx.length);
         if *length > 0 {
@@ -496,13 +496,13 @@ impl Encode for Chunk {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         let literal = <Box<[u8]> as Encode>::decode(reader, &mut ctx.literal)?;
-        let length = <Small as EncodingStrategy<u8>>::decode(reader, &mut ctx.length)?;
+        let length = <u8 as Encode<Small>>::decode(reader, &mut ctx.length)?;
         if length > 0 {
             let back = Small::decode(reader, &mut ctx.back)?;
             let offset = if back == 0 {
-                usize::decode(reader, &mut ctx.self_offset)?
+                <usize as Encode>::decode(reader, &mut ctx.self_offset)?
             } else {
-                usize::decode(reader, &mut ctx.offset)?
+                <usize as Encode>::decode(reader, &mut ctx.offset)?
             };
             Ok(Chunk {
                 literal,
@@ -521,7 +521,7 @@ impl Encode for Chunk {
     }
 }
 
-impl EncodingStrategy<Vec<u8>> for Compressible {
+impl Encode<Compressible> for Vec<u8> {
     type Context = Lz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value, writer)

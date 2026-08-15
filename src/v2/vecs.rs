@@ -1,5 +1,5 @@
 use super::sentinel::Sentinel;
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
 
@@ -9,8 +9,8 @@ use expect_test::expect;
 impl<T: Encode> Encode for Vec<T> {
     type Context = Context<T, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        crate::Values::<Normal>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        crate::Values::<Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -24,8 +24,8 @@ impl<T: Encode> Encode for Vec<T> {
 impl<T: Encode> Encode for Box<[T]> {
     type Context = Context<T, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        crate::Values::<Normal>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        crate::Values::<Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -36,14 +36,14 @@ impl<T: Encode> Encode for Box<[T]> {
     }
 }
 
-impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<S> {
+impl<T: Encode<S>, S> Encode<crate::Values<S>> for VecDeque<T> {
     type Context = Context<T, S>;
     fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
     fn decode<D: EntropyDecoder>(
@@ -55,7 +55,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
-            out.push_back(S::decode(reader, &mut ctx.values)?);
+            out.push_back(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
         }
         Ok(out)
     }
@@ -64,8 +64,8 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<VecDeque<T>> for crate::Values<
 impl<T: Encode> Encode for VecDeque<T> {
     type Context = Context<T, Normal>;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        crate::Values::<Normal>::encode(self, writer, ctx)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        crate::Values::<Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -76,18 +76,25 @@ impl<T: Encode> Encode for VecDeque<T> {
     }
 }
 
-impl<T: Encode> Encode for Box<T> {
-    type Context = T::Context;
+/// `Box<T>` is transparent to the strategy: the box itself costs nothing on the
+/// wire, so whatever strategy is asked for applies to the value inside. Covers
+/// `Box<T>` under every strategy `T` supports, including ones from other crates.
+///
+/// (`Arc<T>`/`Rc<T>` are deliberately *not* transparent — their default encoding
+/// keeps a dictionary of repeated values, see [`arc`](super::arc).)
+#[diagnostic::do_not_recommend]
+impl<T: Encode<S>, S> Encode<S> for Box<T> {
+    type Context = <T as Encode<S>>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        (**self).encode(writer, ctx)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        <T as Encode<S>>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        T::decode(reader, ctx).map(Box::new)
+        <T as Encode<S>>::decode(reader, ctx).map(Box::new)
     }
 }
 #[test]
@@ -109,11 +116,11 @@ fn size() {
     expect!["55"].assert_eq(&estimated_bits!(dbg!((0_usize..10).collect::<Vec<_>>())));
 }
 
-pub struct Context<T, S: EncodingStrategy<T>> {
-    len: <Small as EncodingStrategy<usize>>::Context,
-    values: S::Context,
+pub struct Context<T: Encode<S>, S> {
+    len: <usize as Encode<Small>>::Context,
+    values: <T as Encode<S>>::Context,
 }
-impl<T, S: EncodingStrategy<T>> Default for Context<T, S> {
+impl<T: Encode<S>, S> Default for Context<T, S> {
     fn default() -> Self {
         Self {
             len: Default::default(),
@@ -121,7 +128,7 @@ impl<T, S: EncodingStrategy<T>> Default for Context<T, S> {
         }
     }
 }
-impl<T, S: EncodingStrategy<T>> Clone for Context<T, S> {
+impl<T: Encode<S>, S> Clone for Context<T, S> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
@@ -130,7 +137,7 @@ impl<T, S: EncodingStrategy<T>> Clone for Context<T, S> {
     }
 }
 
-impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
+impl<T: Encode<S>, S> Encode<crate::Values<S>> for Vec<T> {
     type Context = Context<T, S>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -141,7 +148,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
-            x.push(S::decode(reader, &mut ctx.values)?);
+            x.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
         }
         Ok(x)
     }
@@ -150,12 +157,12 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Vec<T>> for crate::Values<S> {
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
 }
 
-impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> {
+impl<T: Encode<S>, S> Encode<crate::Values<S>> for Box<[T]> {
     type Context = Context<T, S>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -166,7 +173,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
         let mut sentinel = Sentinel::new();
         for _ in 0..n {
             sentinel.decode(reader)?;
-            x.push(S::decode(reader, &mut ctx.values)?);
+            x.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
         }
         Ok(x.into_boxed_slice())
     }
@@ -175,7 +182,7 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
 }
@@ -183,8 +190,8 @@ impl<T, S: EncodingStrategy<T>> EncodingStrategy<Box<[T]>> for crate::Values<S> 
 #[derive(Clone)]
 pub struct SortedContext<T: Encode> {
     previous: Vec<T>,
-    shared_prefix: <Small as EncodingStrategy<usize>>::Context,
-    len: <Small as EncodingStrategy<usize>>::Context,
+    shared_prefix: <usize as Encode<Small>>::Context,
+    len: <usize as Encode<Small>>::Context,
     value: <T as Encode>::Context,
 }
 impl<T: Encode> Default for SortedContext<T> {
@@ -198,7 +205,7 @@ impl<T: Encode> Default for SortedContext<T> {
     }
 }
 
-impl<T: Encode + Clone + Eq> EncodingStrategy<Vec<T>> for Sorted {
+impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
     type Context = SortedContext<T>;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -280,8 +287,8 @@ fn incompressible_pieces(len: usize) -> impl Iterator<Item = usize> {
     })
 }
 
-impl EncodingStrategy<Vec<u8>> for Incompressible {
-    type Context = <Small as EncodingStrategy<usize>>::Context;
+impl Encode<Incompressible> for Vec<u8> {
+    type Context = <usize as Encode<Small>>::Context;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, ctx);
         let mut start = 0;

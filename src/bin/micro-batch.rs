@@ -7,7 +7,7 @@
 // same byte stream both ways is a clean A/B of the batch machinery.
 //
 // Usage: `micro-batch seq|batch`   (decode ITERS× under `perf stat`)
-use compactly::v2::{Ans, Encode, EntropyCoder, EntropyDecoder};
+use compactly::v2::{Ans, Encode, EncodeExt, EntropyCoder, EntropyDecoder};
 
 const N: usize = 16; // bits per group (compile-time batch width)
 const GROUPS: usize = 100_000;
@@ -20,8 +20,8 @@ struct Seq([bool; N]);
 impl Encode for Seq {
     type Context = Ctx;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, w: &mut E, c: &mut Self::Context) {
-        for (b, ctx) in self.0.iter().zip(c.iter_mut()) {
+    fn encode<E: EntropyCoder>(value: &Self, w: &mut E, c: &mut Self::Context) {
+        for (b, ctx) in value.0.iter().zip(c.iter_mut()) {
             b.encode(w, ctx);
         }
     }
@@ -40,8 +40,8 @@ struct Batch([bool; N]);
 impl Encode for Batch {
     type Context = Ctx;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, w: &mut E, c: &mut Self::Context) {
-        for (b, ctx) in self.0.iter().zip(c.iter_mut()) {
+    fn encode<E: EntropyCoder>(value: &Self, w: &mut E, c: &mut Self::Context) {
+        for (b, ctx) in value.0.iter().zip(c.iter_mut()) {
             b.encode(w, ctx);
         }
     }

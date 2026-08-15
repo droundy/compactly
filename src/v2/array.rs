@@ -1,10 +1,10 @@
-use super::Encode;
+use super::{Encode, EncodeExt};
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        for v in self {
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        for v in value {
             v.encode(writer, ctx);
         }
     }

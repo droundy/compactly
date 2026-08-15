@@ -1,4 +1,4 @@
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
+use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Strategy};
 use crate::LowCardinality;
 use std::{collections::HashMap, hash::Hash, ops::Deref, rc::Rc, sync::Arc};
 
@@ -38,14 +38,14 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for CacheContext<T> {
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
     type Context = CacheContext<T>;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let looked_up = ctx.cached.get(self).copied();
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let looked_up = ctx.cached.get(value).copied();
         looked_up.is_some().encode(writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
             idx.encode(writer, &mut ctx.index)
         } else {
-            ctx.cached.insert(self.clone(), ctx.cached.len());
-            self.deref().encode(writer, &mut ctx.context)
+            ctx.cached.insert(value.clone(), ctx.cached.len());
+            value.deref().encode(writer, &mut ctx.context)
         }
     }
     #[inline]
@@ -53,9 +53,9 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+        let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
         if is_cached {
-            let idx = usize::decode(reader, &mut ctx.index)?;
+            let idx = <usize as Encode>::decode(reader, &mut ctx.index)?;
             ctx.cache
                 .get(idx)
                 .cloned()
@@ -69,10 +69,10 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
 }
 
 impl Encode for Arc<str> {
-    type Context = <LowCardinality as EncodingStrategy<Arc<str>>>::Context;
+    type Context = <Arc<str> as Encode<LowCardinality>>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        LowCardinality::encode(self, writer, ctx)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        LowCardinality::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -119,14 +119,14 @@ impl<T: Encode + Hash + PartialEq + Eq> Clone for RcCacheContext<T> {
 impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
     type Context = RcCacheContext<T>;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let looked_up = ctx.cached.get(self).copied();
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let looked_up = ctx.cached.get(value).copied();
         looked_up.is_some().encode(writer, &mut ctx.is_cached);
         if let Some(idx) = looked_up {
             idx.encode(writer, &mut ctx.index)
         } else {
-            ctx.cached.insert(self.clone(), ctx.cached.len());
-            self.deref().encode(writer, &mut ctx.context)
+            ctx.cached.insert(value.clone(), ctx.cached.len());
+            value.deref().encode(writer, &mut ctx.context)
         }
     }
     #[inline]
@@ -134,9 +134,9 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let is_cached = bool::decode(reader, &mut ctx.is_cached)?;
+        let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
         if is_cached {
-            let idx = usize::decode(reader, &mut ctx.index)?;
+            let idx = <usize as Encode>::decode(reader, &mut ctx.index)?;
             ctx.cache
                 .get(idx)
                 .cloned()
@@ -150,10 +150,10 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
 }
 
 impl Encode for Rc<str> {
-    type Context = <LowCardinality as EncodingStrategy<Rc<str>>>::Context;
+    type Context = <Rc<str> as Encode<LowCardinality>>::Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        LowCardinality::encode(self, writer, ctx)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        LowCardinality::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(

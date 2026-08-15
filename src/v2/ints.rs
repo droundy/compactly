@@ -3,7 +3,7 @@ use super::atmost::geometric::{
 };
 use super::atmost::{AtMost, AtMostContext};
 use super::bit_context::BitContext;
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder, Small};
+use super::{Encode, EncodeExt, EntropyCoder, EntropyDecoder, Small, Strategy};
 use crate::{Incompressible, Sorted};
 
 #[cfg(test)]
@@ -18,11 +18,11 @@ macro_rules! impl_uint {
             pub struct SortedContext {
                 previous: Option<$t>,
                 not_sorted: <bool as Encode>::Context,
-                value: <Small as EncodingStrategy<$t>>::Context,
-                difference: <Small as EncodingStrategy<$t>>::Context,
+                value: <$t as Encode<Small>>::Context,
+                difference: <$t as Encode<Small>>::Context,
             }
 
-            impl EncodingStrategy<$t> for Sorted {
+            impl Encode<Sorted> for $t {
                 type Context = SortedContext;
                 fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
                     if let Some(previous) = ctx.previous.take() {
@@ -43,15 +43,11 @@ macro_rules! impl_uint {
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
                     let out = if let Some(previous) = ctx.previous.take() {
-                        let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+                        let not_sorted = <bool as Encode>::decode(reader, &mut ctx.not_sorted)?;
                         if not_sorted {
                             Small::decode(reader, &mut ctx.value)?
                         } else {
-                            previous
-                                + <Small as EncodingStrategy<$t>>::decode(
-                                    reader,
-                                    &mut ctx.difference,
-                                )?
+                            previous + <$t as Encode<Small>>::decode(reader, &mut ctx.difference)?
                         }
                     } else {
                         Small::decode(reader, &mut ctx.value)?
@@ -61,7 +57,7 @@ macro_rules! impl_uint {
                 }
             }
 
-            impl EncodingStrategy<$t> for Incompressible {
+            impl Encode<Incompressible> for $t {
                 type Context = ();
                 fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, _ctx: &mut Self::Context) {
                     writer.encode_incompressible_bytes(&value.to_le_bytes())
@@ -319,7 +315,7 @@ macro_rules! impl_compact {
             }
         }
 
-        impl EncodingStrategy<$t> for Small {
+        impl Encode<Small> for $t {
             type Context = $context;
             #[inline]
             fn encode<E: EntropyCoder>(value: &$t, writer: &mut E, ctx: &mut Self::Context) {
@@ -380,7 +376,7 @@ macro_rules! impl_compact {
                     reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
                 }
                 for i in 0..partial_bits {
-                    if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                    if <bool as Encode>::decode(reader, &mut ctx.partial[lz][i])? {
                         value_bytes[full_bytes] |= 1 << i;
                     }
                 }
@@ -411,8 +407,8 @@ macro_rules! impl_compact {
         impl Encode for $t {
             type Context = $default_context;
             #[inline]
-            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                Small::encode(self, writer, &mut ctx.0)
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                Small::encode(value, writer, &mut ctx.0)
             }
             #[inline]
             fn decode<D: EntropyDecoder>(
@@ -446,7 +442,7 @@ pub struct U16Compact {
     partial: [[<bool as Encode>::Context; 8]; 16],
 }
 
-impl EncodingStrategy<u16> for Small {
+impl Encode<Small> for u16 {
     type Context = U16Compact;
     #[inline]
     fn encode<E: EntropyCoder>(value: &u16, writer: &mut E, ctx: &mut Self::Context) {
@@ -478,7 +474,7 @@ impl EncodingStrategy<u16> for Small {
     ) -> Result<u16, std::io::Error> {
         let afewbits_val = usize::from(AtMost::<15>::decode(reader, &mut ctx.leading_zeros)?);
         let lz = if afewbits_val == 0 {
-            if bool::decode(reader, &mut ctx.lz_is_one)? {
+            if <bool as Encode>::decode(reader, &mut ctx.lz_is_one)? {
                 1
             } else {
                 0
@@ -497,7 +493,7 @@ impl EncodingStrategy<u16> for Small {
             reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
         }
         for i in 0..partial_bits {
-            if bool::decode(reader, &mut ctx.partial[lz][i])? {
+            if <bool as Encode>::decode(reader, &mut ctx.partial[lz][i])? {
                 value_bytes[full_bytes] |= 1 << i;
             }
         }
@@ -529,8 +525,8 @@ impl Default for U16Default {
 impl Encode for u16 {
     type Context = U16Default;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Small::encode(self, writer, &mut ctx.0)
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(value, writer, &mut ctx.0)
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
@@ -729,7 +725,7 @@ macro_rules! impl_signed_default_hierarchical {
     ($signed:ident, $unsigned:ident, $bits:literal) => {
         /// The unsigned hierarchical context the magnitude codes
         /// through — the very type `Small<$unsigned>` uses.
-        type MagnitudeContext = <Small as EncodingStrategy<$unsigned>>::Context;
+        type MagnitudeContext = <$unsigned as Encode<Small>>::Context;
 
         #[derive(Clone)]
         pub struct NormalContext {
@@ -753,13 +749,13 @@ macro_rules! impl_signed_default_hierarchical {
         impl Encode for $signed {
             type Context = NormalContext;
             #[inline]
-            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                let is_neg = *self < 0;
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                let is_neg = *value < 0;
                 is_neg.encode(writer, &mut ctx.is_negative);
                 let mag: $unsigned = if is_neg {
-                    self.abs_diff(-1)
+                    value.abs_diff(-1)
                 } else {
-                    self.abs_diff(0)
+                    value.abs_diff(0)
                 };
                 Small::encode(&mag, writer, &mut ctx.magnitude);
             }
@@ -768,7 +764,7 @@ macro_rules! impl_signed_default_hierarchical {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+                let is_neg = <bool as Encode>::decode(reader, &mut ctx.is_negative)?;
                 let mag: $unsigned = Small::decode(reader, &mut ctx.magnitude)?;
                 // The capped prior only *biases* against magnitudes past
                 // the signed range — a malformed stream can still decode
@@ -817,13 +813,13 @@ macro_rules! impl_signed_default_legacy {
         impl Encode for $signed {
             type Context = NormalContext;
             #[inline]
-            fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-                let is_neg = *self < 0;
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                let is_neg = *value < 0;
                 is_neg.encode(writer, &mut ctx.is_negative);
                 let mag: $unsigned = if is_neg {
-                    self.abs_diff(-1)
+                    value.abs_diff(-1)
                 } else {
-                    self.abs_diff(0)
+                    value.abs_diff(0)
                 };
                 // Encode magnitude as a ($bits-1)-bit value.
                 // mag < 2^($bits-1) so mag.leading_zeros() >= 1; adjusted_lz = leading_zeros - 1.
@@ -857,15 +853,15 @@ macro_rules! impl_signed_default_legacy {
                 reader: &mut D,
                 ctx: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
-                let is_neg = bool::decode(reader, &mut ctx.is_negative)?;
+                let is_neg = <bool as Encode>::decode(reader, &mut ctx.is_negative)?;
                 const MBITS: usize = $bits - 1;
                 let mut lz = 0usize;
                 let mag: $unsigned = loop {
                     if lz >= MBITS - 8 {
-                        let v = u8::decode(reader, &mut ctx.u8_ctx)?;
+                        let v = <u8 as Encode>::decode(reader, &mut ctx.u8_ctx)?;
                         break v as $unsigned;
                     }
-                    if bool::decode(reader, &mut ctx.leading_zero[MBITS - 1 - lz])? {
+                    if <bool as Encode>::decode(reader, &mut ctx.leading_zero[MBITS - 1 - lz])? {
                         let sig_bits = MBITS - 1 - lz;
                         let full_bytes = sig_bits / 8;
                         let partial_bits = sig_bits % 8;
@@ -874,7 +870,7 @@ macro_rules! impl_signed_default_legacy {
                             reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
                         }
                         for i in 0..partial_bits {
-                            if bool::decode(reader, &mut ctx.partial[lz][i])? {
+                            if <bool as Encode>::decode(reader, &mut ctx.partial[lz][i])? {
                                 value_bytes[full_bytes] |= 1 << i;
                             }
                         }
@@ -903,8 +899,8 @@ macro_rules! impl_signed {
             #[derive(Clone)]
             pub struct Context {
                 is_negative: <bool as Encode>::Context,
-                positive: <Small as EncodingStrategy<$unsigned>>::Context,
-                negative: <Small as EncodingStrategy<$unsigned>>::Context,
+                positive: <$unsigned as Encode<Small>>::Context,
+                negative: <$unsigned as Encode<Small>>::Context,
             }
             impl Default for Context {
                 #[inline]
@@ -917,7 +913,7 @@ macro_rules! impl_signed {
                 }
             }
 
-            impl EncodingStrategy<$signed> for Small {
+            impl Encode<Small> for $signed {
                 type Context = Context;
                 #[inline]
                 fn encode<E: EntropyCoder>(
@@ -937,17 +933,11 @@ macro_rules! impl_signed {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$signed, std::io::Error> {
-                    if bool::decode(reader, &mut ctx.is_negative)? {
-                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
-                            reader,
-                            &mut ctx.negative,
-                        )?;
+                    if <bool as Encode>::decode(reader, &mut ctx.is_negative)? {
+                        let p = <$unsigned as Encode<Small>>::decode(reader, &mut ctx.negative)?;
                         Ok(-1 - (p as $signed))
                     } else {
-                        let p = <Small as EncodingStrategy<$unsigned>>::decode(
-                            reader,
-                            &mut ctx.positive,
-                        )?;
+                        let p = <$unsigned as Encode<Small>>::decode(reader, &mut ctx.positive)?;
                         Ok(p as $signed)
                     }
                 }
@@ -956,11 +946,11 @@ macro_rules! impl_signed {
             pub struct SortedContext {
                 previous: Option<$signed>,
                 not_sorted: <bool as Encode>::Context,
-                value: <Small as EncodingStrategy<$signed>>::Context,
-                difference: <Small as EncodingStrategy<$unsigned>>::Context,
+                value: <$signed as Encode<Small>>::Context,
+                difference: <$unsigned as Encode<Small>>::Context,
             }
 
-            impl EncodingStrategy<$signed> for Sorted {
+            impl Encode<Sorted> for $signed {
                 type Context = SortedContext;
                 fn encode<E: EntropyCoder>(
                     value: &$signed,
@@ -985,17 +975,15 @@ macro_rules! impl_signed {
                     ctx: &mut Self::Context,
                 ) -> Result<$signed, std::io::Error> {
                     let out = if let Some(previous) = ctx.previous.take() {
-                        let not_sorted = bool::decode(reader, &mut ctx.not_sorted)?;
+                        let not_sorted = <bool as Encode>::decode(reader, &mut ctx.not_sorted)?;
                         if not_sorted {
                             Small::decode(reader, &mut ctx.value)?
                         } else {
                             previous
-                                .checked_add_unsigned(
-                                    <Small as EncodingStrategy<$unsigned>>::decode(
-                                        reader,
-                                        &mut ctx.difference,
-                                    )?,
-                                )
+                                .checked_add_unsigned(<$unsigned as Encode<Small>>::decode(
+                                    reader,
+                                    &mut ctx.difference,
+                                )?)
                                 .ok_or_else(|| std::io::Error::other("invalid addition"))?
                         }
                     } else {
