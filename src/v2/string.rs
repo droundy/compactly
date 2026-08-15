@@ -1,9 +1,11 @@
 use super::sentinel::Sentinel;
 mod init;
 
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
-use crate::{Compressible, Small, Sorted};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+use crate::{Compressible, Normal, Small, Sorted};
 
+#[cfg(test)]
+use super::millibits;
 #[cfg(test)]
 use expect_test::expect;
 
@@ -38,19 +40,19 @@ impl Default for CharContext {
 impl Encode for char {
     type Context = CharContext;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        let x = u32::from(*self);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let x = u32::from(*value);
         if x < 128 {
-            (x as u8).encode(writer, &mut ctx.first);
+            Normal::encode(&(x as u8), writer, &mut ctx.first);
         } else if x < ONE_CHUNK_CUTOFF {
             // Byte: `10` tag + high bits `x >> 8` (< 64); then the low byte.
-            (0x80 | (x >> 8) as u8).encode(writer, &mut ctx.first);
-            (x as u8).encode(writer, &mut ctx.one_chunk);
+            Normal::encode(&(0x80 | (x >> 8) as u8), writer, &mut ctx.first);
+            Normal::encode(&(x as u8), writer, &mut ctx.one_chunk);
         } else {
             // Byte: `11` tag + top bits `x >> 16` (<= 16); then two low bytes.
-            (0xc0 | (x >> 16) as u8).encode(writer, &mut ctx.first);
-            ((x >> 8) as u8).encode(writer, &mut ctx.two_chunk_a);
-            (x as u8).encode(writer, &mut ctx.two_chunk_b);
+            Normal::encode(&(0xc0 | (x >> 16) as u8), writer, &mut ctx.first);
+            Normal::encode(&((x >> 8) as u8), writer, &mut ctx.two_chunk_a);
+            Normal::encode(&(x as u8), writer, &mut ctx.two_chunk_b);
         }
     }
     #[inline]
@@ -58,56 +60,43 @@ impl Encode for char {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let byte = u8::decode(reader, &mut ctx.first)?;
+        let byte = <u8 as Encode>::decode(reader, &mut ctx.first)?;
         if byte < 128 {
             return Ok(char::from(byte));
         }
         let x = if byte < 192 {
             let high = (byte & 0x3f) as u32;
-            let low = u8::decode(reader, &mut ctx.one_chunk)? as u32;
+            let low = <u8 as Encode>::decode(reader, &mut ctx.one_chunk)? as u32;
             (high << 8) | low
         } else {
             let top = (byte & 0x3f) as u32;
-            let a = u8::decode(reader, &mut ctx.two_chunk_a)? as u32;
-            let b = u8::decode(reader, &mut ctx.two_chunk_b)? as u32;
+            let a = <u8 as Encode>::decode(reader, &mut ctx.two_chunk_a)? as u32;
+            let b = <u8 as Encode>::decode(reader, &mut ctx.two_chunk_b)? as u32;
             (top << 16) | (a << 8) | b
         };
         char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
     }
-}
 
-impl super::DecodeAsync<char> for crate::Normal {
     /// A leading byte, then up to two continuation bytes.
-    const MAX_BYTES: usize = 3 * <crate::Normal as super::DecodeAsync<u8>>::MAX_BYTES;
+    const MAX_BYTES: usize = 3 * <u8 as Encode>::MAX_BYTES;
 
     #[inline]
     async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<char, std::io::Error> {
-        let byte =
-            <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.first).await?;
+        let byte = <u8 as Encode>::decode_async(reader, &mut ctx.first).await?;
         if byte < 128 {
             return Ok(char::from(byte));
         }
         let x = if byte < 192 {
             let high = (byte & 0x3f) as u32;
-            let low =
-                <crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, &mut ctx.one_chunk)
-                    .await? as u32;
+            let low = <u8 as Encode>::decode_async(reader, &mut ctx.one_chunk).await? as u32;
             (high << 8) | low
         } else {
             let top = (byte & 0x3f) as u32;
-            let a = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
-                reader,
-                &mut ctx.two_chunk_a,
-            )
-            .await? as u32;
-            let b = <crate::Normal as super::DecodeAsync<u8>>::decode_async(
-                reader,
-                &mut ctx.two_chunk_b,
-            )
-            .await? as u32;
+            let a = <u8 as Encode>::decode_async(reader, &mut ctx.two_chunk_a).await? as u32;
+            let b = <u8 as Encode>::decode_async(reader, &mut ctx.two_chunk_b).await? as u32;
             (top << 16) | (a << 8) | b
         };
         char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
@@ -116,19 +105,19 @@ impl super::DecodeAsync<char> for crate::Normal {
 
 #[derive(Default, Clone)]
 pub struct Context {
-    len: <Small as EncodingStrategy<usize>>::Context,
+    len: <usize as Encode<Small>>::Context,
     chars: <char as Encode>::Context,
 }
 
 impl Encode for String {
     type Context = Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Small::encode(&self.chars().count(), writer, &mut ctx.len);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Small::encode(&value.chars().count(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
-        for b in self.chars() {
+        for b in value.chars() {
             sentinel.encode(writer);
-            b.encode(writer, &mut ctx.chars);
+            Normal::encode(&b, writer, &mut ctx.chars);
         }
     }
     #[inline]
@@ -145,9 +134,7 @@ impl Encode for String {
         }
         Ok(out)
     }
-}
 
-impl super::DecodeAsync<String> for crate::Normal {
     /// Length-driven: an arbitrary number of characters.
     const MAX_BYTES: usize = usize::MAX;
 
@@ -156,15 +143,12 @@ impl super::DecodeAsync<String> for crate::Normal {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let len = <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let len = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut out = String::with_capacity(super::capacity_for::<u8>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode_async(reader).await?;
-            out.push(
-                <crate::Normal as super::DecodeAsync<char>>::decode_async(reader, &mut ctx.chars)
-                    .await?,
-            );
+            out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
         }
         Ok(out)
     }
@@ -175,26 +159,24 @@ pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Con
     let mut sentinel = Sentinel::new();
     for c in s.chars() {
         sentinel.encode(writer);
-        c.encode(writer, &mut ctx.chars);
+        Normal::encode(&c, writer, &mut ctx.chars);
     }
 }
 
 impl Encode for Box<str> {
     type Context = Context;
     #[inline]
-    fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        encode_str(self.as_ref(), writer, ctx);
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        encode_str(value.as_ref(), writer, ctx);
     }
     #[inline]
     fn decode<D: EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        String::decode(reader, ctx).map(String::into_boxed_str)
+        <String as Encode>::decode(reader, ctx).map(String::into_boxed_str)
     }
-}
 
-impl super::DecodeAsync<Box<str>> for crate::Normal {
     /// Length-driven: an arbitrary number of characters.
     const MAX_BYTES: usize = usize::MAX;
 
@@ -203,7 +185,7 @@ impl super::DecodeAsync<Box<str>> for crate::Normal {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Box<str>, std::io::Error> {
-        <crate::Normal as super::DecodeAsync<String>>::decode_async(reader, ctx)
+        <String as Encode>::decode_async(reader, ctx)
             .await
             .map(String::into_boxed_str)
     }
@@ -212,12 +194,12 @@ impl super::DecodeAsync<Box<str>> for crate::Normal {
 #[derive(Default, Clone)]
 pub struct SortedContext {
     previous: String,
-    shared_prefix: <Small as EncodingStrategy<usize>>::Context,
-    len: <Small as EncodingStrategy<usize>>::Context,
+    shared_prefix: <usize as Encode<Small>>::Context,
+    len: <usize as Encode<Small>>::Context,
     chars: <char as Encode>::Context,
 }
 
-impl EncodingStrategy<String> for Sorted {
+impl Encode<Sorted> for String {
     type Context = SortedContext;
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -249,7 +231,7 @@ impl EncodingStrategy<String> for Sorted {
             let mut sentinel = Sentinel::new();
             for c in value.chars() {
                 sentinel.encode(writer);
-                c.encode(writer, &mut ctx.chars);
+                Normal::encode(&c, writer, &mut ctx.chars);
             }
         } else {
             let shared_prefix = value
@@ -263,14 +245,12 @@ impl EncodingStrategy<String> for Sorted {
             let mut sentinel = Sentinel::new();
             for c in value.chars().skip(shared_prefix) {
                 sentinel.encode(writer);
-                c.encode(writer, &mut ctx.chars);
+                Normal::encode(&c, writer, &mut ctx.chars);
             }
         }
         ctx.previous.clone_from(value);
     }
-}
 
-impl super::DecodeAsync<String> for Sorted {
     /// Length-driven: an arbitrary number of characters.
     const MAX_BYTES: usize = usize::MAX;
 
@@ -278,12 +258,10 @@ impl super::DecodeAsync<String> for Sorted {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let len: usize =
-            <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
+        let len: usize = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         if !ctx.previous.is_empty() {
             let shared_prefix =
-                <Small as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.shared_prefix)
-                    .await?;
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.shared_prefix).await?;
             // `shared_prefix` counts chars; the prefix's bytes are already in
             // place in `previous`, so find where it ends and drop the rest.
             let prefix_bytes = ctx
@@ -296,10 +274,8 @@ impl super::DecodeAsync<String> for Sorted {
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode_async(reader).await?;
-            ctx.previous.push(
-                <crate::Normal as super::DecodeAsync<char>>::decode_async(reader, &mut ctx.chars)
-                    .await?,
-            );
+            ctx.previous
+                .push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
         }
         Ok(ctx.previous.clone())
     }
@@ -316,8 +292,8 @@ Lossless data compression is used in many applications. For example, it is used 
 
 Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
-impl EncodingStrategy<String> for Compressible {
-    type Context = super::vecu8::Lz77;
+impl Encode<Compressible> for String {
+    type Context = super::bytes::Lz77;
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
         ctx.encode(value.as_bytes(), writer)
     }
@@ -329,9 +305,7 @@ impl EncodingStrategy<String> for Compressible {
         let bytes = ctx.decode(reader)?;
         String::from_utf8(bytes).map_err(std::io::Error::other)
     }
-}
 
-impl super::DecodeAsync<String> for Compressible {
     /// Unbounded: an Lz77 match or literal run of arbitrary length.
     const MAX_BYTES: usize = usize::MAX;
 
@@ -383,9 +357,9 @@ fn size() {
 
         format!(
             "normal: {:?} ({} bits), small: {:?} ({} bits)",
-            normal.millibits(),
+            millibits(&normal),
             super::encoded_bits!(value.iter().map(|s| s.to_string()).collect::<Vec<String>>()),
-            small.millibits(),
+            millibits(&small),
             super::encoded_bits!(value
                 .iter()
                 .map(|s| Encoded::<_, Compressible>::new(s.to_string()))
@@ -395,9 +369,9 @@ fn size() {
     expect!["normal: 8934 bits, small: 7123 bits"]
         .assert_eq(&compare_small_bits(COMPRESSIBLE_TEXT));
 
-    expect!["1000 mb"].assert_eq(&true.millibits().to_string());
-    expect!["4593 mb"].assert_eq(&'a'.millibits().to_string());
-    expect!["24038 mb"].assert_eq(&'😊'.millibits().to_string());
+    expect!["1000 mb"].assert_eq(&millibits(&true).to_string());
+    expect!["4593 mb"].assert_eq(&millibits(&'a').to_string());
+    expect!["24038 mb"].assert_eq(&millibits(&'😊').to_string());
     expect!["normal: 3 bits, small: 1 bits"].assert_eq(&compare_small_bits(""));
     expect!["normal: 8 bits, small: 16 bits"].assert_eq(&compare_small_bits("a"));
     expect!["normal: 12 bits, small: 22 bits"].assert_eq(&compare_small_bits("aa"));
@@ -429,15 +403,15 @@ fn size() {
 
     expect!["normal: Millibits(3000) (3 bits), small: Millibits(3000) (3 bits)"]
         .assert_eq(&compare_vecs(&[]));
-    expect!["5866 mb"].assert_eq(&'h'.millibits().to_string());
-    expect!["8866 mb"].assert_eq(&"h".to_string().millibits().to_string());
+    expect!["5866 mb"].assert_eq(&millibits(&'h').to_string());
+    expect!["8866 mb"].assert_eq(&millibits(&"h".to_string()).to_string());
 
     let s = "aaaaaaaaaaaaaaaa".to_string();
-    expect!["33974 mb"].assert_eq(&s.millibits().to_string());
+    expect!["33974 mb"].assert_eq(&millibits(&s).to_string());
     expect!["34"].assert_eq(&encoded_bits!(s.clone()));
 
     let s = "hello world this is a string".to_string();
-    expect!["140933 mb"].assert_eq(&s.millibits().to_string());
+    expect!["140933 mb"].assert_eq(&millibits(&s).to_string());
     expect!["141"].assert_eq(&encoded_bits!(s.clone()));
 
     expect!["normal: Millibits(11866) (12 bits), small: Millibits(19264) (19 bits)"]

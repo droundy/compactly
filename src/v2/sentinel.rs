@@ -94,7 +94,7 @@ pub(crate) struct Sentinel {
 impl Sentinel {
     /// A marker is one coded bit, and only every `SENTINEL_EVERY` elements —
     /// but the bound has to cover the element that does carry one.
-    pub(crate) const MAX_BYTES: usize = <crate::Normal as crate::v2::DecodeAsync<bool>>::MAX_BYTES;
+    pub(crate) const MAX_BYTES: usize = <bool as crate::v2::Encode>::MAX_BYTES;
 
     #[inline]
     pub(crate) fn new() -> Self {

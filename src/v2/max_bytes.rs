@@ -14,36 +14,32 @@
 //! probes it hardest, which [`skewed`] builds.
 
 use super::arith::{Decoder, Range, SETTLING_BYTES};
-use super::{AtMost, DecodeAsync, EncodingStrategy, EntropyDecoder};
+use super::{AtMost, Encode, EntropyDecoder};
 use crate::{Normal, Small};
 
 /// Code `values` back to back under one context, then decode them one at a
 /// time, asserting each round-trips. Returns the largest number of bytes any
 /// single value consumed, and reports it so looseness stays visible.
 ///
-/// Does not check a bound — a strategy only declares one once it has a
-/// [`DecodeAsync`] impl, since that is the only thing that reads it. Types
-/// still waiting for their async twin are measured here; [`worst_bytes`] is the
-/// checking version.
+/// Does not check a bound — [`worst_bytes`] is the checking version.
 #[track_caller]
 fn measure<T, S>(what: &str, values: &[T]) -> usize
 where
-    T: PartialEq + std::fmt::Debug,
-    S: EncodingStrategy<T>,
+    T: Encode<S> + PartialEq + std::fmt::Debug,
 {
     let mut coder = Range::default();
-    let mut ctx = S::Context::default();
+    let mut ctx = <T as Encode<S>>::Context::default();
     for v in values {
-        S::encode(v, &mut coder, &mut ctx);
+        <T as Encode<S>>::encode(v, &mut coder, &mut ctx);
     }
     let bytes = coder.into_vec();
 
     let mut reader = Decoder::new(&bytes);
-    let mut ctx = S::Context::default();
+    let mut ctx = <T as Encode<S>>::Context::default();
     let mut worst = 0;
     for (i, expected) in values.iter().enumerate() {
         let before = reader.bytes_remaining();
-        let got = S::decode(&mut reader, &mut ctx)
+        let got = <T as Encode<S>>::decode(&mut reader, &mut ctx)
             .unwrap_or_else(|e| panic!("{what}: value {i} failed to decode: {e}"));
         assert_eq!(&got, expected, "{what}: value {i} did not round-trip");
         worst = worst.max(before - reader.bytes_remaining());
@@ -56,23 +52,22 @@ where
 #[track_caller]
 fn worst_bytes<T, S>(what: &str, values: &[T]) -> usize
 where
-    T: PartialEq + std::fmt::Debug,
-    S: DecodeAsync<T>,
+    T: Encode<S> + PartialEq + std::fmt::Debug,
 {
     let worst = measure::<T, S>(what, values);
-    let allowed = S::MAX_BYTES.saturating_add(SETTLING_BYTES);
+    let max_bytes = <T as Encode<S>>::MAX_BYTES;
+    let allowed = max_bytes.saturating_add(SETTLING_BYTES);
     assert!(
         worst <= allowed,
         "{what}: a value consumed {worst} bytes, over the {allowed} its MAX_BYTES \
-         of {} allows (plus {SETTLING_BYTES} settling)",
-        S::MAX_BYTES
+         of {max_bytes} allows (plus {SETTLING_BYTES} settling)"
     );
     println!(
         "{what:34} worst {worst:>3} of {} declared",
-        if S::MAX_BYTES == usize::MAX {
+        if max_bytes == usize::MAX {
             "unbounded".to_string()
         } else {
-            S::MAX_BYTES.to_string()
+            max_bytes.to_string()
         }
     );
     worst

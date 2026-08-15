@@ -6,7 +6,7 @@ impl<T> Encode for PhantomData<T> {
     type Context = ();
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, _encoder: &mut E, _ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(_value: &Self, _encoder: &mut E, _ctx: &mut Self::Context) {
         // PhantomData carries no runtime information, so encoding is a no-op
     }
 
@@ -18,13 +18,24 @@ impl<T> Encode for PhantomData<T> {
         // PhantomData can always be constructed without decoding anything
         Ok(PhantomData)
     }
+
+    /// Carries no runtime information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        _decoder: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(PhantomData)
+    }
 }
 
 impl Encode for PhantomPinned {
     type Context = ();
 
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, _encoder: &mut E, _ctx: &mut Self::Context) {
+    fn encode<E: super::EntropyCoder>(_value: &Self, _encoder: &mut E, _ctx: &mut Self::Context) {
         // PhantomData carries no runtime information, so encoding is a no-op
     }
 
@@ -36,9 +47,7 @@ impl Encode for PhantomPinned {
         // PhantomData can always be constructed without decoding anything
         Ok(PhantomPinned)
     }
-}
 
-impl<T> super::DecodeAsync<PhantomData<T>> for crate::Normal {
     /// Carries no runtime information, so nothing is coded.
     const MAX_BYTES: usize = 0;
 
@@ -46,20 +55,7 @@ impl<T> super::DecodeAsync<PhantomData<T>> for crate::Normal {
     async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         _decoder: &mut D,
         _ctx: &mut Self::Context,
-    ) -> Result<PhantomData<T>, std::io::Error> {
-        Ok(PhantomData)
-    }
-}
-
-impl super::DecodeAsync<PhantomPinned> for crate::Normal {
-    /// Carries no runtime information, so nothing is coded.
-    const MAX_BYTES: usize = 0;
-
-    #[inline]
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        _decoder: &mut D,
-        _ctx: &mut Self::Context,
-    ) -> Result<PhantomPinned, std::io::Error> {
+    ) -> Result<Self, std::io::Error> {
         Ok(PhantomPinned)
     }
 }

@@ -38,8 +38,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use compactly::v2::{decode_stream, Ans, DecodeAsync, Encode, Range};
-use compactly::Normal;
+use compactly::v2::{decode_stream, Ans, Encode, Range};
 use futures_core::Stream;
 
 /// How many chunks the `async-split` arm delivers. 2 (a single byte, then the
@@ -119,10 +118,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn decode_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(compactly::v2::decode::<T>(compressed))
@@ -132,10 +128,7 @@ where
     total
 }
 
-fn decode_sync_stream<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_sync_stream<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(Range::decode_from::<T, _>(compressed))
@@ -145,10 +138,7 @@ where
     total
 }
 
-fn decode_ans_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_ans_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(Ans::decode::<T>(compressed))
@@ -161,10 +151,7 @@ where
 /// `Ans` has no single-chunk look-ahead: a frame is decodable only once it has
 /// arrived whole, so the async decoder runs whatever the stream shape. What
 /// varies with `chunks` is only how the frames are cut up on the way in.
-fn decode_ans_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_ans_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         let source = Chunks::new(compressed, chunks);
@@ -175,10 +162,7 @@ where
     total
 }
 
-fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         let source = Chunks::new(compressed, chunks);
@@ -232,10 +216,7 @@ fn meteorite_names() -> Vec<String> {
     out.into_iter().collect()
 }
 
-fn run<T: Encode + Len>(which: &str, compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn run<T: Encode + Len>(which: &str, compressed: &[u8], iters: usize) -> usize {
     match which {
         "slice" => decode_slice::<T>(compressed, iters),
         "stream" => decode_sync_stream::<T>(compressed, iters),

@@ -1,7 +1,7 @@
 use super::sentinel::Sentinel;
 use crate::{Normal, Small, Sorted, Values};
 
-use super::{Encode, EncodingStrategy};
+use super::{Encode, Strategy};
 use std::{
     collections::{BTreeSet, HashSet},
     hash::Hash,
@@ -10,11 +10,11 @@ use std::{
 #[cfg(test)]
 use expect_test::expect;
 
-pub struct SetContext<T, S: EncodingStrategy<T>> {
+pub struct SetContext<T: Encode<S>, S> {
     len: <usize as Encode>::Context,
-    values: S::Context,
+    values: <T as Encode<S>>::Context,
 }
-impl<T, S: EncodingStrategy<T>> Default for SetContext<T, S> {
+impl<T: Encode<S>, S> Default for SetContext<T, S> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -23,7 +23,7 @@ impl<T, S: EncodingStrategy<T>> Default for SetContext<T, S> {
         }
     }
 }
-impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
+impl<T: Encode<S>, S> Clone for SetContext<T, S> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
@@ -35,8 +35,8 @@ impl<T, S: EncodingStrategy<T>> Clone for SetContext<T, S> {
 impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
     type Context = SetContext<T, Normal>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Values::<Normal>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Values::<Normal>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -44,6 +44,17 @@ impl<T: Encode + Hash + Eq> Encode for HashSet<T> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Values::<Normal>::decode(reader, ctx)
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<HashSet<T>, std::io::Error>> {
+        <HashSet<T> as Encode<Values<Normal>>>::decode_awaiting(reader, ctx)
     }
 }
 
@@ -63,12 +74,12 @@ fn hashset() {
 
 impl<T: Ord> Encode for BTreeSet<T>
 where
-    Sorted: EncodingStrategy<T>,
+    T: Encode<Sorted>,
 {
     type Context = SetContext<T, Sorted>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        Values::<Sorted>::encode(self, writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Values::<Sorted>::encode(value, writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -77,23 +88,34 @@ where
     ) -> Result<Self, std::io::Error> {
         Values::<Sorted>::decode(reader, ctx)
     }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<BTreeSet<T>, std::io::Error>> {
+        <BTreeSet<T> as Encode<Values<Sorted>>>::decode_awaiting(reader, ctx)
+    }
 }
 
 #[derive(Default, Clone)]
 pub struct CompactU64Set {
     size: <usize as Encode>::Context,
-    first: <Small as EncodingStrategy<u64>>::Context,
-    diff: <Small as EncodingStrategy<u64>>::Context,
+    first: <u64 as Encode<Small>>::Context,
+    diff: <u64 as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<BTreeSet<u64>> for super::Small {
+impl Encode<super::Small> for BTreeSet<u64> {
     type Context = CompactU64Set;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<u64>,
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.size);
+        Normal::encode(&value.len(), writer, &mut ctx.size);
         let mut iter = value.iter().copied();
         if let Some(mut prev) = iter.next() {
             Small::encode(&prev, writer, &mut ctx.first);
@@ -109,7 +131,7 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<u64>, std::io::Error> {
-        let len = usize::decode(reader, &mut ctx.size)?;
+        let len = <usize as Encode>::decode(reader, &mut ctx.size)?;
         // Stage + collect: bulk-build from the sorted stream, as in
         // `Values<S> for BTreeSet` below.
         let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
@@ -126,27 +148,52 @@ impl EncodingStrategy<BTreeSet<u64>> for super::Small {
         }
         Ok(values.into_iter().collect())
     }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<u64>, std::io::Error> {
+        let len = <usize as Encode>::decode_async(reader, &mut ctx.size).await?;
+        // Stage + collect: bulk-build from the sorted stream, as in
+        // `Values<S> for BTreeSet` below.
+        let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
+        if len > 0 {
+            let mut prev = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.first).await?;
+            values.push(prev);
+            let mut sentinel = Sentinel::new();
+            for _ in 1..len {
+                sentinel.decode_async(reader).await?;
+                let diff: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.diff).await?;
+                prev += diff;
+                values.push(prev);
+            }
+        }
+        Ok(values.into_iter().collect())
+    }
 }
 
-impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S> {
+impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(
         value: &BTreeSet<T>,
         writer: &mut E,
         ctx: &mut Self::Context,
     ) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<BTreeSet<T>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         // Stage in a Vec: the elements arrive in sorted order, and
         // `FromIterator` bulk-builds packed nodes from sorted input in O(n) —
         // measured ~4.7x faster than per-element `insert` on 38k strings
@@ -163,7 +210,26 @@ impl<T: Ord, S: EncodingStrategy<T>> EncodingStrategy<BTreeSet<T>> for Values<S>
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
-            values.push(S::decode(reader, &mut ctx.values)?);
+            values.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
+        }
+        Ok(values.into_iter().collect())
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeSet<T>, std::io::Error> {
+        let len: usize = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
+        // Stage in a Vec — see the sync `decode` above for why `collect`
+        // rather than a per-element `insert` loop.
+        let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            values.push(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
         }
         Ok(values.into_iter().collect())
     }
@@ -190,17 +256,28 @@ impl Ord for OrdOnFirstField {
 #[cfg(test)]
 impl Encode for OrdOnFirstField {
     type Context = (<i32 as Encode>::Context, <char as Encode>::Context);
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        self.0.encode(writer, &mut ctx.0);
-        self.1.encode(writer, &mut ctx.1);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&value.0, writer, &mut ctx.0);
+        Normal::encode(&value.1, writer, &mut ctx.1);
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self(
-            i32::decode(reader, &mut ctx.0)?,
-            char::decode(reader, &mut ctx.1)?,
+            <i32 as Encode>::decode(reader, &mut ctx.0)?,
+            <char as Encode>::decode(reader, &mut ctx.1)?,
+        ))
+    }
+
+    const MAX_BYTES: usize = <i32 as Encode>::MAX_BYTES.saturating_add(<char as Encode>::MAX_BYTES);
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self(
+            <i32 as Encode>::decode_async(reader, &mut ctx.0).await?,
+            <char as Encode>::decode_async(reader, &mut ctx.1).await?,
         ))
     }
 }
@@ -217,19 +294,17 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     // valid stream.
     let mut writer = super::Range::default();
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
-    2_usize.encode(&mut writer, &mut ctx.len);
-    OrdOnFirstField(1, 'a').encode(&mut writer, &mut ctx.values);
-    OrdOnFirstField(1, 'b').encode(&mut writer, &mut ctx.values);
+    Normal::encode(&2_usize, &mut writer, &mut ctx.len);
+    Normal::encode(&OrdOnFirstField(1, 'a'), &mut writer, &mut ctx.values);
+    Normal::encode(&OrdOnFirstField(1, 'b'), &mut writer, &mut ctx.values);
     let bytes = writer.into_vec();
 
     use super::EntropyDecoder;
     let mut reader = super::arith::Decoder::new(&bytes);
     let mut ctx = SetContext::<OrdOnFirstField, crate::Normal>::default();
-    let decoded = <Values<crate::Normal> as EncodingStrategy<BTreeSet<OrdOnFirstField>>>::decode(
-        &mut reader,
-        &mut ctx,
-    )
-    .unwrap();
+    let decoded =
+        <BTreeSet<OrdOnFirstField> as Encode<Values<crate::Normal>>>::decode(&mut reader, &mut ctx)
+            .unwrap();
 
     // `collect`'s `FromIterator` keeps *every* Eq-distinct element of the
     // Ord-equal run (a technically-malformed set of len 2); the old
@@ -244,26 +319,43 @@ fn btreeset_bulk_build_keeps_ord_equal_dupes() {
     );
 }
 
-impl<T: Hash + Eq, S: EncodingStrategy<T>> EncodingStrategy<HashSet<T>> for Values<S> {
+impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
-        value.len().encode(writer, &mut ctx.len);
+        Normal::encode(&value.len(), writer, &mut ctx.len);
         let mut sentinel = Sentinel::new();
         for v in value {
             sentinel.encode(writer);
-            S::encode(v, writer, &mut ctx.values);
+            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
         }
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<HashSet<T>, std::io::Error> {
-        let len: usize = Encode::decode(reader, &mut ctx.len)?;
+        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
         let mut sentinel = Sentinel::new();
         for _ in 0..len {
             sentinel.decode(reader)?;
-            set.insert(S::decode(reader, &mut ctx.values)?);
+            set.insert(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
+        }
+        Ok(set)
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashSet<T>, std::io::Error> {
+        let len: usize = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
+        let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
+        let mut sentinel = Sentinel::new();
+        for _ in 0..len {
+            sentinel.decode_async(reader).await?;
+            set.insert(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
         }
         Ok(set)
     }
@@ -339,108 +431,4 @@ fn compact_btreeset() {
         super::Ans,
         Encoded::<_, Small>::new(BTreeSet::from_iter(2_000_000_u64..2_002_048))
     ));
-}
-
-impl<T: Encode + Hash + Eq> super::DecodeAsync<HashSet<T>> for Normal
-where
-    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
-{
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
-
-    #[inline]
-    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<HashSet<T>, std::io::Error>> {
-        <Values<Normal> as super::DecodeAsync<HashSet<T>>>::decode_awaiting(reader, ctx)
-    }
-}
-
-impl<T: Ord> super::DecodeAsync<BTreeSet<T>> for Normal
-where
-    Sorted: super::DecodeAsync<T>,
-{
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
-
-    #[inline]
-    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> impl std::future::Future<Output = Result<BTreeSet<T>, std::io::Error>> {
-        <Values<Sorted> as super::DecodeAsync<BTreeSet<T>>>::decode_awaiting(reader, ctx)
-    }
-}
-
-impl super::DecodeAsync<BTreeSet<u64>> for super::Small {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<BTreeSet<u64>, std::io::Error> {
-        let len =
-            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.size).await?;
-        // Stage + collect: bulk-build from the sorted stream, as in
-        // `Values<S> for BTreeSet` below.
-        let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
-        if len > 0 {
-            let mut prev =
-                <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.first).await?;
-            values.push(prev);
-            let mut sentinel = Sentinel::new();
-            for _ in 1..len {
-                sentinel.decode_async(reader).await?;
-                let diff: u64 =
-                    <Small as super::DecodeAsync<u64>>::decode_async(reader, &mut ctx.diff).await?;
-                prev += diff;
-                values.push(prev);
-            }
-        }
-        Ok(values.into_iter().collect())
-    }
-}
-
-impl<T: Ord, S: super::DecodeAsync<T>> super::DecodeAsync<BTreeSet<T>> for Values<S> {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<BTreeSet<T>, std::io::Error> {
-        let len: usize =
-            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
-        // Stage in a Vec — see the sync `decode` above for why `collect`
-        // rather than a per-element `insert` loop.
-        let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            values.push(S::decode_async(reader, &mut ctx.values).await?);
-        }
-        Ok(values.into_iter().collect())
-    }
-}
-
-impl<T: Hash + Eq, S: super::DecodeAsync<T>> super::DecodeAsync<HashSet<T>> for Values<S> {
-    /// Length-driven: an arbitrary number of entries.
-    const MAX_BYTES: usize = usize::MAX;
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<HashSet<T>, std::io::Error> {
-        let len: usize =
-            <Normal as super::DecodeAsync<usize>>::decode_async(reader, &mut ctx.len).await?;
-        let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            set.insert(S::decode_async(reader, &mut ctx.values).await?);
-        }
-        Ok(set)
-    }
 }

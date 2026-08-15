@@ -40,6 +40,15 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   it is far less noisy than wall-clock under contention:
   `taskset -c 2 perf stat -e cpu_core/cycles/ <bin>` and take the **min** of a
   few runs.
+  - **The `cpu_core/` prefix and the pinning are both load-bearing on this
+    hybrid CPU.** A bare `-e instructions` (or `-e cycles`) counts on only one
+    core type while the process migrates between P- and E-cores, so it silently
+    reports a fraction of the work. Symptom: repeated runs of the *same binary*
+    drift monotonically downward — 5.4e9 → 4.5e9 → 3.0e9 → 2.4e9 was observed,
+    a 2.2× spread on a counter that should be deterministic. With
+    `taskset -c <cpu> perf stat -e cpu_core/instructions/` the same binary
+    repeats to within 0.01%. If an A/B looks noisy at the tens-of-percent
+    level, suspect this before suspecting the code.
 - **Some of these targets need `--features benchmarking`.** The forced-walk and
   forced-decoder hooks they call are gated behind that feature (off by default),
   so `benches/atmost.rs`, `ans-decode-phases`, and `just-decompress-stream`
@@ -1244,7 +1253,7 @@ optimize down to the fused path. Keep both decoders. (Reproducer:
 
 The async decoder (`v2::stream::decode_stream`, `AsyncRangeDecoder`) makes every
 read point suspendable — `AsyncEntropyDecoder::decode_bits`,
-`decode_symbol_step`, and every `DecodeAsync::decode_async` are futures. The
+`decode_symbol_step`, and every `Encode::decode_async` are futures. The
 question this settles is what that machinery costs *before* any concurrency
 benefit, so the async arm is fed the whole compressed buffer as a **single**
 `Bytes`: no await ever suspends (`async-decode-cost` panics if one does), which
@@ -2077,7 +2086,7 @@ not started.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
-These are *new `EncodingStrategy` types*, not coder-level speed tweaks, so they
+These are *new strategy types* (new `Encode<S>` impls), not coder-level speed tweaks, so they
 live a little outside this doc's primary "make decode faster" scope. They are here
 because several also *help* decode: a strategy that turns a full value into a
 1-bit-plus-tiny-index hit replaces a whole tree-walk (#2) with a couple of bit

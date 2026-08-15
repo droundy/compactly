@@ -2,7 +2,11 @@ use super::atmost::{walks, AtMost, AtMostContext};
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, SHIFT};
 #[cfg(feature = "stream")]
 use super::AsyncEntropyDecoder;
+#[cfg(test)]
+use super::Strategy;
 use super::{EntropyCoder, EntropyDecoder};
+#[cfg(test)]
+use crate::Normal;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithState {
@@ -381,7 +385,7 @@ impl Range {
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
-        crate::Normal: super::DecodeAsync<T>,
+        T: super::Encode,
         S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
@@ -1674,8 +1678,16 @@ mod tests {
         struct AlwaysFails;
         impl crate::v2::Encode for AlwaysFails {
             type Context = ();
-            fn encode<E: EntropyCoder>(&self, _: &mut E, _: &mut Self::Context) {}
+            fn encode<E: EntropyCoder>(_: &Self, _: &mut E, _: &mut Self::Context) {}
             fn decode<D: EntropyDecoder>(
+                _: &mut D,
+                _: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Err(std::io::Error::other("downstream validation symptom"))
+            }
+
+            const MAX_BYTES: usize = 0;
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
                 _: &mut D,
                 _: &mut Self::Context,
             ) -> Result<Self, std::io::Error> {
@@ -1721,7 +1733,11 @@ fn range_debug_summarizes_rather_than_dumping() {
     // A large in-progress encode must not format its whole output buffer.
     let big: Vec<u64> = (0..50_000).collect();
     let mut coder = Range::default();
-    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    Normal::encode(
+        &big,
+        &mut coder,
+        &mut <Vec<u64> as Encode>::Context::default(),
+    );
     let shown = format!("{coder:?}");
     assert!(
         shown.len() < 300,

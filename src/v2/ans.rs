@@ -4,8 +4,12 @@ use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
 #[cfg(feature = "stream")]
 use super::AsyncEntropyDecoder;
 use super::{EntropyCoder, EntropyDecoder};
-mod bytebuf;
-use bytebuf::Bytes;
+mod bytes;
+#[cfg(test)]
+use super::Strategy;
+#[cfg(test)]
+use crate::Normal;
+use bytes::Bytes;
 
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
@@ -311,7 +315,7 @@ impl<W: std::io::Write> AnsEncoder<W> {
 }
 
 impl Ans {
-    /// Decode a value from an async stream of [`Bytes`](bytes::Bytes), decoding
+    /// Decode a value from an async stream of [`Bytes`](::bytes::Bytes), decoding
     /// each chunk frame as it arrives rather than waiting for the whole input.
     /// Accepts the same bytes [`Ans::encode`] produces.
     ///
@@ -320,8 +324,8 @@ impl Ans {
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
-        crate::Normal: super::DecodeAsync<T>,
-        S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+        T: super::Encode,
+        S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
         let mut source = super::stream::ChunkSource::new(stream).await;
@@ -584,19 +588,7 @@ impl Ans {
         }
         checksum
     }
-    /// Finish encoding: flush the final chunk and return the framed stream.
-    ///
-    /// The stream is a sequence of chunks, each opening with a varint tag whose
-    /// low bit distinguishes the two frame shapes (see
-    /// [`AnsEncoder::flush_chunk`]). Non-final chunks — flushed during recording
-    /// once the op buffer reaches [`CHUNK_OPS`] — are
-    /// `[op_count * 2 + 1][entropy-len][incompressible-len][entropy][incompressible]`.
-    /// The final chunk is `[raw-len * 2][incompressible][entropy]`, its entropy
-    /// running to the end of the stream: nothing follows it, so that length would
-    /// be redundant. `entropy` is the chunk's self-contained rANS stream (state
-    /// then body, in decode order). The contexts adapt continuously across chunk
-    /// boundaries, so chunking costs only one rANS state-flush (plus the frame
-    /// header) per chunk.
+    /// Finish encoding and return the completed byte stream.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")
@@ -2003,7 +1995,11 @@ fn debug_summarizes_rather_than_dumping() {
     let big: Vec<u64> = (0..50_000).collect();
 
     let mut coder = Ans::default();
-    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    Normal::encode(
+        &big,
+        &mut coder,
+        &mut <Vec<u64> as Encode>::Context::default(),
+    );
     let shown = format!("{coder:?}");
     assert!(
         shown.len() < 300,
@@ -2255,7 +2251,7 @@ const OPS_MARGIN: usize = 256;
 #[cfg(feature = "stream")]
 const PUMP_INTERVAL: u32 = 1024;
 
-/// Decodes [`Ans`]'s format from a stream of [`Bytes`](bytes::Bytes), one chunk
+/// Decodes [`Ans`]'s format from a stream of [`Bytes`](::bytes::Bytes), one chunk
 /// frame at a time.
 ///
 /// Where [`AsyncRangeDecoder`](super::arith::AsyncRangeDecoder) must be able to
@@ -2302,7 +2298,7 @@ impl<S> std::fmt::Debug for AsyncAnsDecoder<S> {
 #[cfg(feature = "stream")]
 impl<S, E> AsyncAnsDecoder<S>
 where
-    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     /// Build a decoder over a source, entering its first chunk.
@@ -2551,7 +2547,7 @@ where
 #[cfg(feature = "stream")]
 impl<S, E> super::AsyncEntropyDecoder for AsyncAnsDecoder<S>
 where
-    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;

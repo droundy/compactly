@@ -1,12 +1,12 @@
-use super::Encode;
+use super::{Encode, Strategy};
 use crate::Normal;
 
 impl<T: Encode, const N: usize> Encode for [T; N] {
     type Context = T::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        for v in self {
-            v.encode(writer, ctx);
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        for v in value {
+            Normal::encode(v, writer, ctx);
         }
     }
     #[inline]
@@ -21,17 +21,9 @@ impl<T: Encode, const N: usize> Encode for [T; N] {
         x.try_into()
             .map_err(|_| std::io::Error::other("impossible: x should have N values"))
     }
-}
 
-impl<T: Encode, const N: usize> super::DecodeAsync<[T; N]> for Normal
-where
-    // The equality is what the blanket `EncodingStrategy for Normal` impl says,
-    // but with `Normal: DecodeAsync<T>` in scope the compiler prefers that
-    // param-env candidate and stops normalizing, so restate it.
-    Normal: super::DecodeAsync<T> + super::EncodingStrategy<T, Context = <T as Encode>::Context>,
-{
     /// `N` elements and no length — `N` is known at compile time.
-    const MAX_BYTES: usize = <Normal as super::DecodeAsync<T>>::MAX_BYTES.saturating_mul(N);
+    const MAX_BYTES: usize = <T as Encode>::MAX_BYTES.saturating_mul(N);
 
     #[inline]
     async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
@@ -40,7 +32,7 @@ where
     ) -> Result<[T; N], std::io::Error> {
         let mut x = Vec::with_capacity(N);
         for _ in 0..N {
-            x.push(<Normal as super::DecodeAsync<T>>::decode_async(reader, ctx).await?);
+            x.push(<T as Encode>::decode_async(reader, ctx).await?);
         }
         x.try_into()
             .map_err(|_| std::io::Error::other("impossible: x should have N values"))
