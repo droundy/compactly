@@ -135,7 +135,7 @@ mod usizes;
 mod vecs;
 mod vecu8;
 
-use crate::{LowCardinality, Small};
+use crate::{LowCardinality, Normal, Small};
 pub use ans::Ans;
 #[cfg(feature = "stream")]
 pub use arith::AsyncRangeDecoder;
@@ -305,7 +305,7 @@ pub trait EntropyDecoder {
     /// a bad `char`) deeper in `Encode::decode`, and returning that downstream
     /// symptom would silently drop the root cause that produced it.
     ///
-    /// For a type's default encoding use [`Normal`](crate::Normal) as `S`.
+    /// For a type's default encoding use [`Normal`] as `S`.
     #[inline]
     fn decode_value<T, S: EncodingStrategy<T>>(mut self) -> std::io::Result<T>
     where
@@ -594,9 +594,7 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 ///
 /// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
-    arith::Decoder::new(bytes)
-        .decode_value::<T, crate::Normal>()
-        .ok()
+    arith::Decoder::new(bytes).decode_value::<T, Normal>().ok()
 }
 
 /// Eager pre-allocation size for a length decoded from untrusted input.
@@ -670,7 +668,7 @@ pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T>
 #[cfg(feature = "stream")]
 pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
 where
-    crate::Normal: DecodeAsync<T>,
+    Normal: DecodeAsync<T>,
     S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
@@ -708,7 +706,7 @@ pub trait EncodingStrategy<T> {
 ///
 /// Keyed on the *strategy* rather than the type, because the strategy is what
 /// determines the coding schedule — `Small`'s `u64` and `Normal`'s do not read
-/// the same bytes. A type's default encoding is simply the [`Normal`](crate::Normal)
+/// the same bytes. A type's default encoding is simply the [`Normal`]
 /// strategy, so `Normal: DecodeAsync<T>` is the async counterpart of
 /// `T: Encode`, and nothing here has to change if [`Encode`] is ever folded
 /// into `Normal`.
@@ -836,9 +834,9 @@ impl<T, S: EncodingStrategy<T>> Encode for crate::Encoded<T, S> {
     }
 }
 
-impl<T, S: DecodeAsync<T>> DecodeAsync<crate::Encoded<T, S>> for crate::Normal
+impl<T, S: DecodeAsync<T>> DecodeAsync<crate::Encoded<T, S>> for Normal
 where
-    crate::Normal: EncodingStrategy<crate::Encoded<T, S>, Context = S::Context>,
+    Normal: EncodingStrategy<crate::Encoded<T, S>, Context = S::Context>,
 {
     /// Exactly the wrapped strategy's.
     const MAX_BYTES: usize = S::MAX_BYTES;
@@ -855,7 +853,7 @@ where
     }
 }
 
-impl<T: Encode> EncodingStrategy<T> for crate::Normal {
+impl<T: Encode> EncodingStrategy<T> for Normal {
     type Context = <T as Encode>::Context;
     #[inline]
     fn encode<E: EntropyCoder>(value: &T, writer: &mut E, ctx: &mut Self::Context) {
