@@ -84,13 +84,7 @@
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
 
-/// Derive [`Encode`](trait@Encode): both the sync impl and the async-decode
-/// members ([`Encode::MAX_BYTES`], [`Encode::decode_awaiting`]) that
-/// [`decode_stream`] needs.
-///
-/// There is only ever one derive: [`Encode`](trait@Encode) is one trait with
-/// no opt-out, so a type reachable through `decode_stream` needs every field's
-/// type to implement it too — which every type in this crate does.
+/// Derive [`Encode`](trait@Encode), which allows a type to be encoded compactly.
 pub use compactly_derive::EncodeV2 as Encode;
 
 mod ans;
