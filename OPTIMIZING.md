@@ -2016,14 +2016,50 @@ which found handoff *count* irrelevant. That compared ~12000 elements per
 handoff against ~29000 — both large. This compares one element per handoff
 against thousands, and there the per-handoff cost is the whole cost.
 
-The remaining thirteen loops are all the same shape and presumably all pay the
-same ~20%. They want a shared helper rather than thirteen copies of a loop with
-a subtle sentinel cap in it; the helper belongs in the codec layer and **not**
-on `AsyncEntropyDecoder`, since it needs the crate-private `Sentinel` and is an
-idiom over the trait rather than a capability of a decoder. Worth noting the
-trait needed nothing new for `String`: `sync_capacity::<T, S>()` and `with_sync`
-were exactly the two primitives required, which is the first independent
-confirmation that the reshaped trait is the right shape.
+**All twelve worthwhile loops now go through one helper**,
+`sentinel::decode_elements`, which is a `pub(crate)` free function and
+deliberately **not** a method on `AsyncEntropyDecoder`: it needs the
+crate-private `Sentinel`, and it is an idiom over the trait rather than a
+capability of a decoder — no coder would ever override it.
+
+The trait needed nothing new for any of them. `sync_capacity::<T, S>()` and
+`with_sync` were the only two primitives required, which is the confirmation
+that the reshape is the right shape — until this work `Vec` was the sole caller
+of either.
+
+Maps fit because `(K, V)` now implements `Encode<Mapping<SK, SV>>`, coding a key
+then a value against exactly the contexts a map already holds (`MapContext`
+keeps them as one `entry` field instead of two). So a map entry is a *type*, the
+helper stays single-element, and no pair-shaped variant of it is needed. The
+existing `expect!` size assertions are unchanged, which is the check that the
+pair impl codes identically to the maps' old inline loop.
+
+Two loops are deliberately **not** converted: `bytes.rs`'s `Chunk` and
+`low_cardinality.rs`'s element both have `MAX_BYTES == usize::MAX`, so
+`sync_capacity` can never exceed 0 for them and the helper would take the naive
+path on every element regardless. Converting them would be churn.
+
+**Take the sink as a trait, not a closure.** The first version of the helper
+took `sink: impl FnMut(T)` and cost ~0.6% against a hand-rolled loop. That was
+structural, not an inlining failure: `#[inline]` and `#[inline(always)]` both
+measured *identical* to no attribute at all. Replacing the closure with a
+one-method `ExtendOne` trait and a `&mut C` sink recovers nearly all of it.
+`CHUNKS=8`, instructions:
+
+| | baseline | hand-rolled | closure sink | `ExtendOne` sink |
+|---|---|---|---|---|
+| `strings` | 35.907 B | 26.980 B | 27.147 B (+0.62%) | 27.079 B (**+0.37%**) |
+| `u64` | 27.873 B | (is the baseline) | 27.913 B (+0.15%) | 27.875 B (**+0.01%**) |
+
+`Vec<u64>` is back at parity and `strings` keeps **−24.6%** of its −24.9%. Worth
+recording that the closure is what cost it, since a closure is the obvious way
+to write this and the loss does not show up anywhere but a benchmark.
+
+One conversion changed shape to fit a plain sink: the delta-coded
+`BTreeSet<u64>` had a running total threaded through its loop. It now decodes
+the *differences* straight into the `Vec` and prefix-sums them in a second pass
+— a linear pass over data already in cache, and one fewer thing for the decode
+loop to carry.
 
 ## TODO (in rough priority order)
 

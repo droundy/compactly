@@ -37,7 +37,7 @@
 //! encoded form is unchanged.
 
 use super::bit_context::BitContext;
-use super::{EntropyCoder, EntropyDecoder};
+use super::{Encode, EntropyCoder, EntropyDecoder};
 
 /// The fixed context every marker is coded against, seeded as though it had
 /// seen a long run of `false`.
@@ -160,6 +160,121 @@ impl Sentinel {
         }
         Ok(())
     }
+}
+
+/// Somewhere one decoded element can be put.
+///
+/// A tiny trait rather than a closure so that [`decode_elements`] reaches its
+/// collection directly: a closure would be captured by the `with_sync` closure
+/// around it, putting the collection one indirection further away on the hot
+/// path, which measured 0.6% (see OPTIMIZING.md). `std::iter::Extend` would
+/// serve, but only via `extend(once(v))` — `extend_one` is still unstable — and
+/// each collection's inherent one-element method is both plainer to read and
+/// not reliant on the iterator specializing away.
+pub(crate) trait ExtendOne<T> {
+    fn extend_one_element(&mut self, value: T);
+}
+
+impl<T> ExtendOne<T> for Vec<T> {
+    #[inline]
+    fn extend_one_element(&mut self, value: T) {
+        self.push(value)
+    }
+}
+
+impl ExtendOne<char> for String {
+    #[inline]
+    fn extend_one_element(&mut self, value: char) {
+        self.push(value)
+    }
+}
+
+impl<T> ExtendOne<T> for std::collections::VecDeque<T> {
+    #[inline]
+    fn extend_one_element(&mut self, value: T) {
+        self.push_back(value)
+    }
+}
+
+impl<T: std::hash::Hash + Eq> ExtendOne<T> for std::collections::HashSet<T> {
+    #[inline]
+    fn extend_one_element(&mut self, value: T) {
+        self.insert(value);
+    }
+}
+
+impl<K: std::hash::Hash + Eq, V> ExtendOne<(K, V)> for std::collections::HashMap<K, V> {
+    #[inline]
+    fn extend_one_element(&mut self, (k, v): (K, V)) {
+        self.insert(k, v);
+    }
+}
+
+/// Decode `n` marked elements, handing over as many at a time as the decoder
+/// will certainly cover — **the** way to decode a length-driven collection
+/// asynchronously.
+///
+/// The naive loop (`decode_async` per element) is correct and up to 25% slower:
+/// `decode_async` does still take the sync path per element, but through a
+/// fresh [`with_sync`](crate::v2::AsyncEntropyDecoder::with_sync) handoff each
+/// time, which for `Range` copies the coder state into the slice decoder and
+/// back out again on every element. Handing over a run amortizes that, and lets
+/// the sync decoder keep its state register-resident across the whole run.
+///
+/// `T` is whatever the collection codes *per element*, which is not always its
+/// item type: a map passes `(K, V)` under `Mapping<SK, SV>`, which codes a key
+/// then a value against exactly the contexts the map already holds. That is why
+/// this takes one type rather than a byte count — the decoder is asked about
+/// the unit actually handed over.
+///
+/// Runs stop short of the next marker, so `T` alone is the whole unit; a marker
+/// is one bit every [`SENTINEL_EVERY`] elements and folding it into every
+/// element's bound would overstate it by a byte apiece.
+///
+/// Elements are appended to `out` in stream order; see [`ExtendOne`] for why
+/// that is a trait rather than a closure.
+///
+/// An **unbounded** `T` (`MAX_BYTES == usize::MAX`) can never be promised, so
+/// the loop degrades to the naive one rather than misbehaving — correct, just
+/// not faster.
+pub(crate) async fn decode_elements<D, T, S, C>(
+    reader: &mut D,
+    ctx: &mut <T as Encode<S>>::Context,
+    n: usize,
+    out: &mut C,
+) -> Result<(), std::io::Error>
+where
+    D: crate::v2::AsyncEntropyDecoder,
+    T: Encode<S>,
+    C: ExtendOne<T>,
+{
+    let mut sentinel = Sentinel::new();
+    let mut decoded = 0;
+    while decoded < n {
+        let batch = reader
+            .sync_capacity::<T, S>()
+            .min(sentinel.until_marker())
+            .min(n - decoded);
+        if batch > 0 {
+            // Bound to a `let` so the closure's borrows end at the semicolon.
+            let result = reader.with_sync(|sync| {
+                for _ in 0..batch {
+                    sentinel.decode(sync)?;
+                    out.extend_one_element(<T as Encode<S>>::decode(sync, ctx)?);
+                }
+                Ok::<(), std::io::Error>(())
+            });
+            result?;
+            decoded += batch;
+            continue;
+        }
+        // Too little buffered to promise even one element: take that one the
+        // slow way, which also awaits more input.
+        sentinel.decode_async(reader).await?;
+        out.extend_one_element(<T as Encode<S>>::decode_async(reader, ctx).await?);
+        decoded += 1;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

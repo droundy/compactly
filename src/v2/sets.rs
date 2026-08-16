@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 use crate::{Normal, Small, Sorted, Values};
 
 use super::{Encode, Strategy};
@@ -159,14 +159,16 @@ impl Encode<super::Small> for BTreeSet<u64> {
         // `Values<S> for BTreeSet` below.
         let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
         if len > 0 {
-            let mut prev = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.first).await?;
-            values.push(prev);
-            let mut sentinel = Sentinel::new();
-            for _ in 1..len {
-                sentinel.decode_async(reader).await?;
-                let diff: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.diff).await?;
-                prev += diff;
-                values.push(prev);
+            values.push(<u64 as Encode<Small>>::decode_async(reader, &mut ctx.first).await?);
+            // The first value is coded outside the marked run, so the helper's
+            // own fresh `Sentinel` lines up with the encoder's. The run decodes
+            // *differences*; summing them afterwards is a separate linear pass
+            // over a `Vec` that is already in cache, rather than a running total
+            // threaded through the decode.
+            decode_elements::<_, u64, Small, _>(reader, &mut ctx.diff, len - 1, &mut values)
+                .await?;
+            for i in 1..values.len() {
+                values[i] += values[i - 1];
             }
         }
         Ok(values.into_iter().collect())
@@ -224,11 +226,7 @@ impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
         // Stage in a Vec — see the sync `decode` above for why `collect`
         // rather than a per-element `insert` loop.
         let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            values.push(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
-        }
+        decode_elements::<_, T, S, _>(reader, &mut ctx.values, len, &mut values).await?;
         Ok(values.into_iter().collect())
     }
 }
@@ -350,11 +348,7 @@ impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     ) -> Result<HashSet<T>, std::io::Error> {
         let len: usize = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
         let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            set.insert(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
-        }
+        decode_elements::<_, T, S, _>(reader, &mut ctx.values, len, &mut set).await?;
         Ok(set)
     }
 }

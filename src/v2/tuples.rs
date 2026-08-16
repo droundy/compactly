@@ -1,5 +1,5 @@
 use super::{Encode, Strategy};
-use crate::Normal;
+use crate::{Mapping, Normal};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -59,6 +59,51 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
         Ok((
             <T1 as Encode>::decode_async(reader, &mut ctx.0).await?,
             <T2 as Encode>::decode_async(reader, &mut ctx.1).await?,
+        ))
+    }
+}
+
+/// A pair coded under [`Mapping`], each half with its own strategy — which is
+/// exactly one entry of a `Mapping` collection.
+///
+/// Spelling the entry as a type is what lets a map's async decode ask
+/// [`sync_capacity`](super::AsyncEntropyDecoder::sync_capacity) about the unit
+/// it actually hands over, and so share the same batching helper as every other
+/// length-driven collection rather than needing a two-value variant of it.
+/// Coding order and contexts are the key's then the value's, identically to the
+/// map impls, so a map is free to decode its entries through this.
+impl<K: Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for (K, V) {
+    type Context = (<K as Encode<SK>>::Context, <V as Encode<SV>>::Context);
+
+    #[inline]
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        <K as Encode<SK>>::encode(&value.0, writer, &mut ctx.0);
+        <V as Encode<SV>>::encode(&value.1, writer, &mut ctx.1)
+    }
+
+    #[inline]
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok((
+            <K as Encode<SK>>::decode(reader, &mut ctx.0)?,
+            <V as Encode<SV>>::decode(reader, &mut ctx.1)?,
+        ))
+    }
+
+    /// The key then the value, each under its own strategy.
+    const MAX_BYTES: usize =
+        <K as Encode<SK>>::MAX_BYTES.saturating_add(<V as Encode<SV>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<(K, V), std::io::Error> {
+        Ok((
+            <K as Encode<SK>>::decode_async(reader, &mut ctx.0).await?,
+            <V as Encode<SV>>::decode_async(reader, &mut ctx.1).await?,
         ))
     }
 }
@@ -405,6 +450,26 @@ impl<
             <T8 as Encode>::decode_async(reader, &mut ctx.7).await?,
         ))
     }
+}
+
+/// A pair under [`Mapping`] must code exactly what a map's own key-then-value
+/// loop codes, since that is what lets a map decode its entries through this
+/// impl — and, in passing, `Values<Mapping<..>>` gives a `Vec` of pairs
+/// per-half strategies, which nothing else offers.
+#[test]
+fn mapping_pair_round_trips() {
+    use crate::{Encoded, Small, Sorted, Values};
+    let pairs: Vec<(u64, u64)> = (0..500).map(|i| (i * 3, i * i)).collect();
+
+    let v = Encoded::<Vec<(u64, u64)>, Values<Mapping<Small, Normal>>>::new(pairs.clone());
+    let encoded = super::encode(&v);
+    assert_eq!(super::decode(&encoded).as_ref(), Some(&v));
+
+    // A sorted-key pair is what `BTreeMap`'s default `Mapping<Sorted, Normal>`
+    // uses, so this is the shape its batch loop asks `sync_capacity` about.
+    let v = Encoded::<Vec<(u64, u64)>, Values<Mapping<Sorted, Normal>>>::new(pairs);
+    let encoded = super::encode(&v);
+    assert_eq!(super::decode(&encoded).as_ref(), Some(&v));
 }
 
 #[test]

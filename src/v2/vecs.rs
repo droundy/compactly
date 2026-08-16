@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
@@ -91,11 +91,7 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for VecDeque<T> {
     ) -> Result<VecDeque<T>, std::io::Error> {
         let n = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode_async(reader).await?;
-            out.push_back(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
-        }
+        decode_elements::<_, T, S, _>(reader, &mut ctx.values, n, &mut out).await?;
         Ok(out)
     }
 }
@@ -236,43 +232,7 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Vec<T> {
     ) -> Result<Vec<T>, std::io::Error> {
         let n = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        let mut decoded = 0;
-        while decoded < n {
-            // Decode as many elements as the buffer certainly covers, in one
-            // handoff. Every element decoded this way costs nothing over the
-            // fully sync decoder, and batching keeps the sync decoder's state
-            // register-resident across the whole run rather than round-tripping
-            // it per element.
-            //
-            // The run stops short of the next sentinel marker, so the unit it
-            // asks about is exactly one element — a marker is one bit every
-            // `SENTINEL_EVERY` elements, and folding one into the question
-            // would both overstate it and leave no single type to name.
-            let batch = reader
-                .sync_capacity::<T, S>()
-                .min(sentinel.until_marker())
-                .min(n - decoded);
-            if batch > 0 {
-                // Bound to a `let` so the closure's borrows of `x`, `sentinel`
-                // and `ctx` end at the semicolon.
-                let result = reader.with_sync(|sync| {
-                    for _ in 0..batch {
-                        sentinel.decode(sync)?;
-                        x.push(<T as Encode<S>>::decode(sync, &mut ctx.values)?);
-                    }
-                    Ok::<(), std::io::Error>(())
-                });
-                result?;
-                decoded += batch;
-                continue;
-            }
-            // Too little buffered to promise even one element: take that one the
-            // slow way, which also awaits more input.
-            sentinel.decode_async(reader).await?;
-            x.push(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
-            decoded += 1;
-        }
+        decode_elements::<_, T, S, _>(reader, &mut ctx.values, n, &mut x).await?;
         Ok(x)
     }
 }
@@ -310,11 +270,7 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Box<[T]> {
     ) -> Result<Box<[T]>, std::io::Error> {
         let n = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode_async(reader).await?;
-            x.push(<T as Encode<S>>::decode_async(reader, &mut ctx.values).await?);
-        }
+        decode_elements::<_, T, S, _>(reader, &mut ctx.values, n, &mut x).await?;
         Ok(x.into_boxed_slice())
     }
 }
@@ -407,13 +363,13 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
             ctx.previous.truncate(shared_prefix);
         }
         ctx.previous.reserve(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            ctx.previous
-                .push(<T as Encode>::decode_async(reader, &mut ctx.value).await?);
-        }
-        Ok(ctx.previous.clone())
+        // Disjoint field borrows: the elements' context is `ctx.value`, the
+        // sink appends to `ctx.previous`.
+        let SortedContext {
+            previous, value, ..
+        } = ctx;
+        decode_elements::<_, T, Normal, _>(reader, value, len, previous).await?;
+        Ok(previous.clone())
     }
 }
 

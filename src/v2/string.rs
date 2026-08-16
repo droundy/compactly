@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 mod init;
 
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
@@ -145,31 +145,7 @@ impl Encode for String {
     ) -> Result<String, std::io::Error> {
         let len = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut out = String::with_capacity(super::capacity_for::<u8>(len));
-        let mut sentinel = Sentinel::new();
-        let mut decoded = 0;
-        while decoded < len {
-            // Hand over a whole run of `char`s at a time; see `Vec`'s identical
-            // loop for why the run stops short of the next sentinel marker.
-            let batch = reader
-                .sync_capacity::<char, Normal>()
-                .min(sentinel.until_marker())
-                .min(len - decoded);
-            if batch > 0 {
-                let result = reader.with_sync(|sync| {
-                    for _ in 0..batch {
-                        sentinel.decode(sync)?;
-                        out.push(<char as Encode>::decode(sync, &mut ctx.chars)?);
-                    }
-                    Ok::<(), std::io::Error>(())
-                });
-                result?;
-                decoded += batch;
-                continue;
-            }
-            sentinel.decode_async(reader).await?;
-            out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
-            decoded += 1;
-        }
+        decode_elements::<_, char, Normal, _>(reader, &mut ctx.chars, len, &mut out).await?;
         Ok(out)
     }
 }
@@ -291,13 +267,13 @@ impl Encode<Sorted> for String {
                 .map_or(ctx.previous.len(), |(i, _)| i);
             ctx.previous.truncate(prefix_bytes);
         }
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode_async(reader).await?;
-            ctx.previous
-                .push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
-        }
-        Ok(ctx.previous.clone())
+        // Disjoint field borrows: chars decode against `ctx.chars`, the sink
+        // appends to `ctx.previous`.
+        let SortedContext {
+            previous, chars, ..
+        } = ctx;
+        decode_elements::<_, char, Normal, _>(reader, chars, len, previous).await?;
+        Ok(previous.clone())
     }
 }
 
