@@ -22,6 +22,16 @@ CI runs clippy on the *newest* stable, which may know lints the locally
 installed clippy doesn't — if CI's clippy job fails while local clippy passes,
 read the CI log and apply its suggested fix (or `rustup update stable`).
 
+`rustfmt.toml` sets `imports_granularity = "Module"`, which is an unstable
+rustfmt option. Stable rustfmt doesn't reject it — it prints a
+can't-set-this-option warning and exits 0 — so a stable `cargo fmt --check`
+(what the pre-commit hook runs) passes even on unmerged, nested imports and
+enforces nothing about them. CI's `rustfmt` job therefore runs on nightly,
+where the option is actually applied — a similar gap to the clippy
+stable/nightly one above, but here it means the CI job can fail on imports
+the pre-commit hook saw as clean. Reproduce locally with `cargo +nightly fmt
+--all --check` (needs `rustup component add rustfmt --toolchain nightly`).
+
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
 The optional `benchmarking` feature exposes the benchmark-support API — forced

@@ -1,6 +1,9 @@
 use super::{Encode, EncodingStrategy};
 use crate::LowCardinality;
-use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::ops::Deref;
+use std::sync::Arc;
 
 pub struct CacheContext<T: Encode + Hash + PartialEq + Eq> {
     cached: HashMap<Arc<T>, usize>,

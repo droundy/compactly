@@ -3,7 +3,8 @@ use std::collections::{BTreeSet, HashMap};
 use proc_macro2::{Ident, Span};
 use proc_macro_warning::Warning;
 use quote::{quote, ToTokens};
-use syn::{spanned::Spanned, Attribute, GenericParam, TraitBound};
+use syn::spanned::Spanned;
+use syn::{Attribute, GenericParam, TraitBound};
 use synstructure::{BindingInfo, VariantInfo};
 
 /// Does `ty` name `LowCardinality` (ignoring any leading path qualifier)?
