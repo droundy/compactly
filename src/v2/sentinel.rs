@@ -234,9 +234,10 @@ impl<K: std::hash::Hash + Eq, V> ExtendOne<(K, V)> for std::collections::HashMap
 /// Elements are appended to `out` in stream order; see [`ExtendOne`] for why
 /// that is a trait rather than a closure.
 ///
-/// An **unbounded** `T` (`MAX_BYTES == usize::MAX`) can never be promised, so
-/// the loop degrades to the naive one rather than misbehaving — correct, just
-/// not faster.
+/// An **unbounded** `T` (`MAX_BYTES == usize::MAX`) cannot be promised *while
+/// data is still arriving*, so the loop degrades to the naive one rather than
+/// misbehaving — correct, just not faster. Once the source is complete every
+/// `T` is promised, unbounded or not, and the batch runs at full width.
 pub(crate) async fn decode_elements<D, T, S, C>(
     reader: &mut D,
     ctx: &mut <T as Encode<S>>::Context,
@@ -268,8 +269,9 @@ where
             decoded += batch;
             continue;
         }
-        // Too little buffered to promise even one element: take that one the
-        // slow way, which also awaits more input.
+        // Either too little is buffered to promise even one element, or a
+        // marker falls due right here and a run may not span it. Take this one
+        // element the slow way, which also awaits more input if that was why.
         sentinel.decode_async(reader).await?;
         out.extend_one_element(<T as Encode<S>>::decode_async(reader, ctx).await?);
         decoded += 1;

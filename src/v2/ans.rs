@@ -360,7 +360,8 @@ impl Ans {
     /// No buffering is applied — wrap an unbuffered sink like a `File` in a
     /// [`BufWriter`](std::io::BufWriter) yourself. (`Ans` writes each chunk's body
     /// in bulk, so it is less syscall-bound than `Range`, which writes a byte at a
-    /// time.) The returned writer is flushed before return so should be clean to drop.
+    /// time.) The returned writer is flushed before return, so a final flush error
+    /// surfaces here rather than being lost on drop.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
@@ -2354,8 +2355,8 @@ where
             self.pump_countdown = PUMP_INTERVAL;
             self.source.drain_ready().await;
             // Everything has arrived, so taking the rest cannot suspend. Worth
-            // doing in one go: it sets `reached_final`, and `is_final` then lets
-            // whole values decode through the sync decoder rather than op by op.
+            // doing in one go: it sets `reached_final`, which is what lets whole
+            // values decode through the sync decoder rather than op by op.
             if self.source.is_complete() {
                 while !self.reached_final {
                     self.buffer_next_frame().await;
@@ -2363,7 +2364,7 @@ where
                 return;
             }
             // Frames that have *wholly* arrived are free to take, and taking
-            // them is what gets `is_final` true — and whole values decoding
+            // them is what gets `reached_final` true — and whole values decoding
             // synchronously — as soon as the transport is ahead of us.
             while !self.reached_final && self.next_frame_has_arrived() {
                 self.buffer_next_frame().await;
@@ -2725,8 +2726,8 @@ mod async_tests {
         }
     }
 
-    /// A value small enough to be a single (final) frame: `is_final` holds from
-    /// the start, so this runs entirely through the sync decoder.
+    /// A value small enough to be a single (final) frame: `reached_final` holds
+    /// from the start, so this runs entirely through the sync decoder.
     #[test]
     fn single_frame_round_trips_from_a_stream() {
         let value: Vec<String> = vec![

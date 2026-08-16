@@ -1988,8 +1988,8 @@ loops — `String` (×2), the maps (×3), the sets (×3), `VecDeque`, `Box<[T]>`
 through `decode_async`.
 
 Those loops are not *unbatched* in the sense of skipping the sync decoder:
-`decode_async` is a provided method whose whole body is
-`sync_decode_if_there_is_room`, so each element still takes the sync path. What
+`decode_async` is a provided method whose whole body is a `has_room_for` gate
+around a single-value `with_sync`, so each element still takes the sync path. What
 they pay is a `with_sync` handoff **per element** — for `Range`, copying
 `state`/`value`/`bytes` into the slice decoder and back out again every element,
 which is exactly what `with_sync`'s own docs warn against.
@@ -2035,9 +2035,12 @@ existing `expect!` size assertions are unchanged, which is the check that the
 pair impl codes identically to the maps' old inline loop.
 
 Two loops are deliberately **not** converted: `bytes.rs`'s `Chunk` and
-`low_cardinality.rs`'s element both have `MAX_BYTES == usize::MAX`, so
-`sync_capacity` can never exceed 0 for them and the helper would take the naive
-path on every element regardless. Converting them would be churn.
+`low_cardinality.rs`'s element both have `MAX_BYTES == usize::MAX`, so while
+data is still arriving `sync_capacity` cannot exceed 0 for them and the helper
+would take the naive path on every element regardless. (Once the source is
+complete it reports `usize::MAX` for any type, so they would batch then — but
+that is the case where staying async costs nothing anyway.) Converting them
+would be churn.
 
 **Take the sink as a trait, not a closure.** The first version of the helper
 took `sink: impl FnMut(T)` and cost ~0.6% against a hand-rolled loop. That was
@@ -2060,6 +2063,31 @@ One conversion changed shape to fit a plain sink: the delta-coded
 the *differences* straight into the `Vec` and prefix-sums them in a second pass
 — a linear pass over data already in cache, and one fewer thing for the decode
 loop to carry.
+
+### The single-value convenience method did not earn a place in the API (2026-08-16)
+
+`AsyncEntropyDecoder` briefly carried a provided
+`sync_decode_if_there_is_room::<T, S>(ctx) -> Option<Result<T>>`: gate on
+`has_room_for`, then hand the whole value to the sync decoder. It is gone, and
+its four lines are inlined into `decode_async`, its only caller.
+
+It was the singular of an operation whose value is entirely in the plural. The
+measured win here — −20% to −25% on `strings` — comes from keeping the sync
+decoder's state register-resident across *many* values; a method that hands over
+one value and gives the registers back captures the case that was already cheap.
+Worse, it structurally cannot serve the case that pays: the batch loop must
+interleave a sentinel marker with each element inside a *single* `with_sync`,
+and `(&mut self, ctx: &mut T::Context) -> Option<Result<T>>` has nowhere to put
+that. Generalize it far enough and it *is* `with_sync`. So the one real batching
+caller in the tree bypassed it, leaving it with zero callers outside the provided
+method next to it and zero overrides.
+
+`has_room_for` stays, on the opposite reasoning: one caller, but `Range`
+overrides it for a measured reason (a comparison instead of a division), so it is
+an extension point something actually extends. The public surface is now
+`Sync<'a>`, `sync_capacity`, `has_room_for`, `with_sync`, `finish` — and the pair
+a hand-written collection needs is `sync_capacity` + `with_sync`, told more
+clearly without a convenience method that cannot participate in it.
 
 ## TODO (in rough priority order)
 

@@ -58,10 +58,10 @@ pub(crate) struct ChunkSource<S> {
     /// [`Self::is_complete`] must not say "the stream finished cleanly" once a
     /// failure has happened, and it cannot ask `error` that: by the time anyone
     /// checks, the error has usually been taken. That matters because
-    /// `is_complete` is what `AsyncRangeDecoder::is_final` reports, and a true
-    /// `is_final` hands the sync decoder `usize::MAX` capacity — i.e. licence to
-    /// run to the end of the buffer — which is exactly wrong over an incomplete
-    /// one.
+    /// `is_complete` is what `AsyncRangeDecoder::sync_capacity` consults first,
+    /// and a complete source hands the sync decoder `usize::MAX` capacity — i.e.
+    /// licence to run to the end of the buffer — which is exactly wrong over an
+    /// incomplete one.
     failed: bool,
 }
 
@@ -657,7 +657,7 @@ pub(crate) mod tests {
     /// stream finished cleanly — even after the error has been taken out to be
     /// reported.
     ///
-    /// It gates the unconditional sync handoff (`is_final` ⇒ `usize::MAX`
+    /// It gates the unconditional sync handoff (complete ⇒ `usize::MAX`
     /// capacity), so a "clean" answer here is licence to run the sync decoder to
     /// the end of an incomplete buffer.
     #[test]

@@ -401,32 +401,19 @@ pub trait AsyncEntropyDecoder {
     ///
     /// Ask about the unit actually handed over in one `with_sync`: a caller
     /// decoding a marker alongside each element must either include it or stop
-    /// the run short of one, as `Vec`'s does.
+    /// the run short of one, as the shared collection helper does.
     fn sync_capacity<T: Encode<S>, S>(&self) -> usize;
 
     /// Whether at least one `T` certainly fits — the per-value form of
     /// [`Self::sync_capacity`], overridable when a coder can answer it more
     /// cheaply than by computing a whole capacity.
+    ///
+    /// This is the gate [`Encode::decode_async`] applies before handing a whole
+    /// value to the sync decoder. A caller with several values to decode should
+    /// ask [`Self::sync_capacity`] instead and hand them over together.
     #[inline]
     fn has_room_for<T: Encode<S>, S>(&self) -> bool {
         self.sync_capacity::<T, S>() > 0
-    }
-
-    /// Decode one whole value with the sync decoder if there is certainly room
-    /// for it, else `None` and the caller must stay async.
-    ///
-    /// The safe default for a single value; [`Self::with_sync`] is for handing
-    /// over several at once, which is faster when a caller can compute how many
-    /// fit (see [`Self::sync_capacity`]).
-    #[inline]
-    fn sync_decode_if_there_is_room<T: Encode<S>, S>(
-        &mut self,
-        ctx: &mut T::Context,
-    ) -> Option<Result<T, std::io::Error>> {
-        if !self.has_room_for::<T, S>() {
-            return None;
-        }
-        Some(self.with_sync(|sync| <T as Encode<S>>::decode(sync, ctx)))
     }
 
     /// Decode with the sync decoder, positioned exactly here.
@@ -439,8 +426,8 @@ pub trait AsyncEntropyDecoder {
     /// then keeps its state register-resident across all of them.
     ///
     /// **Only call within the budget [`Self::sync_capacity`] reports** — it must
-    /// cover everything `f` decodes. [`Self::sync_decode_if_there_is_room`] is
-    /// the safe single-value form that applies that check for you.
+    /// cover everything `f` decodes. For a single value, that check is
+    /// [`Self::has_room_for`].
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
     /// Finish decoding, reporting why the value cannot be trusted if it cannot;
@@ -633,7 +620,11 @@ pub trait Encode<S = crate::Normal>: Sized {
         async {
             // Bound to a `let` so the borrows of `decoder` and `ctx` end before
             // the fallback needs them again.
-            let attempt = decoder.sync_decode_if_there_is_room::<Self, S>(ctx);
+            let attempt = if decoder.has_room_for::<Self, S>() {
+                Some(decoder.with_sync(|sync| <Self as Encode<S>>::decode(sync, ctx)))
+            } else {
+                None
+            };
             match attempt {
                 Some(result) => result,
                 None => Self::decode_awaiting(decoder, ctx).await,
