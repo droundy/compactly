@@ -1073,16 +1073,31 @@ where
 {
     type Sync<'a> = Decoder<'a>;
 
-    const SETTLING_BYTES: usize = SETTLING_BYTES;
-
+    /// `Range` is bounded by buffered bytes, so the answer is how many
+    /// `MAX_BYTES` worth of information fit in what has arrived — less the
+    /// settling margin, subtracted here rather than per value because that
+    /// margin is bounded per *span* and so is paid once for the whole handoff.
     #[inline]
-    fn ready_bytes(&self) -> usize {
-        self.source.ready_bytes()
+    fn sync_capacity<T: super::Encode<St>, St>(&self) -> usize {
+        if self.source.is_complete() {
+            return usize::MAX;
+        }
+        let per_value = <T as super::Encode<St>>::MAX_BYTES;
+        self.source
+            .ready_bytes()
+            .saturating_sub(SETTLING_BYTES)
+            .checked_div(per_value)
+            .unwrap_or(usize::MAX)
     }
 
+    /// A comparison rather than [`Self::sync_capacity`]'s division. Both fold
+    /// against a constant `MAX_BYTES`, but the per-value gate runs once per
+    /// value where the division is amortised over a whole batch.
     #[inline]
-    fn is_final(&self) -> bool {
+    fn has_room_for<T: super::Encode<St>, St>(&self) -> bool {
         self.source.is_complete()
+            || self.source.ready_bytes()
+                >= SETTLING_BYTES.saturating_add(<T as super::Encode<St>>::MAX_BYTES)
     }
 
     #[inline]

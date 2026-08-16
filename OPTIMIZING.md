@@ -1955,10 +1955,28 @@ Prototype on the `can-continue-prototype` branch (not for merge).
 
 The API consequence is the useful one: `RECHECKS_ROOM` and `can_continue` both
 have defaults, so they are **additive** and need not land with the trait. Only
-making `sync_capacity` required — and dropping `ready_bytes`/`SETTLING_BYTES`/
-`is_final`, which are `Range`'s private accounting leaking into a shared trait —
-is a breaking change, so that is the part that has to happen before the trait
-ships.
+the breaking part had to happen before `AsyncEntropyDecoder` ships, and it since
+has: `sync_capacity` is now required and generic —
+`sync_capacity::<T, S>()`, asked about a *type* — and
+`ready_bytes`/`SETTLING_BYTES`/`is_final` are gone from the trait, being
+`Range`'s private accounting that had leaked into a shared interface.
+
+Asking about the type rather than a byte count is what keeps the alignment work
+off the API: `Ans` will read `T::MAX_BYTES != usize::MAX` (boundedness, not a
+byte count) and, if a `MAX_OPS` is ever wanted after all, `T::MAX_OPS` — neither
+of which survives being flattened to a `usize` at the call site.
+
+That cost one adjustment elsewhere. `Vec`'s batch loop had been asking about
+"sentinel marker + element", which is not a single type; since a marker is one
+bit every `SENTINEL_EVERY` (4096) elements, charging every element a whole byte
+for one both overstated the bound and left nothing to name. The loop now stops
+each run short of the next marker (`Sentinel::until_marker`) so its unit is
+exactly `T`, and `Sentinel::MAX_BYTES` is deleted as dead. Capping runs at 4096
+where they had reached ~12000 measured **+0.005% to +0.025%** across the same
+arms — the noise floor, consistent with the `can_continue` result that handoff
+count is not what this loop pays for. The whole reshape then measured within
+±0.02% on `async-split` (COUNT 2000 and 100000, CHUNKS 8 and 64) and `ans-async`,
+as it should, being a pure interface change.
 
 ## TODO (in rough priority order)
 

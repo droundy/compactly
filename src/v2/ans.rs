@@ -2273,7 +2273,7 @@ pub struct AsyncAnsDecoder<S> {
     inner: AnsDecoder<FrameBuffer, true>,
     /// Set once the final frame is buffered. No further frame can arrive, so
     /// the sync decoder may then run to completion without blocking — which is
-    /// what [`AsyncEntropyDecoder::is_final`] reports.
+    /// the whole of what [`AsyncEntropyDecoder::sync_capacity`] answers here.
     reached_final: bool,
     /// Monotone lower bound on the source bytes the next frame needs; see
     /// [`Self::next_frame_has_arrived`].
@@ -2548,27 +2548,28 @@ where
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
 
-    /// Nothing to hold back: the gate here is whole frames, not bytes.
-    const SETTLING_BYTES: usize = 0;
-
-    /// Always 0, which keeps the byte-counted fast path switched off. It is the
-    /// wrong instrument for `Ans` — what bounds a safe sync handoff is whether
-    /// another *frame* can still arrive, not how many bytes are buffered, and
-    /// [`Self::is_final`] answers that exactly rather than approximately. So no
-    /// `MAX_BYTES` is consulted on this path at all.
+    /// All or nothing, and `MAX_BYTES` never enters into it. What bounds a safe
+    /// handoff here is whether another *frame* can still arrive: nothing in a
+    /// frame is decodable until the whole frame is in hand, so there is no
+    /// partial byte count to divide by, and once no frame can follow, the sync
+    /// decoder holds the entire rest of the stream.
+    ///
+    /// This is where a mid-stream answer would go once the encoder guarantees a
+    /// bounded value never straddles a chunk boundary — `T::MAX_BYTES !=
+    /// usize::MAX && ops_left > 0`, reading the type's *boundedness* rather than
+    /// its byte count. See OPTIMIZING.md.
     #[inline]
-    fn ready_bytes(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    fn is_final(&self) -> bool {
-        self.reached_final
+    fn sync_capacity<T: super::Encode<St>, St>(&self) -> usize {
+        if self.reached_final {
+            usize::MAX
+        } else {
+            0
+        }
     }
 
     /// Hands over the sync decoder itself — no state to translate, since its
     /// whole per-chunk state already lives in owned buffers and its reader
-    /// holds every remaining frame once [`Self::is_final`] holds.
+    /// holds every remaining frame once [`Self::reached_final`] holds.
     #[inline]
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R {
         // A view rather than a reborrow only because the associated type has to

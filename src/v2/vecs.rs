@@ -237,16 +237,6 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Vec<T> {
         let n = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
         let mut sentinel = Sentinel::new();
-        // Information one element accounts for: its marker plus the element.
-        // Both are `MAX_BYTES`, i.e. information only — the coder's settling
-        // margin is `sync_capacity`'s to add, once for the whole handoff rather
-        // than once per element. `saturating_add` keeps an unbounded `S` (the
-        // `usize::MAX` default) from wrapping to something small; it stays
-        // unbounded, so the capacity is 0 and the loop never leaves the async
-        // path.
-        const fn per_element<T: Encode<S>, S>() -> usize {
-            Sentinel::MAX_BYTES.saturating_add(<T as Encode<S>>::MAX_BYTES)
-        }
         let mut decoded = 0;
         while decoded < n {
             // Decode as many elements as the buffer certainly covers, in one
@@ -254,7 +244,15 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Vec<T> {
             // fully sync decoder, and batching keeps the sync decoder's state
             // register-resident across the whole run rather than round-tripping
             // it per element.
-            let batch = reader.sync_capacity(per_element::<T, S>()).min(n - decoded);
+            //
+            // The run stops short of the next sentinel marker, so the unit it
+            // asks about is exactly one element — a marker is one bit every
+            // `SENTINEL_EVERY` elements, and folding one into the question
+            // would both overstate it and leave no single type to name.
+            let batch = reader
+                .sync_capacity::<T, S>()
+                .min(sentinel.until_marker())
+                .min(n - decoded);
             if batch > 0 {
                 // Bound to a `let` so the closure's borrows of `x`, `sentinel`
                 // and `ctx` end at the semicolon.

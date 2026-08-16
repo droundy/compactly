@@ -390,42 +390,32 @@ pub trait AsyncEntropyDecoder {
     /// type need not mention.
     type Sync<'a>: EntropyDecoder;
 
-    /// Bytes that may be emitted but not yet accounted for by the information
-    /// coded so far — the margin [`Self::sync_capacity`] holds back.
-    const SETTLING_BYTES: usize;
-
-    /// Bytes already buffered, decodable without awaiting.
+    /// How many `T`s coded with strategy `S` can certainly be decoded by
+    /// [`Self::with_sync`] right now, without awaiting — `usize::MAX` once no
+    /// more input can arrive, since past true end of stream the sync decoder
+    /// zero-pads, which is what it should do there.
     ///
-    /// **Only meaningful through [`Self::sync_capacity`]**, which is the sole
-    /// caller — it is an input to the byte-counted handoff test, not a report on
-    /// the buffer. An implementor whose real safe-handoff condition is not a byte
-    /// count is expected to return `0` here to opt out of that test and gate on
-    /// [`Self::is_final`] instead, which is exactly what `Ans` does: nothing in
-    /// one of its frames is decodable until all of it has arrived, so it has no
-    /// meaningful partial count to report. Do not read this as "how much is
-    /// buffered".
-    fn ready_bytes(&self) -> usize;
-
-    /// Whether no more input can arrive, so any amount may be consumed.
-    fn is_final(&self) -> bool;
-
-    /// How many items, each accounting for at most `info_bytes` of information,
-    /// can certainly be decoded from what is already buffered.
+    /// **Asked about a type, not a byte count, deliberately.** Each coder is
+    /// limited by a different resource, and the type is what lets each one read
+    /// the property it actually needs: `Range` is bounded by buffered bytes and
+    /// consults [`MAX_BYTES`](Encode::MAX_BYTES); a frame-based coder is bounded
+    /// by what fits before the next frame, and may care only whether the type is
+    /// bounded at all. A `usize` of "information bytes" would have thrown that
+    /// away at the call site, and would have made every caller responsible for
+    /// summing bounds and for *not* adding the settling margin — which is the
+    /// implementor's to add, exactly once, over the whole handoff.
     ///
-    /// Pass a sum of [`MAX_BYTES`](Encode::MAX_BYTES) values and nothing else:
-    /// this adds [`Self::SETTLING_BYTES`] itself, **once**, which is the only
-    /// correct number of times. That is the whole reason callers are given a
-    /// capacity rather than the raw margin — there is no way to forget it, and
-    /// no way to add it twice.
-    ///
-    /// `usize::MAX` once no more input can arrive: past true end of stream the
-    /// sync decoder zero-pads, which is what it should do there.
+    /// Ask about the unit actually handed over in one `with_sync`: a caller
+    /// decoding a marker alongside each element must either include it or stop
+    /// the run short of one, as `Vec`'s does.
+    fn sync_capacity<T: Encode<S>, S>(&self) -> usize;
+
+    /// Whether at least one `T` certainly fits — the per-value form of
+    /// [`Self::sync_capacity`], overridable when a coder can answer it more
+    /// cheaply than by computing a whole capacity.
     #[inline]
-    fn sync_capacity(&self, info_bytes: usize) -> usize {
-        if self.is_final() {
-            return usize::MAX;
-        }
-        self.ready_bytes().saturating_sub(Self::SETTLING_BYTES) / info_bytes.max(1)
+    fn has_room_for<T: Encode<S>, S>(&self) -> bool {
+        self.sync_capacity::<T, S>() > 0
     }
 
     /// Decode one whole value with the sync decoder if there is certainly room
@@ -439,13 +429,7 @@ pub trait AsyncEntropyDecoder {
         &mut self,
         ctx: &mut T::Context,
     ) -> Option<Result<T, std::io::Error>> {
-        // A comparison rather than [`Self::sync_capacity`]'s division: this is a
-        // per-*value* gate, and `T::MAX_BYTES` is a constant, so it folds to one
-        // compare against a constant. `sync_capacity` keeps the division for
-        // batch loops, where it is amortised over the whole batch.
-        if !self.is_final()
-            && self.ready_bytes() < Self::SETTLING_BYTES.saturating_add(<T as Encode<S>>::MAX_BYTES)
-        {
+        if !self.has_room_for::<T, S>() {
             return None;
         }
         Some(self.with_sync(|sync| <T as Encode<S>>::decode(sync, ctx)))

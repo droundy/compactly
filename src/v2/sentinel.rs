@@ -92,15 +92,22 @@ pub(crate) struct Sentinel {
 }
 
 impl Sentinel {
-    /// A marker is one coded bit, and only every `SENTINEL_EVERY` elements —
-    /// but the bound has to cover the element that does carry one.
-    pub(crate) const MAX_BYTES: usize = <bool as crate::v2::Encode>::MAX_BYTES;
-
     #[inline]
     pub(crate) fn new() -> Self {
         Sentinel {
             countdown: SENTINEL_EVERY,
         }
+    }
+
+    /// Elements that can be coded before the next marker is due.
+    ///
+    /// Lets an async batch loop hand over a run containing **no** marker, so
+    /// the unit it must budget for is exactly one element rather than an
+    /// element plus a marker that is only present one time in
+    /// [`SENTINEL_EVERY`].
+    #[inline]
+    pub(crate) fn until_marker(&self) -> usize {
+        self.countdown
     }
 
     /// Call once per element, before coding it; returns whether a marker is due.

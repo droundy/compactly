@@ -153,7 +153,7 @@ where
     ///
     /// This is what makes [`Self::ready_bytes`] mean "what has arrived" rather
     /// than "what is in the chunk I happen to be holding". The difference is not
-    /// cosmetic: both async decoders decide whether to run their fast sync path
+    /// cosmetic: the `Range` decoder decides whether to run its fast sync path
     /// by comparing `ready_bytes` against what a decode step needs, and a
     /// producer that delivers 800-byte chunks was making that comparison fail
     /// even when the whole input had in fact arrived.
