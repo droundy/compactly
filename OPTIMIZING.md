@@ -1249,7 +1249,72 @@ optimize down to the fused path. Keep both decoders. (Reproducer:
 `cargo build --release --bin range-decode-collapse`, then
 `bench perf stat -e instructions,cycles -- ./target/release/range-decode-collapse slice|stream`.)
 
+### Planned: never split a bounded value across an `Ans` chunk boundary
+
+Not started, and recorded here so the *encoder* half is on the record
+independently of the async decode work that wants it.
+
+**The idea.** `AnsEncoder::flush_chunk` fires the moment the op buffer reaches
+`CHUNK_OPS`, wherever that lands — routinely mid-value. Since we own both
+sides, the encoder could instead defer each flush to the next *safe point*: a
+moment when no value with a finite size bound is partially encoded. Then a
+bounded value provably lies entirely within one chunk.
+
+That is worth having because a chunk is the unit at which the decoder must go
+and fetch more: the slice `Decoder` crosses into the next chunk exactly when
+`ops_left` hits zero (`load_next_chunk`). A decoder that knows a value cannot
+straddle a boundary knows that a value started with `ops_left > 0` will finish
+without needing input it may not have — which is what a mid-stream handoff to
+the synchronous decoder needs to prove, and cannot prove today. The payoff is
+measured in the async decode work (**up to ~40%** where arrival rate and decode
+rate are balanced); this note is about what the encoder owes it.
+
+**Why not a per-value op bound instead.** The alternative is a `MAX_OPS`
+constant mirroring a size bound: additive over a value's parts, with leaf
+weights of 1 per bit, 1 per symbol step, 1 per incompressible run, and the tree
+depth where a bitwise walk is chosen. Sound, but it duplicates a whole
+bound-plus-property-test apparatus, and it gates *conservatively* — refusing
+whenever `ops_left < MAX_OPS`, i.e. near the end of every chunk. Encoder-side
+alignment needs no new constant and the resulting test is exact.
+
+**What it costs.**
+
+- **Deferral has to be bounded.** A bounded value can still be large (`[u64;
+  100_000]` is bounded), so a chunk can overrun `CHUNK_OPS` by one value's ops.
+  `MAX_CHUNK_ENTROPY` is derived from "flushed at `CHUNK_OPS`" and is a real
+  anti-DoS bound on what a hostile stream can make a reader buffer. Bumping it
+  by a per-type quantity is `MAX_OPS` sneaking back in; instead make it
+  dynamic — a non-final frame header already carries its op count in `tag >> 1`,
+  so the check becomes `2*(op_count+256)+STATE_BYTES`, *tighter* than today's
+  constant. The final frame has no length field, so it would need an op count in
+  its tag too.
+- **The encoder needs to see value boundaries**, which it does not today —
+  `maybe_flush` sees only ops. It needs a pending-flush flag plus a nesting
+  depth of open bounded values. Only the outermost needs bracketing, since a
+  bounded value's parts are all bounded. No call site should have to remember to
+  do it: make the bracket a *provided* `Encode::encode` that delegates to a
+  required inner method, so existing call sites pick it up unchanged and impls
+  only rename.
+- **It is a format change** — chunk boundaries move for any stream over
+  `CHUNK_OPS` ops. Free today: v2 is not a frozen format.
+- **"By definition" means trusting the peer.** The guarantee becomes a claim
+  about the bitstream, and bitstreams arrive from places that did not run our
+  encoder. A boundary placed mid-value makes a decoder cross it during a
+  handoff. That should degrade to an error rather than to a wrong value — a
+  decoder capped at the last complete frame finds a short region — but that is a
+  property to establish deliberately, with a test aimed at *violated* alignment,
+  which is the opposite shape from the usual round-trip tests.
+
 ## TODO (in rough priority order)
+
+1. **Never split a bounded value across an `Ans` chunk boundary** — see the
+   section above. Encoder defers each flush to the next point where no bounded
+   value is open, so a bounded value lies within one chunk. Unlocks the
+   mid-stream synchronous handoff in `Ans::decode_stream` (worth up to ~40% at
+   the crossover rate; see PR #46, which adds the decode side and the size bound
+   the safe-point test needs). Prefer this over a per-value `MAX_OPS` constant:
+   no new bound to property-test, and the resulting gate is exact rather than
+   conservative. Bring `MAX_CHUNK_ENTROPY` along, per-frame rather than global.
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:
