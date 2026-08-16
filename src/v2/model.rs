@@ -282,7 +282,8 @@ impl BitContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{distributions::Standard, prelude::*};
+    use rand::distributions::Standard;
+    use rand::prelude::*;
 
     impl Distribution<Probability> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Probability {

@@ -1,7 +1,5 @@
-use std::{
-    io::{Read, Write},
-    marker::{PhantomData, PhantomPinned},
-};
+use std::io::{Read, Write};
+use std::marker::{PhantomData, PhantomPinned};
 
 use super::Encode;
 
