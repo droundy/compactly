@@ -318,9 +318,6 @@ impl Ans {
     /// Decode a value from an async stream of [`Bytes`](::bytes::Bytes), decoding
     /// each chunk frame as it arrives rather than waiting for the whole input.
     /// Accepts the same bytes [`Ans::encode`] produces.
-    ///
-    /// Overlap stops at the final chunk, whose entropy region has no length and
-    /// so cannot be read before end of stream; see [`AsyncAnsDecoder`].
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
@@ -363,8 +360,7 @@ impl Ans {
     /// No buffering is applied — wrap an unbuffered sink like a `File` in a
     /// [`BufWriter`](std::io::BufWriter) yourself. (`Ans` writes each chunk's body
     /// in bulk, so it is less syscall-bound than `Range`, which writes a byte at a
-    /// time.) The returned writer is flushed before return, so a final flush error
-    /// surfaces here rather than being lost in a wrapping `BufWriter`'s `Drop`.
+    /// time.) The returned writer is flushed before return so should be clean to drop.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
@@ -377,10 +373,10 @@ impl Ans {
     /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
     ///
     /// No buffering is applied — wrap an unbuffered source in a
-    /// [`BufReader`](std::io::BufReader) yourself. (`Ans` reads only the small
+    /// [`BufReader`](std::io::BufReader) yourself. This reads only the small
     /// chunk-header varints a byte at a time and pulls each chunk body in bulk via
     /// `read_exact`, so it is less syscall-bound than `Range`, which reads a byte
-    /// at a time for the whole stream.)
+    /// at a time for the whole stream.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
@@ -642,7 +638,7 @@ impl Encoder {
 /// measured **+21%** on a cache-resident `Vec<u64>` decode and +6% on a
 /// memory-bound one. [`Ans::decode`] peeks the first frame and picks.
 #[derive(Eq, PartialEq)]
-pub struct Decoder<'a, const CHUNKED: bool = true> {
+struct Decoder<'a, const CHUNKED: bool = true> {
     state: StateOnly,
     /// The current chunk's rANS body (entropy bytes after the initial state).
     bytes: &'a [u8],
