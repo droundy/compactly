@@ -146,9 +146,29 @@ impl Encode for String {
         let len = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
         let mut out = String::with_capacity(super::capacity_for::<u8>(len));
         let mut sentinel = Sentinel::new();
-        for _ in 0..len {
+        let mut decoded = 0;
+        while decoded < len {
+            // Hand over a whole run of `char`s at a time; see `Vec`'s identical
+            // loop for why the run stops short of the next sentinel marker.
+            let batch = reader
+                .sync_capacity::<char, Normal>()
+                .min(sentinel.until_marker())
+                .min(len - decoded);
+            if batch > 0 {
+                let result = reader.with_sync(|sync| {
+                    for _ in 0..batch {
+                        sentinel.decode(sync)?;
+                        out.push(<char as Encode>::decode(sync, &mut ctx.chars)?);
+                    }
+                    Ok::<(), std::io::Error>(())
+                });
+                result?;
+                decoded += batch;
+                continue;
+            }
             sentinel.decode_async(reader).await?;
             out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
+            decoded += 1;
         }
         Ok(out)
     }

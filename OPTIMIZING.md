@@ -1978,6 +1978,53 @@ count is not what this loop pays for. The whole reshape then measured within
 ±0.02% on `async-split` (COUNT 2000 and 100000, CHUNKS 8 and 64) and `ans-async`,
 as it should, being a pure interface change.
 
+### Batching the async handoff is worth ~20-25%, and only `Vec` was doing it (2026-08-16)
+
+An audit of who actually calls the decoder traits turned up a lopsided answer:
+**`Vec<T>` under `Values<S>` is the only collection whose async decode hands
+several elements to the sync decoder at once.** Fourteen other length-driven
+loops — `String` (×2), the maps (×3), the sets (×3), `VecDeque`, `Box<[T]>`,
+`Vec<T>` under `Sorted`, `bytes`, `low_cardinality` — decode element by element
+through `decode_async`.
+
+Those loops are not *unbatched* in the sense of skipping the sync decoder:
+`decode_async` is a provided method whose whole body is
+`sync_decode_if_there_is_room`, so each element still takes the sync path. What
+they pay is a `with_sync` handoff **per element** — for `Range`, copying
+`state`/`value`/`bytes` into the slice decoder and back out again every element,
+which is exactly what `with_sync`'s own docs warn against.
+
+`String` converted to `Vec`'s loop shape, `async-decode-cost async-split
+strings` (meteorite names as `Vec<String>`, so `String::MAX_BYTES` is
+`usize::MAX`, the outer `Vec` can promise nothing, and the inner char loop is
+what runs). Instructions:
+
+| arm | before | after | |
+|---|---|---|---|
+| `async-split` CHUNKS=8 | 35.906 B | 26.980 B | **−24.9%** |
+| `async-split` CHUNKS=64 | 33.545 B | 26.625 B | **−20.6%** |
+| `ans-async` | 21.647 B | 21.648 B | unchanged |
+| `async-split u64` (control) | 27.873 B | 27.875 B | unchanged |
+
+Repeats to within 0.01%. `Ans` is unchanged by construction: its
+`sync_capacity` is all-or-nothing on `reached_final`, and that arm delivers one
+chunk, so the whole value goes sync and the async loop never runs. This is a
+`Range` mid-stream win.
+
+Note this is **not** the same quantity as the `can_continue` measurement above,
+which found handoff *count* irrelevant. That compared ~12000 elements per
+handoff against ~29000 — both large. This compares one element per handoff
+against thousands, and there the per-handoff cost is the whole cost.
+
+The remaining thirteen loops are all the same shape and presumably all pay the
+same ~20%. They want a shared helper rather than thirteen copies of a loop with
+a subtle sentinel cap in it; the helper belongs in the codec layer and **not**
+on `AsyncEntropyDecoder`, since it needs the crate-private `Sentinel` and is an
+idiom over the trait rather than a capability of a decoder. Worth noting the
+trait needed nothing new for `String`: `sync_capacity::<T, S>()` and `with_sync`
+were exactly the two primitives required, which is the first independent
+confirmation that the reshaped trait is the right shape.
+
 ## TODO (in rough priority order)
 
 1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
