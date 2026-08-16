@@ -1832,30 +1832,143 @@ which `sync_decode_if_there_is_room` already implements — Ans just reports
 `ready_bytes() = 0` so it never fires. What it needs is a gate proving the value
 cannot run past the buffered frames.
 
-**`MAX_BYTES` is nearly that gate but not quite, and the near-miss is worth
-recording.** `MAX_BYTES` is additive per operation with weights 1 (bit), 3
-(symbol), 1 (raw byte); every operation contributes at least 1, so
-`ops <= MAX_BYTES` — and since `Ans` crosses a chunk when `ops_left` hits zero,
-`ops_left >= S::MAX_BYTES` would gate it with **no new constant and no new API**,
-just `ready_bytes()` returning `ops_left`. It fails on exactly one case: a
-tree-coded symbol charges 3 for information but a *bitwise* walk spends one op
-per tree level, so `AtMost<1000>` can spend ~10 ops against a `MAX_BYTES` of 3
-(`src/v2/atmost/mod.rs`). The symbol walk is fine (one step, one op).
+The gate has to be in the right *units*, and that is the whole difficulty.
+`Range`'s gate compares bytes against bytes: the sync decoder's cursor advances
+in bytes, and `ready_bytes` counts bytes. `Ans` chunks are delimited by **op
+count**, not byte count — flushed at `CHUNK_OPS`, with the op count in the frame
+header — and the sync decoder crosses into the next chunk exactly when
+`ops_left` hits zero. So the resource a handoff can exhaust is ops, and bytes
+bound ops in neither direction: one op can emit zero bytes (a well-predicted
+bit only renormalizes sometimes) and one op can emit thousands (a whole
+`encode_incompressible_bytes` run is a single `Op::Incompressible`).
 
-So a sound gate needs a real `MAX_OPS`: the same additive structure the derive
-already computes for `MAX_BYTES`, with leaf weights of 1 per bit, 1 per symbol
-*step*, 1 per incompressible run, and the walk's depth where the bitwise walk is
-chosen. That is a mirror of the `MAX_BYTES` work — including its property tests,
-which is the part that took the effort. Worth ~40% at the crossover rate;
-not started.
+### Two ways to build that gate, and why the second one wins
+
+**Option A, a `MAX_OPS` constant** mirroring `MAX_BYTES`: same additive
+structure, leaf weights of 1 per bit, 1 per symbol *step*, 1 per incompressible
+run, and the walk's depth where the bitwise walk is chosen. Sound, but it is a
+mirror of the whole `MAX_BYTES` effort *including its property tests*, which was
+the expensive part — and it gates conservatively, refusing a handoff whenever
+`ops_left < MAX_OPS`, i.e. near the end of every chunk, which is exactly where
+the decoder sits when a frame has just landed.
+
+**Option B, make it true at encode time** (2026-08-16, chosen): we own both
+sides, so let the *encoder* refuse to break a chunk in the middle of a bounded
+value. Defer the flush to the next safe point — a moment when no value with a
+finite `MAX_BYTES` is partially encoded. Then a bounded value provably lies
+entirely within one chunk, and the decode-side gate collapses to
+
+```rust
+const { T::MAX_BYTES != usize::MAX } && ops_left > 0
+```
+
+one const-folded bool and one nonzero test on a field the sync decoder already
+maintains. No new constant, no mirrored property tests, and *exact* rather than
+conservative: a `u64` needs `ops_left > 0`, not `ops_left >= 10`.
+
+The `ops_left > 0` half is not optional. Straddle-freedom leaves a value either
+wholly in the current chunk or wholly in the next one; the second case starts
+with a `load_next_chunk` for a frame that may not have arrived.
+
+Notes on building it:
+
+- **Nesting is free.** `MAX_BYTES` composes with `saturating_add`, so an
+  unbounded child makes its parent unbounded — contrapositive, a bounded value's
+  children are all bounded. Only the outermost bounded value needs bracketing,
+  and `depth == 0 && T::MAX_BYTES != usize::MAX` detects it in one predictable
+  branch.
+- **No call site has to remember.** Use the trick already in the trait:
+  `decode_async` is a *provided* wrapper around the required `decode_awaiting`
+  precisely so a forgetful call site stays correct. Do the same on the encode
+  side — rename the required method to `encode_inner`, make `encode` the
+  provided bracket-and-delegate wrapper. Existing `Normal::encode(...)` call
+  sites are unchanged; impls just rename. The bracket calls an `EntropyCoder`
+  hook that is an empty default for `Range` and `Millibits` and folds away.
+- **Chunk sizing has to move with it.** Deferral lets a chunk overrun
+  `CHUNK_OPS` by one bounded value's ops, and a bounded value can be large
+  (`[u64; 100_000]` is bounded). `MAX_CHUNK_ENTROPY` is derived from "flushed at
+  `CHUNK_OPS`" and is a real anti-DoS bound on what a hostile stream can make
+  the reader buffer. Bumping it by a per-type quantity is `MAX_OPS` sneaking
+  back in; instead make it dynamic — a non-final frame header already carries
+  its op count in `tag >> 1`, so `oversized_entropy_region` can check against
+  `2*(op_count+256)+STATE_BYTES`, which is *tighter* than today's constant. The
+  final frame has no length field, so give its tag an op count too and let
+  `read_final_region` cap dynamically.
+- **"By definition" means trusting the peer, so test the violation.** The gate
+  becomes a claim about the bitstream, and bitstreams arrive from places that
+  did not run our encoder. A stream with a boundary mid-value makes the sync
+  decoder cross it during a handoff; that is contained, because the sync decoder
+  runs over a buffer capped at the last complete frame, so `load_next_chunk`
+  finds a short region, sets `truncated`, and `into_result` errors. Wrong input
+  becomes `Err`, not corruption and not a hang — but that path needs a test
+  aimed at *violated* alignment, the opposite shape from `v2::max_bytes`.
+- It is a format change (chunk boundaries move for streams over `CHUNK_OPS`
+  ops), which is free: v2 is not a frozen format. See CLAUDE.md.
+
+**Correction to an earlier claim here.** A previous revision justified `MAX_OPS`
+by asserting that `AtMost<1000>` spends ~10 ops against a `MAX_BYTES` of 3. That
+is not true of the current code: `Walk::production` only picks a bitwise walk for
+`MAX == 1` (one op, charged 3) or `MAX >= SymbolRange::M` (k ops, charged k
+bytes), so every `AtMost` satisfies `ops <= MAX_BYTES`, as does everything else
+in the crate — the recipe charges at least one byte per op. That makes
+`ops <= MAX_BYTES` an accident of how *this* crate writes its bounds, not
+something the contract promises (`MAX_BYTES` is documented as an *information*
+bound, and `Encode` is a public trait), and it is exactly tight for bit-heavy
+types, so it is still not a sound substitute — just not for the reason
+originally recorded.
+
+### `can_continue` cannot replace `sync_capacity`; const-gate it (2026-08-16)
+
+Chunk alignment leaves `Ans` able to promise only *one* value up front
+(`ops_left > 0` says the current value fits, not the next one), which would kill
+the batching in `Vec`'s `decode_awaiting` — it hands over
+`sync_capacity` elements at a time precisely so the sync decoder keeps its state
+register-resident across the run. The tempting fix is to invert the question:
+drop the up-front capacity and ask the sync decoder *between* values whether it
+still has room. That also looked strictly better for `Range`, since a re-check
+sees what elements actually consumed (~9 bytes for a `u64`) rather than their
+worst case (`MAX_BYTES` ~22).
+
+Measured on the `async-decode-cost async-split u64` arm at `COUNT=100000`, where
+the input exceeds `READY_TARGET` so the source stays partial and `is_final` is
+false for most of the decode — the regime the batch loop actually runs in.
+Instructions:
+
+| arm | `CHUNKS=8` | `CHUNKS=64` | |
+|---|---|---|---|
+| baseline (`sync_capacity`) | 27.872 B | 27.787 B | |
+| `can_continue` per element | 28.110 B | 28.026 B | **+0.85% / +0.86%** |
+| `can_continue` const-gated | 27.873 B | 27.794 B | +0.01% / +0.02% |
+
+The re-check should batch perhaps 2× more elements per handoff — it bounds
+actual rather than worst-case consumption, ~9 bytes against ~22 (that ratio is
+derived from the two bounds, not instrumented) — and it does not matter: over
+100k elements that saves a handful of handoffs, while the check itself costs
+about two instructions on **every** element. `Range` amortizes one division over
+~12k elements; nothing per-element can compete with that.
+
+So the shape is a `const RECHECKS_ROOM: bool = false` on `EntropyDecoder`
+guarding the call, which folds the whole condition away for coders whose
+up-front promise is already exact. `Range` leaves it `false` and lands back on
+baseline; `Ans` sets it `true` once alignment gives it something to re-check.
+Prototype on the `can-continue-prototype` branch (not for merge).
+
+The API consequence is the useful one: `RECHECKS_ROOM` and `can_continue` both
+have defaults, so they are **additive** and need not land with the trait. Only
+making `sync_capacity` required — and dropping `ready_bytes`/`SETTLING_BYTES`/
+`is_final`, which are `Range`'s private accounting leaking into a shared trait —
+is a breaking change, so that is the part that has to happen before the trait
+ships.
 
 ## TODO (in rough priority order)
 
-1. **`MAX_OPS` for mid-stream `Ans` sync handoff** — see the section above.
-   Worth up to 41.7% where arrival and decode are balanced, ~0 at either
-   extreme. Mirrors `Encode::MAX_BYTES` in structure; `MAX_BYTES` itself is
-   *not* a sound substitute (bitwise `AtMost` walks spend more ops than it
-   bounds).
+1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
+   "Two ways to build that gate" above. Worth up to 41.7% where arrival and
+   decode are balanced, ~0 at either extreme. Encoder defers each flush to the
+   next point where no bounded value is open; the decode gate is then
+   `T::MAX_BYTES != usize::MAX && ops_left > 0`. Prefer this over a `MAX_OPS`
+   constant: no new bound to property-test, and the gate is exact rather than
+   conservative.
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:

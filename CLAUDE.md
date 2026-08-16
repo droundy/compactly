@@ -73,14 +73,20 @@ This is a Rust serialization library that encodes data using **adaptive entropy 
 
 ### Format versions
 
-The library has two independently stable binary formats, each living in its own module:
+The library has two binary formats, each living in its own module:
 
-| Module | Coder | Notes |
-|--------|-------|-------|
-| `compactly::v1` | Arithmetic/range coding | Written to any `std::io::Write` |
-| `compactly::v2` | ANS (Asymmetric Numeral Systems) | Default re-exported as `compactly::{encode, decode, Encode}` |
+| Module | Coder | Stability | Notes |
+|--------|-------|-----------|-------|
+| `compactly::v1` | Arithmetic/range coding | **Frozen** — guarded by `tests/v1-encoding` | Written to any `std::io::Write` |
+| `compactly::v2` | ANS (Asymmetric Numeral Systems) | **Not stable; still free to change** | Default re-exported as `compactly::{encode, decode, Encode}` |
 
 Both versions share the same overall design — only the entropy coder differs.
+
+**`v2` is not a frozen format.** There is no `v2-encoding` stability test and none
+is wanted yet: changes that move the bitstream (context seeds, tree shapes, chunk
+boundaries) are still fair game, and are made on their merits. Only `v1` is
+committed to. Do not add a v2 stability test, and do not reject a v2 change on
+compatibility grounds, without an explicit decision to freeze it.
 
 ### Core traits
 
