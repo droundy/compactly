@@ -2549,18 +2549,18 @@ where
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
 
-    /// All or nothing, and `MAX_BYTES` never enters into it. What bounds a safe
+    /// All or nothing, and `unit_bytes` never enters into it. What bounds a safe
     /// handoff here is whether another *frame* can still arrive: nothing in a
     /// frame is decodable until the whole frame is in hand, so there is no
     /// partial byte count to divide by, and once no frame can follow, the sync
     /// decoder holds the entire rest of the stream.
     ///
     /// This is where a mid-stream answer would go once the encoder guarantees a
-    /// bounded value never straddles a chunk boundary — `T::MAX_BYTES !=
-    /// usize::MAX && ops_left > 0`, reading the type's *boundedness* rather than
-    /// its byte count. See OPTIMIZING.md.
+    /// bounded value never straddles a chunk boundary — `unit_bytes !=
+    /// usize::MAX && ops_left > 0`, reading the unit's *boundedness* rather than
+    /// its size. See OPTIMIZING.md.
     #[inline]
-    fn sync_capacity<T: super::Encode<St>, St>(&self) -> usize {
+    fn sync_capacity(&self, _unit_bytes: usize) -> usize {
         if self.reached_final {
             usize::MAX
         } else {

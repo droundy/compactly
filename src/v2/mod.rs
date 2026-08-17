@@ -384,37 +384,26 @@ pub trait AsyncEntropyDecoder {
     /// type need not mention.
     type Sync<'a>: EntropyDecoder;
 
-    /// How many `T`s coded with strategy `S` can certainly be decoded by
+    /// How many units of `unit_bytes` each can certainly be decoded by
     /// [`Self::with_sync`] right now, without awaiting — `usize::MAX` once no
     /// more input can arrive, since past true end of stream the sync decoder
     /// zero-pads, which is what it should do there.
     ///
-    /// **Asked about a type, not a byte count, deliberately.** Each coder is
-    /// limited by a different resource, and the type is what lets each one read
-    /// the property it actually needs: `Range` is bounded by buffered bytes and
-    /// consults [`MAX_BYTES`](Encode::MAX_BYTES); a frame-based coder is bounded
-    /// by what fits before the next frame, and may care only whether the type is
-    /// bounded at all. A `usize` of "information bytes" would have thrown that
-    /// away at the call site, and would have made every caller responsible for
-    /// summing bounds and for *not* adding the settling margin — which is the
-    /// implementor's to add, exactly once, over the whole handoff.
+    /// **Pass a sum of [`MAX_BYTES`](Encode::MAX_BYTES) values and nothing
+    /// else.** The implementor adds its own settling margin, and adds it
+    /// **once** over the whole handoff, which is the only correct number of
+    /// times: that margin is bounded per *span*, not per value, so a caller
+    /// folding it into `unit_bytes` would count it once per unit and be badly
+    /// wrong. `usize::MAX` in means an unbounded unit — the form a frame-based
+    /// coder reads when all it needs to know is whether the unit is bounded at
+    /// all.
     ///
-    /// Ask about the unit actually handed over in one `with_sync`: a caller
+    /// Ask about the unit actually handed over in one `with_sync`. A caller
     /// decoding a marker alongside each element must either include it or stop
-    /// the run short of one, as the shared collection helper does.
-    fn sync_capacity<T: Encode<S>, S>(&self) -> usize;
-
-    /// Whether at least one `T` certainly fits — the per-value form of
-    /// [`Self::sync_capacity`], overridable when a coder can answer it more
-    /// cheaply than by computing a whole capacity.
-    ///
-    /// This is the gate [`Encode::decode_async`] applies before handing a whole
-    /// value to the sync decoder. A caller with several values to decode should
-    /// ask [`Self::sync_capacity`] instead and hand them over together.
-    #[inline]
-    fn has_room_for<T: Encode<S>, S>(&self) -> bool {
-        self.sync_capacity::<T, S>() > 0
-    }
+    /// the run short of one, as the shared collection helper does; a caller
+    /// handing over several *different* things at once — consecutive fields of
+    /// a struct, say — sums their bounds, which a single type could not name.
+    fn sync_capacity(&self, unit_bytes: usize) -> usize;
 
     /// Decode with the sync decoder, positioned exactly here.
     ///
@@ -426,8 +415,7 @@ pub trait AsyncEntropyDecoder {
     /// then keeps its state register-resident across all of them.
     ///
     /// **Only call within the budget [`Self::sync_capacity`] reports** — it must
-    /// cover everything `f` decodes. For a single value, that check is
-    /// [`Self::has_room_for`].
+    /// cover everything `f` decodes.
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
 
     /// Finish decoding, reporting why the value cannot be trusted if it cannot;
@@ -620,7 +608,7 @@ pub trait Encode<S = crate::Normal>: Sized {
         async {
             // Bound to a `let` so the borrows of `decoder` and `ctx` end before
             // the fallback needs them again.
-            let attempt = if decoder.has_room_for::<Self, S>() {
+            let attempt = if decoder.sync_capacity(Self::MAX_BYTES) > 0 {
                 Some(decoder.with_sync(|sync| <Self as Encode<S>>::decode(sync, ctx)))
             } else {
                 None

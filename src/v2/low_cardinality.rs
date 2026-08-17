@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 use super::{Encode, LowCardinality, Strategy};
 use crate::{Normal, Small};
 use std::borrow::Borrow;
@@ -564,11 +564,11 @@ where
     ) -> Result<Vec<T>, std::io::Error> {
         let n = <usize as Encode>::decode_async(reader, &mut ctx.0).await?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode_async(reader).await?;
-            x.push(<T as Encode<LowCardinality>>::decode_async(reader, &mut ctx.1).await?);
-        }
+        // Worth routing through the helper even though the element is unbounded
+        // and so can never be promised mid-stream: once the source is complete
+        // every unit is promised, and there the naive loop pays a `with_sync`
+        // handoff per element where this pays one per marker interval.
+        decode_elements::<_, T, LowCardinality, _>(reader, &mut ctx.1, n, &mut x).await?;
         Ok(x)
     }
 }

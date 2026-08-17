@@ -1002,9 +1002,16 @@ where
     /// there, which is exactly the symptom of an understated `MAX_BYTES`.
     #[inline]
     pub(crate) fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder) -> R) -> R {
-        let rest = self.source.buffered();
+        // Borrowed, not an owned `Bytes` slice: `f` touches only the `Decoder`,
+        // so nothing needs to mutate the source while this is alive, and the
+        // refcount pair a `Bytes` costs is per *handoff* — measurable (−1.2%
+        // cycles on a handoff-dense workload) once handoffs are per value
+        // rather than per batch. `available` is read up front so the borrow can
+        // end before `advance` needs the source back.
+        let rest = self.source.peek();
+        let available = rest.len();
         let mut sync = Decoder {
-            bytes: &rest,
+            bytes: rest,
             state: self.state,
             value: self.value,
             // A mid-stream continuation, never a fresh decode: this decoder is
@@ -1014,15 +1021,15 @@ where
             empty_input: false,
         };
         let result = f(&mut sync);
+        let left = sync.bytes.len();
         debug_assert!(
-            !sync.bytes.is_empty() || self.source.is_complete(),
+            left > 0 || self.source.is_complete(),
             "sync decode consumed every buffered byte without reaching end of \
              stream: some type's MAX_BYTES is too small"
         );
-        let consumed = rest.len() - sync.bytes.len();
         self.state = sync.state;
         self.value = sync.value;
-        self.source.advance(consumed);
+        self.source.advance(available - left);
         result
     }
 
@@ -1074,30 +1081,24 @@ where
     type Sync<'a> = Decoder<'a>;
 
     /// `Range` is bounded by buffered bytes, so the answer is how many
-    /// `MAX_BYTES` worth of information fit in what has arrived — less the
-    /// settling margin, subtracted here rather than per value because that
+    /// `unit_bytes` worth of information fit in what has arrived — less the
+    /// settling margin, subtracted here rather than per unit because that
     /// margin is bounded per *span* and so is paid once for the whole handoff.
+    ///
+    /// `unit_bytes` is a constant at every call site, so the division folds:
+    /// against a literal divisor LLVM turns `capacity > 0` back into the
+    /// compare-don't-divide form, which is why no separate per-value gate is
+    /// needed (it was tried, and measured at exactly zero).
     #[inline]
-    fn sync_capacity<T: super::Encode<St>, St>(&self) -> usize {
+    fn sync_capacity(&self, unit_bytes: usize) -> usize {
         if self.source.is_complete() {
             return usize::MAX;
         }
-        let per_value = <T as super::Encode<St>>::MAX_BYTES;
         self.source
             .ready_bytes()
             .saturating_sub(SETTLING_BYTES)
-            .checked_div(per_value)
+            .checked_div(unit_bytes)
             .unwrap_or(usize::MAX)
-    }
-
-    /// A comparison rather than [`Self::sync_capacity`]'s division. Both fold
-    /// against a constant `MAX_BYTES`, but the per-value gate runs once per
-    /// value where the division is amortised over a whole batch.
-    #[inline]
-    fn has_room_for<T: super::Encode<St>, St>(&self) -> bool {
-        self.source.is_complete()
-            || self.source.ready_bytes()
-                >= SETTLING_BYTES.saturating_add(<T as super::Encode<St>>::MAX_BYTES)
     }
 
     #[inline]

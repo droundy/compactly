@@ -2089,6 +2089,107 @@ an extension point something actually extends. The public surface is now
 a hand-written collection needs is `sync_capacity` + `with_sync`, told more
 clearly without a convenience method that cannot participate in it.
 
+**Postscript (same day): `has_room_for` did not survive the next review either.**
+The "measured reason" above was written, not measured. Measuring it found exactly
+zero, for a reason visible on inspection — see the section below.
+
+### The async handoff, reviewed once more: −3.1% and two fewer trait items (2026-08-16)
+
+A final read of the PR, asking of each piece the question that removed
+`sync_decode_if_there_is_room`: *does this earn its place?* Four answers, all
+against the same baseline (`async-decode-cost async-split`, `CHUNKS=8`, quiesced,
+min of 3; `u64` 26.331 B instructions, `strings` 27.063 B instructions / 10.073 B
+cycles).
+
+**1. `has_room_for` was a hand-written copy of what LLVM already emits.** The
+`Range` override is `ready >= SETTLING + MAX_BYTES`; the provided body is
+`ready.saturating_sub(SETTLING).checked_div(MAX_BYTES).unwrap_or(MAX) > 0`. The
+divisor is a monomorphized constant at every call site, so the compiler folds the
+division back into precisely that comparison. Deleting the override measured
+`u64` +0.006%, `strings` −0.041% — the noise floor, in both directions. So the
+method had one caller, one override, and an override worth nothing; it is gone,
+and `decode_async` gates on `sync_capacity(...) > 0` directly.
+
+**2. `sync_capacity` goes back to a byte count** — `fn sync_capacity(&self,
+unit_bytes: usize) -> usize`, reverting the signature half of "Ask
+AsyncEntropyDecoder about a type, not a byte count" while keeping the part of it
+that was right (it stays *required*, because `Ans` genuinely cannot answer a
+byte-accounting question derived from `ready_bytes`).
+
+The type parameter was justified by "each coder reads the property it actually
+needs". Both implementations read one `usize` and nothing else: `Range` uses
+`MAX_BYTES`, and `Ans` uses *nothing* — it is all-or-nothing on `reached_final`.
+The documented future mid-stream `Ans` gate reads boundedness, which
+`unit_bytes == usize::MAX` conveys exactly. The one thing the type form kept
+alive that the byte form does not is a hypothetical `T::MAX_OPS`, and TODO #1
+already prefers chunk alignment over a `MAX_OPS` constant.
+
+Against that, the byte count is *strictly more expressive*: it can describe a run
+of several different things summed together, which no single type can name. That
+is not hypothetical — it is what a derived struct needs to hand a run of
+consecutive bounded fields to one `with_sync` (new TODO below). The footgun the
+type form removed ("pass a sum of `MAX_BYTES` and nothing else") is unchanged in
+kind: the settling margin still belongs to the implementor, added once per
+handoff, and callers still must not touch it.
+
+**3. `Range::with_sync` was cloning a `Bytes` per handoff.** `ChunkSource::buffered`
+returned an owned slice — a refcount pair — where `peek` returns a borrowed one.
+The owned form was defensive: `f` touches only the `Decoder`, so nothing mutates
+the source while the borrow is alive, and reading the length up front is enough
+for NLL. `buffered` had no other caller and is deleted.
+
+| | u64 | strings |
+|---|---|---|
+| instructions | +0.006% | **−0.98%** |
+| cycles | | **−1.21%** |
+
+`u64` is flat because its outer `Vec` batches, so handoffs are rare; `strings`
+pays one per `String` (the outer `Vec<String>` is unbounded) plus one per length.
+Cycles move slightly *more* than instructions, which is the tell that this was an
+atomic: ordinary work hides in the decoder's latency shadow and an atomic RMW
+does not.
+
+**4. The sentinel tick inside the batch loop could never fire.** `decode_elements`
+clamps every run to `until_marker()`, so the per-element `sentinel.decode(sync)?`
+was a countdown decrement, a never-taken branch, and a `?` on an always-`Ok`
+`Result`. One `Sentinel::skip(batch)` after the run is exactly equivalent (the
+ticks would see `countdown = c-1 … c-batch`, never 0). **−1.74% instructions on
+`strings`, and a cycle wash** — the branch was perfectly predicted and sat in the
+latency shadow. Worth taking anyway: the loop used to read as though a marker
+could fall due inside a run, three lines under the comment saying it cannot.
+
+Combined, against the same baseline:
+
+| arm | instructions | cycles |
+|---|---|---|
+| `async-split strings` | 27.063 B → 26.213 B (**−3.14%**) | 10.073 B → 9.951 B (**−1.21%**) |
+| `async-split u64` | 26.331 B → 26.333 B (+0.008%) | |
+| `ans-async strings` | 22.988 B → 22.932 B (−0.25%) | |
+| `ans-async u64` | 18.246 B → 18.247 B (+0.007%) | |
+
+The `u64` arms move by the same +0.006…0.010% in *every* variant tried, including
+the ones that changed no instruction in that path, so that is alignment and not a
+regression. `ans-async strings` picks up the sentinel skip, which applies to any
+coder once it is batching.
+
+**And one loop was skipped for a reason that turned out to be the R20 error.**
+The note above says `bytes.rs`'s `Chunk` and `low_cardinality.rs`'s element were
+left unconverted because their `MAX_BYTES == usize::MAX` — "once the source is
+complete it reports `usize::MAX` for any type, so they would batch then, but that
+is the case where staying async costs nothing anyway." The parenthetical is
+wrong in exactly the way R20 was: staying async there costs a `with_sync` per
+element, which is the entire ~25% this work was about. `low_cardinality`'s `Vec`
+loop is a direct fit and is now converted. `bytes.rs`'s Lz77 loop genuinely
+cannot be: its per-element work is a back-reference splice, and `self` is
+simultaneously the element context and the output sink, so there is no `&mut C`
+to hand `decode_elements`.
+
+**Non-finding, recorded so it is not re-proposed.** The `min(until_marker())`
+clamp looks like a missed batching opportunity — a complete source has infinite
+capacity yet still re-enters `with_sync` every 4096 elements instead of handing
+over the whole tail. It is one handoff per 4096 elements, about 0.01 cycles per
+element, and detecting the case would cost a branch in the loop.
+
 ## TODO (in rough priority order)
 
 1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
@@ -2098,6 +2199,22 @@ clearly without a convenience method that cannot participate in it.
    `T::MAX_BYTES != usize::MAX && ops_left > 0`. Prefer this over a `MAX_OPS`
    constant: no new bound to property-test, and the gate is exact rather than
    conservative.
+
+1. **Batch a derived struct's bounded fields into one `with_sync`** — the same
+   insight as `decode_elements`, applied to structs instead of collections. A
+   derived `decode_awaiting` calls `decode_async` **per field**. When the struct
+   is bounded overall its caller already hands the whole thing over and none of
+   that runs — but one `String` or `Vec` field saturates the type to
+   `usize::MAX`, and then every *other* field pays its own gate and its own
+   handoff. That is most real record types.
+
+   The derive already computes each field's `MAX_BYTES` at compile time, so it
+   can partition fields into maximal runs of bounded ones and emit one
+   `sync_capacity(sum_of_run) > 0` gate plus one `with_sync` per run. No new
+   trait surface — this is exactly why `sync_capacity` takes a byte count rather
+   than a type, since the run's bound is a sum no single type names. Unmeasured;
+   size the win first on a struct with several scalar fields beside a `String`,
+   mid-stream on `Range` (the `Ans` arm cannot benefit until #1 lands).
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:

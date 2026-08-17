@@ -36,7 +36,7 @@ pub(crate) struct ChunkSource<S> {
     stream: Pin<Box<S>>,
     /// Everything delivered and not yet consumed, as one contiguous run.
     ///
-    /// Contiguity is a requirement, not a convenience: [`Self::buffered`] hands
+    /// Contiguity is a requirement, not a convenience: [`Self::peek`] hands
     /// this to a sync decoder that will read up to [`Self::ready_bytes`] of it,
     /// so the two must describe the same bytes. Coalescing is what
     /// [`Self::drain_ready`] pays for that, and it pays only when it actually
@@ -249,19 +249,13 @@ where
         self.current.len() - self.pos
     }
 
-    /// Everything the source has buffered, as one slice.
+    /// Everything the source has buffered, as one borrowed slice.
     ///
-    /// Returned owned (a `Bytes` slice is a refcount bump, not a copy) rather
-    /// than borrowed, so the caller can go on mutating the source while holding
-    /// it — which is exactly what handing it to a sync decoder and then
-    /// [advancing](Self::advance) by what that decoder consumed requires.
-    pub(crate) fn buffered(&self) -> Bytes {
-        self.current.slice(self.pos..)
-    }
-
-    /// The ready bytes, borrowed — for looking without taking. Free, where
-    /// [`Self::buffered`] costs a refcount bump, so this is what a per-op check
-    /// should use.
+    /// Handing this to a sync decoder and then [advancing](Self::advance) by
+    /// whatever that decoder consumed is the sync handoff; it works because the
+    /// buffer is kept contiguous for exactly this reason. Borrowing rather than
+    /// handing out an owned `Bytes` is what keeps a handoff free of the
+    /// refcount pair, which matters once handoffs are per value.
     #[inline]
     pub(crate) fn peek(&self) -> &[u8] {
         &self.current[self.pos..]
