@@ -309,17 +309,108 @@ mod tests {
         (0..n as u64).map(|i| i.wrapping_mul(2654435761) % 100_000)
     }
 
+    /// Decode `value` from a chunk stream on both coders, at chunk sizes that
+    /// put [`decode_elements`](super::decode_elements) into both of its regimes.
+    ///
+    /// The `in_memory` twin of each of these pins the *format*; this pins the
+    /// **async decode** of it, which is a second implementation and not a
+    /// re-run of the first. Two things make that worth its own test rather than
+    /// trusting the sync one:
+    ///
+    /// - the batch loop is a different traversal of the same bytes, and the
+    ///   sentinel bookkeeping is *not* shared with the sync path — a run takes
+    ///   `Sentinel::skip` where the sync loop ticks per element, so a
+    ///   miscounted run desynchronizes the marker schedule and nothing above
+    ///   would notice until a marker came up `false`;
+    /// - past `SENTINEL_EVERY` there is one element per interval that a run
+    ///   cannot span, which the loop must hand to the awaiting path instead.
+    ///   Below the interval that element does not exist, so only a `BIG` value
+    ///   reaches it — hence testing exactly these fixtures rather than fresh
+    ///   small ones.
+    ///
+    /// Both coders, because they answer `sync_capacity` in completely different
+    /// terms: `Range` divides buffered bytes, so mid-stream it batches in
+    /// bounded runs, while `Ans` is all-or-nothing on `reached_final` and so
+    /// takes the awaiting path for the whole stream and then the entire tail at
+    /// once. Neither exercises the other's loop.
+    ///
+    /// # What each fixture actually reaches
+    ///
+    /// Verified by mutation rather than assumed: an off-by-one in
+    /// [`Sentinel::skip`] is caught by 11 of the 15 fixtures here and by
+    /// **none** of their `in_memory` twins.
+    ///
+    /// The four survivors are the ones whose *element* is unbounded
+    /// (`LowCardinality`, `Sorted` items, `Compressible`). For those, `Range`
+    /// reports capacity 0 for the whole mid-stream, so the batch loop runs only
+    /// once the source completes — a tail of a few elements, with no marker
+    /// inside it. That is the real behaviour and not a gap here: the marker
+    /// arithmetic lives in the one shared `decode_elements`, which the other 11
+    /// pin thoroughly, and what remains per-site is the context threading and
+    /// the sink, which every fixture checks by comparing the whole value. All
+    /// 15 do reach the batch path (checked the same way).
+    #[cfg(feature = "stream")]
+    fn round_trips_from_a_stream<T>(value: &T)
+    where
+        T: crate::v2::Encode + PartialEq + std::fmt::Debug,
+    {
+        use crate::v2::stream::tests::Chunks;
+        use crate::v2::{Ans, Range};
+        use futures_executor::block_on;
+
+        let range_bytes = encode(value);
+        let ans_bytes = Ans::encode(value);
+
+        // Two regimes. 7 bytes holds less than one element's `MAX_BYTES` for
+        // every fixture here, so `Range`'s capacity stays 0 and each element
+        // goes down the awaiting path. A quarter of the input leaves ample room
+        // for real runs, so the same value is decoded by the batch loop as well
+        // — and being *derived* rather than a constant matters: the most
+        // compressible fixtures encode to under 2 KB, so a fixed 4096 would
+        // hand them over as a single chunk and quietly test the slice decoder
+        // instead of the async one.
+        //
+        // `Chunks` yields `Pending` before every chunk, so each boundary is a
+        // genuine suspension rather than a ready poll, and neither size can
+        // reach the single-chunk fast path.
+        for chunk_size in [7, (range_bytes.len() / 4).max(8)] {
+            let stream = Chunks::new(&range_bytes, chunk_size);
+            let decoded: T = block_on(Range::decode_stream::<T, _, _>(stream))
+                .expect("Range stream decode failed");
+            assert_eq!(&decoded, value, "Range, chunk_size = {chunk_size}");
+        }
+        for chunk_size in [7, (ans_bytes.len() / 4).max(8)] {
+            let stream = Chunks::new(&ans_bytes, chunk_size);
+            let decoded: T =
+                block_on(Ans::decode_stream::<T, _, _>(stream)).expect("Ans stream decode failed");
+            assert_eq!(&decoded, value, "Ans, chunk_size = {chunk_size}");
+        }
+    }
+
     macro_rules! round_trips {
         ($name:ident, $value:expr) => {
-            #[test]
-            fn $name() {
-                let v = $value;
-                let bytes = encode(&v);
-                assert_eq!(
-                    decode(&bytes).as_ref(),
-                    Some(&v),
-                    "round trip past sentinel"
-                );
+            mod $name {
+                use super::*;
+
+                /// The format: encode and decode in memory.
+                #[test]
+                fn in_memory() {
+                    let v = $value;
+                    let bytes = encode(&v);
+                    assert_eq!(
+                        decode(&bytes).as_ref(),
+                        Some(&v),
+                        "round trip past sentinel"
+                    );
+                }
+
+                /// The async decode of that same format; see
+                /// [`round_trips_from_a_stream`].
+                #[cfg(feature = "stream")]
+                #[test]
+                fn from_a_stream() {
+                    round_trips_from_a_stream(&$value);
+                }
             }
         };
     }
@@ -349,6 +440,15 @@ mod tests {
     round_trips!(
         btreemap,
         seq(BIG).map(|i| (i, i ^ 5)).collect::<BTreeMap<u64, u64>>()
+    );
+    // `HashMap`'s *default* impl has its own `decode_elements` call, distinct
+    // from the one in `Encode<Mapping<SK, SV>> for HashMap` — the only
+    // length-driven async loop in the crate that no other fixture reaches.
+    round_trips!(
+        mapping_hashmap,
+        Encoded::<HashMap<u64, u64>, crate::Mapping<crate::Small, crate::Small>>::new(
+            seq(BIG).map(|i| (i, i ^ 5)).collect()
+        )
     );
     round_trips!(hashset, seq(BIG).collect::<HashSet<u64>>());
     round_trips!(btreeset, seq(BIG).collect::<BTreeSet<u64>>());

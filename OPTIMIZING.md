@@ -2190,6 +2190,37 @@ capacity yet still re-enters `with_sync` every 4096 elements instead of handing
 over the whole tail. It is one handoff per 4096 elements, about 0.01 cycles per
 element, and detecting the case would cost a branch in the loop.
 
+### How much of a stream each collection actually batches (2026-08-16)
+
+Adding `decode_stream` coverage for the collections (review findings R22/R23)
+turned up a fact worth having on record, found by mutation-testing the new
+tests: **an off-by-one in `Sentinel::skip` is caught by 11 of the 15 fixtures
+and by none of their in-memory twins.** The second half is the point — it is the
+evidence that the async decode is a genuinely separate implementation and not a
+re-run of the sync one.
+
+The four survivors are exactly the fixtures whose *element* is unbounded
+(`LowCardinality`, `Sorted` items, `Compressible`). Instrumenting `skip` shows
+why: for those, `Range` reports capacity 0 for the entire mid-stream, so the
+batch loop first runs only once the source completes — and against the test's
+`Chunks` transport, which yields `Pending` before every chunk, completion
+coincides with byte exhaustion. The measured tail was **7 elements out of
+8199**. All 15 fixtures do reach the batch path; three of them barely.
+
+That is a caveat on the `low_cardinality` conversion in the section above, so
+state it precisely rather than leave the earlier justification standing alone.
+The conversion pays when a source completes with real decoding still to do,
+which is the common case for a real transport — `drain_ready` will pull up to
+`READY_TARGET` (256 KiB) ahead without suspending, so any body that fits in that
+is complete almost immediately — and does not pay against a transport that
+dribbles. It is never a loss, and it is the same code path as every other
+collection, which is worth more than the handoff count either way.
+
+Not a gap in the tests: the marker arithmetic lives in the one shared
+`decode_elements`, which the other 11 fixtures pin thoroughly. What is
+per-site is the context threading and the sink, and every fixture checks those
+by comparing the whole decoded value.
+
 ## TODO (in rough priority order)
 
 1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
