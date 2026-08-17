@@ -1022,8 +1022,14 @@ where
         };
         let result = f(&mut sync);
         let left = sync.bytes.len();
+        // `available == 0` is exempt because it is not evidence of anything:
+        // consuming none of nothing says only that `f` wanted no bytes. It is
+        // reachable on perfectly good input, since a zero-byte unit reports an
+        // unbounded capacity no matter how little has arrived — whereas any
+        // positive `MAX_BYTES` reports 0 against an empty buffer, so the gate
+        // would never have let us in here with bytes actually needed.
         debug_assert!(
-            left > 0 || self.source.is_complete(),
+            left > 0 || available == 0 || self.source.is_complete(),
             "sync decode consumed every buffered byte without reaching end of \
              stream: some type's MAX_BYTES is too small"
         );
@@ -1088,17 +1094,19 @@ where
     /// `unit_bytes` is a constant at every call site, so the division folds:
     /// against a literal divisor LLVM turns `capacity > 0` back into the
     /// compare-don't-divide form, which is why no separate per-value gate is
-    /// needed (it was tried, and measured at exactly zero).
+    /// needed (it was tried, and measured at exactly zero). The zero-unit test
+    /// folds away with it.
     #[inline]
     fn sync_capacity(&self, unit_bytes: usize) -> usize {
-        if self.source.is_complete() {
+        // A unit that codes to no bytes at all — `()`, or a struct of them —
+        // needs nothing buffered, so any number of them can be decoded right
+        // now whatever the source is doing. This is stated rather than left to
+        // `checked_div(0).unwrap_or(usize::MAX)`, which reached the same answer
+        // by accident and read as an unconsidered division guard.
+        if unit_bytes == 0 || self.source.is_complete() {
             return usize::MAX;
         }
-        self.source
-            .ready_bytes()
-            .saturating_sub(SETTLING_BYTES)
-            .checked_div(unit_bytes)
-            .unwrap_or(usize::MAX)
+        self.source.ready_bytes().saturating_sub(SETTLING_BYTES) / unit_bytes
     }
 
     #[inline]

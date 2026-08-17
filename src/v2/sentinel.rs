@@ -117,10 +117,17 @@ impl Sentinel {
     /// per-element [`Self::decode`] it would otherwise call is a countdown
     /// decrement and a branch that provably never fires. Doing the arithmetic
     /// once per run instead is worth 1.7% of the batched decode's instructions.
+    ///
+    /// Saturating rather than wrapping so that violating the precondition fails
+    /// *safely*. Plain `-=` would wrap to near `usize::MAX` in release, where
+    /// the `debug_assert` is gone, and silently retire the marker schedule for
+    /// the rest of the collection — losing the corruption check exactly when it
+    /// is the only thing left. Saturating costs the same instruction and makes
+    /// the same mistake surface as one marker arriving early.
     #[inline]
     pub(crate) fn skip(&mut self, n: usize) {
         debug_assert!(n <= self.countdown, "a marker fell due inside a run");
-        self.countdown -= n;
+        self.countdown = self.countdown.saturating_sub(n);
     }
 
     /// Call once per element, before coding it; returns whether a marker is due.
@@ -482,6 +489,47 @@ mod tests {
             (0..BIG * 8).map(|i| (i % 251) as u8).collect::<Vec<u8>>()
         )
     );
+
+    /// A whole collection of elements that code to *nothing* is still a
+    /// collection, and batching it must not look like an overrun.
+    ///
+    /// `Vec<()>` is the degenerate end of the batch loop: `MAX_BYTES` is 0, so
+    /// `sync_capacity` is unbounded and the run is the entire remainder, while
+    /// the encoding is a handful of bytes — the length and two markers. Decoded
+    /// from a suspending stream, the handoff therefore happens with an *empty*
+    /// buffer and no end of stream yet, which used to trip `with_sync`'s
+    /// `debug_assert` and accuse a `MAX_BYTES` of 0 of being too small. Release
+    /// builds were always right; this is a debug-only false alarm, and it fired
+    /// on ordinary input rather than anything adversarial.
+    ///
+    /// Chunk sizes are explicit and tiny because the point is a starved buffer:
+    /// the shared harness derives a size from the encoded length, which for a
+    /// few bytes is no starvation at all.
+    #[cfg(feature = "stream")]
+    #[test]
+    fn a_collection_of_zero_byte_elements_batches_from_a_stream() {
+        use crate::v2::stream::tests::Chunks;
+        use crate::v2::{Ans, Range};
+        use futures_executor::block_on;
+
+        let value: Vec<()> = vec![(); BIG];
+
+        let bytes = encode(&value);
+        for chunk_size in [1, 2, 3, 7] {
+            let stream = Chunks::new(&bytes, chunk_size);
+            let decoded: Vec<()> = block_on(Range::decode_stream::<Vec<()>, _, _>(stream))
+                .expect("Range stream decode failed");
+            assert_eq!(decoded, value, "Range, chunk_size = {chunk_size}");
+        }
+
+        let bytes = Ans::encode(&value);
+        for chunk_size in [1, 2, 3, 7] {
+            let stream = Chunks::new(&bytes, chunk_size);
+            let decoded: Vec<()> = block_on(Ans::decode_stream::<Vec<()>, _, _>(stream))
+                .expect("Ans stream decode failed");
+            assert_eq!(decoded, value, "Ans, chunk_size = {chunk_size}");
+        }
+    }
 
     /// The point of the whole exercise: a tiny input claiming an enormous
     /// collection must be rejected promptly rather than materializing it.

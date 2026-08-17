@@ -2221,6 +2221,29 @@ Not a gap in the tests: the marker arithmetic lives in the one shared
 per-site is the context threading and the sink, and every fixture checks those
 by comparing the whole decoded value.
 
+### An always-ready test stream measures the wrong decoder (2026-08-17)
+
+Worth knowing before writing any async test or benchmark here, because it fails
+silently and in the flattering direction.
+
+A `Stream` whose `poll_next` always returns `Ready` is drained to the end by
+`ChunkSource`'s look-ahead before decoding starts. `take_if_single_chunk` then
+sees a complete source with `pos == 0`, hands the whole buffer to the in-memory
+slice decoder, and `decode_stream` never constructs an async decoder at all. The
+chunk size you passed is irrelevant: it changes how many `Bytes` get coalesced,
+nothing else.
+
+So a test built on one checks the sync path twice, reports green, and proves
+nothing about `decode_awaiting`. `tests/derive.rs`'s `async_decode` module did
+exactly this from the day it was written — a probe in `decode_stream`'s async
+branch counted **zero** hits across the whole module. Adding a `Pending` before
+each chunk (waking immediately, as `stream::tests::Chunks` already did) took it
+to 18.
+
+The rule: any transport meant to exercise the async decoder must yield `Pending`
+at least once, and the fixture must not fit in a single chunk. Both test
+harnesses now do this and say why at the definition.
+
 ## TODO (in rough priority order)
 
 1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see

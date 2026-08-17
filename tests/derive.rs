@@ -614,24 +614,56 @@ mod async_decode {
         },
     }
 
+    /// A bounded compound record: no field may be unbounded, or the batch loop
+    /// this exists to reach would never run mid-stream. See
+    /// [`a_long_vector_of_derived_records_batches_from_a_stream`].
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Record {
+        flag: bool,
+        #[compactly(Small)]
+        id: u64,
+        kind: Kind,
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    enum Kind {
+        Nothing,
+        Byte(u8),
+        Wide { x: u16 },
+    }
+
     #[derive(compactly::v2::Encode, Debug, PartialEq)]
     struct Generic<T> {
         first: T,
         rest: Vec<T>,
     }
 
-    /// One `Bytes` per `chunk_size` bytes, so the decoder actually suspends.
+    /// One `Bytes` per `chunk_size` bytes, yielding `Pending` before each so the
+    /// decoder actually suspends.
+    ///
+    /// The `Pending` is the whole point and not politeness. An always-ready
+    /// stream is drained to the end by `ChunkSource`'s look-ahead before any
+    /// decoding starts, which makes it a *single chunk* and routes the decode to
+    /// the in-memory slice decoder — so a test built on one silently checks the
+    /// sync path twice and never runs `decode_awaiting` at all. That is exactly
+    /// what every test in this module did before this waker was added.
     fn chunks(
         bytes: &[u8],
         chunk_size: usize,
     ) -> impl futures_core::Stream<Item = Result<Bytes, std::io::Error>> {
-        struct Iter(std::vec::IntoIter<Bytes>);
+        struct Iter(std::vec::IntoIter<Bytes>, bool);
         impl futures_core::Stream for Iter {
             type Item = Result<Bytes, std::io::Error>;
             fn poll_next(
                 mut self: std::pin::Pin<&mut Self>,
-                _: &mut std::task::Context<'_>,
+                cx: &mut std::task::Context<'_>,
             ) -> std::task::Poll<Option<Self::Item>> {
+                if self.1 {
+                    self.1 = false;
+                    cx.waker().wake_by_ref();
+                    return std::task::Poll::Pending;
+                }
+                self.1 = true;
                 std::task::Poll::Ready(self.0.next().map(Ok))
             }
         }
@@ -641,6 +673,7 @@ mod async_decode {
                 .map(Bytes::copy_from_slice)
                 .collect::<Vec<_>>()
                 .into_iter(),
+            true,
         )
     }
 
@@ -679,6 +712,52 @@ mod async_decode {
             Shape::Tuple(0, String::new()),
             Shape::Empty,
         ]);
+    }
+
+    /// A bounded derived record, batched.
+    ///
+    /// Every other fixture here is small enough that the collection codes no
+    /// sentinel marker and `Range` hands over one element at a time. Past
+    /// `SENTINEL_EVERY` (4096, internal) a `Vec` instead runs the batch loop in
+    /// `v2::sentinel`, whose own fixtures are all scalars, strings, or pairs —
+    /// so the loop has never met a *compound* generated `Context`, which is
+    /// what `Vec<SomeRecord>`, the most ordinary shape there is, produces.
+    ///
+    /// Every field is bounded, deliberately: an unbounded one (a `String`, say)
+    /// makes the whole record unbounded, `sync_capacity` then reports 0 for the
+    /// entire mid-stream, and the batch loop would only ever see the few
+    /// elements left after the source completes. The enum is here so the
+    /// discriminant's `AtMost` walk is inside a batched run too.
+    #[test]
+    fn a_long_vector_of_derived_records_batches_from_a_stream() {
+        let records: Vec<Record> = (0..9000_u64)
+            .map(|i| Record {
+                flag: i % 3 == 0,
+                id: i.wrapping_mul(2654435761) % 100_000,
+                kind: match i % 3 {
+                    0 => Kind::Nothing,
+                    1 => Kind::Byte((i % 251) as u8),
+                    _ => Kind::Wide {
+                        x: (i % 65521) as u16,
+                    },
+                },
+            })
+            .collect();
+
+        let encoded = compactly::v2::encode(&records);
+        assert_eq!(
+            compactly::v2::decode::<Vec<Record>>(&encoded).as_ref(),
+            Some(&records),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        // A quarter of the input leaves room for real runs; 7 bytes holds less
+        // than one record's `MAX_BYTES`, so every element takes the awaiting
+        // path instead. Both regimes of the same loop.
+        for chunk_size in [7, encoded.len() / 4] {
+            let decoded: Vec<Record> =
+                block_on(compactly::v2::decode_stream(chunks(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, records, "chunk_size = {chunk_size}");
+        }
     }
 
     #[test]
