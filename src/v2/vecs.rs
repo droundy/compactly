@@ -409,6 +409,9 @@ impl Encode<Incompressible> for Vec<u8> {
         Small::encode(&value.len(), writer, ctx);
         let mut start = 0;
         for piece in incompressible_pieces(value.len()) {
+            // No `Sentinel` here (raw bytes need no corruption marker), so
+            // declare the split directly. One call per `INCOMPRESSIBLE_PIECE`.
+            writer.split_point();
             writer.encode_incompressible_bytes(&value[start..start + piece]);
             start += piece;
         }

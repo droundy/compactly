@@ -1842,7 +1842,7 @@ bound ops in neither direction: one op can emit zero bytes (a well-predicted
 bit only renormalizes sometimes) and one op can emit thousands (a whole
 `encode_incompressible_bytes` run is a single `Op::Incompressible`).
 
-### Two ways to build that gate, and why the second one wins
+### Two ways to build that gate, and why the second one wins (superseded — see below)
 
 **Option A, a `MAX_OPS` constant** mirroring `MAX_BYTES`: same additive
 structure, leaf weights of 1 per bit, 1 per symbol *step*, 1 per incompressible
@@ -1851,6 +1851,11 @@ mirror of the whole `MAX_BYTES` effort *including its property tests*, which was
 the expensive part — and it gates conservatively, refusing a handoff whenever
 `ops_left < MAX_OPS`, i.e. near the end of every chunk, which is exactly where
 the decoder sits when a frame has just landed.
+
+(**Read the "Chunk alignment landed" section below instead.** Option B is what
+was built, but not the way this describes: the bracket-every-value machinery
+here turned out to be avoidable. The reasoning about *why* encode-time beats
+`MAX_OPS` still stands, which is why this stays.)
 
 **Option B, make it true at encode time** (2026-08-16, chosen): we own both
 sides, so let the *encoder* refuse to break a chunk in the middle of a bounded
@@ -1956,15 +1961,16 @@ Prototype on the `can-continue-prototype` branch (not for merge).
 The API consequence is the useful one: `RECHECKS_ROOM` and `can_continue` both
 have defaults, so they are **additive** and need not land with the trait. Only
 the breaking part had to happen before `AsyncEntropyDecoder` ships, and it since
-has: `sync_capacity` is now required and generic —
-`sync_capacity::<T, S>()`, asked about a *type* — and
+has: `sync_capacity` is now required, taking the unit's byte bound — and
 `ready_bytes`/`SETTLING_BYTES`/`is_final` are gone from the trait, being
 `Range`'s private accounting that had leaked into a shared interface.
 
-Asking about the type rather than a byte count is what keeps the alignment work
-off the API: `Ans` will read `T::MAX_BYTES != usize::MAX` (boundedness, not a
-byte count) and, if a `MAX_OPS` is ever wanted after all, `T::MAX_OPS` — neither
-of which survives being flattened to a `usize` at the call site.
+Whether that should have been a *type* rather than a byte count was the open
+question, on the grounds that `Ans` would want boundedness rather than a size.
+It turned out not to matter: the landed gate reads `unit_bytes <=
+CHUNK_ATOMIC_MAX_BYTES`, which a `usize` carries perfectly well, and the
+alignment work needed no API change at all. If a `MAX_OPS` is ever wanted after
+all, that is when the generic form would have to come back.
 
 That cost one adjustment elsewhere. `Vec`'s batch loop had been asking about
 "sentinel marker + element", which is not a single type; since a marker is one
@@ -2022,7 +2028,7 @@ deliberately **not** a method on `AsyncEntropyDecoder`: it needs the
 crate-private `Sentinel`, and it is an idiom over the trait rather than a
 capability of a decoder — no coder would ever override it.
 
-The trait needed nothing new for any of them. `sync_capacity::<T, S>()` and
+The trait needed nothing new for any of them. `sync_capacity` and
 `with_sync` were the only two primitives required, which is the confirmation
 that the reshape is the right shape — until this work `Vec` was the sole caller
 of either.
@@ -2244,15 +2250,124 @@ The rule: any transport meant to exercise the async decoder must yield `Pending`
 at least once, and the fixture must not fit in a single chunk. Both test
 harnesses now do this and say why at the definition.
 
+### Chunk alignment landed, by inverting who declares the boundary (2026-08-17)
+
+The section above chose the encoder-side option and described it as bracketing
+*every bounded value*: a provided `Encode::encode` wrapping a required
+`encode_inner`, plus a nesting depth of open bounded values. That is not what
+was built. Inverting it is better on every axis:
+
+> **The rule.** An `Encode` impl whose `MAX_BYTES` exceeds
+> `CHUNK_ATOMIC_MAX_BYTES` must call `EntropyCoder::split_point` between the
+> parts it encodes. An impl at or below it must **not**.
+
+`split_point` is a provided no-op on `EntropyCoder`, so `Range` and `Millibits`
+fold it away. `AnsEncoder` overrides it with what used to be `maybe_flush` —
+`if self.ops.len() >= CHUNK_OPS { self.flush_chunk(false) }` — and that is now
+the **only** place a non-final chunk is flushed. A chunk-atomic value calls it
+nowhere, so it cannot straddle a boundary. Same guarantee as the bracket
+version, and:
+
+- **No depth tracking.** A value containing a split point is by the rule
+  unbounded, hence so is everything enclosing it (`MAX_BYTES` composes with
+  `saturating_add`/`max`). Being at a split point *is* being at depth zero.
+- **No trait-method rename.** `Encode::encode` is untouched, so the ~60 impls
+  and the derive's emission of them are untouched.
+- **It is faster, not slower.** The `ops.len() >= CHUNK_OPS` test leaves
+  `encode_bits`/`encode_symbol`/`encode_incompressible_bytes` — it ran once per
+  op — and runs once per collection element instead.
+- **No format change beyond the moved boundaries**, because the overrun stays
+  bounded by a constant. See `CHUNK_ATOMIC_MAX_BYTES` below.
+
+**Where the calls went.** Almost nowhere, which was the bet. Every length-driven
+encode loop in the crate already calls `Sentinel::encode` once per element,
+defined as "before coding it" — exactly the moment wanted — so the split point
+lives *there*, one line covering `Vec`, `Box<[T]>`, `VecDeque`, `Sorted`, maps,
+sets, `String` (all four loops), `bytes.rs`'s `Chunk`, and `low_cardinality`.
+Two loops have no `Sentinel` and declare their own: `Incompressible for
+Vec<u8>`'s piece loop and `low_cardinality`'s middle-`chars` loop. That is the
+whole of it, apart from the const-gated composites below.
+
+**Why the threshold is a size and not "is it bounded".** A *bounded* value can
+still be bigger than a chunk (`[u64; 100_000]`). Treating it as atomic would
+force a chunk as large as it is, and `MAX_CHUNK_ENTROPY` — a real anti-DoS bound
+on what a hostile stream can make a reader buffer — would have had to become
+per-frame, read off each header's op count, with a new field invented for the
+final frame, which has no length. Capping atomicity at `CHUNK_ATOMIC_MAX_BYTES`
+(4096) instead keeps `MAX_CHUNK_ENTROPY` a **constant**, now
+`2 * (CHUNK_OPS + CHUNK_ATOMIC_MAX_BYTES + 256) + STATE_BYTES`, ~6% wider than
+before. It leans on ops ≤ bytes for in-crate types — an accident of this crate's
+`MAX_BYTES` recipe rather than a promise of the contract, as recorded above — so
+`flush_chunk` asserts it in debug rather than assuming it.
+
+The price is that composites of atomic parts have to declare splits when *they*
+exceed the threshold: `array.rs`, `tuples.rs`, and the derive, all through
+`split_unless_atomic(writer, Self::MAX_BYTES)`, whose condition is two constants
+and compiles to nothing for every ordinary type.
+
+**The decode gate** is then `unit_bytes <= CHUNK_ATOMIC_MAX_BYTES &&
+ops_left > 0`, answering **1**. The size test is the encoder's atomicity test
+read straight back; `ops_left > 0` says the next op is in the chunk already in
+hand, and is not optional — alignment leaves a value either wholly in this chunk
+or wholly in the next, and the second case opens with a `load_next_chunk`.
+
+**Measured.** `async-decode-overlap`, `CODER=ans COUNT=100000 CHUNKS=64`, wall
+clock, min of 3, quiesced. `RATE_MBPS=0` sets arrival equal to decode — the
+balanced regime the headroom curve peaks at:
+
+| `RATE_MBPS` | arrival | before | after | |
+|---|---|---|---|---|
+| 0 (= decode rate) | 16.9 ms | 31.672 ms | 19.620 ms | **−38.0%** |
+| 200 | 4.01 ms | 20.556 ms | 18.305 ms | −11.0% |
+| 400 | 2.01 ms | 18.995 ms | 18.146 ms | −4.5% |
+| 800 | 1.00 ms | 18.214 ms | 18.152 ms | −0.3% |
+| 1600 | 0.50 ms | 17.826 ms | 18.110 ms | **+1.6%** |
+
+So the predicted "up to 41.7% where arrival and decode are balanced, ~0 at
+either extreme" was very nearly right: **−38.0%** at the peak, decaying to
+nothing as arrival outruns decode. The `+1.6%` at the fast end is real and
+repeatable, and it is the per-handoff cost: before the source completes, every
+element takes its own `with_sync`, and at that arrival rate there is no waiting
+left to hide it behind. It is TODO #1 above.
+
+Costs, all measured on the same machine:
+
+- **Where the gate cannot fire, nothing.** `async-decode-cost` at `COUNT=10000`
+  is a single chunk, so `ans-async` takes the whole-value fast path and the new
+  branch is dead. Instructions: `ans-async` u64 +0.008%, strings −0.009%;
+  `ans-slice` u64 −0.015%, strings −0.003%. All noise floor.
+- **Encode got slightly cheaper**, as predicted from moving the check off the
+  per-op path: `just-compress-strings ans 300`, **−0.16%** instructions and
+  −3.1% cycles (min of 3; the instruction count is the honest one, cycles being
+  above this machine's residual but not by much).
+- **Size is a wash.** Every `expect!` size assertion is unchanged — those
+  fixtures are single-chunk, so no boundary moves. 100k `u64` went 802,570 →
+  802,565 bytes, −0.0006%.
+
+**Tests.** `every_unbounded_type_offers_split_points` encodes a large instance of
+all 15 unbounded shapes and asserts each produced ≥2 chunks — a new collection
+whose loop forgets the rule shows up as one enormous frame. The `debug_assert` in
+`flush_chunk` catches the same failure from the other side, from every existing
+chunk-spanning round-trip. `chunk_atomic_values_round_trip_across_boundaries`
+pushes a `Vec<[u64; 8]>` through many boundaries by all three decode routes.
+And `a_boundary_inside_a_value_errors_rather_than_decoding_wrong` aims at the
+guarantee being *violated*, which is the shape this needed and the opposite of a
+round-trip test: it halves a non-final frame's declared op count, which puts a
+boundary mid-value, and asserts `decode_stream` returns `Err` rather than a
+plausible value or a hang.
+
+
 ## TODO (in rough priority order)
 
-1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
-   "Two ways to build that gate" above. Worth up to 41.7% where arrival and
-   decode are balanced, ~0 at either extreme. Encoder defers each flush to the
-   next point where no bounded value is open; the decode gate is then
-   `T::MAX_BYTES != usize::MAX && ops_left > 0`. Prefer this over a `MAX_OPS`
-   constant: no new bound to property-test, and the gate is exact rather than
-   conservative.
+1. **Let `Ans` batch more than one value per mid-stream handoff** — the loose
+   end left by the chunk-alignment work below. `sync_capacity` can promise only
+   one chunk-atomic value up front, so `decode_elements` pays an `AnsDecoder`
+   field shuffle per element mid-stream. That is what the fast-arrival
+   regression (+1.6% at `RATE_MBPS=1600`) is. The recorded fix is
+   `EntropyDecoder::RECHECKS_ROOM` + `can_continue`, additive because both have
+   defaults, prototyped on `can-continue-prototype`; for `Ans` the re-check is
+   `ops_left > 0 || reader.has_unentered()` — exact, and it costs nothing for
+   `Range`, which const-gates it off.
 
 1. **Batch a derived struct's bounded fields into one `with_sync`** — the same
    insight as `decode_elements`, applied to structs instead of collections. A

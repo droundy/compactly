@@ -292,6 +292,9 @@ fn encode_miss<P: StrPtr, E: super::EntropyCoder>(
     let middle = &value[prefix_len..value.len() - suffix_len];
     Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
     for c in middle.chars() {
+        // This loop carries no `Sentinel` to declare it, so declare it here:
+        // the enclosing string is unbounded, and a `char` is not open yet.
+        writer.split_point();
         Normal::encode(&c, writer, &mut ctx.chars);
     }
 }

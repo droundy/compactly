@@ -34,6 +34,7 @@ impl<T1: Encode, T2: Encode> Encode for (T1, T2) {
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1)
     }
 
@@ -78,6 +79,7 @@ impl<K: Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for (K, V) {
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         <K as Encode<SK>>::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode<Mapping<SK, SV>>>::MAX_BYTES);
         <V as Encode<SV>>::encode(&value.1, writer, &mut ctx.1)
     }
 
@@ -114,7 +116,9 @@ impl<T1: Encode, T2: Encode, T3: Encode> Encode for (T1, T2, T3) {
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2)
     }
 
@@ -154,8 +158,11 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode> Encode for (T1, T2, T3, T4)
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.3, writer, &mut ctx.3)
     }
 
@@ -204,9 +211,13 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode> Encode for (T1,
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.3, writer, &mut ctx.3);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.4, writer, &mut ctx.4)
     }
 
@@ -261,10 +272,15 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode> Enc
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.3, writer, &mut ctx.3);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.4, writer, &mut ctx.4);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.5, writer, &mut ctx.5)
     }
 
@@ -323,11 +339,17 @@ impl<T1: Encode, T2: Encode, T3: Encode, T4: Encode, T5: Encode, T6: Encode, T7:
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.3, writer, &mut ctx.3);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.4, writer, &mut ctx.4);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.5, writer, &mut ctx.5);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.6, writer, &mut ctx.6)
     }
 
@@ -398,12 +420,19 @@ impl<
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.0, writer, &mut ctx.0);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.1, writer, &mut ctx.1);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.2, writer, &mut ctx.2);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.3, writer, &mut ctx.3);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.4, writer, &mut ctx.4);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.5, writer, &mut ctx.5);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.6, writer, &mut ctx.6);
+        super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
         Normal::encode(&value.7, writer, &mut ctx.7)
     }
 

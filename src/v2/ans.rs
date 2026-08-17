@@ -3,7 +3,7 @@ use super::bit_context::BitContext;
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
 #[cfg(feature = "stream")]
 use super::AsyncEntropyDecoder;
-use super::{EntropyCoder, EntropyDecoder};
+use super::{EntropyCoder, EntropyDecoder, CHUNK_ATOMIC_MAX_BYTES};
 mod bytes;
 #[cfg(test)]
 use super::Strategy;
@@ -110,6 +110,11 @@ impl<W: std::io::Write> std::fmt::Debug for AnsEncoder<W> {
 /// boundaries so there is no compression loss beyond one state-flush per chunk.
 /// A value fitting in one chunk emits a single (final) chunk. Small enough to
 /// bound memory, large enough that the per-chunk overhead is negligible.
+///
+/// This is a *threshold*, not a cap: a chunk ends at the first
+/// [`split_point`](EntropyCoder::split_point) at or after this many ops, so it
+/// can overrun by one chunk-atomic value's worth. See
+/// [`CHUNK_ATOMIC_MAX_BYTES`] and [`MAX_CHUNK_ENTROPY`].
 const CHUNK_OPS: usize = 1 << 16;
 
 /// One deferred coding operation. rANS runs the coder backwards over each chunk
@@ -160,7 +165,17 @@ impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
                 *ctx = ctx.adapt(b);
                 Op::Bit(b, probability)
             }));
-        self.maybe_flush();
+    }
+
+    /// End the chunk here if it is full. The caller has just told us no
+    /// chunk-atomic value is open, and this is the *only* place a non-final
+    /// chunk is flushed — which is what makes a chunk-atomic value provably
+    /// whole within one chunk, since it never calls this.
+    #[inline]
+    fn split_point(&mut self) {
+        if self.ops.len() >= CHUNK_OPS {
+            self.flush_chunk(false);
+        }
     }
 
     #[inline]
@@ -176,7 +191,6 @@ impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
         self.ops.push(Op::Incompressible);
         self.incompressible_bytes.extend_from_slice(bytes);
-        self.maybe_flush();
     }
 }
 
@@ -188,7 +202,6 @@ impl<W: std::io::Write> SymbolCoder for AnsEncoder<W> {
             start: range.start() as u16,
             width_minus_1: (range.width() - 1) as u16,
         });
-        self.maybe_flush();
     }
 }
 
@@ -205,6 +218,10 @@ impl EntropyCoder for Ans {
     #[inline]
     fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
         self.0.encode_bits(contexts, bits)
+    }
+    #[inline]
+    fn split_point(&mut self) {
+        self.0.split_point()
     }
     #[inline]
     fn encode_atmost<const MAX: usize>(
@@ -237,16 +254,6 @@ impl<W: std::io::Write> AnsEncoder<W> {
         }
     }
 
-    /// Flush a non-final chunk once the op buffer reaches `CHUNK_OPS`. Called
-    /// after each recorded batch, so chunk boundaries always land between batches
-    /// (a `decode_bits<N>` never straddles two chunks' separate rANS streams).
-    #[inline]
-    fn maybe_flush(&mut self) {
-        if self.ops.len() >= CHUNK_OPS {
-            self.flush_chunk(false);
-        }
-    }
-
     /// Reverse-encode the current chunk's ops into a self-contained rANS stream
     /// and write the framed chunk to `writer`, then clear the chunk buffers. The
     /// contexts are *not* reset (they adapt across chunks).
@@ -264,6 +271,20 @@ impl<W: std::io::Write> AnsEncoder<W> {
     /// chunk and small values are *only* that chunk. `op_count` loses a bit to
     /// the tag, but a full chunk's count is 3 varint bytes either way.
     fn flush_chunk(&mut self, is_final: bool) {
+        // Reached only from `split_point` (at `CHUNK_OPS`) and from `finish`, so
+        // the overrun past `CHUNK_OPS` is one chunk-atomic value's ops — and
+        // this crate's `MAX_BYTES` recipe charges at least one byte per op, so
+        // `CHUNK_ATOMIC_MAX_BYTES` bounds those ops too. A blown assert here
+        // means some impl above `CHUNK_ATOMIC_MAX_BYTES` is not offering split
+        // points; see that constant for the rule. It is what keeps
+        // `MAX_CHUNK_ENTROPY` a constant, so it is worth asserting rather than
+        // assuming.
+        debug_assert!(
+            self.ops.len() <= CHUNK_OPS + CHUNK_ATOMIC_MAX_BYTES,
+            "chunk of {} ops: some `Encode` impl above CHUNK_ATOMIC_MAX_BYTES \
+             is not calling `EntropyCoder::split_point`",
+            self.ops.len(),
+        );
         let mut coder = Encoder::new();
         let mut entropy = Vec::new();
         for op in self.ops.iter().rev() {
@@ -1013,18 +1034,22 @@ fn read_region<R: std::io::Read>(
 
 /// The most entropy bytes a single chunk can legitimately hold.
 ///
-/// A chunk is flushed once the op buffer reaches [`CHUNK_OPS`], and one
-/// `encode_bits::<N>` batch can overshoot by at most `N`. Every `encode_bits`
-/// call site in the repo passes `N = 1` — batching so far is decode-side only
-/// (`micro-batch` goes up to 16, but only through `decode_bits`) — so today the
-/// overshoot is zero; the slack below is deliberately generous against future
-/// encode-side batching. A bit op emits at most one byte and a symbol op at
-/// most two, plus the [`STATE_BYTES`] flush.
+/// A chunk ends at the first [`split_point`](EntropyCoder::split_point) at or
+/// after [`CHUNK_OPS`] ops, so it overruns by at most the ops of the one
+/// chunk-atomic value that was being encoded when the threshold was crossed.
+/// [`CHUNK_ATOMIC_MAX_BYTES`] bounds those: this crate's `MAX_BYTES` recipe
+/// charges at least one byte per op (see OPTIMIZING.md), so a value's ops never
+/// exceed its declared byte bound. `flush_chunk` asserts it in debug builds
+/// rather than leaving it assumed. The `256` beyond that is slack against
+/// future encode-side batching — every `encode_bits::<N>` call site in the repo
+/// passes `N = 1` today, batching so far being decode-side only, so the
+/// batch overshoot is currently zero. A bit op emits at most one byte and a
+/// symbol op at most two, plus the [`STATE_BYTES`] flush.
 ///
 /// This exists because the *final* chunk's entropy body has no length field —
 /// it runs to end of stream (see [`AnsEncoder::flush_chunk`]) — so the streaming
 /// reader would otherwise buffer whatever a stream chose to append.
-const MAX_CHUNK_ENTROPY: usize = 2 * (CHUNK_OPS + 256) + STATE_BYTES;
+const MAX_CHUNK_ENTROPY: usize = 2 * (CHUNK_OPS + CHUNK_ATOMIC_MAX_BYTES + 256) + STATE_BYTES;
 
 /// Read the rest of `reader` — the final chunk's entropy body, which carries no
 /// length — capped at [`MAX_CHUNK_ENTROPY`] so a stream cannot make the decoder
@@ -1062,8 +1087,8 @@ fn read_final_region<R: std::io::Read>(
 /// byte of the region is buffered — worth checking, because both lengths come
 /// straight off the wire and a buffering reader would otherwise grow to whatever
 /// a hostile transport was willing to send. [`MAX_CHUNK_ENTROPY`] is exactly the
-/// legitimate bound: a chunk is flushed at [`CHUNK_OPS`], and that caps the
-/// entropy it can emit.
+/// legitimate bound: a chunk ends at the first split point at or after
+/// [`CHUNK_OPS`], and that caps the entropy it can emit.
 ///
 /// **Only the entropy region.** The incompressible region has no such bound —
 /// one `encode_incompressible_bytes` op appends a caller-supplied slice of any
@@ -1574,6 +1599,132 @@ fn multi_chunk_round_trips() {
 
     let decoded: Vec<Item> = Ans::decode(&encoded).unwrap();
     assert_eq!(decoded, items);
+}
+
+/// Every type above [`CHUNK_ATOMIC_MAX_BYTES`] really does offer split points.
+///
+/// The `debug_assert` in `flush_chunk` catches the failure from the other side —
+/// a type that offers none makes one enormous chunk — but only if some test
+/// happens to encode enough of that type. This aims at it directly, one large
+/// instance per unbounded shape in the crate, and asserts the stream got
+/// chopped. A new collection whose loop forgets the rule shows up here as a
+/// single frame.
+#[test]
+fn every_unbounded_type_offers_split_points() {
+    use crate::{Compressible, Encoded, LowCardinality, Sorted, Values};
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+    let mut x = 0x1234_5678_9abc_def0u64;
+    let mut rng = move || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    // Every fixture below codes well over `CHUNK_OPS` ops, so a type offering a
+    // split point anywhere gets at least two chunks.
+    let n = 200_000;
+    let nums: Vec<u64> = (0..n).map(|_| rng()).collect();
+    let text: String = (0..n)
+        .map(|_| (b'a' + (rng() % 26) as u8) as char)
+        .collect();
+    // High byte, not low: an LCG's low bits cycle with a period of 256, and
+    // `Compressible` would (correctly) crush that to nothing.
+    let raw: Vec<u8> = (0..n).map(|_| (rng() >> 40) as u8).collect();
+
+    fn split<T: super::Encode>(what: &str, value: T) {
+        let bytes = Ans::encode(&value);
+        assert!(
+            count_chunks(&bytes) >= 2,
+            "{what} produced {} chunk(s) from {} bytes: its encode loop is not \
+             calling `EntropyCoder::split_point`",
+            count_chunks(&bytes),
+            bytes.len(),
+        );
+    }
+    /// Sugar for the strategies, which are reached through the wrapper that
+    /// applies them rather than through a strategy-taking `Ans::encode`.
+    fn as_strategy<T, S>(value: T) -> Encoded<T, S> {
+        Encoded::new(value)
+    }
+
+    split("Vec<u64>", nums.clone());
+    split(
+        "Vec<u64> as Values",
+        as_strategy::<_, Values<Normal>>(nums.clone()),
+    );
+    split("Box<[u64]>", nums.clone().into_boxed_slice());
+    split("VecDeque<u64>", VecDeque::from(nums.clone()));
+    split("Vec<u64> as Sorted", {
+        let mut v = nums.clone();
+        v.sort_unstable();
+        v.dedup();
+        as_strategy::<_, Sorted>(v)
+    });
+    split("String", text.clone());
+    split(
+        "String as LowCardinality",
+        as_strategy::<_, LowCardinality>(text.clone()),
+    );
+    split("Vec<String>", vec![text.clone(), text.clone()]);
+    split("Vec<u8>", raw.clone());
+    split(
+        "Vec<u8> as Compressible",
+        as_strategy::<_, Compressible>(raw.clone()),
+    );
+    split(
+        "HashMap<u64, u64>",
+        nums.iter().map(|&k| (k, k ^ 7)).collect::<HashMap<_, _>>(),
+    );
+    split(
+        "BTreeMap<u64, u64>",
+        nums.iter().map(|&k| (k, k ^ 7)).collect::<BTreeMap<_, _>>(),
+    );
+    split("HashSet<u64>", nums.iter().copied().collect::<HashSet<_>>());
+    split(
+        "BTreeSet<u64>",
+        nums.iter().copied().collect::<BTreeSet<_>>(),
+    );
+    split(
+        "Vec<u64> as LowCardinality",
+        as_strategy::<_, LowCardinality>(nums.iter().map(|v| v % 64).collect::<Vec<u64>>()),
+    );
+
+    // `Incompressible for Vec<u8>` is deliberately absent. It records one op per
+    // `INCOMPRESSIBLE_PIECE` (64 KiB), so reaching `CHUNK_OPS` ops would take a
+    // 4 GiB value — too big to encode in a test. Its `split_point` call is there
+    // for the rule rather than because a chunk can plausibly fill up on it.
+}
+
+/// A chunk boundary never falls inside a chunk-atomic value.
+///
+/// `[u64; 8]` is bounded and costs ~80 ops, so a `Vec` of them crosses many
+/// boundaries and every one of them has to land between elements — the property
+/// `AsyncAnsDecoder::sync_capacity` relies on to hand a whole element to the
+/// synchronous decoder mid-stream. The `debug_assert` in `flush_chunk` checks
+/// where the encoder split; this checks the value survives it, by all three
+/// routes, since each reaches the boundary differently (slice indexing, a short
+/// `Read`, and a frame at a time from a stream).
+#[test]
+fn chunk_atomic_values_round_trip_across_boundaries() {
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rng = || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    let items: Vec<[u64; 8]> = (0..20_000)
+        .map(|_| std::array::from_fn(|_| rng()))
+        .collect();
+    let encoded = Ans::encode(&items);
+    assert!(
+        count_chunks(&encoded) >= 4,
+        "test wants several boundaries, got {}",
+        count_chunks(&encoded)
+    );
+
+    assert_eq!(Ans::decode::<Vec<[u64; 8]>>(&encoded).unwrap(), items);
+    assert_eq!(
+        Ans::decode_from::<Vec<[u64; 8]>, _>(&encoded[..]).unwrap(),
+        items
+    );
 }
 
 /// A stream cut short must be **rejected**, not quietly decoded into a plausible
@@ -2549,20 +2700,32 @@ where
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
 
-    /// All or nothing, and `unit_bytes` never enters into it. What bounds a safe
-    /// handoff here is whether another *frame* can still arrive: nothing in a
-    /// frame is decodable until the whole frame is in hand, so there is no
-    /// partial byte count to divide by, and once no frame can follow, the sync
-    /// decoder holds the entire rest of the stream.
+    /// Unbounded once no further frame can arrive: the sync decoder then holds
+    /// the entire rest of the stream, and `unit_bytes` cannot matter.
     ///
-    /// This is where a mid-stream answer would go once the encoder guarantees a
-    /// bounded value never straddles a chunk boundary — `unit_bytes !=
-    /// usize::MAX && ops_left > 0`, reading the unit's *boundedness* rather than
-    /// its size. See OPTIMIZING.md.
+    /// Mid-stream the answer is **one** chunk-atomic unit. Two facts combine.
+    /// The encoder only ever ends a chunk at a
+    /// [`split_point`](super::EntropyCoder::split_point), and a unit at or under
+    /// [`CHUNK_ATOMIC_MAX_BYTES`] declares none — so such a unit lies wholly
+    /// within one chunk. And `ops_left > 0` says the next op belongs to the
+    /// chunk already in hand. Together: this unit finishes without reading a
+    /// frame that may not have arrived.
+    ///
+    /// Neither half is optional. Without the size test an unbounded unit — a
+    /// whole `Vec`, a `String` — could straddle any number of boundaries.
+    /// Without `ops_left > 0` the unit is still un-straddled but may lie wholly
+    /// in the *next* chunk, and would open with a `load_next_chunk`.
+    ///
+    /// One and not more: alignment says nothing about where the unit *after*
+    /// this one falls, so only the current chunk can be promised. Extending the
+    /// promise across frames already buffered is the `can_continue` follow-up
+    /// in OPTIMIZING.md.
     #[inline]
-    fn sync_capacity(&self, _unit_bytes: usize) -> usize {
+    fn sync_capacity(&self, unit_bytes: usize) -> usize {
         if self.reached_final {
             usize::MAX
+        } else if unit_bytes <= CHUNK_ATOMIC_MAX_BYTES && self.inner.ops_left > 0 {
+            1
         } else {
             0
         }
@@ -2650,6 +2813,65 @@ mod async_tests {
     use super::*;
     use crate::v2::stream::tests::Chunks;
     use futures_executor::block_on;
+
+    /// A misaligned stream must **error**, not decode to a wrong value.
+    ///
+    /// `sync_capacity`'s mid-stream promise is a claim about the bitstream — a
+    /// chunk-atomic value lies inside one chunk — and bitstreams arrive from
+    /// places that did not run our encoder. So test the claim being false. This
+    /// shortens a non-final frame's declared op count, which is exactly a
+    /// boundary landing in the middle of a value: the decoder hands the element
+    /// to the sync decoder believing `ops_left` covers it, and `ops_left` runs
+    /// out part way through.
+    ///
+    /// It is contained because the sync decoder runs over a `FrameBuffer` that
+    /// holds only frames already delivered — so `load_next_chunk` finds a short
+    /// region or none, sets `truncated`, and `into_result` errors — and because
+    /// the collection's `Sentinel` markers cannot be forged out of the resulting
+    /// desync. What must not happen is a plausible `Ok`, or a hang.
+    #[test]
+    fn a_boundary_inside_a_value_errors_rather_than_decoding_wrong() {
+        let value: Vec<u64> = (0..200_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        let starts = frame_starts(&encoded);
+        assert!(starts.len() >= 4, "test wants a multi-frame stream");
+
+        // The second frame's tag is `op_count * 2 + 1`. Halving the op count
+        // moves the boundary it declares far inside the chunk's real contents,
+        // and lands it mid-value with near-certainty at ~10 ops per `u64`.
+        let mut bytes = encoded.clone();
+        let mut at = starts[1];
+        let tag = {
+            let mut rest = &bytes[at..];
+            let before = rest.len();
+            let tag = read_varint(&mut rest).expect("frame tag");
+            at += before - rest.len();
+            tag
+        };
+        assert_eq!(tag & 1, 1, "frame 1 should be non-final");
+        let mut shortened = Vec::new();
+        push_varint(&mut shortened, (tag >> 1) / 2 * 2 + 1);
+        // Rewritten in place, so every later frame offset stays put — which
+        // halving a full chunk's op count allows, both fitting the same varint
+        // width. Asserted rather than skipped so the test cannot pass by
+        // quietly declining to run.
+        assert_eq!(
+            shortened.len(),
+            at - starts[1],
+            "op count did not rewrite in place"
+        );
+        bytes[starts[1]..at].copy_from_slice(&shortened);
+
+        match block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
+            &bytes, 512,
+        ))) {
+            Err(_) => {}
+            Ok(got) => panic!(
+                "a boundary inside a value decoded to {} elements instead of erroring",
+                got.len()
+            ),
+        }
+    }
 
     /// A crafted frame header must not overflow the "has the next frame
     /// arrived?" arithmetic. Both region lengths come straight off the wire,
