@@ -23,6 +23,23 @@ impl Encode for bool {
         // println!("Decoding {b:?}");
         Ok(b)
     }
+
+    /// One coded bit, and so the unit every other bound is built from.
+    ///
+    /// A `Probability` is `prob/256` with `prob >= 1`, so the unlikely branch
+    /// costs at most `-log2(1/256)` = 8 bits — one byte of information. (A
+    /// *single* renormalization can drain more than that from the stream, but
+    /// only as catch-up for earlier steps that drained none; that is the
+    /// coder's settling margin, counted once per handoff rather than here.)
+    const MAX_BYTES: usize = 1;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<bool, std::io::Error> {
+        Ok(reader.decode_bit(ctx).await)
+    }
 }
 
 impl Encode<Sorted> for bool {
@@ -35,6 +52,16 @@ impl Encode<Sorted> for bool {
     }
     fn encode<E: super::EntropyCoder>(value: &bool, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(value, writer, ctx)
+    }
+
+    const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<bool, std::io::Error> {
+        <bool as Encode>::decode_async(reader, ctx).await
     }
 }
 

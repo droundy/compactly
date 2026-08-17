@@ -1249,7 +1249,1026 @@ optimize down to the fused path. Keep both decoders. (Reproducer:
 `cargo build --release --bin range-decode-collapse`, then
 `bench perf stat -e instructions,cycles -- ./target/release/range-decode-collapse slice|stream`.)
 
+### What async-all-the-way-down decode costs (2026-08-09)
+
+The async decoder (`v2::stream::decode_stream`, `AsyncRangeDecoder`) makes every
+read point suspendable — `AsyncEntropyDecoder::decode_bits`,
+`decode_symbol_step`, and every `Encode::decode_async` are futures. The
+question this settles is what that machinery costs *before* any concurrency
+benefit, so the async arm is fed the whole compressed buffer as a **single**
+`Bytes`: no await ever suspends (`async-decode-cost` panics if one does), which
+makes the A/B deterministic and instruction-countable like every other entry
+here. Quiesced, alternating, min of 3, reps within 0.15%.
+
+Three arms, because billing async against the *slice* decoder alone would charge
+it for the borrowed-vs-owned difference measured in the section above:
+
+| workload | async vs sync-stream (the machinery) | sync-stream vs slice (owned buffer) |
+|---|---|---|
+| 2k `u64` (cache-resident) | **+62.4%** cycles, **+123.1%** instructions | +12.0% / +14.9% |
+| 100k `u64` (memory-bound) | **+56.2%** cycles, **+123.4%** instructions | +9.2% / +15.0% |
+| 38k meteorite strings | **+10.5%** cycles, **+44.1%** instructions | −0.5% / −0.6% |
+
+Instruction count is the honest number (cycles absorb some of it through
+memory-level parallelism): the integer path runs **2.2x** the instructions, the
+string path 1.44x.
+
+**The spread is the interesting part, and it points at the fix.** The integer
+path pays most because `Small<u64>::decode` is a chain of many small await
+points — several `AtMost` symbol steps, an incompressible read, then per-bit
+partial-byte decodes — each of which becomes a separate state machine that no
+longer inlines or keeps `state`/`value` register-resident. The string path pays
+far less because its work per await is much larger: one `AtMost<255>` tree walk
+per `char`, i.e. eight tree levels fused inside a single `decode_symbol_step`.
+So the cost tracks *await density*, not total work — exactly what the
+`ensure`-at-delegation-points design would reduce, by letting bounded primitive
+decodes run through the untouched sync `decode_bits`/`decode_atmost` and
+awaiting only where one decode delegates to another.
+
+In absolute terms, on this machine the random-`u64` workload decodes at roughly
+100 MB/s of compressed input through the slice decoder and ~56 MB/s through the
+async one, so the machinery is not obviously hidden behind a fast network — it
+is worth reducing rather than accepting. (Reproducer: `cargo build --release
+--features stream --bin async-decode-cost`, then `bench perf stat -e
+cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
+slice|stream|async [u64|strings]`, `COUNT` for the `u64` size.)
+
+### The overlap works perfectly, and the machinery cost is eating it (2026-08-09)
+
+The companion measurement to the one above, and the one that says whether
+`decode_stream` is worth using. Wall-clock, not instructions —
+`async-decode-overlap` models a network delivering at a constant rate (chunk `i`
+due at `start + i * interval`, independent of decode speed) and compares
+`decode_stream` against the do-it-yourself baseline: await every chunk into a
+buffer, then `v2::decode`. 100k random `u64` (802 KB compressed, 64 chunks), min
+of 5, under `bench`. Sync decode of this workload is 21.3 ms.
+
+| delivery rate | arrival | collect-then-decode | `decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 22.7 ms | 35.8 ms | **+58%** |
+| 200 MB/s | 4.0 ms | 24.8 ms | 35.7 ms | +44% |
+| 100 MB/s | 8.0 ms | 28.9 ms | 35.7 ms | +23% |
+| 50 MB/s | 16.0 ms | 36.9 ms | 35.7 ms | −3% |
+| 25 MB/s | 32.1 ms | 52.9 ms | 35.7 ms | **−32%** |
+| 10 MB/s | 80.2 ms | 101.2 ms | 80.5 ms | −21% |
+
+**The overlap itself is as good as it can be.** `decode_stream` sits pinned at
+~35.7 ms no matter how fast the chunks arrive, until arrival finally exceeds it
+(at 10 MB/s it tracks arrival exactly, 80.5 vs 80.2 ms — the decode is entirely
+hidden). That is precisely `max(arrival, decode)` against the baseline's
+`arrival + decode`. The API does what it claims.
+
+**But 35.7 ms is the *async* decode, not the 21.3 ms sync one** — a 1.68x ratio,
+which independently confirms the +70.6% cycles measured for async-vs-slice on
+this workload from a completely different direction. So the machinery cost sets
+the floor, and it is that floor, not the overlap, that decides the outcome:
+break-even lands at **~50 MB/s**, and above it `decode_stream` is *slower* than
+the four lines it replaces.
+
+Were the machinery free, overlap would floor at 21.3 ms and beat the baseline at
+every rate — at 100 MB/s, 21.3 vs 28.9 ms (−26%) instead of +23%. That is the
+whole case for reducing the per-await cost: it is not a micro-optimization, it
+is what moves the break-even past the rates people actually have.
+
+Not measured, but implied: the string workload pays only +10.5% cycles for the
+machinery, so its floor is ~1.1x sync decode and it should beat the baseline at
+essentially any delivery rate. The integer path is the one in trouble.
+
+**Re-measured after `MAX_BYTES` landed (2026-08-09), and the conclusion above is
+now obsolete in the good direction.** Same bin, same workload, same 64 chunks:
+
+| delivery rate | arrival | collect-then-decode | `decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 22.6 ms | 21.4 ms | **−5.4%** |
+| 100 MB/s | 8.0 ms | 28.7 ms | 21.4 ms | −25.4% |
+| 50 MB/s | 16.0 ms | 36.6 ms | 21.7 ms | **−40.6%** |
+| 25 MB/s | 32.1 ms | 52.9 ms | 32.6 ms | −38.3% |
+| 10 MB/s | 80.2 ms | 101.2 ms | 81.1 ms | −19.8% |
+
+The floor moved from 35.7 ms to **21.4 ms against a 21.0 ms sync decode** — a
+1.02x ratio where it was 1.68x. That is +1.7%, which is exactly the instruction
+count measured for 64 chunks in the `MAX_BYTES` section below, so the two
+methods agree from opposite directions a second time.
+
+**There is no break-even rate any more**: `decode_stream` beats
+collect-then-decode at every rate measured, including 400 MB/s where arrival is
+nearly free and the baseline pays only decode. The paragraph above predicting
+"−26% at 100 MB/s were the machinery free" was right about the mechanism and
+close on the number — measured −25.4%.
+
+### Single-chunk inputs skip the async decoder entirely, for free (2026-08-09)
+
+A stream that delivers everything in one chunk has **no overlap available** —
+every byte arrives at once — so running it through the async decoder is pure
+loss. `ChunkSource` now keeps a one-chunk read-ahead as an invariant, which
+makes "is the chunk in hand the last one?" answerable at any time; when the
+first chunk is also the last, `decode_stream` hands the buffer to the ordinary
+sync slice decoder instead.
+
+The cost of asking is two stream polls and a `Bytes` clone per decode, amortized
+over the whole value. Quiesced, alternating, min of 3, against `v2::decode` on
+the same bytes:
+
+| workload | single-chunk fast path vs `slice` | forced async vs `slice` |
+|---|---|---|
+| 2k `u64` | **+0.01% cycles, +0.12% instructions** | +70.9% / +151.5% |
+| 38k meteorite strings | **+0.03% cycles, +0.00% instructions** | +12.5% / +47.9% |
+
+So the fast path is free to within measurement noise, and the entire async
+penalty disappears for single-chunk inputs — which is every value small enough
+to arrive in one piece, plus anything already in memory.
+
+Two details worth keeping:
+
+- **Empty chunks are transparent**, both when promoting and when reading ahead.
+  A stream may legitimately yield one, and queueing it would leave
+  `is_final_chunk` answering "not final" on a stream with nothing left, quietly
+  costing the fast path to any producer that pads. Caught by a test, not by
+  inspection.
+- **Restoring the read-ahead belongs with the chunk promotion, not after the
+  fill loop.** The invariant is established when `current` changes and holds
+  until it changes again, so checking after the loop re-checks it on every byte:
+  measured at **1.2%** of the async path's instructions.
+
+- **Priming the read-ahead in the constructor removes a field**, and the field
+  was costing real time. With the source primed at birth there is no "not yet
+  started" state, so `queued.is_none() && error.is_none()` *is* end of stream
+  and the separate `exhausted` flag is unnecessary — which also deletes a branch
+  from `fill`, on the per-byte path. The stream still cannot be polled past its
+  end, but structurally rather than by a flag: `read_ahead` is the only caller,
+  it is only entered after a poll that produced a chunk, and it returns the
+  moment it sees `None`.
+
+  Dropping it was worth **−7.4% cycles / −3.9% instructions** on the
+  forced-async path. Net of the invariant's own cost, the multi-chunk async
+  decoder now runs **−7.3% cycles / −1.8% instructions** against the version
+  before any of this — so the single-chunk fast path came with a faster
+  multi-chunk path rather than at its expense.
+(Reproducer: `cargo build --release --features stream --bin
+async-decode-overlap`, then `[RATE_MBPS=n] bench
+./target/release/async-decode-overlap both`.)
+
+### Handing the tail to the sync decoder once the last chunk is in (2026-08-09)
+
+The async traversal only needs to be async while it is actually waiting on
+bytes. Frames already in flight cannot move — their state is the async call
+stack — but a sub-value that has **not started yet** can be decoded entirely by
+the sync slice decoder, with those frames acting as a shell. Only three words of
+coder state need translating (`ArithState`, the window `value`, and a cursor),
+so `AsyncRangeDecoder::with_sync` builds a `Decoder` positioned exactly here,
+runs a closure against it, and adopts whatever position it reaches.
+
+Gated on there being no more input, not on a byte bound: a slice decoder run on
+a non-final chunk would zero-pad past the end and return plausible wrong values.
+`with_sync` returns `Option`, so that case is unrepresentable rather than a
+documented precondition — the check is one field test.
+
+Wired into `Values<Vec<T>>`, which hands over the **whole remaining loop** at
+once rather than one element at a time, so the sync decoder keeps its state
+register-resident across the tail. Best case (2k `u64`, input split one byte
+then the rest, so the handoff is immediate):
+
+| | cycles vs `slice` | instructions vs `slice` |
+|---|---|---|
+| before | +70.9% | +151.5% |
+| after | **+0.82%** | **+0.40%** |
+| strings | +0.10% | −0.00% |
+
+**But the benefit is exactly the fraction of bytes in the final chunk**, because
+that is all the handoff can reach. Sweeping the split of the same 2k `u64`:
+
+| chunks | instructions vs `slice` | `151.5% × (n−1)/n` |
+|---|---|---|
+| 2 (1 byte + rest) | **+0.3%** | — (off-model: the "final chunk" is nearly everything) |
+| 4 | +114.2% | +113.6% |
+| 16 | +143.2% | +142.0% |
+| 64 | +151.1% | +149.1% |
+| 256 | +156.5% | +150.9% |
+
+The model fits from `n = 4` on, so this is understood rather than mysterious: at
+64 chunks the handoff recovers essentially nothing, because 63/64 of the decode
+happens before the last chunk arrives.
+
+### What async `Ans` decode costs, and the frame drain that fixed it (2026-08-10)
+
+`Ans` cannot decode a frame before all of it has arrived: its incompressible
+bytes live in a separate region *after* the entropy region, so a frame's first
+op can need a byte from the frame's end. The upside is that `enter_chunk` is the
+only place `AnsDecoder` reads at all, so the async decoder can delegate every op
+to the *sync* implementation and suspend only between frames — once per
+`CHUNK_OPS` (65536) ops.
+
+100k `u64` (802 KB), against the sync `Ans` slice decoder, `async-decode-cost`
+arms `ans-slice` / `ans-async`:
+
+| | cycles | instructions |
+|---|---|---|
+| first cut | +136% | **+200%** |
+| O(1) read-ahead check | — | +139% |
+| frame drain | **+4.5%** | **+10.5%** |
+
+Two fixes, and the second is the one that matters.
+
+**The read-ahead check was O(frames) per op.** `unentered()` scanned a
+`VecDeque` counting unentered frames, on every bit and every symbol. Frames are
+appended and entered in order, so the last frame's end offset answers it in one
+comparison. Worth −20% of the async path's instructions on its own, which is a
+lot for a predicate nobody would look at twice.
+
+**Buffering only one frame ahead left 14 of 15 frames on the async path.** The
+sync handoff fires when `is_final` holds — no further frame can arrive — so with
+one frame of read-ahead that only ever covered the tail. Draining every frame
+the transport has *already delivered* (`while source.ready_bytes() > 0`) brings
+`is_final` forward to the moment the last frame lands, and everything after runs
+synchronously. Nothing waits for a byte that has not arrived, so this costs no
+latency, only memory the transport had already spent — and it is the same
+principle as the tiny-chunk note in plans/streaming-io-api.md: take what is
+here, never wait for more.
+
+The residual +10.5% is the owned-buffer cost, not the async machinery: frames
+are copied into `FrameBuffer` and then into `enter_chunk`'s two region `Vec`s,
+where the slice decoder borrows. That is the same kind of overhead as `Range`'s
+`stream`-vs-`slice` gap (+15%), and it is what is left after the async cost
+itself has essentially gone. Strings behave the same: +3.9% cycles / +11.6%
+instructions on the meteorite names.
+
+Flat across `CHUNKS` (1, 64, 256) — the frame drain absorbs whatever the stream
+chunking does, so how the transport cuts the bytes stops mattering.
+
+(Reproduce: `cargo build --release --features stream --bin async-decode-cost`,
+then `COUNT=100000 [CHUNKS=n] bench perf stat -e
+cpu_core/cycles/,cpu_core/instructions/ -- ./target/release/async-decode-cost
+ans-slice|ans-async u64|strings`.)
+
+#### …but it buys no overlap, and the instruction count could not have told us
+
+`CODER=ans ./target/release/async-decode-overlap both`, same workload and rates
+as the `Range` sweep above:
+
+| delivery rate | arrival | collect-then-decode | `Ans::decode_stream` | |
+|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 18.1 ms | 19.2 ms | +6.3% |
+| 100 MB/s | 8.0 ms | 24.1 ms | 24.8 ms | +2.8% |
+| 50 MB/s | 16.1 ms | 32.2 ms | 33.4 ms | +3.6% |
+| 25 MB/s | 32.1 ms | 48.3 ms | 49.7 ms | +2.9% |
+| 10 MB/s | 80.3 ms | 96.5 ms | 97.5 ms | +1.0% |
+
+`overlap ≈ arrival + decode` at every rate — the shape of the baseline, not of
+`max(arrival, decode)`. **`Ans::decode_stream` does not currently earn its
+existence**: it is collect-then-decode with extra copying. The +10.5%
+instruction count above is real and says nothing about this, which is the whole
+reason both measurements exist.
+
+The cause is that the frame drain waits. `while source.ready_bytes() > 0` tests
+that *some* bytes are ready, but `buffer_next_frame` then awaits everything it
+started — so with 53 KB frames it blocks for the rest of a frame on the strength
+of a few bytes being available, once per op, and the decode never gets ahead of
+the transport.
+
+Two further attempts, both measured, neither kept:
+
+- **Peek the frame length before committing** (parse the header out of
+  `buffered()` without consuming, drain only when `ready_bytes()` covers the
+  whole frame). This restores overlap where arrival is slow — 86.0 ms vs
+  96.6 ms at 10 MB/s, −11% — and destroys it where arrival is fast: 54.7 ms vs
+  18.1 ms at 400 MB/s, because the drain now essentially never fires and the
+  whole decode runs async. Cost went to **+417%** (117.6 B instructions), part
+  of it the per-op varint peek itself.
+- Reverting to no drain at all is the +200% first cut.
+
+The constraint underneath all three is `ChunkSource::ready_bytes()`, which
+returns `self.current.len() - self.pos` — **one stream chunk**, not everything
+delivered. An `Ans` frame is ~53 KB against 12.5 KB stream chunks, so a whole
+frame is never "ready" and the peek can never fire, however much the transport
+has actually handed over.
+
+So the fix is the one already written up under "tiny chunks" in
+plans/streaming-io-api.md, and it turns out to be load-bearing rather than a
+nicety: let `ChunkSource` keep pulling while `poll_next` returns `Ready`, so
+`ready_bytes()` reflects what has arrived rather than one chunk of it. Then the
+peek-drain fires whenever frames are genuinely in hand — everything at 400 MB/s
+(→ sync, ~17 ms) and only the arrived prefix at 10 MB/s (→ overlap) — and the
+same change lifts `Range`'s +8.9% at 783-byte chunks. It is a change to a
+structure both coders share, so it wants its own commit and its own before/after
+on both.
+
+### `Encode::MAX_BYTES`: sync-decode anything that fits in the buffer (2026-08-09)
+
+The final-chunk handoff generalizes, and this is the version that matters. Each
+type declares `const MAX_BYTES: usize` — the most coded bytes one value of it
+can occupy — and the async decoder runs the *sync* decoder for any value whose
+bound fits in what is already buffered. Waiting is then confined to the moments
+there is genuinely nothing to decode.
+
+The default is `usize::MAX`, so a type that has not opted in never takes the
+fast path: adding bounds is incremental and safe by construction, and no impl
+had to change to introduce this. Bounds are derived from two constants
+(`MAX_BYTES_PER_BIT = 8`, `MAX_BYTES_PER_SYMBOL = 16`) rather than measured,
+and deliberately loose — `u64` declares 95 where a typical value costs ~9 —
+because looseness only costs a little batching headroom while being *wrong*
+would silently decode past the buffer.
+
+`Values<Vec<T>>` batches: it decodes `ready_bytes() / (Sentinel::MAX_BYTES +
+S::MAX_BYTES)` elements per handoff, so the sync decoder keeps its state
+register-resident across a whole run rather than round-tripping per element.
+
+100k `u64` (802 KB compressed), against the fully sync slice decoder:
+
+| chunks | chunk size | cycles | instructions |
+|---|---|---|---|
+| 2 | 401 KB | +4.7% | **+1.1%** |
+| 16 | 50 KB | +4.9% | **+1.3%** |
+| 64 | 12.5 KB | +5.1% | **+1.7%** |
+| 256 | 3.1 KB | +6.2% | +3.2% |
+| 1024 | 783 B | +10.7% | +8.9% |
+
+At 64 chunks that is **+1.7% where the final-chunk handoff alone left +151%**.
+
+The residual follows `151% × per_element / chunk_size` — the async path is still
+paid once per batch boundary — so it only bites when chunks approach the bound
+in size. Remaining lever if that ever matters: carry leftover bytes across the
+chunk boundary so a batch need not stop there.
+
+**The bounds have to be right, so they are property-tested, and getting them
+right was worth about 3x at small chunks.** The first cut multiplied a
+*renormalization* worst case per operation — 8 bytes per bit, because
+`consume_decoded_bytes` can drain the whole `u64` window in one step. That is
+real but unamortizable: draining 8 bytes at once requires the preceding steps to
+have drained none, so `7 * bool::MAX_BYTES = 56` for seven mantissa bits was
+nonsense. Seven bits cannot occupy 56 bytes.
+
+The right split is information plus settling, and they compose differently:
+
+- **Information** is additive per operation. One adaptive bit costs at most
+  `-log2(1/256)` = 8 bits = **1 byte** (`Probability` is `prob/256`,
+  `prob >= 1`); one symbol at most 16 bits = **2 bytes** (a `SymbolRange` slot is
+  ≥1 of `M = 2^16`), carried as **3** for margin on the interval
+  `clamp_for_symbol` discards; one incompressible byte is 1.
+- **Settling** — bytes emitted that the information does not yet account for —
+  is bounded per *span*, not per operation. The interval starts at `2^64`, each
+  emitted byte multiplies it by 256 and each coded bit divides it, so
+  `I/8 - 8 <= E <= I/8` holds at every point and hence `dE <= dI/8 + 8` over any
+  span. The 8 is the coder state width.
+
+So `Encode::MAX_BYTES` is information only, and the decoder's `SETTLING_BYTES`
+is added **once per handoff** by `sync_capacity` — never by callers, which is
+why they get a capacity rather than the raw margin. `u64` went 95 → 20, and a
+`Vec` element's budget 103 → 21, which is the 3x above.
+
+`v2::max_bytes` property-tests every bound against real decodes: values coded
+back to back under one shared context (so all but the first are measured with
+*adapted* contexts, where the worst case lives), exhaustive where the domain
+allows, skewed runs plus extremes elsewhere. Observed worst against declared:
+
+| | bool | u8 / `AtMost<255>` | `AtMost<1000>` | u64 / usize | u128 |
+|---|---|---|---|---|---|
+| observed | 0 | 2 | 3 | 9 | 17 |
+| declared (+8 settling) | 1 | 3 | 3 | 20 | 28 |
+
+Margins are now ~2x rather than ~10x, and `with_sync`'s `debug_assert` — which
+fires if a decode consumes every buffered byte without the stream having ended —
+remains the backstop against a bound that is wrong rather than merely loose.
+
+Superseded: the non-blocking-drain idea recorded here previously. It would still
+help the pathological small-chunk case, but the reason it was interesting —
+reaching the final chunk sooner — no longer gates anything.
+
+### `ChunkSource` coalescing: `ready_bytes` means what has arrived (2026-08-10)
+
+`ChunkSource::ready_bytes()` returned `current.len() - pos` — **one stream
+chunk**, whatever else the transport had already handed over. Both async
+decoders steer by that number (`sync_decode_if_there_is_room` compares it
+against `SETTLING_BYTES + MAX_BYTES`), so a producer emitting small chunks made
+the comparison fail even when the whole input had in fact arrived.
+
+`ChunkSource` now polls the stream until it goes `Pending`, coalescing
+everything already delivered into one contiguous run — capped at `READY_TARGET`
+(256 KiB) so a fast transport is not simply drained into memory, which would
+give up the bounded-buffer property the streaming decoder exists for. The
+one-chunk read-ahead is gone, replaced by an explicit `ended` flag; the final
+`Pending` poll has already registered the waker, so a transport that fetches on
+poll is still asked for the next chunk before we need it.
+
+100k `u64` (802 KB compressed), `async-split`, instructions vs the sync slice
+decoder, min of 3 alternating runs under `bench`:
+
+| chunks | chunk size | before | after |
+|---|---|---|---|
+| 2 | 1 B + rest | +3.04% | +3.03% |
+| 16 | 50 KB | +1.26% | +2.64% |
+| 64 | 12.5 KB | +1.67% | +2.44% |
+| 256 | 3.1 KB | +3.25% | +2.47% |
+| 1024 | 783 B | +9.26% | **+2.84%** |
+
+**This is a flattening, not a pure win**, which is why the whole sweep is
+recorded rather than its endpoints: 1.26–9.26% became a nearly flat
+2.44–3.03%. About a point worse where chunks were already comfortable (16 and
+64), better from 3.1 KB down, 6.4 points better at 783 B. Meteorite strings at
+783-byte chunks: **−3.9%**.
+
+That ~1 point is one memcpy of the payload, paid only when a poll actually
+collected something. Hence the unchanged first row — with `chunks = 2` the
+second chunk is the whole 802 KB, past `READY_TARGET`, so the drain caps and
+coalesces nothing — and hence a transport handing over one chunk at a time as it
+is consumed pays nothing at all.
+
+Two things it did **not** change, both worth recording:
+
+- `Range` overlap is unmoved at every rate (400 → 10 MB/s), which is right: it
+  had no overlap problem.
+- `Ans` overlap is still `arrival + decode`, and the `Ans` instruction count is
+  unchanged to within noise. So `ready_bytes` under-reporting was *not* the
+  reason `Ans::decode_stream` buys no overlap. The real reason is now clear and
+  is in `AsyncAnsDecoder::read_ahead`: it awaits the *whole* next frame before
+  decoding the current one, so the two never overlap. With 53 KB frames at
+  10 MB/s that is 5.3 ms of waiting against 1.1 ms of decoding, fifteen times
+  over — which is exactly the measured `arrival + decode`.
+
+  The fix is to stop being eager: the next frame only has to be buffered before
+  the sync decoder can actually reach it, which `ops_left` bounds (a frame is
+  `CHUNK_OPS` = 65536 ops). Deferring the await until `ops_left` approaches zero
+  would let a frame's decode run while its successor arrives, giving
+  `arrival + one frame's decode` instead. The `next_frame_is_ready` peek is
+  worth having alongside it — and *now* it can work, because `ready_bytes` is
+  finally able to cover a whole frame.
+
+### `Ans` gets the single-chunk fast path, and what it says about `FrameBuffer` (2026-08-10)
+
+`Ans::decode_stream` went straight to `AsyncAnsDecoder` — it never asked whether
+the whole input was already in hand, so a fully-buffered input ran the async
+decoder for nothing. `Range::decode_stream` has had that check since the
+single-chunk work; `Ans` now takes the same one, and it is worth more here.
+
+100k `u64` unless noted, `ans-async`, instructions:
+
+| delivery | before | after | |
+|---|---|---|---|
+| one chunk | 25.130 B | 23.571 B | **−6.2%** |
+| 20k `u64`, 64 ready chunks (160 KB, under `READY_TARGET`) | 25.133 B | 22.741 B | **−9.5%** |
+| 64 ready chunks (802 KB, over `READY_TARGET`) | 25.139 B | 25.140 B | unchanged |
+
+The second row is the one that matters: with the drain coalescing all 64 chunks,
+the fast path lands at **22.741 B against the pure slice decoder's 22.705 B —
+0.16%**. The async wrapper effectively disappears when the transport has already
+delivered. The third row is unchanged by design: past `READY_TARGET` the input
+is deliberately not all buffered, so the async decoder still runs.
+
+The truncation check moved from `Ans::decode_with` into `Decoder::into_result`,
+so every route through the slice decoder gets it rather than the one caller that
+had it — including this new fast path, which would otherwise have accepted
+truncated input that `Ans::decode` rejects.
+
+**What this says about the deeper change.** `Ans` currently copies every byte
+*four* times: transport chunk → `ChunkSource`'s coalesced buffer →
+`buffer_next_frame`'s frame `Vec` → `FrameBuffer::bytes` → `AnsDecoder`'s
+`entropy`/`incompressible` `Vec`s. The slice decoder does none of these. And
+`FrameBuffer` is a contiguous accumulator of whole frames — i.e. a second copy
+of what `ChunkSource` now maintains anyway.
+
+So the direction is *not* to give `Ans` its own chunk-queue source. It is to
+delete `FrameBuffer` and run the slice `Decoder<'a, true>` over `ChunkSource`'s
+coalesced buffer, capped at the last complete frame — the `with_sync` handoff
+`Range` already uses, saving `entropy`/`incompressible`/`rest` as offsets and
+recovering them as `len - remaining.len()`. Lifetimes are not the obstacle:
+`buffered()` hands out an owned `Bytes`, exactly so the source can be mutated
+while the sync decoder holds it. The prize is the ~5% cycles / ~19% instructions
+that §"How much does streaming cost over memory?" measured between the slice and
+reader-based decoders, and which that section attributes to cursor
+representation rather than copying — so removing the copies alone would not
+collect it.
+
+The obstacle is the **gate**. `Range` gates its handoff on bytes, via
+`MAX_BYTES`. `Ans` would have to gate on *ops*, because what it must not do is
+let the sync decoder's `load_next_chunk` run past the last complete frame — and
+ops are not bounded by bytes (an adaptive bit can emit none). That means a
+per-strategy `MAX_OPS` alongside `MAX_BYTES`, with the same property-testing
+burden the `MAX_BYTES` work carried.
+
+Unless the input has fully arrived, in which case there is nothing to run past
+and no gate is needed. That is the case just measured, and it is already at the
+slice decoder's speed. So the remaining prize is confined to *mid-stream* decode
+on a transport slower than the decoder — which is precisely the regime where
+`Ans` is waiting on bytes anyway. Worth doing only after the `read_ahead`
+eagerness fix, which is what actually gates that regime.
+
+### `Ans::decode_stream` finally overlaps: stop awaiting the next frame (2026-08-10)
+
+`AsyncAnsDecoder::read_ahead` buffered the next frame the moment the current one
+was entered — awaiting the whole of it, tens of kilobytes, before decoding a
+single op of the frame already in hand. That serializes arrival and decode: at
+10 MB/s, 5.3 ms of waiting against 1.1 ms of decoding, once per frame, fifteen
+times over. Hence the `arrival + decode` shape.
+
+`ops_left` says when the wait is actually due — the sync decoder cannot reach
+the next frame until the current one's ops run out — so the await is now
+deferred until `ops_left <= OPS_MARGIN`. 100k `u64`, 802 KB, 64 chunks:
+
+| rate | arrival | collect | before | after | |
+|---|---|---|---|---|---|
+| 400 MB/s | 2.0 ms | 18.0 ms | 18.9 ms | 19.0 ms | +5.6% |
+| 100 MB/s | 8.0 ms | 24.0 ms | 25.3 ms | 23.2 ms | **−3.3%** |
+| 50 MB/s | 16.1 ms | 32.0 ms | 33.2 ms | 29.0 ms | **−9.4%** |
+| 25 MB/s | 32.1 ms | 48.3 ms | 49.5 ms | 40.4 ms | **−16.4%** |
+| 10 MB/s | 80.3 ms | 96.4 ms | 97.7 ms | 81.4 ms | **−15.5%** |
+
+At 10 MB/s that is 81.4 ms against 80.3 ms of arrival: the decode is essentially
+entirely hidden, which is the `max(arrival, decode)` shape the API exists for.
+**`Ans::decode_stream` now earns its existence**, which it did not before. Only
+400 MB/s is still worse than collect, and that is right — 2 ms of arrival has no
+overlap to offer, and the single-chunk fast path already takes the genuinely
+buffered case.
+
+Two things had to come with it, and each was found by measuring rather than by
+reasoning:
+
+- **Deferring alone regressed fast rates by 77%** (400 MB/s: 18.9 → 31.7 ms).
+  The old eager loop was doing load-bearing work: draining every arrived frame
+  got `reached_final` true early, and `is_final` is what lets whole values
+  decode through the sync decoder instead of op by op. Restored as
+  `next_frame_has_arrived` — a header peek that takes a frame only when it has
+  *wholly* arrived, so it can never suspend. The peek is guarded by
+  `next_frame_bytes`, a monotone lower bound, so the per-op cost is a
+  subtraction and a compare rather than a header parse.
+- **The peek alone did not help either**, because `ready_bytes` was stale.
+  Nothing reads the source while the sync decoder works through a buffered
+  frame, so `drain_ready` never ran and a stale zero looked exactly like a
+  transport that had fallen behind. `read_ahead` now pumps the source itself,
+  throttled by `PUMP_INTERVAL` (1024 ops — 64 chances to notice an arrival
+  within a `CHUNK_OPS` frame, for 0.1% of the ops).
+
+Cost: **+2.0% instructions** on `ans-async` (25.140 B → 25.642 B) in the
+never-suspending benchmark, where the pump does real work on every interval and
+none of the overlap it buys is visible. That is the same lesson as
+§"…but it buys no overlap" in reverse, and the reason both measurements exist.
+
+### How much is left in `Ans` async decode, and what `MAX_OPS` would cost (2026-08-10)
+
+With overlap working, the question "is the slice decoder worth reaching for
+mid-stream?" becomes measurable: how far is `Ans::decode_stream` from
+`max(arrival, sync_decode)`, the best any decoder could do?
+
+| rate | arrival | sync decode | ideal `max()` | overlap | headroom |
+|---|---|---|---|---|---|
+| 400 MB/s | 2.01 ms | 16.83 ms | 16.83 ms | 19.03 ms | 11.6% |
+| 200 MB/s | 4.01 ms | 16.74 ms | 16.74 ms | 20.77 ms | 19.4% |
+| 100 MB/s | 8.03 ms | 16.92 ms | 16.92 ms | 23.30 ms | 27.4% |
+| 75 MB/s | 10.70 ms | 16.91 ms | 16.91 ms | 25.01 ms | 32.4% |
+| 50 MB/s | 16.05 ms | 16.78 ms | 16.78 ms | 28.79 ms | **41.7%** |
+| 35 MB/s | 22.93 ms | 16.70 ms | 22.93 ms | 34.05 ms | 32.7% |
+| 25 MB/s | 32.10 ms | 16.83 ms | 32.10 ms | 40.24 ms | 20.2% |
+| 15 MB/s | 53.50 ms | 16.81 ms | 53.50 ms | 55.81 ms | 4.1% |
+| 10 MB/s | 80.26 ms | 16.86 ms | 80.26 ms | 81.37 ms | 1.4% |
+
+Headroom is ~0 at both extremes and peaks **where arrival and decode are
+balanced**. That shape is the diagnosis: fast, and `reached_final` goes true so
+whole values run through the sync decoder; slow, and the decode is hidden
+whatever it costs; in between, frames arrive just too late for the
+`next_frame_has_arrived` peek, so ops run through the async path at roughly
+double the sync cost. (The 400 MB/s residual is the startup transient — the
+first couple of ms of decode before everything has arrived.)
+
+The lever is to let whole values decode through the sync decoder *mid-stream*,
+which `sync_decode_if_there_is_room` already implements — Ans just reports
+`ready_bytes() = 0` so it never fires. What it needs is a gate proving the value
+cannot run past the buffered frames.
+
+The gate has to be in the right *units*, and that is the whole difficulty.
+`Range`'s gate compares bytes against bytes: the sync decoder's cursor advances
+in bytes, and `ready_bytes` counts bytes. `Ans` chunks are delimited by **op
+count**, not byte count — flushed at `CHUNK_OPS`, with the op count in the frame
+header — and the sync decoder crosses into the next chunk exactly when
+`ops_left` hits zero. So the resource a handoff can exhaust is ops, and bytes
+bound ops in neither direction: one op can emit zero bytes (a well-predicted
+bit only renormalizes sometimes) and one op can emit thousands (a whole
+`encode_incompressible_bytes` run is a single `Op::Incompressible`).
+
+### Two ways to build that gate, and why the second one wins
+
+**Option A, a `MAX_OPS` constant** mirroring `MAX_BYTES`: same additive
+structure, leaf weights of 1 per bit, 1 per symbol *step*, 1 per incompressible
+run, and the walk's depth where the bitwise walk is chosen. Sound, but it is a
+mirror of the whole `MAX_BYTES` effort *including its property tests*, which was
+the expensive part — and it gates conservatively, refusing a handoff whenever
+`ops_left < MAX_OPS`, i.e. near the end of every chunk, which is exactly where
+the decoder sits when a frame has just landed.
+
+**Option B, make it true at encode time** (2026-08-16, chosen): we own both
+sides, so let the *encoder* refuse to break a chunk in the middle of a bounded
+value. Defer the flush to the next safe point — a moment when no value with a
+finite `MAX_BYTES` is partially encoded. Then a bounded value provably lies
+entirely within one chunk, and the decode-side gate collapses to
+
+```rust
+const { T::MAX_BYTES != usize::MAX } && ops_left > 0
+```
+
+one const-folded bool and one nonzero test on a field the sync decoder already
+maintains. No new constant, no mirrored property tests, and *exact* rather than
+conservative: a `u64` needs `ops_left > 0`, not `ops_left >= 10`.
+
+The `ops_left > 0` half is not optional. Straddle-freedom leaves a value either
+wholly in the current chunk or wholly in the next one; the second case starts
+with a `load_next_chunk` for a frame that may not have arrived.
+
+Notes on building it:
+
+- **Nesting is free.** `MAX_BYTES` composes with `saturating_add`, so an
+  unbounded child makes its parent unbounded — contrapositive, a bounded value's
+  children are all bounded. Only the outermost bounded value needs bracketing,
+  and `depth == 0 && T::MAX_BYTES != usize::MAX` detects it in one predictable
+  branch.
+- **No call site has to remember.** Use the trick already in the trait:
+  `decode_async` is a *provided* wrapper around the required `decode_awaiting`
+  precisely so a forgetful call site stays correct. Do the same on the encode
+  side — rename the required method to `encode_inner`, make `encode` the
+  provided bracket-and-delegate wrapper. Existing `Normal::encode(...)` call
+  sites are unchanged; impls just rename. The bracket calls an `EntropyCoder`
+  hook that is an empty default for `Range` and `Millibits` and folds away.
+- **Chunk sizing has to move with it.** Deferral lets a chunk overrun
+  `CHUNK_OPS` by one bounded value's ops, and a bounded value can be large
+  (`[u64; 100_000]` is bounded). `MAX_CHUNK_ENTROPY` is derived from "flushed at
+  `CHUNK_OPS`" and is a real anti-DoS bound on what a hostile stream can make
+  the reader buffer. Bumping it by a per-type quantity is `MAX_OPS` sneaking
+  back in; instead make it dynamic — a non-final frame header already carries
+  its op count in `tag >> 1`, so `oversized_entropy_region` can check against
+  `2*(op_count+256)+STATE_BYTES`, which is *tighter* than today's constant. The
+  final frame has no length field, so give its tag an op count too and let
+  `read_final_region` cap dynamically.
+- **"By definition" means trusting the peer, so test the violation.** The gate
+  becomes a claim about the bitstream, and bitstreams arrive from places that
+  did not run our encoder. A stream with a boundary mid-value makes the sync
+  decoder cross it during a handoff; that is contained, because the sync decoder
+  runs over a buffer capped at the last complete frame, so `load_next_chunk`
+  finds a short region, sets `truncated`, and `into_result` errors. Wrong input
+  becomes `Err`, not corruption and not a hang — but that path needs a test
+  aimed at *violated* alignment, the opposite shape from `v2::max_bytes`.
+- It is a format change (chunk boundaries move for streams over `CHUNK_OPS`
+  ops), which is free: v2 is not a frozen format. See CLAUDE.md.
+
+**Correction to an earlier claim here.** A previous revision justified `MAX_OPS`
+by asserting that `AtMost<1000>` spends ~10 ops against a `MAX_BYTES` of 3. That
+is not true of the current code: `Walk::production` only picks a bitwise walk for
+`MAX == 1` (one op, charged 3) or `MAX >= SymbolRange::M` (k ops, charged k
+bytes), so every `AtMost` satisfies `ops <= MAX_BYTES`, as does everything else
+in the crate — the recipe charges at least one byte per op. That makes
+`ops <= MAX_BYTES` an accident of how *this* crate writes its bounds, not
+something the contract promises (`MAX_BYTES` is documented as an *information*
+bound, and `Encode` is a public trait), and it is exactly tight for bit-heavy
+types, so it is still not a sound substitute — just not for the reason
+originally recorded.
+
+### `can_continue` cannot replace `sync_capacity`; const-gate it (2026-08-16)
+
+Chunk alignment leaves `Ans` able to promise only *one* value up front
+(`ops_left > 0` says the current value fits, not the next one), which would kill
+the batching in `Vec`'s `decode_awaiting` — it hands over
+`sync_capacity` elements at a time precisely so the sync decoder keeps its state
+register-resident across the run. The tempting fix is to invert the question:
+drop the up-front capacity and ask the sync decoder *between* values whether it
+still has room. That also looked strictly better for `Range`, since a re-check
+sees what elements actually consumed (~9 bytes for a `u64`) rather than their
+worst case (`MAX_BYTES` ~22).
+
+Measured on the `async-decode-cost async-split u64` arm at `COUNT=100000`, where
+the input exceeds `READY_TARGET` so the source stays partial and `is_final` is
+false for most of the decode — the regime the batch loop actually runs in.
+Instructions:
+
+| arm | `CHUNKS=8` | `CHUNKS=64` | |
+|---|---|---|---|
+| baseline (`sync_capacity`) | 27.872 B | 27.787 B | |
+| `can_continue` per element | 28.110 B | 28.026 B | **+0.85% / +0.86%** |
+| `can_continue` const-gated | 27.873 B | 27.794 B | +0.01% / +0.02% |
+
+The re-check should batch perhaps 2× more elements per handoff — it bounds
+actual rather than worst-case consumption, ~9 bytes against ~22 (that ratio is
+derived from the two bounds, not instrumented) — and it does not matter: over
+100k elements that saves a handful of handoffs, while the check itself costs
+about two instructions on **every** element. `Range` amortizes one division over
+~12k elements; nothing per-element can compete with that.
+
+So the shape is a `const RECHECKS_ROOM: bool = false` on `EntropyDecoder`
+guarding the call, which folds the whole condition away for coders whose
+up-front promise is already exact. `Range` leaves it `false` and lands back on
+baseline; `Ans` sets it `true` once alignment gives it something to re-check.
+Prototype on the `can-continue-prototype` branch (not for merge).
+
+The API consequence is the useful one: `RECHECKS_ROOM` and `can_continue` both
+have defaults, so they are **additive** and need not land with the trait. Only
+the breaking part had to happen before `AsyncEntropyDecoder` ships, and it since
+has: `sync_capacity` is now required and generic —
+`sync_capacity::<T, S>()`, asked about a *type* — and
+`ready_bytes`/`SETTLING_BYTES`/`is_final` are gone from the trait, being
+`Range`'s private accounting that had leaked into a shared interface.
+
+Asking about the type rather than a byte count is what keeps the alignment work
+off the API: `Ans` will read `T::MAX_BYTES != usize::MAX` (boundedness, not a
+byte count) and, if a `MAX_OPS` is ever wanted after all, `T::MAX_OPS` — neither
+of which survives being flattened to a `usize` at the call site.
+
+That cost one adjustment elsewhere. `Vec`'s batch loop had been asking about
+"sentinel marker + element", which is not a single type; since a marker is one
+bit every `SENTINEL_EVERY` (4096) elements, charging every element a whole byte
+for one both overstated the bound and left nothing to name. The loop now stops
+each run short of the next marker (`Sentinel::until_marker`) so its unit is
+exactly `T`, and `Sentinel::MAX_BYTES` is deleted as dead. Capping runs at 4096
+where they had reached ~12000 measured **+0.005% to +0.025%** across the same
+arms — the noise floor, consistent with the `can_continue` result that handoff
+count is not what this loop pays for. The whole reshape then measured within
+±0.02% on `async-split` (COUNT 2000 and 100000, CHUNKS 8 and 64) and `ans-async`,
+as it should, being a pure interface change.
+
+### Batching the async handoff is worth ~20-25%, and only `Vec` was doing it (2026-08-16)
+
+An audit of who actually calls the decoder traits turned up a lopsided answer:
+**`Vec<T>` under `Values<S>` is the only collection whose async decode hands
+several elements to the sync decoder at once.** Fourteen other length-driven
+loops — `String` (×2), the maps (×3), the sets (×3), `VecDeque`, `Box<[T]>`,
+`Vec<T>` under `Sorted`, `bytes`, `low_cardinality` — decode element by element
+through `decode_async`.
+
+Those loops are not *unbatched* in the sense of skipping the sync decoder:
+`decode_async` is a provided method whose whole body is a `has_room_for` gate
+around a single-value `with_sync`, so each element still takes the sync path. What
+they pay is a `with_sync` handoff **per element** — for `Range`, copying
+`state`/`value`/`bytes` into the slice decoder and back out again every element,
+which is exactly what `with_sync`'s own docs warn against.
+
+`String` converted to `Vec`'s loop shape, `async-decode-cost async-split
+strings` (meteorite names as `Vec<String>`, so `String::MAX_BYTES` is
+`usize::MAX`, the outer `Vec` can promise nothing, and the inner char loop is
+what runs). Instructions:
+
+| arm | before | after | |
+|---|---|---|---|
+| `async-split` CHUNKS=8 | 35.906 B | 26.980 B | **−24.9%** |
+| `async-split` CHUNKS=64 | 33.545 B | 26.625 B | **−20.6%** |
+| `ans-async` | 21.647 B | 21.648 B | unchanged |
+| `async-split u64` (control) | 27.873 B | 27.875 B | unchanged |
+
+Repeats to within 0.01%. `Ans` is unchanged by construction: its
+`sync_capacity` is all-or-nothing on `reached_final`, and that arm delivers one
+chunk, so the whole value goes sync and the async loop never runs. This is a
+`Range` mid-stream win.
+
+Note this is **not** the same quantity as the `can_continue` measurement above,
+which found handoff *count* irrelevant. That compared ~12000 elements per
+handoff against ~29000 — both large. This compares one element per handoff
+against thousands, and there the per-handoff cost is the whole cost.
+
+**All twelve worthwhile loops now go through one helper**,
+`sentinel::decode_elements`, which is a `pub(crate)` free function and
+deliberately **not** a method on `AsyncEntropyDecoder`: it needs the
+crate-private `Sentinel`, and it is an idiom over the trait rather than a
+capability of a decoder — no coder would ever override it.
+
+The trait needed nothing new for any of them. `sync_capacity::<T, S>()` and
+`with_sync` were the only two primitives required, which is the confirmation
+that the reshape is the right shape — until this work `Vec` was the sole caller
+of either.
+
+Maps fit because `(K, V)` now implements `Encode<Mapping<SK, SV>>`, coding a key
+then a value against exactly the contexts a map already holds (`MapContext`
+keeps them as one `entry` field instead of two). So a map entry is a *type*, the
+helper stays single-element, and no pair-shaped variant of it is needed. The
+existing `expect!` size assertions are unchanged, which is the check that the
+pair impl codes identically to the maps' old inline loop.
+
+Two loops are deliberately **not** converted: `bytes.rs`'s `Chunk` and
+`low_cardinality.rs`'s element both have `MAX_BYTES == usize::MAX`, so while
+data is still arriving `sync_capacity` cannot exceed 0 for them and the helper
+would take the naive path on every element regardless. (Once the source is
+complete it reports `usize::MAX` for any type, so they would batch then — but
+that is the case where staying async costs nothing anyway.) Converting them
+would be churn.
+
+**Take the sink as a trait, not a closure.** The first version of the helper
+took `sink: impl FnMut(T)` and cost ~0.6% against a hand-rolled loop. That was
+structural, not an inlining failure: `#[inline]` and `#[inline(always)]` both
+measured *identical* to no attribute at all. Replacing the closure with a
+one-method `ExtendOne` trait and a `&mut C` sink recovers nearly all of it.
+`CHUNKS=8`, instructions:
+
+| | baseline | hand-rolled | closure sink | `ExtendOne` sink |
+|---|---|---|---|---|
+| `strings` | 35.907 B | 26.980 B | 27.147 B (+0.62%) | 27.079 B (**+0.37%**) |
+| `u64` | 27.873 B | (is the baseline) | 27.913 B (+0.15%) | 27.875 B (**+0.01%**) |
+
+`Vec<u64>` is back at parity and `strings` keeps **−24.6%** of its −24.9%. Worth
+recording that the closure is what cost it, since a closure is the obvious way
+to write this and the loss does not show up anywhere but a benchmark.
+
+One conversion changed shape to fit a plain sink: the delta-coded
+`BTreeSet<u64>` had a running total threaded through its loop. It now decodes
+the *differences* straight into the `Vec` and prefix-sums them in a second pass
+— a linear pass over data already in cache, and one fewer thing for the decode
+loop to carry.
+
+### The single-value convenience method did not earn a place in the API (2026-08-16)
+
+`AsyncEntropyDecoder` briefly carried a provided
+`sync_decode_if_there_is_room::<T, S>(ctx) -> Option<Result<T>>`: gate on
+`has_room_for`, then hand the whole value to the sync decoder. It is gone, and
+its four lines are inlined into `decode_async`, its only caller.
+
+It was the singular of an operation whose value is entirely in the plural. The
+measured win here — −20% to −25% on `strings` — comes from keeping the sync
+decoder's state register-resident across *many* values; a method that hands over
+one value and gives the registers back captures the case that was already cheap.
+Worse, it structurally cannot serve the case that pays: the batch loop must
+interleave a sentinel marker with each element inside a *single* `with_sync`,
+and `(&mut self, ctx: &mut T::Context) -> Option<Result<T>>` has nowhere to put
+that. Generalize it far enough and it *is* `with_sync`. So the one real batching
+caller in the tree bypassed it, leaving it with zero callers outside the provided
+method next to it and zero overrides.
+
+`has_room_for` stays, on the opposite reasoning: one caller, but `Range`
+overrides it for a measured reason (a comparison instead of a division), so it is
+an extension point something actually extends. The public surface is now
+`Sync<'a>`, `sync_capacity`, `has_room_for`, `with_sync`, `finish` — and the pair
+a hand-written collection needs is `sync_capacity` + `with_sync`, told more
+clearly without a convenience method that cannot participate in it.
+
+**Postscript (same day): `has_room_for` did not survive the next review either.**
+The "measured reason" above was written, not measured. Measuring it found exactly
+zero, for a reason visible on inspection — see the section below.
+
+### The async handoff, reviewed once more: −3.1% and two fewer trait items (2026-08-16)
+
+A final read of the PR, asking of each piece the question that removed
+`sync_decode_if_there_is_room`: *does this earn its place?* Four answers, all
+against the same baseline (`async-decode-cost async-split`, `CHUNKS=8`, quiesced,
+min of 3; `u64` 26.331 B instructions, `strings` 27.063 B instructions / 10.073 B
+cycles).
+
+**1. `has_room_for` was a hand-written copy of what LLVM already emits.** The
+`Range` override is `ready >= SETTLING + MAX_BYTES`; the provided body is
+`ready.saturating_sub(SETTLING).checked_div(MAX_BYTES).unwrap_or(MAX) > 0`. The
+divisor is a monomorphized constant at every call site, so the compiler folds the
+division back into precisely that comparison. Deleting the override measured
+`u64` +0.006%, `strings` −0.041% — the noise floor, in both directions. So the
+method had one caller, one override, and an override worth nothing; it is gone,
+and `decode_async` gates on `sync_capacity(...) > 0` directly.
+
+**2. `sync_capacity` goes back to a byte count** — `fn sync_capacity(&self,
+unit_bytes: usize) -> usize`, reverting the signature half of "Ask
+AsyncEntropyDecoder about a type, not a byte count" while keeping the part of it
+that was right (it stays *required*, because `Ans` genuinely cannot answer a
+byte-accounting question derived from `ready_bytes`).
+
+The type parameter was justified by "each coder reads the property it actually
+needs". Both implementations read one `usize` and nothing else: `Range` uses
+`MAX_BYTES`, and `Ans` uses *nothing* — it is all-or-nothing on `reached_final`.
+The documented future mid-stream `Ans` gate reads boundedness, which
+`unit_bytes == usize::MAX` conveys exactly. The one thing the type form kept
+alive that the byte form does not is a hypothetical `T::MAX_OPS`, and TODO #1
+already prefers chunk alignment over a `MAX_OPS` constant.
+
+Against that, the byte count is *strictly more expressive*: it can describe a run
+of several different things summed together, which no single type can name. That
+is not hypothetical — it is what a derived struct needs to hand a run of
+consecutive bounded fields to one `with_sync` (new TODO below). The footgun the
+type form removed ("pass a sum of `MAX_BYTES` and nothing else") is unchanged in
+kind: the settling margin still belongs to the implementor, added once per
+handoff, and callers still must not touch it.
+
+**3. `Range::with_sync` was cloning a `Bytes` per handoff.** `ChunkSource::buffered`
+returned an owned slice — a refcount pair — where `peek` returns a borrowed one.
+The owned form was defensive: `f` touches only the `Decoder`, so nothing mutates
+the source while the borrow is alive, and reading the length up front is enough
+for NLL. `buffered` had no other caller and is deleted.
+
+| | u64 | strings |
+|---|---|---|
+| instructions | +0.006% | **−0.98%** |
+| cycles | | **−1.21%** |
+
+`u64` is flat because its outer `Vec` batches, so handoffs are rare; `strings`
+pays one per `String` (the outer `Vec<String>` is unbounded) plus one per length.
+Cycles move slightly *more* than instructions, which is the tell that this was an
+atomic: ordinary work hides in the decoder's latency shadow and an atomic RMW
+does not.
+
+**4. The sentinel tick inside the batch loop could never fire.** `decode_elements`
+clamps every run to `until_marker()`, so the per-element `sentinel.decode(sync)?`
+was a countdown decrement, a never-taken branch, and a `?` on an always-`Ok`
+`Result`. One `Sentinel::skip(batch)` after the run is exactly equivalent (the
+ticks would see `countdown = c-1 … c-batch`, never 0). **−1.74% instructions on
+`strings`, and a cycle wash** — the branch was perfectly predicted and sat in the
+latency shadow. Worth taking anyway: the loop used to read as though a marker
+could fall due inside a run, three lines under the comment saying it cannot.
+
+Combined, against the same baseline:
+
+| arm | instructions | cycles |
+|---|---|---|
+| `async-split strings` | 27.063 B → 26.213 B (**−3.14%**) | 10.073 B → 9.951 B (**−1.21%**) |
+| `async-split u64` | 26.331 B → 26.333 B (+0.008%) | |
+| `ans-async strings` | 22.988 B → 22.932 B (−0.25%) | |
+| `ans-async u64` | 18.246 B → 18.247 B (+0.007%) | |
+
+The `u64` arms move by the same +0.006…0.010% in *every* variant tried, including
+the ones that changed no instruction in that path, so that is alignment and not a
+regression. `ans-async strings` picks up the sentinel skip, which applies to any
+coder once it is batching.
+
+**And one loop was skipped for a reason that turned out to be the R20 error.**
+The note above says `bytes.rs`'s `Chunk` and `low_cardinality.rs`'s element were
+left unconverted because their `MAX_BYTES == usize::MAX` — "once the source is
+complete it reports `usize::MAX` for any type, so they would batch then, but that
+is the case where staying async costs nothing anyway." The parenthetical is
+wrong in exactly the way R20 was: staying async there costs a `with_sync` per
+element, which is the entire ~25% this work was about. `low_cardinality`'s `Vec`
+loop is a direct fit and is now converted. `bytes.rs`'s Lz77 loop genuinely
+cannot be: its per-element work is a back-reference splice, and `self` is
+simultaneously the element context and the output sink, so there is no `&mut C`
+to hand `decode_elements`.
+
+**Non-finding, recorded so it is not re-proposed.** The `min(until_marker())`
+clamp looks like a missed batching opportunity — a complete source has infinite
+capacity yet still re-enters `with_sync` every 4096 elements instead of handing
+over the whole tail. It is one handoff per 4096 elements, about 0.01 cycles per
+element, and detecting the case would cost a branch in the loop.
+
+### How much of a stream each collection actually batches (2026-08-16)
+
+Adding `decode_stream` coverage for the collections (review findings R22/R23)
+turned up a fact worth having on record, found by mutation-testing the new
+tests: **an off-by-one in `Sentinel::skip` is caught by 11 of the 15 fixtures
+and by none of their in-memory twins.** The second half is the point — it is the
+evidence that the async decode is a genuinely separate implementation and not a
+re-run of the sync one.
+
+The four survivors are exactly the fixtures whose *element* is unbounded
+(`LowCardinality`, `Sorted` items, `Compressible`). Instrumenting `skip` shows
+why: for those, `Range` reports capacity 0 for the entire mid-stream, so the
+batch loop first runs only once the source completes — and against the test's
+`Chunks` transport, which yields `Pending` before every chunk, completion
+coincides with byte exhaustion. The measured tail was **7 elements out of
+8199**. All 15 fixtures do reach the batch path; three of them barely.
+
+That is a caveat on the `low_cardinality` conversion in the section above, so
+state it precisely rather than leave the earlier justification standing alone.
+The conversion pays when a source completes with real decoding still to do,
+which is the common case for a real transport — `drain_ready` will pull up to
+`READY_TARGET` (256 KiB) ahead without suspending, so any body that fits in that
+is complete almost immediately — and does not pay against a transport that
+dribbles. It is never a loss, and it is the same code path as every other
+collection, which is worth more than the handoff count either way.
+
+Not a gap in the tests: the marker arithmetic lives in the one shared
+`decode_elements`, which the other 11 fixtures pin thoroughly. What is
+per-site is the context threading and the sink, and every fixture checks those
+by comparing the whole decoded value.
+
+### An always-ready test stream measures the wrong decoder (2026-08-17)
+
+Worth knowing before writing any async test or benchmark here, because it fails
+silently and in the flattering direction.
+
+A `Stream` whose `poll_next` always returns `Ready` is drained to the end by
+`ChunkSource`'s look-ahead before decoding starts. `take_if_single_chunk` then
+sees a complete source with `pos == 0`, hands the whole buffer to the in-memory
+slice decoder, and `decode_stream` never constructs an async decoder at all. The
+chunk size you passed is irrelevant: it changes how many `Bytes` get coalesced,
+nothing else.
+
+So a test built on one checks the sync path twice, reports green, and proves
+nothing about `decode_awaiting`. `tests/derive.rs`'s `async_decode` module did
+exactly this from the day it was written — a probe in `decode_stream`'s async
+branch counted **zero** hits across the whole module. Adding a `Pending` before
+each chunk (waking immediately, as `stream::tests::Chunks` already did) took it
+to 18.
+
+The rule: any transport meant to exercise the async decoder must yield `Pending`
+at least once, and the fixture must not fit in a single chunk. Both test
+harnesses now do this and say why at the definition.
+
 ## TODO (in rough priority order)
+
+1. **Chunk-aligned bounded values, for mid-stream `Ans` sync handoff** — see
+   "Two ways to build that gate" above. Worth up to 41.7% where arrival and
+   decode are balanced, ~0 at either extreme. Encoder defers each flush to the
+   next point where no bounded value is open; the decode gate is then
+   `T::MAX_BYTES != usize::MAX && ops_left > 0`. Prefer this over a `MAX_OPS`
+   constant: no new bound to property-test, and the gate is exact rather than
+   conservative.
+
+1. **Batch a derived struct's bounded fields into one `with_sync`** — the same
+   insight as `decode_elements`, applied to structs instead of collections. A
+   derived `decode_awaiting` calls `decode_async` **per field**. When the struct
+   is bounded overall its caller already hands the whole thing over and none of
+   that runs — but one `String` or `Vec` field saturates the type to
+   `usize::MAX`, and then every *other* field pays its own gate and its own
+   handoff. That is most real record types.
+
+   The derive already computes each field's `MAX_BYTES` at compile time, so it
+   can partition fields into maximal runs of bounded ones and emit one
+   `sync_capacity(sum_of_run) > 0` gate plus one `with_sync` per run. No new
+   trait surface — this is exactly why `sync_capacity` takes a byte count rather
+   than a type, since the run's bound is a sum no single type names. Unmeasured;
+   size the win first on a struct with several scalar fields beside a `String`,
+   mid-stream on `Range` (the `Ans` arm cannot benefit until #1 lands).
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:

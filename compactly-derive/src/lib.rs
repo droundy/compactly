@@ -40,6 +40,11 @@ decl_derive!(
     /// The generated `Context` stores one field per struct or enum field, so
     /// each field's probability model adapts independently. Fields may carry
     /// `#[compactly(Strategy)]` attributes to select an encoding strategy.
+    ///
+    /// `Encode<S>` bundles the sync `encode`/`decode` and the async-decode
+    /// members (`MAX_BYTES`, `decode_awaiting`) that `v2::decode_stream` needs
+    /// into one trait with no opt-out, so this single derive always produces
+    /// both — there is no separate "async" derive to reach for.
     v2::derive_compactly
 );
 

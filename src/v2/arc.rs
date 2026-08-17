@@ -70,6 +70,33 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Arc<T> {
             Ok(value)
         }
     }
+
+    /// A hit codes the cache index, a miss the value; the flag is coded either way.
+    const MAX_BYTES: usize = {
+        let index = <usize as Encode>::MAX_BYTES;
+        let value = <T as Encode>::MAX_BYTES;
+        let worst = if index > value { index } else { value };
+        <bool as Encode>::MAX_BYTES.saturating_add(worst)
+    };
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Arc<T>, std::io::Error> {
+        let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+        if is_cached {
+            let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let value = Arc::new(<T as Encode>::decode_async(reader, &mut ctx.context).await?);
+            ctx.cache.push(value.clone());
+            Ok(value)
+        }
+    }
 }
 
 impl Encode for Arc<str> {
@@ -84,6 +111,17 @@ impl Encode for Arc<str> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         LowCardinality::decode(reader, ctx)
+    }
+
+    /// Dictionary-coded strings: unbounded, like the `String` behind them.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Arc<str>, std::io::Error> {
+        <Arc<str> as Encode<LowCardinality>>::decode_async(reader, ctx).await
     }
 }
 
@@ -151,6 +189,33 @@ impl<T: Encode + Hash + PartialEq + Eq> Encode for Rc<T> {
             Ok(value)
         }
     }
+
+    /// A hit codes the cache index, a miss the value; the flag is coded either way.
+    const MAX_BYTES: usize = {
+        let index = <usize as Encode>::MAX_BYTES;
+        let value = <T as Encode>::MAX_BYTES;
+        let worst = if index > value { index } else { value };
+        <bool as Encode>::MAX_BYTES.saturating_add(worst)
+    };
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Rc<T>, std::io::Error> {
+        let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+        if is_cached {
+            let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let value = Rc::new(<T as Encode>::decode_async(reader, &mut ctx.context).await?);
+            ctx.cache.push(value.clone());
+            Ok(value)
+        }
+    }
 }
 
 impl Encode for Rc<str> {
@@ -165,5 +230,16 @@ impl Encode for Rc<str> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         LowCardinality::decode(reader, ctx)
+    }
+
+    /// Dictionary-coded strings: unbounded, like the `String` behind them.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Rc<str>, std::io::Error> {
+        <Rc<str> as Encode<LowCardinality>>::decode_async(reader, ctx).await
     }
 }

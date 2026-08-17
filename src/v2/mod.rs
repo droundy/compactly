@@ -83,6 +83,8 @@
 //! This format should be unmodified after the 1.0 release, except for addition
 //! of support for new strategies, which won't change the binary format of types
 //! that don't use those strategies.
+
+/// Derive [`Encode`](trait@Encode), which allows a type to be encoded compactly.
 pub use compactly_derive::EncodeV2 as Encode;
 
 mod ans;
@@ -101,6 +103,8 @@ mod ints;
 mod low_cardinality;
 mod maps;
 mod markers;
+#[cfg(test)]
+mod max_bytes;
 mod millibits;
 mod model;
 mod net;
@@ -109,13 +113,17 @@ mod option;
 mod other_crate_types;
 mod sentinel;
 mod sets;
+#[cfg(feature = "stream")]
+mod stream;
 mod string;
 mod tuples;
 mod usizes;
 mod vecs;
 
-use crate::{LowCardinality, Small};
+use crate::{LowCardinality, Normal, Small};
 pub use ans::Ans;
+#[cfg(feature = "stream")]
+pub use arith::AsyncRangeDecoder;
 pub use arith::Range;
 /// Benchmark-support surface for `benches/atmost.rs`; not part of the stable API.
 ///
@@ -251,15 +259,48 @@ pub trait EntropyDecoder {
     /// yourself for an unbuffered source (a `&[u8]` needs none).
     fn new(reader: Self::Reader) -> Self;
 
-    /// Fold a decode result together with any IO error latched while reading.
+    /// Finish decoding: `Ok(())` if the value just decoded can be trusted, or the
+    /// reason it cannot. The decode-side twin of [`EntropyCoder::finish`].
     ///
-    /// A latched read error **wins** even when `value` is itself `Err`: coder
-    /// decode is infallible, so a mid-stream IO failure zero-pads instead of
-    /// erroring, and the fabricated bits then often trip some unrelated validation
-    /// (a zero `NonZero`, a bad `char`) deeper in `Encode::decode`. Returning that
-    /// downstream symptom would silently drop the real root cause. In-memory slice
-    /// decoders never latch, so they just return `value`.
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T>;
+    /// Consumes the decoder because the answer is not known until decoding has
+    /// stopped. Three things can make a decode untrustworthy: an IO error latched
+    /// mid-read, (for framed formats) a chunk frame that never fully arrived, and
+    /// empty input, which no encoding can produce — even `()` costs a byte. All
+    /// are reported here rather than from the decoding methods because coder
+    /// decode is **infallible** — running past the data zero-pads rather than
+    /// erroring — so nothing downstream is in a position to notice. An in-memory
+    /// slice decoder over a complete buffer can only ever report the last of the
+    /// three.
+    ///
+    /// [`Self::decode_value`] applies it, and is where the precedence rule lives.
+    fn finish(self) -> std::io::Result<()>;
+
+    /// Decode a whole value with strategy `S` and finish the decoder — **the**
+    /// way to use one, and why [`Self::finish`] is rarely called by hand.
+    ///
+    /// Decoding and finishing are necessarily two steps: [`Encode::decode`]
+    /// recurses on a borrowed `&mut Self`, while finishing consumes the decoder,
+    /// because what it reports is not known until decoding has stopped. Pairing
+    /// them here means no call site has to, and a caller who reached for the
+    /// pieces separately could still forget the second.
+    ///
+    /// **`finish`'s error wins** even when the decode itself returned `Err` — note
+    /// the `?` below runs first. The fabricated bits from a short read or a
+    /// missing frame routinely trip some unrelated validation (a zero `NonZero`,
+    /// a bad `char`) deeper in `Encode::decode`, and returning that downstream
+    /// symptom would silently drop the root cause that produced it.
+    ///
+    /// For a type's default encoding use [`Normal`] as `S`.
+    #[inline]
+    fn decode_value<T: Encode<S>, S>(mut self) -> std::io::Result<T>
+    where
+        Self: Sized,
+    {
+        // Bound to a `let` so the borrow of `self` ends before it is consumed.
+        let value = <T as Encode<S>>::decode(&mut self, &mut <T as Encode<S>>::Context::default());
+        self.finish()?;
+        value
+    }
 
     /// Decode `N` bits, each with its own independent probability context.
     ///
@@ -312,6 +353,159 @@ pub trait EntropyDecoder {
     fn decode_incompressible_bytes(&mut self, bytes: &mut [u8]) -> Result<(), std::io::Error>;
 }
 
+/// The async twin of [`EntropyDecoder`], for decoding a value as its bytes
+/// arrive from an async source rather than from a buffer that is already whole.
+///
+/// Every read point can suspend, which is what lets the decode overlap the wait
+/// for the next chunk instead of following it. That is the *only* difference:
+/// the bits, symbols, and adaptation are identical to [`EntropyDecoder`]'s, and
+/// both decoders read the same bytes.
+///
+/// Deliberately **not** a subtrait of [`EntropyDecoder`]: an async decoder
+/// cannot supply the sync methods without blocking, and the sync decoders
+/// cannot suspend. They are separate implementations of the same format.
+///
+/// The methods are written desugared, as `fn … -> impl Future`, rather than as
+/// `async fn`. They mean the same thing, but `async fn` in a *public* trait
+/// trips rustc's `async_fn_in_trait` lint, and this crate builds warning-free.
+/// The lint's own suggestion is to desugar **and** add `+ Send`; we take only
+/// the first half. A `Send` bound here would propagate to `T` — every decoded
+/// value would have to be `Send`, forever, since it cannot be relaxed later
+/// without a breaking change. Left off, auto traits still leak through the
+/// opaque return type, so the future *is* `Send` whenever the decoder, the
+/// contexts, and the value all are, which is what `tokio::spawn` needs.
+pub trait AsyncEntropyDecoder {
+    /// The sync decoder this one hands off to once no more input can arrive.
+    ///
+    /// No `where Self: 'a`: an implementor's sync decoder is *positioned* at the
+    /// async decoder's cursor but does not borrow from it — `Range` hands it a
+    /// local `Bytes`, `Ans` a borrowed frame buffer — and requiring the bound
+    /// forces every implementor to prove `S: 'a` for a lifetime the associated
+    /// type need not mention.
+    type Sync<'a>: EntropyDecoder;
+
+    /// How many units of `unit_bytes` each can certainly be decoded by
+    /// [`Self::with_sync`] right now, without awaiting — `usize::MAX` once no
+    /// more input can arrive, since past true end of stream the sync decoder
+    /// zero-pads, which is what it should do there.
+    ///
+    /// **Pass a sum of [`MAX_BYTES`](Encode::MAX_BYTES) values and nothing
+    /// else.** The implementor adds its own settling margin, and adds it
+    /// **once** over the whole handoff, which is the only correct number of
+    /// times: that margin is bounded per *span*, not per value, so a caller
+    /// folding it into `unit_bytes` would count it once per unit and be badly
+    /// wrong. `usize::MAX` in means an unbounded unit — the form a frame-based
+    /// coder reads when all it needs to know is whether the unit is bounded at
+    /// all.
+    ///
+    /// Ask about the unit actually handed over in one `with_sync`. A caller
+    /// decoding a marker alongside each element must either include it or stop
+    /// the run short of one, as the shared collection helper does; a caller
+    /// handing over several *different* things at once — consecutive fields of
+    /// a struct, say — sums their bounds, which a single type could not name.
+    fn sync_capacity(&self, unit_bytes: usize) -> usize;
+
+    /// Decode with the sync decoder, positioned exactly here.
+    ///
+    /// The point is that an async decode need only stay async for as long as it
+    /// is actually waiting on bytes. Frames already in flight cannot move — they
+    /// live in the async call stack — but a sub-value that has *not started* can
+    /// run entirely synchronously beneath them. Hand over as much at a time as
+    /// possible: a batch of elements beats one at a time, since the sync decoder
+    /// then keeps its state register-resident across all of them.
+    ///
+    /// **Only call within the budget [`Self::sync_capacity`] reports** — it must
+    /// cover everything `f` decodes.
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R;
+
+    /// Finish decoding, reporting why the value cannot be trusted if it cannot;
+    /// the async twin of [`EntropyDecoder::finish`], covering the same three
+    /// failure modes plus an error latched by the chunk source itself.
+    fn finish(self) -> std::io::Result<()>;
+
+    /// Decode a whole value with strategy `S` and finish the decoder; the async
+    /// twin of [`EntropyDecoder::decode_value`], pairing the two steps and
+    /// applying the same precedence rule for the same reason.
+    #[inline]
+    fn decode_value<T: Encode<S>, S>(
+        mut self,
+    ) -> impl std::future::Future<Output = std::io::Result<T>>
+    where
+        Self: Sized,
+    {
+        async move {
+            // Bound to a `let` so the borrow of `self` ends before it is consumed.
+            let value = <T as Encode<S>>::decode_async(
+                &mut self,
+                &mut <T as Encode<S>>::Context::default(),
+            )
+            .await;
+            self.finish()?;
+            value
+        }
+    }
+
+    /// Decode `N` bits, each with its own context. The async twin of
+    /// [`EntropyDecoder::decode_bits`], and likewise the core required
+    /// primitive: infallible, because running past the encoded data yields
+    /// arbitrary bits that higher-level `decode_async` impls validate.
+    fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [bit_context::BitContext; N],
+    ) -> impl std::future::Future<Output = [bool; N]>;
+
+    /// The `N == 1` case of [`Self::decode_bits`].
+    #[inline(always)]
+    fn decode_bit(
+        &mut self,
+        context: &mut bit_context::BitContext,
+    ) -> impl std::future::Future<Output = bool> {
+        async {
+            let [bit] = self.decode_bits(std::array::from_mut(context)).await;
+            bit
+        }
+    }
+
+    /// Decode one whole [`AtMost<MAX>`](AtMost); the async twin of
+    /// [`EntropyDecoder::decode_atmost`].
+    ///
+    /// **This default always walks bitwise, and that must match what the encoder
+    /// did.** The two walks are not interchangeable: a symbol step narrows the
+    /// coder over the whole `MAX`-slot interval, while bit steps narrow it one
+    /// `Probability` split per level, so they consume
+    /// *different bytes* for the same value and a mismatch desyncs the coder
+    /// silently. Both shipped implementations override this to follow
+    /// [`Walk::production`](Walk::production), exactly as their sync
+    /// counterparts do; a coder whose encoder ever symbol-codes an `AtMost`
+    /// must override it too rather than inherit this.
+    #[inline]
+    fn decode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut atmost::AtMostContext<MAX>,
+    ) -> impl std::future::Future<Output = AtMost<MAX>>
+    where
+        Self: Sized,
+    {
+        async { AtMost::new(atmost::walks::decode_bitwise_async(self, &mut ctx.bits).await) }
+    }
+
+    /// Decode a fixed number of incompressible bytes; the async twin of
+    /// [`EntropyDecoder::decode_incompressible_bytes`].
+    fn decode_incompressible_bytes(
+        &mut self,
+        bytes: &mut [u8],
+    ) -> impl std::future::Future<Output = Result<(), std::io::Error>>;
+}
+
+/// Information one whole-symbol step can account for, in bytes.
+///
+/// A [`SymbolRange`](model::SymbolRange) slot is at least 1 of `M = 2^16`, so a
+/// symbol costs at most 16 bits — two bytes — plus one byte of margin for the
+/// interval `clamp_for_symbol` discards, which is a few bits per step but is not
+/// tightly derived. Margin is nearly free here (it widens a `u64`'s bound from
+/// 18 to 20) and covers the one part of the derivation that is not airtight.
+pub(crate) const MAX_INFO_BYTES_PER_SYMBOL: usize = 3;
+
 /// Trait for types that can be compactly encoded.
 ///
 /// Normally you will derive this for your own types, although it can be
@@ -346,6 +540,85 @@ pub trait Encode<S = crate::Normal>: Sized {
         entropy_decoder: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error>;
+
+    /// The most **information** one value coded with this strategy can account
+    /// for, in bytes, or [`usize::MAX`] when there is no bound (anything
+    /// length-driven, like a collection or a `String`).
+    ///
+    /// Deliberately *excludes* the coder's settling margin — bytes emitted but
+    /// not yet accounted for by the information coded so far. That margin is
+    /// bounded per *span*, not per value, so adding it here would count it once
+    /// per value and make sums badly wrong: seven coded bits cost seven bytes
+    /// plus one margin, not seven margins. The decoder adds its own
+    /// `SETTLING_BYTES` exactly once, in
+    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity); callers never add
+    /// it themselves.
+    ///
+    /// So this composes cleanly: **sum** over the parts a value codes in
+    /// sequence, **max** over branches it might take. Build it from
+    /// `<bool as Encode>::MAX_BYTES` (one adaptive bit),
+    /// [`MAX_INFO_BYTES_PER_SYMBOL`], and one byte per incompressible byte —
+    /// derived, not measured. A loose bound only costs batching headroom; a
+    /// **wrong** one decodes past the end of the buffer and returns plausible
+    /// garbage, so prefer margin. `v2::max_bytes` property-tests every bound
+    /// against real decodes.
+    ///
+    /// # Correctness
+    ///
+    /// **An understated bound is silent data corruption, not a panic.** It lets
+    /// the sync handoff read past what has actually arrived, where the coder
+    /// zero-pads and yields a plausible wrong value — no `Err`, no crash. The
+    /// backstop in
+    /// [`with_sync`](AsyncEntropyDecoder::with_sync) is a `debug_assert!`, so it
+    /// is **compiled out in release**, and `v2::max_bytes` can only cover the
+    /// types listed in it. This is a public trait you are invited to implement,
+    /// so if you write one: derive the bound from the coding schedule rather
+    /// than measuring a sample, round *up* when unsure, and add a case to
+    /// `v2::max_bytes` — a sample tells you what one value happened to cost, not
+    /// what the worst one can.
+    ///
+    /// Required, with no default to fall through: an omitted bound must not
+    /// silently become "unbounded".
+    const MAX_BYTES: usize;
+
+    /// Decode a value with this strategy, from a source that may run dry
+    /// part-way through; the async twin of [`Self::decode`].
+    ///
+    /// **Implement this, but call [`Self::decode_async`]**, which wraps it with
+    /// the fast path below. Nothing stops a caller reaching for this one
+    /// directly; it would simply be slower.
+    fn decode_awaiting<D: AsyncEntropyDecoder>(
+        decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>>;
+
+    /// Decode a value with this strategy — the method callers should use.
+    ///
+    /// Hands the whole value to the *sync* decoder whenever [`Self::MAX_BYTES`]
+    /// of it is certainly buffered already, and only falls back to
+    /// [`Self::decode_awaiting`] when it might have to wait. Being the default
+    /// rather than something each call site opens by hand is the point: a site
+    /// that forgot would still be *correct*, just permanently slow, so no test
+    /// would catch the omission.
+    #[inline]
+    fn decode_async<D: AsyncEntropyDecoder>(
+        decoder: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<Self, std::io::Error>> {
+        async {
+            // Bound to a `let` so the borrows of `decoder` and `ctx` end before
+            // the fallback needs them again.
+            let attempt = if decoder.sync_capacity(Self::MAX_BYTES) > 0 {
+                Some(decoder.with_sync(|sync| <Self as Encode<S>>::decode(sync, ctx)))
+            } else {
+                None
+            };
+            match attempt {
+                Some(result) => result,
+                None => Self::decode_awaiting(decoder, ctx).await,
+            }
+        }
+    }
 }
 
 /// Estimate the encoded size of `value` under its default encoding, without
@@ -375,7 +648,7 @@ pub(crate) fn millibits<T: Encode>(value: &T) -> Millibits {
 /// derive attribute — `#[compactly(your_crate::SuperCoolStrategy)]`.
 ///
 /// ```
-/// use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+/// use compactly::v2::{AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy};
 ///
 /// pub struct SuperCoolStrategy;
 /// impl Strategy for SuperCoolStrategy {}
@@ -388,6 +661,12 @@ pub(crate) fn millibits<T: Encode>(value: &T) -> Millibits {
 ///     fn decode<D: EntropyDecoder>(r: &mut D, ctx: &mut Self::Context)
 ///         -> Result<u8, std::io::Error> {
 ///         <u8 as Encode>::decode(r, ctx)
+///     }
+///
+///     const MAX_BYTES: usize = <u8 as Encode>::MAX_BYTES;
+///     async fn decode_awaiting<D: AsyncEntropyDecoder>(r: &mut D, ctx: &mut Self::Context)
+///         -> Result<u8, std::io::Error> {
+///         <u8 as Encode>::decode_async(r, ctx).await
 ///     }
 /// }
 ///
@@ -417,6 +696,16 @@ pub trait Strategy: Sized {
     ) -> Result<T, std::io::Error> {
         <T as Encode<Self>>::decode(reader, ctx)
     }
+
+    /// Decode a value using this strategy, from a source that may run dry
+    /// part-way through. The async twin of [`Self::decode`].
+    #[inline]
+    fn decode_async<T: Encode<Self>, D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut <T as Encode<Self>>::Context,
+    ) -> impl std::future::Future<Output = Result<T, std::io::Error>> {
+        <T as Encode<Self>>::decode_async(reader, ctx)
+    }
 }
 
 impl Strategy for crate::Normal {}
@@ -440,8 +729,7 @@ pub fn encode<T: Encode>(value: &T) -> Vec<u8> {
 ///
 /// Returns `None` if the bytes do not encode a valid value.
 pub fn decode<T: Encode>(bytes: &[u8]) -> Option<T> {
-    let mut reader = arith::Decoder::new(bytes);
-    T::decode(&mut reader, &mut T::Context::default()).ok()
+    arith::Decoder::new(bytes).decode_value::<T, Normal>().ok()
 }
 
 /// Eager pre-allocation size for a length decoded from untrusted input.
@@ -480,17 +768,6 @@ fn stream_encode<T: Encode, E: EntropyCoder>(
     encoder.finish()
 }
 
-/// Shared decode plumbing: run `T::decode` and fold the result with any latched
-/// IO error (the [`EntropyDecoder::into_result`] rule). Takes an **already-built**
-/// decoder rather than constructing one, because decoder construction is not
-/// uniform across coders — `Ans::decode_from` first peeks the leading chunk tag
-/// to choose its single-chunk fast path — while this tail (decode + `into_result`)
-/// is identical for both, and is where the latched-error correctness lives.
-fn stream_decode<T: Encode, D: EntropyDecoder>(mut decoder: D) -> std::io::Result<T> {
-    let value = T::decode(&mut decoder, &mut T::Context::default());
-    decoder.into_result(value)
-}
-
 /// Encode `value` straight into a [`Write`](std::io::Write), streaming bytes out
 /// as they are produced rather than buffering the whole compressed output. The
 /// bytes are **identical** to [`encode(value)`](encode) — streaming only bounds
@@ -512,6 +789,25 @@ pub fn encode_to<T: Encode, W: std::io::Write>(value: &T, writer: W) -> std::io:
 /// [`BufReader`](std::io::BufReader) yourself.
 pub fn decode_from<T: Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
     Range::decode_from(reader)
+}
+
+/// Decode a value from an async stream of [`Bytes`](::bytes::Bytes) chunks,
+/// decoding each chunk as it arrives rather than waiting for the whole input.
+///
+/// Accepts the same bytes [`encode`]/[`encode_to`] produce. Uses the default
+/// [`Range`] coder; [`Range::decode_stream`] selects explicitly.
+///
+/// The input bound is what the ecosystem already speaks — `aws_sdk_s3`'s
+/// `ByteStream`, `object_store`'s `GetResult::into_stream()`, and `axum`'s
+/// `Body::into_data_stream()` all match it directly.
+#[cfg(feature = "stream")]
+pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
+where
+    T: Encode,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    Range::decode_stream::<T, _, _>(stream).await
 }
 
 /// Encode a value with a specific strategy (into a `Vec<u8>`).
@@ -550,6 +846,20 @@ impl<T: Encode<S>, S> Encode<crate::Normal> for crate::Encoded<T, S> {
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
             value: <T as Encode<S>>::decode(reader, ctx)?,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Exactly the wrapped strategy's.
+    const MAX_BYTES: usize = <T as Encode<S>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            value: <T as Encode<S>>::decode_async(reader, ctx).await?,
             _phantom: std::marker::PhantomData,
         })
     }

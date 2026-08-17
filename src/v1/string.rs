@@ -224,7 +224,7 @@ Lossless data compression is used in many applications. For example, it is used 
 Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
 impl EncodingStrategy<String> for Compressible {
-    type Context = super::bytes::Lz77;
+    type Context = super::vecu8::Lz77;
     fn encode<W: std::io::Write>(
         value: &String,
         writer: &mut super::Writer<W>,

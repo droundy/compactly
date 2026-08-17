@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 mod init;
 
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
@@ -76,6 +76,31 @@ impl Encode for char {
         };
         char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
     }
+
+    /// A leading byte, then up to two continuation bytes.
+    const MAX_BYTES: usize = 3 * <u8 as Encode>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<char, std::io::Error> {
+        let byte = <u8 as Encode>::decode_async(reader, &mut ctx.first).await?;
+        if byte < 128 {
+            return Ok(char::from(byte));
+        }
+        let x = if byte < 192 {
+            let high = (byte & 0x3f) as u32;
+            let low = <u8 as Encode>::decode_async(reader, &mut ctx.one_chunk).await? as u32;
+            (high << 8) | low
+        } else {
+            let top = (byte & 0x3f) as u32;
+            let a = <u8 as Encode>::decode_async(reader, &mut ctx.two_chunk_a).await? as u32;
+            let b = <u8 as Encode>::decode_async(reader, &mut ctx.two_chunk_b).await? as u32;
+            (top << 16) | (a << 8) | b
+        };
+        char::from_u32(x).ok_or_else(|| std::io::Error::other("invalid char value"))
+    }
 }
 
 #[derive(Default, Clone)]
@@ -109,6 +134,20 @@ impl Encode for String {
         }
         Ok(out)
     }
+
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let len = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
+        let mut out = String::with_capacity(super::capacity_for::<u8>(len));
+        decode_elements::<_, char, Normal, _>(reader, &mut ctx.chars, len, &mut out).await?;
+        Ok(out)
+    }
 }
 
 pub(super) fn encode_str<E: EntropyCoder>(s: &str, writer: &mut E, ctx: &mut Context) {
@@ -132,6 +171,19 @@ impl Encode for Box<str> {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         <String as Encode>::decode(reader, ctx).map(String::into_boxed_str)
+    }
+
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Box<str>, std::io::Error> {
+        <String as Encode>::decode_async(reader, ctx)
+            .await
+            .map(String::into_boxed_str)
     }
 }
 
@@ -194,6 +246,35 @@ impl Encode<Sorted> for String {
         }
         ctx.previous.clone_from(value);
     }
+
+    /// Length-driven: an arbitrary number of characters.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let len: usize = <usize as Encode<Small>>::decode_async(reader, &mut ctx.len).await?;
+        if !ctx.previous.is_empty() {
+            let shared_prefix =
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.shared_prefix).await?;
+            // `shared_prefix` counts chars; the prefix's bytes are already in
+            // place in `previous`, so find where it ends and drop the rest.
+            let prefix_bytes = ctx
+                .previous
+                .char_indices()
+                .nth(shared_prefix)
+                .map_or(ctx.previous.len(), |(i, _)| i);
+            ctx.previous.truncate(prefix_bytes);
+        }
+        // Disjoint field borrows: chars decode against `ctx.chars`, the sink
+        // appends to `ctx.previous`.
+        let SortedContext {
+            previous, chars, ..
+        } = ctx;
+        decode_elements::<_, char, Normal, _>(reader, chars, len, previous).await?;
+        Ok(previous.clone())
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +299,17 @@ impl Encode<Compressible> for String {
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
         let bytes = ctx.decode(reader)?;
+        String::from_utf8(bytes).map_err(std::io::Error::other)
+    }
+
+    /// Unbounded: an Lz77 match or literal run of arbitrary length.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<String, std::io::Error> {
+        let bytes = ctx.decode_async(reader).await?;
         String::from_utf8(bytes).map_err(std::io::Error::other)
     }
 }

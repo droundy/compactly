@@ -45,8 +45,10 @@
 //! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M`, or is 2 (`MAX = 1`, where the symbol step is pure overhead over a single bit step) | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
+#[cfg(feature = "stream")]
+use super::super::model::AsyncSymbolDecoder;
 use super::super::model::{SymbolCoder, SymbolDecoder, SymbolRange};
-use super::super::{EntropyCoder, EntropyDecoder};
+use super::super::{AsyncEntropyDecoder, EntropyCoder, EntropyDecoder};
 use super::{AtMost, AtMostContext};
 
 /// The whole-symbol `encode_atmost` shared by every [`SymbolCoder`]: the
@@ -87,6 +89,58 @@ pub(crate) fn decode_symbol_or_bitwise<D: SymbolDecoder, const MAX: usize>(
     // Every walk returns a value in 0..=MAX by construction.
     debug_assert!(value <= MAX);
     AtMost(value)
+}
+
+/// The async twin of [`decode_symbol_or_bitwise`], picking the walk from the
+/// same [`Walk::production`] policy so an async decode makes byte-for-byte the
+/// same coder steps its sync counterpart does.
+#[cfg(feature = "stream")]
+#[inline(always)]
+pub(crate) async fn decode_symbol_or_bitwise_async<D: AsyncSymbolDecoder, const MAX: usize>(
+    reader: &mut D,
+    ctx: &mut AtMostContext<MAX>,
+) -> AtMost<MAX> {
+    let value = match Walk::production::<MAX>(D::SPECULATES) {
+        Some(walk) => decode_atmost_walk_async(walk, reader, ctx).await,
+        None => 0,
+    };
+    debug_assert!(value <= MAX);
+    AtMost(value)
+}
+
+/// The async twin of [`decode_atmost_walk`]. The `walk` closures are pure tree
+/// computations, so only the coder step suspends.
+#[cfg(feature = "stream")]
+pub(crate) async fn decode_atmost_walk_async<D: AsyncSymbolDecoder, const MAX: usize>(
+    walk: Walk,
+    reader: &mut D,
+    ctx: &mut AtMostContext<MAX>,
+) -> usize {
+    let contexts = &mut ctx.bits;
+    match walk {
+        Walk::Complete => {
+            reader
+                .decode_symbol_step(|slot| complete::from_slot(contexts, slot))
+                .await
+        }
+        Walk::CompleteSpeculating => {
+            reader
+                .decode_symbol_step(|slot| complete::from_slot_speculating(contexts, slot))
+                .await
+        }
+        Walk::Uneven => {
+            reader
+                .decode_symbol_step(|slot| uneven::from_slot(contexts, slot))
+                .await
+        }
+        Walk::UnevenSpeculating => {
+            reader
+                .decode_symbol_step(|slot| uneven::from_slot_speculating(contexts, slot))
+                .await
+        }
+        Walk::CompleteBitwise => complete::decode_bitwise_async(reader, contexts).await,
+        Walk::UnevenBitwise => uneven::decode_bitwise_async(reader, contexts).await,
+    }
 }
 
 /// Where the [`AtMost`](super::AtMost) binary-search tree cuts an
@@ -406,6 +460,27 @@ pub(crate) fn decode_bitwise<D: EntropyDecoder, const MAX: usize>(
     }
 }
 
+/// The async twin of [`decode_bitwise`], for [`AsyncEntropyDecoder`].
+///
+/// Only for async decoders that do **not** implement [`AsyncSymbolDecoder`],
+/// exactly as [`decode_bitwise`] is only for sync decoders without
+/// [`SymbolDecoder`]. A symbol-capable coder must use
+/// [`decode_symbol_or_bitwise_async`] instead: the per-bit and whole-symbol
+/// walks narrow the coder state differently and so read *different bytes*, and
+/// decoding a symbol-coded stream bit-by-bit silently returns wrong values once
+/// anything follows the symbol.
+#[inline]
+pub(crate) async fn decode_bitwise_async<D: AsyncEntropyDecoder, const MAX: usize>(
+    reader: &mut D,
+    contexts: &mut [BitContext; MAX],
+) -> usize {
+    if (MAX + 1).is_power_of_two() {
+        complete::decode_bitwise_async(reader, contexts).await
+    } else {
+        uneven::decode_bitwise_async(reader, contexts).await
+    }
+}
+
 /// The balanced-tree implementation for a **power-of-two value count**
 /// (`MAX + 1` a power of two): a complete binary tree with contexts stored
 /// in heap order (`node = (node << 1) + 1 + bit`), the layout the `u8` hot
@@ -559,6 +634,21 @@ mod complete {
         let mut node = 0usize;
         for _ in 0..n_bits {
             let bit = reader.decode_bit(&mut contexts[node]);
+            node = (node << 1) + 1 + bit as usize;
+        }
+        node - MAX
+    }
+
+    /// The async twin of [`decode_bitwise`].
+    #[inline]
+    pub(super) async fn decode_bitwise_async<D: AsyncEntropyDecoder, const MAX: usize>(
+        reader: &mut D,
+        contexts: &mut [BitContext; MAX],
+    ) -> usize {
+        let n_bits = (MAX + 1).ilog2();
+        let mut node = 0usize;
+        for _ in 0..n_bits {
+            let bit = reader.decode_bit(&mut contexts[node]).await;
             node = (node << 1) + 1 + bit as usize;
         }
         node - MAX
@@ -758,6 +848,28 @@ mod uneven {
             let value_considered = half(possible_values_left);
             let split = accumulated_value + value_considered;
             let bit = reader.decode_bit(&mut contexts[split - 1]);
+            if bit {
+                accumulated_value = split;
+                possible_values_left -= value_considered;
+            } else {
+                possible_values_left = value_considered;
+            }
+        }
+        accumulated_value
+    }
+
+    /// The async twin of [`decode_bitwise`].
+    #[inline]
+    pub(super) async fn decode_bitwise_async<D: AsyncEntropyDecoder, const MAX: usize>(
+        reader: &mut D,
+        contexts: &mut [BitContext; MAX],
+    ) -> usize {
+        let mut accumulated_value = 0;
+        let mut possible_values_left = MAX + 1;
+        while possible_values_left > 1 {
+            let value_considered = half(possible_values_left);
+            let split = accumulated_value + value_considered;
+            let bit = reader.decode_bit(&mut contexts[split - 1]).await;
             if bit {
                 accumulated_value = split;
                 possible_values_left -= value_considered;

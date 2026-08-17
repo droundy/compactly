@@ -60,6 +60,15 @@ fn strategy_or_normal(strategy: Option<&EncodingStrategy>) -> proc_macro2::Token
     }
 }
 
+/// `#[derive(EncodeV2)]`: the full `Encode` impl — `encode`/`decode` plus the
+/// async-decode members (`MAX_BYTES`, `decode_awaiting`) that `decode_stream`
+/// needs.
+///
+/// There is only one derive. `Encode<S>` is a single trait with no opt-out, so
+/// every field's strategy must support decoding from a stream too — which
+/// every strategy in this crate does, and a hand-written `Encode` impl must
+/// too, now that `MAX_BYTES`/`decode_awaiting` are required members rather
+/// than a separate trait a type could decline.
 pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
     let mut bound_names = BTreeSet::new();
     bound_names.insert(Ident::new("discriminant", Span::call_site()));
@@ -273,6 +282,56 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
     };
 
+    // `MAX_BYTES` for the derived type: the discriminant, plus the worst variant.
+    // Within a variant the fields are coded in sequence, so their bounds **sum**;
+    // across variants only one is ever coded, so they **max**. Each field
+    // contributes whatever its own strategy declares, so a field that has not
+    // opted in (`usize::MAX`) saturates the whole type to unbounded — which is
+    // the safe direction, since an unbounded type simply never takes the async
+    // decoder's sync fast path.
+    let variant_bounds = s
+        .variants()
+        .iter()
+        .map(|variant| {
+            let field_bounds = variant.bindings().iter().map(|binding| {
+                let ty = &binding.ast().ty;
+                let strategy = strategy_or_normal(
+                    binding_strategies
+                        .get(&binding.binding)
+                        .and_then(|s| s.as_ref()),
+                );
+                quote! { <#ty as Encode<#strategy>>::MAX_BYTES }
+            });
+            quote! { 0usize #(.saturating_add(#field_bounds))* }
+        })
+        .collect::<Vec<_>>();
+    let num_variant_bounds = variant_bounds.len();
+
+    // The async twin's decode arms, mirroring `decode_variants` with `.await`.
+    let decode_variants_async = s
+        .variants()
+        .iter()
+        .map(|variant| {
+            let decoding = variant
+                .bindings()
+                .iter()
+                .map(|binding| {
+                    let ty = &binding.ast().ty;
+                    let strategy = strategy_or_normal(
+                        binding_strategies
+                            .get(&binding.binding)
+                            .and_then(|s| s.as_ref()),
+                    );
+                    quote! {
+                        <#ty as Encode<#strategy>>::decode_async(reader, &mut ctx.#binding).await?
+                    }
+                })
+                .collect::<Vec<_>>();
+            variant.construct(|_, i| decoding[i].clone())
+        })
+        .collect::<Vec<_>>();
+    let discriminants_async = 0..s.variants().len();
+
     let strategies_to_impl = EncodingStrategy::parse_attrs(&s.ast().attrs);
     let impl_strategies = if strategies_to_impl.is_empty() {
         Vec::new()
@@ -292,6 +351,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             let ty = binding.ast().ty.clone();
             let field_name = binding.ast().ident.as_ref().map(|i| i.to_token_stream()).unwrap_or(quote! {0});
             let decoded = s.variants()[0].construct(|_, _| quote! { <#ty as Encode<#strategy>>::decode(reader, ctx)? });
+            let decoded_async = s.variants()[0].construct(|_, _| quote! { <#ty as Encode<#strategy>>::decode_async(reader, ctx).await? });
             quote! {
                 impl Encode<#strategy> for #typename {
                     type Context = <#ty as Encode<#strategy>>::Context;
@@ -300,6 +360,15 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                     }
                     fn decode<D: EntropyDecoder>(reader: &mut D, ctx: &mut Self::Context) -> Result<#typename, std::io::Error> {
                         Ok(#decoded)
+                    }
+
+                    const MAX_BYTES: usize = <#ty as Encode<#strategy>>::MAX_BYTES;
+
+                    fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                        reader: &mut D,
+                        ctx: &mut Self::Context,
+                    ) -> impl ::core::future::Future<Output = Result<#typename, std::io::Error>> {
+                        async move { Ok(#decoded_async) }
                     }
                 }
             }
@@ -350,6 +419,52 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             ) -> Result<Self, std::io::Error> {
                 let discriminant: #discriminant_type = <#discriminant_type as Encode>::decode(reader, &mut ctx.discriminant)?;
                 #decode
+            }
+
+            /// The discriminant, plus the worst variant: within a variant the
+            /// fields are coded in sequence so their bounds **sum**, and across
+            /// variants only one is ever coded so they **max**. A field whose
+            /// strategy declares `usize::MAX` saturates the whole type to
+            /// unbounded, which is the safe direction — an unbounded type simply
+            /// never takes the async decoder's sync fast path.
+            const MAX_BYTES: usize = {
+                let variants: [usize; #num_variant_bounds] = [#(#variant_bounds),*];
+                let mut worst = 0usize;
+                let mut i = 0;
+                while i < #num_variant_bounds {
+                    if variants[i] > worst {
+                        worst = variants[i];
+                    }
+                    i += 1;
+                }
+                <#discriminant_type as Encode>::MAX_BYTES.saturating_add(worst)
+            };
+
+            fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                // Not boxed. A recursive user type would make this future
+                // infinitely sized, but no such type exists: a context holds
+                // one field per field, so `struct Tree { kids: Vec<Tree> }`
+                // already fails to compile on the *sync* path with a context
+                // layout cycle — through `Box` and `Option` just as much as
+                // through `Vec`, since neither adds indirection to the context.
+                // Boxing here would buy nothing and cost an allocation.
+                async move {
+                    let discriminant: #discriminant_type =
+                        <#discriminant_type as Encode>::decode_async(
+                            reader,
+                            &mut ctx.discriminant,
+                        )
+                        .await?;
+                    Ok(match usize::from(discriminant) {
+                        #(#discriminants_async => #decode_variants_async,)*
+                        _ => return Err(std::io::Error::other(
+                            "This discriminant should be impossible",
+                        )),
+                    })
+                }
             }
         }
     })
@@ -518,6 +633,15 @@ fn impl_two_strategies() {
                 ) -> Result<NewType, std::io::Error> {
                     Ok(NewType(<u32 as Encode<Small>>::decode(reader, ctx)?))
                 }
+                const MAX_BYTES: usize = <u32 as Encode<Small>>::MAX_BYTES;
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                    async move {
+                        Ok(NewType(<u32 as Encode<Small>>::decode_async(reader, ctx).await?))
+                    }
+                }
             }
             impl Encode<Sorted> for NewType {
                 type Context = <u32 as Encode<Sorted>>::Context;
@@ -533,6 +657,15 @@ fn impl_two_strategies() {
                     ctx: &mut Self::Context,
                 ) -> Result<NewType, std::io::Error> {
                     Ok(NewType(<u32 as Encode<Sorted>>::decode(reader, ctx)?))
+                }
+                const MAX_BYTES: usize = <u32 as Encode<Sorted>>::MAX_BYTES;
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                    async move {
+                        Ok(NewType(<u32 as Encode<Sorted>>::decode_async(reader, ctx).await?))
+                    }
                 }
             }
             impl Encode<Normal> for NewType {
@@ -585,6 +718,56 @@ fn impl_two_strategies() {
                             }
                         },
                     )
+                }
+                /// The discriminant, plus the worst variant: within a variant the
+                /// fields are coded in sequence so their bounds **sum**, and across
+                /// variants only one is ever coded so they **max**. A field whose
+                /// strategy declares `usize::MAX` saturates the whole type to
+                /// unbounded, which is the safe direction — an unbounded type simply
+                /// never takes the async decoder's sync fast path.
+                const MAX_BYTES: usize = {
+                    let variants: [usize; 1usize] = [
+                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                    ];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < 1usize {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                    async move {
+                        let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
+                            0usize,
+                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                            .await?;
+                        Ok(
+                            match usize::from(discriminant) {
+                                0usize => {
+                                    NewType(
+                                        <u32 as Encode<
+                                            Normal,
+                                        >>::decode_async(reader, &mut ctx.__binding_0)
+                                            .await?,
+                                    )
+                                }
+                                _ => {
+                                    return Err(
+                                        std::io::Error::other(
+                                            "This discriminant should be impossible",
+                                        ),
+                                    );
+                                }
+                            },
+                        )
+                    }
                 }
             }
         };
@@ -643,6 +826,15 @@ fn impl_strategies() {
                 ) -> Result<NewType, std::io::Error> {
                     Ok(NewType(<u32 as Encode<Sorted>>::decode(reader, ctx)?))
                 }
+                const MAX_BYTES: usize = <u32 as Encode<Sorted>>::MAX_BYTES;
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                    async move {
+                        Ok(NewType(<u32 as Encode<Sorted>>::decode_async(reader, ctx).await?))
+                    }
+                }
             }
             impl Encode<Normal> for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
@@ -695,10 +887,86 @@ fn impl_strategies() {
                         },
                     )
                 }
+                /// The discriminant, plus the worst variant: within a variant the
+                /// fields are coded in sequence so their bounds **sum**, and across
+                /// variants only one is ever coded so they **max**. A field whose
+                /// strategy declares `usize::MAX` saturates the whole type to
+                /// unbounded, which is the safe direction — an unbounded type simply
+                /// never takes the async decoder's sync fast path.
+                const MAX_BYTES: usize = {
+                    let variants: [usize; 1usize] = [
+                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                    ];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < 1usize {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                    async move {
+                        let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
+                            0usize,
+                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                            .await?;
+                        Ok(
+                            match usize::from(discriminant) {
+                                0usize => {
+                                    NewType(
+                                        <u32 as Encode<
+                                            Normal,
+                                        >>::decode_async(reader, &mut ctx.__binding_0)
+                                            .await?,
+                                    )
+                                }
+                                _ => {
+                                    return Err(
+                                        std::io::Error::other(
+                                            "This discriminant should be impossible",
+                                        ),
+                                    );
+                                }
+                            },
+                        )
+                    }
+                }
             }
         };
     "#]]
     .assert_eq(&pretty(derive_compactly(s)));
+}
+
+/// There is only one derive, and it always emits the async-decode members
+/// alongside the sync ones, in the same `impl Encode<Normal>` block — no
+/// separate twin impl and no opt-out.
+#[test]
+fn derive_always_includes_async_decode_members() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct NewType(u32);
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+
+    for needle in [
+        "pub struct DerivedContext",
+        "impl Encode<Normal> for NewType",
+        "fn encode<E: EntropyCoder>",
+        "fn decode<D: EntropyDecoder>",
+        "const MAX_BYTES: usize",
+        "fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>",
+    ] {
+        assert!(
+            output.contains(needle),
+            "derive output is missing {needle:?}:\n{output}"
+        );
+    }
 }
 
 #[test]
@@ -786,6 +1054,56 @@ fn impl_newtype() {
                             }
                         },
                     )
+                }
+                /// The discriminant, plus the worst variant: within a variant the
+                /// fields are coded in sequence so their bounds **sum**, and across
+                /// variants only one is ever coded so they **max**. A field whose
+                /// strategy declares `usize::MAX` saturates the whole type to
+                /// unbounded, which is the safe direction — an unbounded type simply
+                /// never takes the async decoder's sync fast path.
+                const MAX_BYTES: usize = {
+                    let variants: [usize; 1usize] = [
+                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                    ];
+                    let mut worst = 0usize;
+                    let mut i = 0;
+                    while i < 1usize {
+                        if variants[i] > worst {
+                            worst = variants[i];
+                        }
+                        i += 1;
+                    }
+                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                };
+                fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                    async move {
+                        let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
+                            0usize,
+                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                            .await?;
+                        Ok(
+                            match usize::from(discriminant) {
+                                0usize => {
+                                    NewType(
+                                        <u32 as Encode<
+                                            Normal,
+                                        >>::decode_async(reader, &mut ctx.__binding_0)
+                                            .await?,
+                                    )
+                                }
+                                _ => {
+                                    return Err(
+                                        std::io::Error::other(
+                                            "This discriminant should be impossible",
+                                        ),
+                                    );
+                                }
+                            },
+                        )
+                    }
                 }
             }
         };

@@ -57,6 +57,32 @@ macro_rules! impl_uint {
                     ctx.previous = Some(out);
                     Ok(out)
                 }
+
+                /// A `not_sorted` flag, then the value or the difference —
+                /// both `Small<$t>`.
+                const MAX_BYTES: usize =
+                    <bool as Encode>::MAX_BYTES.saturating_add(<$t as Encode<Small>>::MAX_BYTES);
+
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    let out = if let Some(previous) = ctx.previous.take() {
+                        let not_sorted =
+                            <bool as Encode>::decode_async(reader, &mut ctx.not_sorted).await?;
+                        if not_sorted {
+                            <$t as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
+                        } else {
+                            previous
+                                + <$t as Encode<Small>>::decode_async(reader, &mut ctx.difference)
+                                    .await?
+                        }
+                    } else {
+                        <$t as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
+                    };
+                    ctx.previous = Some(out);
+                    Ok(out)
+                }
             }
 
             impl Encode<Incompressible> for $t {
@@ -70,6 +96,18 @@ macro_rules! impl_uint {
                 ) -> Result<$t, std::io::Error> {
                     let mut b = [0; std::mem::size_of::<$t>()];
                     reader.decode_incompressible_bytes(&mut b)?;
+                    Ok($t::from_le_bytes(b))
+                }
+
+                /// Straight through, one byte per byte.
+                const MAX_BYTES: usize = std::mem::size_of::<$t>();
+
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    _ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    let mut b = [0; std::mem::size_of::<$t>()];
+                    reader.decode_incompressible_bytes(&mut b).await?;
                     Ok($t::from_le_bytes(b))
                 }
             }
@@ -386,6 +424,61 @@ macro_rules! impl_compact {
                 value_bytes[full_bytes] |= 1 << partial_bits;
                 Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
             }
+
+            /// The bit-length symbol, then at most one bucket-offset symbol,
+            /// then the mantissa: whole bytes go through the incompressible
+            /// path (one byte each) and the partial top byte costs up to 7
+            /// coded bits.
+            const MAX_BYTES: usize =
+                <AtMost<$blbl_max> as Encode>::MAX_BYTES
+                    + crate::v2::MAX_INFO_BYTES_PER_SYMBOL
+                    + (($bits - 1) / 8) * std::mem::size_of::<u8>()
+                    + 7 * <bool as Encode>::MAX_BYTES;
+
+            #[inline]
+            fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
+                async {
+                let blbl = usize::from(
+                    <AtMost<$blbl_max> as Encode>::decode_async(reader, &mut ctx.blbl).await?,
+                );
+                let bl: usize = if blbl <= 1 {
+                    blbl
+                } else if blbl == $blbl_max {
+                    $bits
+                } else {
+                    let offset = match blbl {
+                        $($code => usize::from(
+                            <AtMost<$max> as Encode>::decode_async(reader, &mut ctx.$bucket)
+                                .await?,
+                        ),)*
+                        _ => unreachable!(),
+                    };
+                    (1usize << (blbl - 1)) + offset
+                };
+                if bl < 2 {
+                    return Ok(bl as $t);
+                }
+                let lz = $bits - bl;
+                let sig_bits = bl - 1;
+                let full_bytes = sig_bits / 8;
+                let partial_bits = sig_bits % 8;
+                let mut value_bytes = [0u8; std::mem::size_of::<$t>()];
+                if full_bytes > 0 {
+                    reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes]).await?;
+                }
+                for i in 0..partial_bits {
+                    if <bool as Encode>::decode_async(reader, &mut ctx.partial[lz][i]).await? {
+                        value_bytes[full_bytes] |= 1 << i;
+                    }
+                }
+                // Restore the implicit leading 1.
+                value_bytes[full_bytes] |= 1 << partial_bits;
+                Ok($t::from_le_bytes(value_bytes.try_into().unwrap()))
+                }
+            }
         }
 
         // The default `Encode` for `$t` reuses `Small`'s exact encode/decode
@@ -418,6 +511,17 @@ macro_rules! impl_compact {
                 ctx: &mut Self::Context,
             ) -> Result<$t, std::io::Error> {
                 Small::decode(reader, &mut ctx.0)
+            }
+
+            /// Reuses `Small`'s scheme exactly, differing only in the seeded prior.
+            const MAX_BYTES: usize = <$t as Encode<Small>>::MAX_BYTES;
+
+            #[inline]
+            fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl std::future::Future<Output = Result<$t, std::io::Error>> {
+                <$t as Encode<Small>>::decode_async(reader, &mut ctx.0)
             }
         }
     };
@@ -507,6 +611,53 @@ impl Encode<Small> for u16 {
         value_bytes[full_bytes] |= 1 << partial_bits;
         Ok(u16::from_le_bytes(value_bytes))
     }
+
+    /// `u16`'s legacy single-tree scheme: one leading-zero symbol, a
+    /// disambiguating bool, then at most one whole mantissa byte and seven
+    /// partial bits.
+    const MAX_BYTES: usize = <AtMost<15> as Encode>::MAX_BYTES
+        + <bool as Encode>::MAX_BYTES
+        + std::mem::size_of::<u8>()
+        + 7 * <bool as Encode>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u16, std::io::Error> {
+        let afewbits_val = usize::from(
+            <AtMost<15> as Encode>::decode_async(reader, &mut ctx.leading_zeros).await?,
+        );
+        let lz = if afewbits_val == 0 {
+            if <bool as Encode>::decode_async(reader, &mut ctx.lz_is_one).await? {
+                1
+            } else {
+                0
+            }
+        } else {
+            afewbits_val + 1
+        };
+        if lz >= 15 {
+            return if lz == 16 { Ok(0) } else { Ok(1) };
+        }
+        let sig_bits = 15 - lz;
+        let full_bytes = sig_bits / 8;
+        let partial_bits = sig_bits % 8;
+        let mut value_bytes = [0u8; 2];
+        if full_bytes > 0 {
+            reader
+                .decode_incompressible_bytes(&mut value_bytes[..full_bytes])
+                .await?;
+        }
+        for i in 0..partial_bits {
+            if <bool as Encode>::decode_async(reader, &mut ctx.partial[lz][i]).await? {
+                value_bytes[full_bytes] |= 1 << i;
+            }
+        }
+        // Restore the implicit leading 1.
+        value_bytes[full_bytes] |= 1 << partial_bits;
+        Ok(u16::from_le_bytes(value_bytes))
+    }
 }
 
 /// The default `Encode` for `u16` reuses `Small`'s exact encode/decode
@@ -540,6 +691,17 @@ impl Encode for u16 {
         ctx: &mut Self::Context,
     ) -> Result<u16, std::io::Error> {
         Small::decode(reader, &mut ctx.0)
+    }
+
+    /// Reuses `Small`'s scheme exactly, differing only in the seeded prior.
+    const MAX_BYTES: usize = <u16 as Encode<Small>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u16, std::io::Error> {
+        <u16 as Encode<Small>>::decode_async(reader, &mut ctx.0).await
     }
 }
 
@@ -782,6 +944,32 @@ macro_rules! impl_signed_default_hierarchical {
                     Ok(mag as $signed)
                 }
             }
+
+            /// A sign bit, then the magnitude through `Small<$unsigned>`.
+            const MAX_BYTES: usize =
+                <bool as Encode>::MAX_BYTES.saturating_add(<$unsigned as Encode<Small>>::MAX_BYTES);
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$signed, std::io::Error> {
+                let is_neg = <bool as Encode>::decode_async(reader, &mut ctx.is_negative).await?;
+                let mag: $unsigned =
+                    <$unsigned as Encode<Small>>::decode_async(reader, &mut ctx.magnitude).await?;
+                // The capped prior only *biases* against magnitudes past
+                // the signed range — a malformed stream can still decode
+                // one, and `mag as $signed` would quietly wrap it into a
+                // plausible value.
+                if mag > $signed::MAX as $unsigned {
+                    return Err(std::io::Error::other("signed magnitude out of range"));
+                }
+                if is_neg {
+                    Ok(-1 - (mag as $signed))
+                } else {
+                    Ok(mag as $signed)
+                }
+            }
         }
     };
 }
@@ -888,6 +1076,59 @@ macro_rules! impl_signed_default_legacy {
                     Ok(mag as $signed)
                 }
             }
+
+            /// The legacy scheme: a sign bit, up to `$bits - 1` leading-zero
+            /// bools, then either a whole `u8` symbol or the mantissa as raw
+            /// bytes plus at most seven partial bits. Summed rather than
+            /// maxed over those last two branches — margin is free here.
+            const MAX_BYTES: usize = ($bits as usize) * <bool as Encode>::MAX_BYTES
+                + <u8 as Encode>::MAX_BYTES
+                + ($bits as usize - 1) / 8
+                + 7 * <bool as Encode>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$signed, std::io::Error> {
+                let is_neg = <bool as Encode>::decode_async(reader, &mut ctx.is_negative).await?;
+                const MBITS: usize = $bits - 1;
+                let mut lz = 0usize;
+                let mag: $unsigned = loop {
+                    if lz >= MBITS - 8 {
+                        let v = <u8 as Encode>::decode_async(reader, &mut ctx.u8_ctx).await?;
+                        break v as $unsigned;
+                    }
+                    if <bool as Encode>::decode_async(reader, &mut ctx.leading_zero[MBITS - 1 - lz])
+                        .await?
+                    {
+                        let sig_bits = MBITS - 1 - lz;
+                        let full_bytes = sig_bits / 8;
+                        let partial_bits = sig_bits % 8;
+                        let mut value_bytes = [0u8; std::mem::size_of::<$unsigned>()];
+                        if full_bytes > 0 {
+                            reader
+                                .decode_incompressible_bytes(&mut value_bytes[..full_bytes])
+                                .await?;
+                        }
+                        for i in 0..partial_bits {
+                            if <bool as Encode>::decode_async(reader, &mut ctx.partial[lz][i])
+                                .await?
+                            {
+                                value_bytes[full_bytes] |= 1 << i;
+                            }
+                        }
+                        value_bytes[full_bytes] |= 1 << partial_bits;
+                        break $unsigned::from_le_bytes(value_bytes.try_into().unwrap());
+                    }
+                    lz += 1;
+                };
+                if is_neg {
+                    Ok(-1 - (mag as $signed))
+                } else {
+                    Ok(mag as $signed)
+                }
+            }
         }
     };
 }
@@ -944,6 +1185,27 @@ macro_rules! impl_signed {
                         Ok(p as $signed)
                     }
                 }
+
+                /// Zig-zagged into the unsigned strategy.
+                const MAX_BYTES: usize = <$unsigned as Encode<Small>>::MAX_BYTES;
+
+                #[inline]
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    if <bool as Encode>::decode_async(reader, &mut ctx.is_negative).await? {
+                        let p =
+                            <$unsigned as Encode<Small>>::decode_async(reader, &mut ctx.negative)
+                                .await?;
+                        Ok(-1 - (p as $signed))
+                    } else {
+                        let p =
+                            <$unsigned as Encode<Small>>::decode_async(reader, &mut ctx.positive)
+                                .await?;
+                        Ok(p as $signed)
+                    }
+                }
             }
             #[derive(Default, Clone)]
             pub struct SortedContext {
@@ -991,6 +1253,36 @@ macro_rules! impl_signed {
                         }
                     } else {
                         Small::decode(reader, &mut ctx.value)?
+                    };
+                    ctx.previous = Some(out);
+                    Ok(out)
+                }
+
+                const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES
+                    .saturating_add(<$signed as Encode<Small>>::MAX_BYTES);
+
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$signed, std::io::Error> {
+                    let out = if let Some(previous) = ctx.previous.take() {
+                        let not_sorted =
+                            <bool as Encode>::decode_async(reader, &mut ctx.not_sorted).await?;
+                        if not_sorted {
+                            <$signed as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
+                        } else {
+                            previous
+                                .checked_add_unsigned(
+                                    <$unsigned as Encode<Small>>::decode_async(
+                                        reader,
+                                        &mut ctx.difference,
+                                    )
+                                    .await?,
+                                )
+                                .ok_or_else(|| std::io::Error::other("invalid addition"))?
+                        }
+                    } else {
+                        <$signed as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
                     };
                     ctx.previous = Some(out);
                     Ok(out)

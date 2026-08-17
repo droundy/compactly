@@ -1,4 +1,4 @@
-use super::sentinel::Sentinel;
+use super::sentinel::{decode_elements, Sentinel};
 use super::{Encode, Strategy};
 use crate::{Mapping, Normal, Sorted};
 use std::collections::{BTreeMap, HashMap};
@@ -9,15 +9,18 @@ use expect_test::expect;
 
 pub struct MapContext<K: Encode<SK>, V: Encode<SV>, SK, SV> {
     len: <usize as Encode>::Context,
-    key: <K as Encode<SK>>::Context,
-    value: <V as Encode<SV>>::Context,
+    /// The key's and value's contexts, held as the *entry*'s context rather
+    /// than as two fields — `(K, V): Encode<Mapping<SK, SV>>` codes exactly a
+    /// key then a value under exactly these, so a map can name one entry as a
+    /// type and hand a whole run of them to the sync decoder at once. Nothing
+    /// about the coding changes; this is only how the two contexts are spelled.
+    entry: <(K, V) as Encode<Mapping<SK, SV>>>::Context,
 }
 impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Default for MapContext<K, V, SK, SV> {
     fn default() -> Self {
         Self {
             len: Default::default(),
-            key: Default::default(),
-            value: Default::default(),
+            entry: Default::default(),
         }
     }
 }
@@ -25,8 +28,7 @@ impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Clone for MapContext<K, V, SK, SV> {
     fn clone(&self) -> Self {
         Self {
             len: self.len.clone(),
-            key: self.key.clone(),
-            value: self.value.clone(),
+            entry: self.entry.clone(),
         }
     }
 }
@@ -38,8 +40,8 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            Normal::encode(k, writer, &mut ctx.key);
-            Normal::encode(v, writer, &mut ctx.value);
+            Normal::encode(k, writer, &mut ctx.entry.0);
+            Normal::encode(v, writer, &mut ctx.entry.1);
         }
     }
     fn decode<D: super::EntropyDecoder>(
@@ -52,10 +54,29 @@ impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
         for _ in 0..len {
             sentinel.decode(reader)?;
             map.insert(
-                Encode::decode(reader, &mut ctx.key)?,
-                Encode::decode(reader, &mut ctx.value)?,
+                Encode::decode(reader, &mut ctx.entry.0)?,
+                Encode::decode(reader, &mut ctx.entry.1)?,
             );
         }
+        Ok(map)
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashMap<K, V>, std::io::Error> {
+        let len = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
+        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
+        decode_elements::<_, (K, V), Mapping<Normal, Normal>, _>(
+            reader,
+            &mut ctx.entry,
+            len,
+            &mut map,
+        )
+        .await?;
         Ok(map)
     }
 }
@@ -84,6 +105,17 @@ where
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         Mapping::<Sorted, Normal>::decode(reader, ctx)
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> impl std::future::Future<Output = Result<BTreeMap<K, V>, std::io::Error>> {
+        <BTreeMap<K, V> as Encode<Mapping<Sorted, Normal>>>::decode_awaiting(reader, ctx)
     }
 }
 
@@ -122,8 +154,8 @@ impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTr
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            <K as Encode<SK>>::encode(k, writer, &mut ctx.key);
-            <V as Encode<SV>>::encode(v, writer, &mut ctx.value);
+            <K as Encode<SK>>::encode(k, writer, &mut ctx.entry.0);
+            <V as Encode<SV>>::encode(v, writer, &mut ctx.entry.1);
         }
     }
     #[inline]
@@ -145,10 +177,25 @@ impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTr
         for _ in 0..len {
             sentinel.decode(reader)?;
             pairs.push((
-                <K as Encode<SK>>::decode(reader, &mut ctx.key)?,
-                <V as Encode<SV>>::decode(reader, &mut ctx.value)?,
+                <K as Encode<SK>>::decode(reader, &mut ctx.entry.0)?,
+                <V as Encode<SV>>::decode(reader, &mut ctx.entry.1)?,
             ));
         }
+        Ok(pairs.into_iter().collect())
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<BTreeMap<K, V>, std::io::Error> {
+        let len: usize = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
+        // Stage + collect — see the sync `decode` above for why.
+        let mut pairs = Vec::with_capacity(super::capacity_for::<(K, V)>(len));
+        decode_elements::<_, (K, V), Mapping<SK, SV>, _>(reader, &mut ctx.entry, len, &mut pairs)
+            .await?;
         Ok(pairs.into_iter().collect())
     }
 }
@@ -165,8 +212,8 @@ impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> f
         let mut sentinel = Sentinel::new();
         for (k, v) in value {
             sentinel.encode(writer);
-            <K as Encode<SK>>::encode(k, writer, &mut ctx.key);
-            <V as Encode<SV>>::encode(v, writer, &mut ctx.value);
+            <K as Encode<SK>>::encode(k, writer, &mut ctx.entry.0);
+            <V as Encode<SV>>::encode(v, writer, &mut ctx.entry.1);
         }
     }
     #[inline]
@@ -180,10 +227,24 @@ impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> f
         for _ in 0..len {
             sentinel.decode(reader)?;
             map.insert(
-                <K as Encode<SK>>::decode(reader, &mut ctx.key)?,
-                <V as Encode<SV>>::decode(reader, &mut ctx.value)?,
+                <K as Encode<SK>>::decode(reader, &mut ctx.entry.0)?,
+                <V as Encode<SV>>::decode(reader, &mut ctx.entry.1)?,
             );
         }
+        Ok(map)
+    }
+
+    /// Length-driven: an arbitrary number of entries.
+    const MAX_BYTES: usize = usize::MAX;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<HashMap<K, V>, std::io::Error> {
+        let len: usize = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
+        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
+        decode_elements::<_, (K, V), Mapping<SK, SV>, _>(reader, &mut ctx.entry, len, &mut map)
+            .await?;
         Ok(map)
     }
 }

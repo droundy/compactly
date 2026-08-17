@@ -488,6 +488,342 @@ fn mixed_enum_variants() {
     }
 }
 
+mod max_bytes {
+    use compactly::v2::{AtMost, Encode};
+
+    /// `Encode<S>::MAX_BYTES` is where a derived type's async-decode bound
+    /// lives — the same trait as `encode`/`decode`, since there is no separate
+    /// `DecodeAsync` twin.
+    macro_rules! bound {
+        ($t:ty) => {
+            <$t as Encode>::MAX_BYTES
+        };
+        ($s:ty, $t:ty) => {
+            <$t as Encode<$s>>::MAX_BYTES
+        };
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct Fields {
+        flag: bool,
+        byte: u8,
+        wide: u64,
+    }
+
+    #[derive(compactly::v2::Encode)]
+    enum Variants {
+        Nothing,
+        One(u8),
+        Several { a: u64, b: u64, c: bool },
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct WithStrategy {
+        #[compactly(Small)]
+        small: u64,
+        plain: u64,
+    }
+
+    #[derive(compactly::v2::Encode)]
+    struct HasUnbounded {
+        bounded: u8,
+        unbounded: String,
+    }
+
+    #[test]
+    fn a_struct_sums_its_fields() {
+        // A struct is one variant, so its `AtMost<0>` discriminant codes nothing.
+        assert_eq!(bound!(AtMost<0>), 0);
+        assert_eq!(bound!(Fields), bound!(bool) + bound!(u8) + bound!(u64));
+    }
+
+    #[test]
+    fn an_enum_maxes_over_variants_atop_the_discriminant() {
+        // Three variants, so an `AtMost<2>` discriminant, plus the fattest arm —
+        // not the sum of all of them, since only one is ever coded.
+        assert_eq!(
+            bound!(Variants),
+            bound!(AtMost<2>) + 2 * bound!(u64) + bound!(bool)
+        );
+    }
+
+    #[test]
+    fn a_field_uses_its_own_strategys_bound() {
+        use compactly::Small;
+        assert_eq!(bound!(WithStrategy), bound!(Small, u64) + bound!(u64));
+    }
+
+    #[test]
+    fn one_unbounded_field_makes_the_whole_type_unbounded() {
+        // Saturating, not wrapping: the safe direction, since an unbounded type
+        // simply never takes the async decoder's sync fast path.
+        assert_eq!(bound!(String), usize::MAX);
+        assert_eq!(bound!(HasUnbounded), usize::MAX);
+    }
+
+    /// The bound has to hold against real decodes, not just arithmetic. Encoding
+    /// one value alone yields its information plus the coder's final flush, so
+    /// `MAX_BYTES` plus a settling allowance must cover it.
+    #[test]
+    fn encoded_values_fit_within_the_computed_bound() {
+        const SETTLING: usize = 8;
+        for wide in [0, 1, u64::MAX, 1 << 31] {
+            for flag in [false, true] {
+                let v = Fields {
+                    flag,
+                    byte: 200,
+                    wide,
+                };
+                let n = compactly::v2::encode(&v).len();
+                assert!(
+                    n <= bound!(Fields) + SETTLING,
+                    "Fields {{ {flag}, 200, {wide} }} encoded to {n} bytes, over \
+                     its bound of {} (+{SETTLING} settling)",
+                    bound!(Fields)
+                );
+            }
+        }
+    }
+}
+
+/// The derive emits the async-decode members (`MAX_BYTES`, `decode_awaiting`)
+/// alongside `Encode`'s sync ones; this is the only place they can be
+/// exercised, since the lib's own tests cannot use the derive (`extern crate
+/// self as compactly` does not satisfy the generated `extern crate
+/// compactly`).
+#[cfg(feature = "stream")]
+mod async_decode {
+    use bytes::Bytes;
+    use futures_executor::block_on;
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Inner {
+        flag: bool,
+        wide: u64,
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    enum Shape {
+        Empty,
+        Tuple(u8, String),
+        Named {
+            #[compactly(Small)]
+            small: u64,
+            inner: Inner,
+            list: Vec<String>,
+        },
+    }
+
+    /// A bounded compound record: no field may be unbounded, or the batch loop
+    /// this exists to reach would never run mid-stream. See
+    /// [`a_long_vector_of_derived_records_batches_from_a_stream`].
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Record {
+        flag: bool,
+        #[compactly(Small)]
+        id: u64,
+        kind: Kind,
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    enum Kind {
+        Nothing,
+        Byte(u8),
+        Wide { x: u16 },
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Generic<T> {
+        first: T,
+        rest: Vec<T>,
+    }
+
+    /// One `Bytes` per `chunk_size` bytes, yielding `Pending` before each so the
+    /// decoder actually suspends.
+    ///
+    /// The `Pending` is the whole point and not politeness. An always-ready
+    /// stream is drained to the end by `ChunkSource`'s look-ahead before any
+    /// decoding starts, which makes it a *single chunk* and routes the decode to
+    /// the in-memory slice decoder — so a test built on one silently checks the
+    /// sync path twice and never runs `decode_awaiting` at all. That is exactly
+    /// what every test in this module did before this waker was added.
+    fn chunks(
+        bytes: &[u8],
+        chunk_size: usize,
+    ) -> impl futures_core::Stream<Item = Result<Bytes, std::io::Error>> {
+        struct Iter(std::vec::IntoIter<Bytes>, bool);
+        impl futures_core::Stream for Iter {
+            type Item = Result<Bytes, std::io::Error>;
+            fn poll_next(
+                mut self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Option<Self::Item>> {
+                if self.1 {
+                    self.1 = false;
+                    cx.waker().wake_by_ref();
+                    return std::task::Poll::Pending;
+                }
+                self.1 = true;
+                std::task::Poll::Ready(self.0.next().map(Ok))
+            }
+        }
+        Iter(
+            bytes
+                .chunks(chunk_size)
+                .map(Bytes::copy_from_slice)
+                .collect::<Vec<_>>()
+                .into_iter(),
+            true,
+        )
+    }
+
+    #[track_caller]
+    fn round_trips<T>(value: T)
+    where
+        T: compactly::v2::Encode + std::fmt::Debug + PartialEq,
+    {
+        let encoded = compactly::v2::encode(&value);
+        assert_eq!(
+            compactly::v2::decode::<T>(&encoded).as_ref(),
+            Some(&value),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        for chunk_size in [1, 2, 3, 7, 64, 4096] {
+            let decoded: T =
+                block_on(compactly::v2::decode_stream(chunks(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, value, "chunk_size = {chunk_size}");
+        }
+    }
+
+    #[test]
+    fn every_variant_shape_round_trips_from_a_stream() {
+        round_trips(Shape::Empty);
+        round_trips(Shape::Tuple(200, "hello 🦀".to_string()));
+        round_trips(Shape::Named {
+            small: u64::MAX,
+            inner: Inner {
+                flag: true,
+                wide: 1 << 40,
+            },
+            list: vec!["a".to_string(), "x".repeat(300)],
+        });
+        round_trips(vec![
+            Shape::Empty,
+            Shape::Tuple(0, String::new()),
+            Shape::Empty,
+        ]);
+    }
+
+    /// A bounded derived record, batched.
+    ///
+    /// Every other fixture here is small enough that the collection codes no
+    /// sentinel marker and `Range` hands over one element at a time. Past
+    /// `SENTINEL_EVERY` (4096, internal) a `Vec` instead runs the batch loop in
+    /// `v2::sentinel`, whose own fixtures are all scalars, strings, or pairs —
+    /// so the loop has never met a *compound* generated `Context`, which is
+    /// what `Vec<SomeRecord>`, the most ordinary shape there is, produces.
+    ///
+    /// Every field is bounded, deliberately: an unbounded one (a `String`, say)
+    /// makes the whole record unbounded, `sync_capacity` then reports 0 for the
+    /// entire mid-stream, and the batch loop would only ever see the few
+    /// elements left after the source completes. The enum is here so the
+    /// discriminant's `AtMost` walk is inside a batched run too.
+    #[test]
+    fn a_long_vector_of_derived_records_batches_from_a_stream() {
+        let records: Vec<Record> = (0..9000_u64)
+            .map(|i| Record {
+                flag: i % 3 == 0,
+                id: i.wrapping_mul(2654435761) % 100_000,
+                kind: match i % 3 {
+                    0 => Kind::Nothing,
+                    1 => Kind::Byte((i % 251) as u8),
+                    _ => Kind::Wide {
+                        x: (i % 65521) as u16,
+                    },
+                },
+            })
+            .collect();
+
+        let encoded = compactly::v2::encode(&records);
+        assert_eq!(
+            compactly::v2::decode::<Vec<Record>>(&encoded).as_ref(),
+            Some(&records),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        // A quarter of the input leaves room for real runs; 7 bytes holds less
+        // than one record's `MAX_BYTES`, so every element takes the awaiting
+        // path instead. Both regimes of the same loop.
+        for chunk_size in [7, encoded.len() / 4] {
+            let decoded: Vec<Record> =
+                block_on(compactly::v2::decode_stream(chunks(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, records, "chunk_size = {chunk_size}");
+        }
+    }
+
+    #[test]
+    fn a_generic_derived_type_round_trips_from_a_stream() {
+        round_trips(Generic {
+            first: 7_u64,
+            rest: vec![0, 1, u64::MAX],
+        });
+        round_trips(Generic {
+            first: "first".to_string(),
+            rest: vec!["a".to_string(), "b".to_string()],
+        });
+    }
+}
+
+/// A hand-written `v2::Encode` impl must supply `MAX_BYTES`/`decode_awaiting`
+/// too — `Encode<S>` is one trait with no opt-out, so a hand-written type used
+/// as a field is exactly as stream-decodable as a derived one, with nothing
+/// left to distinguish "sync-only" impls.
+mod hand_written_encode_needs_the_async_members_too {
+    use compactly::v2::{AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder};
+
+    #[derive(Debug, PartialEq)]
+    struct Manual(bool);
+
+    impl Encode for Manual {
+        type Context = <bool as Encode>::Context;
+        fn encode<E: EntropyCoder>(value: &Self, encoder: &mut E, ctx: &mut Self::Context) {
+            <bool as Encode>::encode(&value.0, encoder, ctx)
+        }
+        fn decode<D: EntropyDecoder>(
+            decoder: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            Ok(Manual(<bool as Encode>::decode(decoder, ctx)?))
+        }
+
+        const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES;
+
+        async fn decode_awaiting<D: AsyncEntropyDecoder>(
+            decoder: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            Ok(Manual(
+                <bool as Encode>::decode_awaiting(decoder, ctx).await?,
+            ))
+        }
+    }
+
+    #[derive(Debug, PartialEq, compactly::v2::Encode)]
+    struct Holder {
+        field: Manual,
+        count: u32,
+    }
+
+    #[test]
+    fn round_trips() {
+        let value = Holder {
+            field: Manual(true),
+            count: 42,
+        };
+        let bytes = compactly::v2::encode(&value);
+        assert_eq!(compactly::v2::decode::<Holder>(&bytes), Some(value));
+    }
+}
+
 /// Strategies now lift through the transparent wrappers `Option` and `Box`
 /// automatically, for *any* strategy the inner type supports.
 ///

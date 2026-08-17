@@ -52,4 +52,22 @@ impl<T: Encode<S>, S> Encode<S> for Option<T> {
             Ok(None)
         }
     }
+
+    /// One presence bit, plus whatever the wrapped strategy needs.
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<T as Encode<S>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        if <bool as Encode>::decode_async(reader, &mut ctx.is_some).await? {
+            Ok(Some(
+                <T as Encode<S>>::decode_async(reader, &mut ctx.value).await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
 }

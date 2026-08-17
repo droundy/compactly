@@ -28,7 +28,9 @@
 //! still compiles this bin.
 #[cfg(feature = "v2")]
 mod imp {
-    use compactly::v2::{decode, encode, Encode, EntropyCoder, EntropyDecoder, Strategy as _};
+    use compactly::v2::{
+        decode, encode, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
+    };
     use compactly::Normal;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -100,6 +102,30 @@ mod imp {
                 Ok(OldStyleArcStr(value))
             }
         }
+
+        /// Unbounded: a cache index or a fresh `String`. This benchmark never
+        /// exercises the async path (it only compares `encode`/`decode`
+        /// throughput), so this exists purely to satisfy the trait.
+        const MAX_BYTES: usize = usize::MAX;
+        async fn decode_awaiting<D: AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+            if is_cached {
+                let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+                ctx.cache
+                    .get(idx)
+                    .cloned()
+                    .map(OldStyleArcStr)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+            } else {
+                let s = <String as Encode>::decode_async(reader, &mut ctx.string_ctx).await?;
+                let value: Arc<str> = Arc::from(s.as_str());
+                ctx.cache.push(value.clone());
+                Ok(OldStyleArcStr(value))
+            }
+        }
     }
 
     /// A frozen copy of the pre-dictionary `String` `LowCardinality`
@@ -152,6 +178,29 @@ mod imp {
                 Ok(OldStyleString(s))
             }
         }
+
+        /// Unbounded: a cache index or a fresh `String`. This benchmark never
+        /// exercises the async path (it only compares `encode`/`decode`
+        /// throughput), so this exists purely to satisfy the trait.
+        const MAX_BYTES: usize = usize::MAX;
+        async fn decode_awaiting<D: AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+            if is_cached {
+                let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+                ctx.cache
+                    .get(idx)
+                    .cloned()
+                    .map(OldStyleString)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+            } else {
+                let s = <String as Encode>::decode_async(reader, &mut ctx.string_ctx).await?;
+                ctx.cache.push(s.clone());
+                Ok(OldStyleString(s))
+            }
+        }
     }
 
     /// A frozen copy of the `BTreeMap`-based prefix/suffix `StringSet` +
@@ -162,7 +211,7 @@ mod imp {
     /// here, not in the library, so this benchmark can compare the treap
     /// against exactly what it replaced without checking out an old commit.
     mod btree_variant {
-        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+        use compactly::v2::{AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy};
         use compactly::{Normal, Small};
         use std::collections::{BTreeMap, HashMap};
         use std::ops::Bound;
@@ -312,6 +361,15 @@ mod imp {
             Ok(if wire == 0 { 0 } else { wire as usize + 1 })
         }
 
+        #[inline]
+        async fn decode_match_len_async<D: AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut <u16 as Encode<Small>>::Context,
+        ) -> Result<usize, std::io::Error> {
+            let wire: u16 = <u16 as Encode<Small>>::decode_async(reader, ctx).await?;
+            Ok(if wire == 0 { 0 } else { wire as usize + 1 })
+        }
+
         #[derive(Default, Clone)]
         pub struct BTreeArcStrContext {
             dict: StringSet,
@@ -433,6 +491,69 @@ mod imp {
                 let middle_len: usize = Small::decode(reader, &mut ctx.middle_len)?;
                 for _ in 0..middle_len {
                     out.push(<char as Encode>::decode(reader, &mut ctx.chars)?);
+                }
+
+                if let Some(idx) = suffix_idx {
+                    let entry = ctx
+                        .dict
+                        .get(idx)
+                        .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix index"))?;
+                    out.push_str(&entry[entry.len() - suffix_len..]);
+                }
+
+                let value: Arc<str> = Arc::from(out.as_str());
+                ctx.dict.push(value.clone());
+                Ok(BTreeArcStr(value))
+            }
+
+            /// Unbounded: a dictionary index over arbitrarily many values, and
+            /// a miss codes the value itself. This benchmark never exercises
+            /// the async path (it only compares `encode`/`decode`
+            /// throughput), so this exists purely to satisfy the trait.
+            const MAX_BYTES: usize = usize::MAX;
+            async fn decode_awaiting<D: AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+                if is_cached {
+                    let idx: usize =
+                        <usize as Encode<Small>>::decode_async(reader, &mut ctx.index).await?;
+                    return ctx
+                        .dict
+                        .get(idx)
+                        .cloned()
+                        .map(BTreeArcStr)
+                        .ok_or_else(|| std::io::Error::other("bad low_cardinality index"));
+                }
+
+                let prefix_len = decode_match_len_async(reader, &mut ctx.prefix_len).await?;
+                let mut out = String::new();
+                if prefix_len > 0 {
+                    let idx: usize =
+                        <usize as Encode<Small>>::decode_async(reader, &mut ctx.prefix_index)
+                            .await?;
+                    let entry = ctx
+                        .dict
+                        .get(idx)
+                        .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix index"))?;
+                    out.push_str(&entry[..prefix_len]);
+                }
+
+                let suffix_len = decode_match_len_async(reader, &mut ctx.suffix_len).await?;
+                let suffix_idx = if suffix_len > 0 {
+                    Some(
+                        <usize as Encode<Small>>::decode_async(reader, &mut ctx.suffix_index)
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+
+                let middle_len: usize =
+                    <usize as Encode<Small>>::decode_async(reader, &mut ctx.middle_len).await?;
+                for _ in 0..middle_len {
+                    out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
                 }
 
                 if let Some(idx) = suffix_idx {

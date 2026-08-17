@@ -1,5 +1,7 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange, SHIFT};
+#[cfg(feature = "stream")]
+use super::AsyncEntropyDecoder;
 #[cfg(test)]
 use super::Strategy;
 use super::{EntropyCoder, EntropyDecoder};
@@ -302,9 +304,12 @@ impl Range {
         <Self as EntropyCoder>::encode(value).into()
     }
     /// Decode some encoded bytes.
+    ///
+    /// Empty input is rejected: every encoding is at least one byte, so there is
+    /// nothing it could be an encoding of. `Ans::decode` rejects it too, for the
+    /// matching reason that its frame tag is missing.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
-        let mut reader = super::arith::Decoder::new(bytes);
-        T::decode(&mut reader, &mut T::Context::default()).ok()
+        Decoder::new(bytes).decode_value::<T, crate::Normal>().ok()
     }
     /// Whether `Range`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -364,7 +369,38 @@ impl Range {
     /// byte** for the whole stream, so wrap an unbuffered source like a `File` in a
     /// [`BufReader`](std::io::BufReader) yourself or performance will suffer.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(reader: R) -> std::io::Result<T> {
-        super::stream_decode::<T, _>(RangeDecoder::new(reader))
+        RangeDecoder::new(reader).decode_value::<T, crate::Normal>()
+    }
+
+    /// Decode a value from an async stream of [`Bytes`](bytes::Bytes) chunks,
+    /// decoding each chunk as it arrives rather than waiting for the whole
+    /// input — so the decode overlaps the wait for the next chunk instead of
+    /// following it. Accepts the same bytes [`Range::encode`] produces.
+    ///
+    /// A stream that delivers everything in one chunk is decoded by the sync
+    /// slice [`Decoder`] instead: there is nothing to overlap in that case, so
+    /// the async decoder would be pure cost. Which path a value takes is
+    /// unobservable in the result — both read the same format, and the async
+    /// decoder is an alternative implementation of it rather than a variant.
+    #[cfg(feature = "stream")]
+    pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
+    where
+        T: super::Encode,
+        S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+        E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
+        let mut source = super::stream::ChunkSource::new(stream).await;
+        if let Some(whole) = source.take_if_single_chunk().await {
+            let value = Decoder::new(&whole).decode_value::<T, crate::Normal>();
+            return match source.take_error() {
+                Some(e) => Err(e),
+                None => value,
+            };
+        }
+        AsyncRangeDecoder::from_source(source)
+            .await
+            .decode_value::<T, crate::Normal>()
+            .await
     }
 }
 impl From<Range> for Vec<u8> {
@@ -524,6 +560,14 @@ impl<W: std::io::Write> SymbolCoder for RangeEncoder<W> {
     }
 }
 
+/// Empty input is not an encoding of anything; see [`Decoder::empty_input`].
+fn empty_input() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "empty input: every encoding is at least one byte",
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Decoder<'a> {
     /// The single flat delay-interleave stream: entropy bytes with each
@@ -534,6 +578,23 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
     state: ArithState,
     value: u64,
+    /// Whether this decoder was handed nothing at all.
+    ///
+    /// Every encoding is at least one byte — even a zero-size value settles the
+    /// range into one — so empty input cannot be a valid encoding of anything,
+    /// and decoding it would otherwise zero-pad into a plausible value.
+    /// Reported by [`finish`](EntropyDecoder::finish), which is how `Ans`
+    /// reports the same thing, so the two coders agree on empty input.
+    empty_input: bool,
+}
+
+#[cfg(test)]
+impl Decoder<'_> {
+    /// Stream bytes not yet consumed. Lets `super::max_bytes` measure how much
+    /// a single value's decode actually advanced the cursor.
+    pub(crate) fn bytes_remaining(&self) -> usize {
+        self.bytes.len()
+    }
 }
 
 /// One range-decode bit step, operating on locals so the caller can keep `state`,
@@ -606,6 +667,7 @@ impl<'a> EntropyDecoder for Decoder<'a> {
     type Reader = &'a [u8];
 
     fn new(bytes: &'a [u8]) -> Self {
+        let empty_input = bytes.is_empty();
         let (value, bytes) = if let Some((&first, rest)) = bytes.split_first_chunk() {
             (u64::from_be_bytes(first), rest)
         } else {
@@ -617,13 +679,18 @@ impl<'a> EntropyDecoder for Decoder<'a> {
             bytes,
             state: ArithState::default(),
             value,
+            empty_input,
         }
     }
 
-    /// The slice decoder never latches an IO error, so the decode result stands.
+    /// The slice decoder reads no IO, so the only thing it can report is having
+    /// been handed nothing; see [`Self::empty_input`].
     #[inline]
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        value
+    fn finish(self) -> std::io::Result<()> {
+        if self.empty_input {
+            return Err(empty_input());
+        }
+        Ok(())
     }
 
     /// Whole `AtMost` symbol decode; see [`SymbolDecoder::decode_symbol_step`].
@@ -711,13 +778,16 @@ fn read_one_byte<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::E
 /// in memory. Reads the same bytes [`Range`]/[`RangeEncoder`] produce and
 /// recovers identical values (the decode arithmetic is the slice [`Decoder`]'s;
 /// only the byte source differs). IO errors are latched and surfaced by
-/// [`RangeDecoder::into_result`]; a clean EOF yields zero bytes, which the
+/// [`RangeDecoder::finish`]; a clean EOF yields zero bytes, which the
 /// higher-level `Encode::decode` validation catches.
 pub(crate) struct RangeDecoder<R: std::io::Read> {
     reader: R,
     state: ArithState,
     value: u64,
     error: Option<std::io::Error>,
+    /// Whether the reader was already at end of stream; see
+    /// [`Decoder::empty_input`].
+    empty_input: bool,
 }
 
 impl<R: std::io::Read> RangeDecoder<R> {
@@ -755,8 +825,23 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
     fn new(mut reader: R) -> Self {
         // Fill the 8-byte window, matching `Decoder::new`'s initial `u64`.
         let mut error = None;
-        let mut value = 0u64;
-        for _ in 0..8 {
+        // The first byte doubles as the emptiness check, and has to be read
+        // separately to get one: `read_one_byte` maps end of stream to `0`,
+        // which is indistinguishable from a legitimate leading zero byte.
+        let mut first = [0u8; 1];
+        let empty_input = loop {
+            match reader.read(&mut first) {
+                Ok(0) => break true,
+                Ok(_) => break false,
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    error = Some(e);
+                    break false;
+                }
+            }
+        };
+        let mut value = first[0] as u64;
+        for _ in 1..8 {
             value = (value << 8) + read_one_byte(&mut reader, &mut error) as u64;
         }
         Self {
@@ -764,17 +849,23 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
             state: ArithState::default(),
             value,
             error,
+            empty_input,
         }
     }
 
-    /// Return `value` unless a read error was latched during decoding — the
-    /// latched IO error wins even when `value` is itself `Err` (see the trait
-    /// method's contract).
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => value,
+    /// Fails with any read error latched during decoding, or with having been
+    /// handed nothing at all; see [`Decoder::empty_input`].
+    ///
+    /// A latched error wins: it is the root cause, and a reader that failed
+    /// immediately also looks empty.
+    fn finish(mut self) -> std::io::Result<()> {
+        if let Some(e) = self.error.take() {
+            return Err(e);
         }
+        if self.empty_input {
+            return Err(empty_input());
+        }
+        Ok(())
     }
 
     #[inline]
@@ -811,6 +902,258 @@ impl<R: std::io::Read> EntropyDecoder for RangeDecoder<R> {
         // straight off; `read_exact` errors on a truncated stream, stopping the
         // decode cleanly instead of returning silently-short data.
         self.reader.read_exact(out)
+    }
+}
+
+/// Bytes `Range` may have emitted that the information coded so far does not
+/// yet account for.
+///
+/// The interval starts at `2^64`, each emitted byte multiplies it by 256 and
+/// each coded bit divides it, so from `1 <= width <= 2^64` we get
+/// `I/8 - 8 <= E <= I/8` at every point, and hence `dE <= dI/8 + 8` over *any*
+/// span. The 8 is the coder state width in bytes — and because the bound holds
+/// for a span of any length, it is added once per handoff and never per value.
+///
+/// Available to tests without the `stream` feature so `v2::max_bytes` can check
+/// the bounds against the sync decoder, which is where they are measurable.
+#[cfg(any(test, feature = "stream"))]
+pub(crate) const SETTLING_BYTES: usize = std::mem::size_of::<u64>();
+
+/// Range decoder over an async source: the arithmetic is the sync decoders',
+/// but every byte comes from a [`ChunkSource`], so running out of buffered
+/// chunk suspends rather than blocks.
+///
+/// Reads the same bytes [`Range`]/[`RangeEncoder`] produce and recovers
+/// identical values, including at the edges — a stream error is latched and
+/// surfaced by [`finish`](super::AsyncEntropyDecoder::finish), and a
+/// clean end of stream yields zero bytes, exactly as [`RangeDecoder`] does.
+#[cfg(feature = "stream")]
+pub struct AsyncRangeDecoder<S> {
+    source: super::stream::ChunkSource<S>,
+    state: ArithState,
+    value: u64,
+}
+
+#[cfg(feature = "stream")]
+impl<S> std::fmt::Debug for AsyncRangeDecoder<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AsyncRangeDecoder")
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// Build a decoder over `stream`, filling the 8-byte window to match
+    /// [`Decoder::new`]'s and [`RangeDecoder::new`]'s initial `u64`.
+    pub async fn new(stream: S) -> Self {
+        Self::from_source(super::stream::ChunkSource::new(stream).await).await
+    }
+
+    /// [`Self::new`] over a source that has already been read from — used by
+    /// `decode_stream`, whose single-chunk look-ahead has consumed a poll or two
+    /// before deciding to decode asynchronously after all.
+    pub(crate) async fn from_source(mut source: super::stream::ChunkSource<S>) -> Self {
+        let mut value = 0u64;
+        for _ in 0..W_DELAY {
+            value = (value << 8) + source.next_byte().await as u64;
+        }
+        Self {
+            source,
+            state: ArithState::default(),
+            value,
+        }
+    }
+
+    /// Run `f` against the **sync** slice [`Decoder`], positioned exactly here,
+    /// and adopt whatever position it reaches. `None` when the input is still
+    /// arriving, in which case the caller must stay on the async path.
+    ///
+    /// This is what lets a multi-chunk decode stop paying for async once the
+    /// last chunk is in hand. The frames already in flight stay async — their
+    /// state lives in the async call stack and cannot be moved — but any
+    /// sub-value that has *not started yet* can be decoded synchronously, with
+    /// those frames acting as a shell. The deeper the handoff, the more of the
+    /// remaining work runs at sync speed; handing over a whole loop tail rather
+    /// than one element at a time is strictly better, since the sync decoder
+    /// then keeps `state`/`value`/`bytes` register-resident across all of it.
+    ///
+    /// Only the three words of coder state need translating: `Decoder` holds
+    /// the same `ArithState` and window `value`, and a `&[u8]` cursor where
+    /// this holds a chunk plus offset. Nothing is re-read or re-derived, so the
+    /// handoff is exact — the sync decoder resumes mid-stream rather than
+    /// starting one.
+    ///
+    /// **Precondition:** `f` must not need more than
+    /// [`sync_capacity`](super::AsyncEntropyDecoder::sync_capacity) reported —
+    /// i.e. either the input is complete, or every value `f` decodes has a
+    /// `MAX_BYTES` that fits in what is buffered. Running the slice decoder past
+    /// the end of a *non*-final chunk zero-pads and returns plausible, wrong
+    /// values, and the position it reports back would be wrong too.
+    ///
+    /// That cannot be checked up front — it depends on `MAX_BYTES` being a true
+    /// bound — so it is checked afterwards instead: consuming the whole buffer
+    /// without the stream having ended means the decode wanted more than was
+    /// there, which is exactly the symptom of an understated `MAX_BYTES`.
+    #[inline]
+    pub(crate) fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder) -> R) -> R {
+        // Borrowed, not an owned `Bytes` slice: `f` touches only the `Decoder`,
+        // so nothing needs to mutate the source while this is alive, and the
+        // refcount pair a `Bytes` costs is per *handoff* — measurable (−1.2%
+        // cycles on a handoff-dense workload) once handoffs are per value
+        // rather than per batch. `available` is read up front so the borrow can
+        // end before `advance` needs the source back.
+        let rest = self.source.peek();
+        let available = rest.len();
+        let mut sync = Decoder {
+            bytes: rest,
+            state: self.state,
+            value: self.value,
+            // A mid-stream continuation, never a fresh decode: this decoder is
+            // positioned at the async cursor and its `finish` is never called,
+            // so an empty `rest` here means "nothing buffered right now", not
+            // "the input was empty".
+            empty_input: false,
+        };
+        let result = f(&mut sync);
+        let left = sync.bytes.len();
+        // `available == 0` is exempt because it is not evidence of anything:
+        // consuming none of nothing says only that `f` wanted no bytes. It is
+        // reachable on perfectly good input, since a zero-byte unit reports an
+        // unbounded capacity no matter how little has arrived — whereas any
+        // positive `MAX_BYTES` reports 0 against an empty buffer, so the gate
+        // would never have let us in here with bytes actually needed.
+        debug_assert!(
+            left > 0 || available == 0 || self.source.is_complete(),
+            "sync decode consumed every buffered byte without reaching end of \
+             stream: some type's MAX_BYTES is too small"
+        );
+        self.state = sync.state;
+        self.value = sync.value;
+        self.source.advance(available - left);
+        result
+    }
+
+    /// Pull `n` entropy bytes into the window; the async twin of
+    /// [`RangeDecoder::refill`].
+    #[inline]
+    async fn refill(&mut self, n: usize) {
+        for _ in 0..n {
+            let byte = self.source.next_byte().await;
+            self.value = (self.value << 8) + byte as u64;
+        }
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> super::model::AsyncSymbolDecoder for AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    /// Must equal [`RangeDecoder`]'s, so both decoders pick the same `Walk` and
+    /// therefore make the same coder steps.
+    const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+
+    #[inline]
+    async fn decode_symbol_step(
+        &mut self,
+        walk: impl FnOnce(u32) -> (SymbolRange, usize),
+    ) -> usize {
+        while self.state.clamp_for_symbol() {
+            let n = self.state.consume_decoded_bytes();
+            self.refill(n).await;
+        }
+        let slot = self.state.symbol_slot(self.value);
+        let (range, decoded) = walk(slot);
+        self.state.narrow_symbol(range);
+        let n = self.state.consume_decoded_bytes();
+        self.refill(n).await;
+        decoded
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<S, E> super::AsyncEntropyDecoder for AsyncRangeDecoder<S>
+where
+    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    type Sync<'a> = Decoder<'a>;
+
+    /// `Range` is bounded by buffered bytes, so the answer is how many
+    /// `unit_bytes` worth of information fit in what has arrived — less the
+    /// settling margin, subtracted here rather than per unit because that
+    /// margin is bounded per *span* and so is paid once for the whole handoff.
+    ///
+    /// `unit_bytes` is a constant at every call site, so the division folds:
+    /// against a literal divisor LLVM turns `capacity > 0` back into the
+    /// compare-don't-divide form, which is why no separate per-value gate is
+    /// needed (it was tried, and measured at exactly zero). The zero-unit test
+    /// folds away with it.
+    #[inline]
+    fn sync_capacity(&self, unit_bytes: usize) -> usize {
+        // A unit that codes to no bytes at all — `()`, or a struct of them —
+        // needs nothing buffered, so any number of them can be decoded right
+        // now whatever the source is doing. This is stated rather than left to
+        // `checked_div(0).unwrap_or(usize::MAX)`, which reached the same answer
+        // by accident and read as an unconsidered division guard.
+        if unit_bytes == 0 || self.source.is_complete() {
+            return usize::MAX;
+        }
+        self.source.ready_bytes().saturating_sub(SETTLING_BYTES) / unit_bytes
+    }
+
+    #[inline]
+    fn with_sync<R>(&mut self, f: impl FnOnce(&mut Decoder<'_>) -> R) -> R {
+        self.with_sync(f)
+    }
+
+    /// Fails with any error latched by the chunk source.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.source.take_error().map_or(Ok(()), Err)
+    }
+
+    /// Overrides the trait's per-bit default with the fused whole-symbol walk,
+    /// exactly as [`RangeDecoder`] does. Not an optimization: the two walks
+    /// narrow the coder state differently and so read different bytes, and this
+    /// must match what the encoder did.
+    #[inline]
+    fn decode_atmost<const MAX: usize>(
+        &mut self,
+        ctx: &mut AtMostContext<MAX>,
+    ) -> impl std::future::Future<Output = AtMost<MAX>> {
+        walks::decode_symbol_or_bitwise_async(self, ctx)
+    }
+
+    #[inline]
+    async fn decode_bits<const N: usize>(
+        &mut self,
+        contexts: &mut [super::bit_context::BitContext; N],
+    ) -> [bool; N] {
+        let mut bits = [false; N];
+        for (b, context) in bits.iter_mut().zip(contexts.iter_mut()) {
+            let (out, sz) = self.state.decode(context.probability(), self.value);
+            self.refill(sz).await;
+            *context = context.adapt(out);
+            *b = out;
+        }
+        bits
+    }
+
+    #[inline]
+    fn decode_incompressible_bytes(
+        &mut self,
+        out: &mut [u8],
+    ) -> impl std::future::Future<Output = Result<(), std::io::Error>> {
+        // By the W_DELAY splice the run sits at the source cursor, so read it
+        // straight off, exactly as `RangeDecoder` does.
+        self.source.read_exact(out)
     }
 }
 
@@ -1344,15 +1687,38 @@ mod tests {
         assert_eq!(decoded, items);
     }
 
-    /// R2: once a read error is latched, [`EntropyDecoder::into_result`] must
-    /// surface *that* IO error even when `T::decode` itself returned an `Err`.
+    /// R2: once a read error is latched, [`EntropyDecoder::decode_value`] must
+    /// surface *that* IO error even when the decode itself returned an `Err`.
     /// Coder decode is infallible, so a mid-stream failure zero-pads and the
     /// fabricated bits often trip an unrelated downstream validation (a zero
     /// `NonZero`, a bad `char`); returning that symptom would silently drop the
     /// real root cause. Before the fix `Range::decode_from` did `T::decode(..)?`,
     /// propagating the downstream error and losing the latched one.
     #[test]
-    fn into_result_prefers_latched_error_over_downstream() {
+    fn decode_value_prefers_latched_error_over_downstream() {
+        /// Stands in for the validation a zero-padded tail trips, without
+        /// depending on which bits any real type happens to reject.
+        #[derive(Debug)]
+        struct AlwaysFails;
+        impl crate::v2::Encode for AlwaysFails {
+            type Context = ();
+            fn encode<E: EntropyCoder>(_: &Self, _: &mut E, _: &mut Self::Context) {}
+            fn decode<D: EntropyDecoder>(
+                _: &mut D,
+                _: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Err(std::io::Error::other("downstream validation symptom"))
+            }
+
+            const MAX_BYTES: usize = 0;
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                _: &mut D,
+                _: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Err(std::io::Error::other("downstream validation symptom"))
+            }
+        }
+
         // Fails on the very first read, so an IO error latches during
         // construction and the whole stream is fabricated zeros thereafter.
         let reader = FlakyReader {
@@ -1361,11 +1727,8 @@ mod tests {
             calls: std::rc::Rc::new(std::cell::Cell::new(0)),
             fail_at: vec![0],
         };
-        let decoder = RangeDecoder::new(reader);
-        let downstream: std::io::Result<u8> =
-            Err(std::io::Error::other("downstream validation symptom"));
-        let err = decoder
-            .into_result(downstream)
+        let err = RangeDecoder::new(reader)
+            .decode_value::<AlwaysFails, crate::Normal>()
             .expect_err("a latched read error must surface as Err");
         assert!(
             err.to_string().contains("transient read failure"),
@@ -1373,17 +1736,18 @@ mod tests {
              validation error, got: {err}"
         );
 
-        // With nothing latched, both an Ok and an Err pass through unchanged.
-        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
-        assert_eq!(clean.into_result::<u8>(Ok(42)).unwrap(), 42);
+        // With nothing latched there is no root cause to prefer, so the decode's
+        // own error stands and `finish` reports nothing.
         let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
         assert_eq!(
             clean
-                .into_result::<u8>(Err(std::io::Error::other("kept")))
+                .decode_value::<AlwaysFails, crate::Normal>()
                 .unwrap_err()
                 .to_string(),
-            "kept"
+            "downstream validation symptom"
         );
+        let clean = RangeDecoder::new(std::io::Cursor::new(vec![0u8; 16]));
+        assert!(EntropyDecoder::finish(clean).is_ok());
     }
 }
 

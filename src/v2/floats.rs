@@ -138,6 +138,41 @@ macro_rules! impl_float {
                         Ok(decimal_value(mantissa, power))
                     }
                 }
+
+                /// One of a few tiers — raw bytes, `Small<i64>`, or a decimal
+                /// mantissa and power — behind a couple of selector bits.
+                /// Loose on purpose; property-tested rather than derived tightly.
+                const MAX_BYTES: usize = 4 * <bool as Encode>::MAX_BYTES
+                    + std::mem::size_of::<$t>()
+                    + 2 * <i64 as Encode<Small>>::MAX_BYTES;
+
+                #[inline]
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    use super::super::bit_context::BitContext;
+                    let raw = ctx.is_raw == BitContext::SATURATED_TRUE
+                        || <bool as Encode>::decode_async(reader, &mut ctx.is_raw).await?;
+                    if raw {
+                        let mut bytes = [0u8; $bits / 8];
+                        reader.decode_incompressible_bytes(&mut bytes).await?;
+                        return Ok($t::from_le_bytes(bytes));
+                    }
+                    let is_int = ctx.is_int == BitContext::SATURATED_TRUE
+                        || <bool as Encode>::decode_async(reader, &mut ctx.is_int).await?;
+                    if is_int {
+                        let intvalue =
+                            <i64 as Encode<Small>>::decode_async(reader, &mut ctx.integer).await?;
+                        Ok(intvalue as $t)
+                    } else {
+                        let mantissa =
+                            <i32 as Encode<Small>>::decode_async(reader, &mut ctx.mantissa).await?;
+                        let power =
+                            <i8 as Encode<Small>>::decode_async(reader, &mut ctx.exponent).await?;
+                        Ok(decimal_value(mantissa, power))
+                    }
+                }
             }
 
             // `value = ±mantissa · 10^power`, computed in f64 and narrowed.
@@ -265,6 +300,25 @@ macro_rules! impl_float {
                     }
                     let mut bytes = [0u8; $bits / 8];
                     reader.decode_incompressible_bytes(&mut bytes)?;
+                    Ok($t::from_le_bytes(bytes))
+                }
+
+                /// As the default encoding, plus the non-decimal fallback.
+                const MAX_BYTES: usize = <$t as Encode>::MAX_BYTES;
+
+                async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                    reader: &mut D,
+                    ctx: &mut Self::Context,
+                ) -> Result<$t, std::io::Error> {
+                    if <bool as Encode>::decode_async(reader, &mut ctx.is_decimal).await? {
+                        let mantissa =
+                            <i32 as Encode<Small>>::decode_async(reader, &mut ctx.mantissa).await?;
+                        let power =
+                            <i8 as Encode<Small>>::decode_async(reader, &mut ctx.exponent).await?;
+                        return Ok(decimal_value(mantissa, power));
+                    }
+                    let mut bytes = [0u8; $bits / 8];
+                    reader.decode_incompressible_bytes(&mut bytes).await?;
                     Ok($t::from_le_bytes(bytes))
                 }
             }

@@ -19,6 +19,10 @@ generate_bit_context = []
 benchmarking = []
 v1 = []
 v2 = []
+# Async decoding from a `Stream` of `Bytes` chunks: `v2::decode_stream` and the
+# `AsyncRangeDecoder`/`AsyncAnsDecoder` behind it. Additive and runtime-neutral
+# — `futures-core` is a zero-dependency trait crate and no executor is required.
+stream = ["dep:bytes", "dep:futures-core", "v2"]
 default = ["v1", "v2"]
 
 [dependencies]
@@ -27,6 +31,9 @@ compactly-derive = { version = "=0.2.0", path = "compactly-derive" }
 csv = { version = "1", optional = true }
 ureq = { version = "2", optional = true }
 
+bytes = { version = "1.12", optional = true }
+futures-core = { version = "0.3", optional = true }
+
 nonmax = { version = "0.5.5", optional = true }
 uuid = { version = "1.18.1", optional = true }
 
@@ -34,6 +41,7 @@ uuid = { version = "1.18.1", optional = true }
 
 expect-test = "1.5.1"
 scaling = "0.1.3"
+futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
 
@@ -140,6 +148,14 @@ required-features = ["v2"]
 [[bin]]
 name = "just-decompress-compressible"
 required-features = ["v2"]
+
+[[bin]]
+name = "async-decode-cost"
+required-features = ["v2", "stream"]
+
+[[bin]]
+name = "async-decode-overlap"
+required-features = ["v2", "stream"]
 
 [[bin]]
 name = "just-decompress-stream"

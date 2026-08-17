@@ -24,6 +24,20 @@ macro_rules! impl_nonzero_uint {
                 <$nz>::new(v.wrapping_add(1))
                     .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
+
+            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
+            /// when signed — so the bound is that integer's.
+            const MAX_BYTES: usize = <$uint as Encode>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let v = <$uint as Encode>::decode_async(reader, ctx).await?;
+                <$nz>::new(v.wrapping_add(1))
+                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
         }
 
         impl Encode<Small> for $nz {
@@ -38,6 +52,18 @@ macro_rules! impl_nonzero_uint {
                 ctx: &mut Self::Context,
             ) -> Result<$nz, std::io::Error> {
                 let v: $uint = Small::decode(reader, ctx)?;
+                <$nz>::new(v.wrapping_add(1))
+                    .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+
+            const MAX_BYTES: usize = <$uint as Encode<Small>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let v: $uint = <$uint as Encode<Small>>::decode_async(reader, ctx).await?;
                 <$nz>::new(v.wrapping_add(1))
                     .ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
@@ -81,6 +107,24 @@ macro_rules! impl_nonzero_int {
                 };
                 <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
             }
+
+            /// Coded as a plain `$uint` — `value - 1` when unsigned, zig-zag
+            /// when signed — so the bound is that integer's.
+            const MAX_BYTES: usize = <$uint as Encode>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let u = <$uint as Encode>::decode_async(reader, ctx).await?;
+                let v: $int = if u & 1 == 1 {
+                    u.div_ceil(2) as $int
+                } else {
+                    -((u / 2) as $int) - 1
+                };
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
         }
 
         impl Encode<Small> for $nz {
@@ -101,6 +145,22 @@ macro_rules! impl_nonzero_int {
                 ctx: &mut Self::Context,
             ) -> Result<$nz, std::io::Error> {
                 let u: $uint = Small::decode(reader, ctx)?;
+                let v: $int = if u & 1 == 1 {
+                    u.div_ceil(2) as $int
+                } else {
+                    -((u / 2) as $int) - 1
+                };
+                <$nz>::new(v).ok_or_else(|| std::io::Error::other("decoded NonZero value is zero"))
+            }
+
+            const MAX_BYTES: usize = <$uint as Encode<Small>>::MAX_BYTES;
+
+            #[inline]
+            async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<$nz, std::io::Error> {
+                let u: $uint = <$uint as Encode<Small>>::decode_async(reader, ctx).await?;
                 let v: $int = if u & 1 == 1 {
                     u.div_ceil(2) as $int
                 } else {

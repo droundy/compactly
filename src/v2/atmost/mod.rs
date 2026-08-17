@@ -187,6 +187,26 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     ) -> Result<Self, std::io::Error> {
         Ok(reader.decode_atmost(ctx))
     }
+
+    const MAX_BYTES: usize = if MAX == 0 {
+        // One possible value carries no information, so nothing is coded at all
+        // (`walks::Walk::production` returns `None`). Worth spelling out because
+        // every derived *struct* has an `AtMost<0>` discriminant, and charging
+        // it a symbol would put phantom bytes in every derived bound.
+        0
+    } else if MAX < super::model::SymbolRange::M as usize {
+        super::MAX_INFO_BYTES_PER_SYMBOL
+    } else {
+        (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
+    };
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<AtMost<MAX>, std::io::Error> {
+        Ok(reader.decode_atmost(ctx).await)
+    }
 }
 
 #[test]

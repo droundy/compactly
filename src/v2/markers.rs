@@ -18,6 +18,17 @@ impl<T> Encode for PhantomData<T> {
         // PhantomData can always be constructed without decoding anything
         Ok(PhantomData)
     }
+
+    /// Carries no runtime information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        _decoder: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        Ok(PhantomData)
+    }
 }
 
 impl Encode for PhantomPinned {
@@ -34,6 +45,17 @@ impl Encode for PhantomPinned {
         _ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         // PhantomData can always be constructed without decoding anything
+        Ok(PhantomPinned)
+    }
+
+    /// Carries no runtime information, so nothing is coded.
+    const MAX_BYTES: usize = 0;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        _decoder: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
         Ok(PhantomPinned)
     }
 }

@@ -44,6 +44,18 @@ impl Encode for usize {
         let v: u64 = Small::decode(reader, &mut ctx.0)?;
         usize::try_from(v).map_err(std::io::Error::other)
     }
+
+    /// Reuses `u64`'s hierarchical encoding exactly, so it inherits its bound.
+    const MAX_BYTES: usize = <u64 as Encode<Small>>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let v: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.0).await?;
+        usize::try_from(v).map_err(std::io::Error::other)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -108,6 +120,43 @@ impl Encode<Small> for usize {
             6 => Ok(usize::from(AtMost::<31>::decode(reader, &mut ctx.b5)?) + 32),
             7 => {
                 let v: u64 = Small::decode(reader, &mut ctx.large)?;
+                add_bucket_bias(v)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// A bucket symbol, then either an in-bucket offset symbol or (top
+    /// bucket) the value delegated to `Small<u64>`.
+    const MAX_BYTES: usize =
+        <AtMost<7> as Encode>::MAX_BYTES.saturating_add(<u64 as Encode<Small>>::MAX_BYTES);
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let nz =
+            usize::from(<AtMost<7> as Encode>::decode_async(reader, &mut ctx.small_nonzero).await?);
+        match nz {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => Ok(
+                usize::from(<AtMost<1> as Encode>::decode_async(reader, &mut ctx.b1).await?) + 2,
+            ),
+            3 => Ok(
+                usize::from(<AtMost<3> as Encode>::decode_async(reader, &mut ctx.b2).await?) + 4,
+            ),
+            4 => Ok(
+                usize::from(<AtMost<7> as Encode>::decode_async(reader, &mut ctx.b3).await?) + 8,
+            ),
+            5 => Ok(
+                usize::from(<AtMost<15> as Encode>::decode_async(reader, &mut ctx.b4).await?) + 16,
+            ),
+            6 => Ok(
+                usize::from(<AtMost<31> as Encode>::decode_async(reader, &mut ctx.b5).await?) + 32,
+            ),
+            7 => {
+                let v: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.large).await?;
                 add_bucket_bias(v)
             }
             _ => unreachable!(),
@@ -208,6 +257,28 @@ impl Encode<Sorted> for usize {
             }
         } else {
             Small::decode(reader, &mut ctx.value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<usize as Encode<Small>>::MAX_BYTES);
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<usize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = <bool as Encode>::decode_async(reader, &mut ctx.not_sorted).await?;
+            if not_sorted {
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
+            } else {
+                previous
+                    + <usize as Encode<Small>>::decode_async(reader, &mut ctx.difference).await?
+            }
+        } else {
+            <usize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
         };
         ctx.previous = Some(out);
         Ok(out)
@@ -466,6 +537,30 @@ impl Encode for isize {
             Ok(mag as isize)
         }
     }
+
+    /// A sign bit, then the magnitude through `usize`'s scheme.
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<usize as Encode>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        let is_neg = <bool as Encode>::decode_async(reader, &mut ctx.is_negative).await?;
+        let mag: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.magnitude).await?;
+        // The capped prior only *biases* against magnitudes past the
+        // signed range — a malformed stream can still decode one, and
+        // `mag as isize` would quietly wrap it into a plausible value.
+        if mag > isize::MAX as u64 {
+            return Err(std::io::Error::other("signed magnitude out of range"));
+        }
+        if is_neg {
+            Ok(-1 - mag as isize)
+        } else {
+            Ok(mag as isize)
+        }
+    }
 }
 
 #[derive(Default, Clone)]
@@ -496,6 +591,25 @@ impl Encode<Small> for isize {
             Ok(-1 - p as isize)
         } else {
             let p: usize = Small::decode(reader, &mut ctx.positive)?;
+            Ok(p as isize)
+        }
+    }
+
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<usize as Encode<Small>>::MAX_BYTES);
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        if <bool as Encode>::decode_async(reader, &mut ctx.is_negative).await? {
+            let p: usize =
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.negative).await?;
+            Ok(-1 - p as isize)
+        } else {
+            let p: usize =
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.positive).await?;
             Ok(p as isize)
         }
     }
@@ -539,6 +653,29 @@ impl Encode<Sorted> for isize {
             }
         } else {
             Small::decode(reader, &mut ctx.value)?
+        };
+        ctx.previous = Some(out);
+        Ok(out)
+    }
+
+    const MAX_BYTES: usize =
+        <bool as Encode>::MAX_BYTES.saturating_add(<isize as Encode<Small>>::MAX_BYTES);
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<isize, std::io::Error> {
+        let out = if let Some(previous) = ctx.previous.take() {
+            let not_sorted = <bool as Encode>::decode_async(reader, &mut ctx.not_sorted).await?;
+            if not_sorted {
+                <isize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
+            } else {
+                let diff: usize =
+                    <usize as Encode<Small>>::decode_async(reader, &mut ctx.difference).await?;
+                previous.wrapping_add(diff as isize)
+            }
+        } else {
+            <isize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
         };
         ctx.previous = Some(out);
         Ok(out)
