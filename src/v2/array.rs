@@ -6,10 +6,6 @@ impl<T: Encode, const N: usize> Encode for [T; N] {
     #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
         for v in value {
-            // Nothing for an ordinary array, which is chunk-atomic. A big one
-            // (`[u64; 100_000]`) is not, and must offer splits or it would
-            // force a chunk as large as itself.
-            super::split_unless_atomic(writer, <Self as Encode>::MAX_BYTES);
             Normal::encode(v, writer, ctx);
         }
     }

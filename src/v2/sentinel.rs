@@ -146,9 +146,9 @@ impl Sentinel {
     /// Doubles as the [`split_point`](EntropyCoder::split_point) every
     /// length-driven loop owes a chunking coder. The two belong together: this
     /// is already defined as the moment before an element starts, which is
-    /// exactly where no chunk-atomic value is open, and every such loop already
+    /// exactly where no bounded value is open, and every such loop already
     /// calls it. A loop that codes elements without a `Sentinel` has to declare
-    /// its own — see [`CHUNK_ATOMIC_MAX_BYTES`](super::CHUNK_ATOMIC_MAX_BYTES).
+    /// its own — see [`split_point`](EntropyCoder::split_point) for the rule.
     #[inline]
     pub(crate) fn encode<E: EntropyCoder>(&mut self, writer: &mut E) {
         writer.split_point();

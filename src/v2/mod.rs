@@ -200,9 +200,27 @@ pub trait EntropyCoder: Sized {
     }
 
     /// Declare that a coder which splits its output into chunks may end one
-    /// here, because no *chunk-atomic* value is partially encoded at this
-    /// point. See [`CHUNK_ATOMIC_MAX_BYTES`] for the rule about who must call
-    /// this, and why a decoder cares.
+    /// here, because no *bounded* value is partially encoded at this point.
+    ///
+    /// One rule governs this, and every `Encode` impl is subject to it:
+    ///
+    /// > An impl whose [`MAX_BYTES`](Encode::MAX_BYTES) is [`usize::MAX`] must
+    /// > call this between the parts it encodes. A **bounded** impl must not.
+    ///
+    /// Both halves matter. The first keeps chunks from growing without bound,
+    /// since a chunking coder can only end a chunk where it is told it may. The
+    /// second is what a decoder buys with it: a bounded value contains no split
+    /// point, so it cannot straddle a chunk boundary, so a decoder holding the
+    /// chunk holds all of it — which is what lets `Ans`'s async decoder hand a
+    /// whole value to the synchronous decoder mid-stream rather than awaiting
+    /// it op by op.
+    ///
+    /// In practice this is the collections and the strings, and almost all of
+    /// them inherit it from `Sentinel::encode`, which every length-driven loop
+    /// already calls once per element. **Composites need nothing**: a value is
+    /// unbounded because one of its parts is, and that part declares its own
+    /// splits — so a `(u64, String)` or a struct with a `Vec` field is covered
+    /// by the `String` or the `Vec`, recursively.
     ///
     /// The default does nothing, which is right for every coder that does not
     /// chunk ([`Range`], [`Millibits`]) — there the call folds away entirely.
@@ -515,51 +533,6 @@ pub trait AsyncEntropyDecoder {
 /// tightly derived. Margin is nearly free here (it widens a `u64`'s bound from
 /// 18 to 20) and covers the one part of the derivation that is not airtight.
 pub(crate) const MAX_INFO_BYTES_PER_SYMBOL: usize = 3;
-
-/// The [`MAX_BYTES`](Encode::MAX_BYTES) at or below which a value is
-/// **chunk-atomic**: a chunking coder must not end a chunk in the middle of it.
-///
-/// One rule governs both sides of this, and every `Encode` impl is subject to it:
-///
-/// > An impl whose `MAX_BYTES` **exceeds** this must call
-/// > [`split_point`](EntropyCoder::split_point) between the parts it encodes.
-/// > An impl at or below it must **not**.
-///
-/// Both halves matter. The first keeps chunks from growing without bound, since
-/// a chunking coder can only end a chunk where it is told it may. The second is
-/// what a decoder buys with it: a chunk-atomic value contains no split point, so
-/// it cannot straddle a chunk boundary, so a decoder that has the chunk has all
-/// of it. That is what lets `Ans`'s async decoder hand a whole value to the
-/// synchronous decoder mid-stream instead of awaiting it op by op.
-///
-/// Unbounded types (`MAX_BYTES == usize::MAX` — collections, strings) are above
-/// the threshold trivially, and are nearly all of what has to call
-/// `split_point`. The threshold is a *size* rather than just "is it bounded"
-/// for the sake of the rare large bounded value, `[u64; 100_000]` and the like:
-/// treating it as atomic would force a chunk as large as it is, and `Ans`'s
-/// anti-DoS cap on chunk size (`MAX_CHUNK_ENTROPY`) has to cover the overrun.
-/// Bounding atomicity by size keeps that cap a constant. 4096 is comfortably
-/// above every scalar, address, and ordinary derived struct.
-pub(crate) const CHUNK_ATOMIC_MAX_BYTES: usize = 4096;
-
-/// Offer a [`split_point`](EntropyCoder::split_point) between the parts of a
-/// composite, if `max_bytes` — the bound of the composite doing the coding —
-/// puts it above [`CHUNK_ATOMIC_MAX_BYTES`].
-///
-/// For the composites whose parts are *not* themselves loops with a `Sentinel`:
-/// arrays, tuples, and derived structs and variants. Both operands are
-/// constants at every call site, so this compiles to nothing at all for the
-/// chunk-atomic types that are nearly all of them.
-///
-/// `pub` and hidden because `#[derive(EncodeV2)]` emits calls to it, so it has
-/// to be nameable from the deriving crate. Not part of the API.
-#[doc(hidden)]
-#[inline(always)]
-pub fn split_unless_atomic<E: EntropyCoder>(writer: &mut E, max_bytes: usize) {
-    if max_bytes > CHUNK_ATOMIC_MAX_BYTES {
-        writer.split_point();
-    }
-}
 
 /// Trait for types that can be compactly encoded.
 ///

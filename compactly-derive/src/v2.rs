@@ -229,13 +229,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         let ty = &binding.ast().ty;
         let binding = &binding.binding;
         let strategy = strategy_or_normal(binding_strategies.get(binding).and_then(|s| s.as_ref()));
-        // A chunking coder may end a chunk between fields, but only if this type
-        // is not chunk-atomic — a bounded value must stay inside one chunk. Both
-        // operands are constants, so this is nothing at all for the ordinary
-        // struct; it earns its place on the big ones, whose fields may all be
-        // atomic themselves and so offer no split of their own.
         quote! {
-            compactly::v2::split_unless_atomic(writer, <Self as Encode<Normal>>::MAX_BYTES);
             <#ty as Encode<#strategy>>::encode(&#binding, writer, &mut ctx.#binding);
         }
     });
@@ -693,10 +687,6 @@ fn impl_two_strategies() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::split_unless_atomic(
-                                writer,
-                                <Self as Encode<Normal>>::MAX_BYTES,
-                            );
                             <u32 as Encode<
                                 Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
@@ -865,10 +855,6 @@ fn impl_strategies() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::split_unless_atomic(
-                                writer,
-                                <Self as Encode<Normal>>::MAX_BYTES,
-                            );
                             <u32 as Encode<
                                 Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
@@ -1037,10 +1023,6 @@ fn impl_newtype() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            compactly::v2::split_unless_atomic(
-                                writer,
-                                <Self as Encode<Normal>>::MAX_BYTES,
-                            );
                             <u32 as Encode<
                                 Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
