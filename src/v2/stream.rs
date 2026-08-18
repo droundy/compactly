@@ -88,6 +88,11 @@ impl<S> std::fmt::Debug for ChunkSource<S> {
 /// input — would be lost. Leaving the surplus in the transport's own buffer is
 /// also what applies backpressure to it.
 ///
+/// This bounds what is held *here*, on the source side. It is the whole story
+/// for `Range`, and not quite for `Ans`, whose final frame carries no length
+/// and so is gathered whole before it can be decoded; see
+/// [`Ans::decode_stream`](super::Ans::decode_stream), which says so publicly.
+///
 /// 256 KiB is chosen against the largest thing a decoder asks to have in hand
 /// at once: an `Ans` chunk frame, whose entropy region runs to about 128 KB for
 /// a chunk flushed at `CHUNK_OPS`, with the incompressible region beside it.

@@ -327,6 +327,16 @@ impl Ans {
     /// Decode a value from an async stream of [`Bytes`](::bytes::Bytes), decoding
     /// each chunk frame as it arrives rather than waiting for the whole input.
     /// Accepts the same bytes [`Ans::encode`] produces.
+    ///
+    /// # Memory
+    ///
+    /// One chunk frame at a time — except the last, which carries no length and
+    /// so is held until the stream ends. Peak memory is therefore proportional
+    /// to what the stream delivers and has no ceiling of its own. A frame that
+    /// *declares* a length it does not deliver is rejected before anything is
+    /// allocated for it, so an endless stream costs a byte per byte sent rather
+    /// than amplifying; bounding an untrusted producer is the caller's to do,
+    /// by ending the stream.
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
@@ -387,6 +397,16 @@ impl Ans {
     /// chunk-header varints a byte at a time and pulls each chunk body in bulk via
     /// `read_exact`, so it is less syscall-bound than `Range`, which reads a byte
     /// at a time for the whole stream.
+    ///
+    /// # Memory
+    ///
+    /// One chunk frame at a time — except the last, which carries no length and
+    /// so is read to end of input. Peak memory is therefore proportional to what
+    /// `reader` yields and has no ceiling of its own. A frame that *declares* a
+    /// length it does not deliver is rejected before anything is allocated for
+    /// it, so an endless reader costs a byte per byte read rather than
+    /// amplifying; bounding an untrusted one is the caller's to do, with
+    /// [`Read::take`](std::io::Read::take).
     pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
@@ -1589,12 +1609,22 @@ fn multi_chunk_round_trips() {
 ///
 /// This is the only check on the liveness half of
 /// [`split_point`](EntropyCoder::split_point)'s rule, so it aims at it directly:
-/// one large instance per unbounded shape in the crate, each asserted to have
-/// been chopped into more than one chunk. A new collection whose loop forgets
-/// the rule shows up here as a single enormous frame.
+/// one large value per *encode loop* that has to declare split points, each
+/// asserted to have been chopped into more than one chunk. A new collection
+/// whose loop forgets the rule shows up here as a single enormous frame.
+///
+/// Per loop, not per type, since that is what can forget: `BTreeSet<u64>`
+/// reaches three different ones (`Values<Sorted>`, `Small`'s delta loop, and
+/// `Sorted for String` when its element is a string), while `Arc<str>`,
+/// `Rc<str>` and `String` under `LowCardinality` all reach `encode_generic`'s
+/// one. So the fixtures below name strategies where a type alone would not say
+/// which code runs, and the prefix-coding impls appear twice, their two
+/// branches being two loops. Between them they reach every `split_point` call
+/// site in the crate but the one named at the end, and all but one of those
+/// fails this test when its call is removed.
 #[test]
 fn every_unbounded_type_offers_split_points() {
-    use crate::{Compressible, Encoded, LowCardinality, Sorted, Values};
+    use crate::{Compressible, Encoded, LowCardinality, Mapping, Small, Sorted, Values};
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
     let mut x = 0x1234_5678_9abc_def0u64;
@@ -1636,12 +1666,22 @@ fn every_unbounded_type_offers_split_points() {
     );
     split("Box<[u64]>", nums.clone().into_boxed_slice());
     split("VecDeque<u64>", VecDeque::from(nums.clone()));
-    split("Vec<u64> as Sorted", {
+    let sorted: Vec<u64> = {
         let mut v = nums.clone();
         v.sort_unstable();
         v.dedup();
-        as_strategy::<_, Sorted>(v)
-    });
+        v
+    };
+    // The empty-`previous` branch, then — same shape as `Sorted for String`
+    // below, and the same reason for the tiny first element — the other one.
+    split(
+        "Vec<u64> as Sorted",
+        as_strategy::<_, Sorted>(sorted.clone()),
+    );
+    split(
+        "Vec<u64> as Sorted, against a previous vec",
+        as_strategy::<_, Values<Sorted>>(vec![vec![1u64], sorted.clone()]),
+    );
     split("String", text.clone());
     split(
         "String as LowCardinality",
@@ -1653,9 +1693,32 @@ fn every_unbounded_type_offers_split_points() {
         "Vec<u8> as Compressible",
         as_strategy::<_, Compressible>(raw.clone()),
     );
+    split("Box<str>", text.clone().into_boxed_str());
+    split(
+        "String as Compressible",
+        as_strategy::<_, Compressible>(text.clone()),
+    );
+    // The empty-`previous` branch. Its other branch is the fixture below.
+    split("String as Sorted", as_strategy::<_, Sorted>(text.clone()));
+    split(
+        "String as Sorted, against a previous string",
+        // A one-char first element, so the *outer* `Values` loop reaches its
+        // second element long before a chunk is due and contributes no boundary
+        // of its own: every chunk here comes from the inner loop, which is the
+        // shared-prefix branch of `Sorted for String`.
+        as_strategy::<_, Values<Sorted>>(vec!["a".to_string(), text.clone()]),
+    );
     split(
         "HashMap<u64, u64>",
         nums.iter().map(|&k| (k, k ^ 7)).collect::<HashMap<_, _>>(),
+    );
+    split(
+        "HashMap<u64, u64> as Mapping",
+        // A separate loop from the one above: `Encode for HashMap` does not
+        // delegate to `Mapping`, where `BTreeMap` does.
+        as_strategy::<_, Mapping<Normal, Normal>>(
+            nums.iter().map(|&k| (k, k ^ 7)).collect::<HashMap<_, _>>(),
+        ),
     );
     split(
         "BTreeMap<u64, u64>",
@@ -1667,6 +1730,11 @@ fn every_unbounded_type_offers_split_points() {
         nums.iter().copied().collect::<BTreeSet<_>>(),
     );
     split(
+        "BTreeSet<u64> as Small",
+        // Its own delta-coding loop, reached by no other fixture.
+        as_strategy::<_, Small>(nums.iter().copied().collect::<BTreeSet<u64>>()),
+    );
+    split(
         "Vec<u64> as LowCardinality",
         as_strategy::<_, LowCardinality>(nums.iter().map(|v| v % 64).collect::<Vec<u64>>()),
     );
@@ -1675,6 +1743,14 @@ fn every_unbounded_type_offers_split_points() {
     // `INCOMPRESSIBLE_PIECE` (64 KiB), so reaching `CHUNK_OPS` ops would take a
     // 4 GiB value — too big to encode in a test. Its `split_point` call is there
     // for the rule rather than because a chunk can plausibly fill up on it.
+    //
+    // One more site is reached but not *pinned*: `Lz77::encode`'s loop, above
+    // the two `Compressible` fixtures. Deleting it leaves them splitting anyway,
+    // because each `Chunk` it codes carries a `Box<[u8]>` literal whose own loop
+    // splits. That is the rule working, not a hole in it — nesting an unbounded
+    // part inside an unbounded value is exactly how composites inherit split
+    // points — and it is why the fixtures are checked by mutation rather than
+    // assumed to bite: every other site here fails this test when removed.
 }
 
 /// A chunk boundary never falls inside a bounded value.
@@ -1682,10 +1758,16 @@ fn every_unbounded_type_offers_split_points() {
 /// `[u64; 8]` is bounded and costs ~80 ops, so a `Vec` of them crosses many
 /// boundaries and every one of them has to land between elements — the property
 /// `AsyncAnsDecoder::sync_capacity` relies on to hand a whole element to the
-/// synchronous decoder mid-stream. The `debug_assert` in `flush_chunk` checks
-/// where the encoder split; this checks the value survives it, by all three
-/// routes, since each reaches the boundary differently (slice indexing, a short
-/// `Read`, and a frame at a time from a stream).
+/// synchronous decoder mid-stream.
+///
+/// All three decode routes, since each reaches a boundary differently: slice
+/// indexing, a short `Read`, and a frame at a time from a stream. The last is
+/// the one with something extra to lose — it is the only route that takes the
+/// mid-stream handoff, so a boundary landing inside an element would show up
+/// there as a wrong value rather than as a slower decode. Nothing checks
+/// *where* the encoder split (there is no assertion inside `flush_chunk` to do
+/// it); this checks the value that comes back, which is what the property is
+/// for.
 #[test]
 fn chunk_atomic_values_round_trip_across_boundaries() {
     let mut x = 0x9e37_79b9_7f4a_7c15u64;
@@ -1708,6 +1790,17 @@ fn chunk_atomic_values_round_trip_across_boundaries() {
         Ans::decode_from::<Vec<[u64; 8]>, _>(&encoded[..]).unwrap(),
         items
     );
+    #[cfg(feature = "stream")]
+    {
+        // Chunked well below a frame, so the decoder is still mid-stream — and
+        // so still handing single elements to the sync decoder — at every one
+        // of those boundaries.
+        let decoded: Vec<[u64; 8]> = futures_executor::block_on(Ans::decode_stream(
+            crate::v2::stream::tests::Chunks::new(&encoded, 4096),
+        ))
+        .unwrap();
+        assert_eq!(decoded, items);
+    }
 }
 
 /// A stream cut short must be **rejected**, not quietly decoded into a plausible
@@ -2394,8 +2487,18 @@ impl std::io::Read for FrameBuffer {
 /// It has to exceed the most ops one call through the decoder can consume,
 /// because `read_ahead` runs once per call and not once per op.
 ///
-/// **Today every call spends exactly one op, so this is insurance, not a live
-/// constraint** — setting it to 0 passes the whole test suite. The two multi-op
+/// A [`with_sync`](super::AsyncEntropyDecoder::with_sync) handoff consumes many
+/// ops and calls no `read_ahead` at all, and is nonetheless **not** what this
+/// has to cover: it decodes one bounded value, which the encoder's
+/// [`split_point`](EntropyCoder::split_point) rule keeps inside the chunk that
+/// is already entered, so it never reaches for the next frame. A stream that
+/// breaks that rule is the one case where it would, and
+/// `a_boundary_inside_a_value_errors_rather_than_decoding_wrong` pins what
+/// happens then: the loud failure below, not a wrong value.
+///
+/// **Every call that does run `read_ahead` spends exactly one op today, so this
+/// is insurance, not a live constraint** — setting it to 0 passes the whole
+/// test suite. The two multi-op
 /// calls are `decode_bits::<N>`, where every *encode* site passes `N = 1` and
 /// the encoder flushes between batches, and a bitwise `AtMost` walk, which
 /// `Walk::production` selects only for `MAX == 1` (one bit) or
@@ -2415,10 +2518,29 @@ const OPS_MARGIN: usize = 256;
 /// Ops between polls of the transport while the decoder is working through a
 /// buffered frame.
 ///
-/// `read_ahead` runs once per op and polling a `Stream` is far from free, so the
-/// pump is throttled rather than run every time. 1024 gives 64 chances to notice
-/// an arrival within one [`CHUNK_OPS`] frame — ample, since acting on it any
-/// time before the frame's ops run out is equally good — for 0.1% of the ops.
+/// Polling a `Stream` is far from free, so the pump is throttled rather than run
+/// every time `read_ahead` does. 1024 was picked against [`CHUNK_OPS`]: 64
+/// chances to notice an arrival within one frame, for 0.1% of the ops — ample,
+/// since acting on an arrival any time before the frame's ops run out is
+/// equally good.
+///
+/// What it decrements on is **calls into the async decoder**, which is one op
+/// only where the handoff cannot fire.
+/// Mid-stream it usually can, and then a whole frame's worth of ops runs inside
+/// [`with_sync`](super::AsyncEntropyDecoder::with_sync) without passing through
+/// here at all — so the transport goes unpolled for up to one frame's decode,
+/// and the pump fires far less often than once per 1024 ops.
+///
+/// **That is the faster arrangement, not an oversight.** Charging the handoff's
+/// ops to the countdown was tried, and it restores the per-op cadence exactly;
+/// it also costs **+4.1%** wall clock where arrival and decode are balanced
+/// (`async-decode-overlap`, `CODER=ans RATE_MBPS=50`, min of 3, quiesced),
+/// +0.8% at 100 MB/s and at 200, and nothing at 800. Each drain that
+/// collects anything coalesces the ready bytes into one buffer — an allocation
+/// and a copy — so polling 64× more often per frame buys prefetch that was
+/// already being had and pays for it in copying. A frame is buffered whole
+/// before any of it is decoded, and its successor is fetched once [`OPS_MARGIN`]
+/// ops remain, so nothing the decoder needs is waiting on a skipped poll.
 #[cfg(feature = "stream")]
 const PUMP_INTERVAL: u32 = 1024;
 
@@ -2523,8 +2645,9 @@ where
         // Nothing else reads the source while the sync decoder works through a
         // buffered frame, so `ready_bytes` goes stale unless we poll — and a
         // stale zero looks exactly like a transport that has fallen behind.
-        // Throttled, because polling a stream is far from free and this runs
-        // once per op; see `PUMP_INTERVAL`.
+        // Throttled, because polling a stream is far from free and this runs on
+        // the way into every op that is not handed off; see `PUMP_INTERVAL`,
+        // which measures what happens when the handoff's ops are charged too.
         if self.pump_countdown == 0 {
             self.pump_countdown = PUMP_INTERVAL;
             self.source.drain_ready().await;

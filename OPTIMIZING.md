@@ -2362,11 +2362,20 @@ Costs, same machine:
   fixtures are single-chunk, so no boundary moves. 100k `u64` went 802,570 →
   802,565 bytes, −0.0006%.
 
-**Tests.** `every_unbounded_type_offers_split_points` encodes a large instance of
-all 15 unbounded shapes and asserts each produced ≥2 chunks — the only check on
-the liveness half of the rule, and a new collection whose loop forgets it shows
-up as one enormous frame. `chunk_atomic_values_round_trip_across_boundaries`
-pushes a `Vec<[u64; 8]>` through many boundaries by all three decode routes.
+**Tests.** `every_unbounded_type_offers_split_points` encodes a large value per
+*encode loop* that has to declare split points — 22 of them, since a type alone
+does not say which loop runs (`BTreeSet<u64>` reaches three) and a prefix-coding
+impl is two loops, one per branch — and asserts each produced ≥2 chunks. It is
+the only check on the liveness half of the rule, and a new collection whose loop
+forgets it shows up as one enormous frame. Verified by mutation rather than
+assumed: deleting any one `split_point` call in the crate fails it, except
+`Lz77::encode`'s, whose `Chunk`s carry a `Box<[u8]>` literal that splits on its
+own — composition supplying the boundary, which is the rule working.
+`chunk_atomic_values_round_trip_across_boundaries`
+pushes a `Vec<[u64; 8]>` through many boundaries by all three decode routes,
+the stream one included: that is the only route that takes the mid-stream
+handoff, so a boundary landing inside an element surfaces there as a wrong
+value.
 `a_frames_entropy_bound_comes_from_its_own_op_count` pins both directions of the
 new check — a legitimately huge frame accepted, a small one claiming to be huge
 rejected — and `a_long_final_region_is_not_an_error_by_itself` pins the removed
@@ -2376,6 +2385,35 @@ guarantee being *violated*, which is the shape this needed and the opposite of a
 round-trip test: it halves a non-final frame's declared op count, which puts a
 boundary mid-value, and asserts `decode_stream` returns `Err` rather than a
 plausible value or a hang.
+
+### Charging handoff ops to the transport pump — DEAD END (2026-08-17)
+
+`PUMP_INTERVAL` throttles `read_ahead`'s `drain_ready` to once per 1024 calls,
+and was written when every op was one call. The handoff breaks that: mid-stream,
+`decode_elements` spends a whole frame inside `with_sync` without passing
+through `read_ahead` once, so the transport goes unpolled for up to a frame's
+decode and the pump fires far less often than its name says. That looked like an
+oversight worth fixing — charge the handoff's ops (`ops_left` before minus
+after) to the countdown and the per-op cadence comes back exactly.
+
+It is slower. `async-decode-overlap`, `CODER=ans COUNT=100000 CHUNKS=64`, wall
+clock, min of 3, quiesced, at **fixed** `RATE_MBPS` so both arms see the same
+schedule (`RATE_MBPS=0` derives arrival from a per-process baseline decode and
+so is not comparable across builds):
+
+| `RATE_MBPS` | as committed | ops charged | |
+|---|---|---|---|
+| 50 (≈ decode rate) | 19.383 ms | 20.171 ms | **+4.1%** |
+| 100 | 18.564 ms | 18.712 ms | +0.8% |
+| 200 | 18.217 ms | 18.362 ms | +0.8% |
+| 800 | 18.094 ms | 17.701 ms | −2.2%, inside this arm's spread |
+
+Nothing is waiting on the polls that get skipped — a frame is buffered whole
+before any of it is decoded, and its successor is fetched once `OPS_MARGIN` ops
+remain — while every drain that collects anything coalesces the ready bytes into
+one buffer, an allocation and a copy. Polling 64× more often per frame therefore
+pays for prefetch that was already being had. Reverted; `PUMP_INTERVAL`'s doc now
+says it counts calls rather than ops, and why that is the faster reading.
 
 
 ## TODO (in rough priority order)
