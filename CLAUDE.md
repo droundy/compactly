@@ -44,8 +44,12 @@ that calls them (`benches/atmost.rs`, `src/bin/ans-decode-phases.rs`,
 `src/bin/just-decompress-stream.rs`) needs `benchmarking` in its
 `required-features`, **and** cargo silently *skips* targets whose
 required-features are off — so a lint or build break in them hides unless the
-feature is named. That is why CI clippies twice and runs `cargo test
---all-features`. Items the lib's own unit tests also use are gated
+feature is on. That is why CI clippies twice — the second pass with
+`--all-features`, which is what reaches every gated target rather than a named
+list that a new one can be left out of — and runs `cargo test --all-features`.
+`src/bin/char-freq.rs`, gated on the optional `csv`/`ureq` dependencies, hid
+that way and collected six clippy warnings nobody saw. Items the lib's own unit
+tests also use are gated
 `#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
 coverage.
 

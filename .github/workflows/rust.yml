@@ -46,12 +46,13 @@ jobs:
         components: clippy
     - name: Run clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
-      # `benchmarking` gates the benchmark-support API and `stream` the async
-      # decoder, so `benches/atmost.rs` and the bins that drive either carry
-      # `required-features` for them — without this second pass cargo would
-      # silently skip linting them.
+      # Cargo silently *skips* a target whose `required-features` are off, so
+      # the pass above lints neither `benches/atmost.rs` and the bins gated on
+      # `benchmarking`/`stream`, nor `src/bin/char-freq.rs`, gated on the
+      # optional `csv`/`ureq` deps. `--all-features` rather than a list, so a
+      # new gated target cannot go unlinted by being forgotten here.
     - name: Run clippy (feature-gated targets)
-      run: cargo clippy --all-targets --workspace --features "benchmarking stream" -- -D warnings
+      run: cargo clippy --all-targets --workspace --all-features -- -D warnings
 
   rebuild-bit-context:
 
