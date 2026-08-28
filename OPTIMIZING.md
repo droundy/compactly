@@ -9,6 +9,12 @@ entropy coders `Range` and `Ans`.  `Range` is currently the default, but `Ans`
 is faster at decoding and may become the default in the future.  We want to
 optimize both approaches with a slight focus on `Ans`.
 
+"Faster at decoding" is **13–30% across the workload set**, with the rate a wash
+(≤0.06%) and two exceptions running the other way — see
+[`Ans` against `Range`](#ans-against-range-across-the-workload-set-2026-08-28)
+below, which is the place to start before any decision that turns on which coder
+wins.
+
 ## How to benchmark on this machine
 
 The benchmark harness in `benches/` is convenient but the laptop is noisy
@@ -104,6 +110,63 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   4–6% apart between two builds differing only in compactly code.
 
 ## Empirical results so far
+
+### `Ans` against `Range` across the workload set (2026-08-28)
+
+"`Ans` is faster at decoding" is asserted at the top of this document; this is
+the measurement behind it, and its two exceptions. **Both arms are the same
+binary** — only the `ans`/`range` argument differs — so binary-layout noise
+cancels and nothing here needs the alternation discipline an A/B across commits
+does. Quiesced, min of 5, `bench perf stat -e
+cpu_core/cycles/,cpu_core/instructions/ <bin> <coder> <iters>`.
+
+**Decode. `Ans` wins everywhere that entropy coding actually happens:**
+
+| workload | `Range` cyc | `Ans` cyc | | instructions |
+|---|---|---|---|---|
+| `just-decompress-enums seventeen 400` | 6.495B | 4.812B | **−25.9%** | −50.9% |
+| `just-decompress-enums 1000` (3-variant) | 5.430B | 4.289B | **−21.0%** | −22.5% |
+| `just-decompress-compressible 30` | 6.105B | 4.844B | **−20.7%** | −16.8% |
+| `just-decompress-strings 300` | 7.068B | 5.772B | **−18.3%** | −12.6% |
+| `just-decompress-floats` (100k `f64`) | 0.574B | 0.761B | **+32.6%** | +20.5% |
+
+**The `AtMost` ladder** (`just-decompress-uless <N> <coder> 400`) shows the
+advantage shrinking monotonically with alphabet size — worth knowing before
+reading any single ladder result as representative:
+
+| | `AtMost<2>` | `<7>` | `<15>` | `<31>` | `<127>` |
+|---|---|---|---|---|---|
+| `Ans` vs `Range`, cycles | −30.0% | −29.2% | −24.9% | −17.7% | −13.1% |
+
+Async decode agrees: `async-decode-cost`, `Ans` vs `Range`, −23.3% on `strings`
+and −12.3% on `u64` 1M.
+
+**Two results go the other way, and both are worth understanding before leaning
+on the rest:**
+
+- **`f64` decode, +32.6%.** Look at the size first: 800,033 bytes for 100k
+  floats is *exactly* 8.0 bytes/float. That data is random, so it codes as pure
+  incompressible bytes and the entropy coder is barely in the loop — this is
+  `Ans` losing on the **incompressible byte path**, which is close to a memcpy,
+  not on coding. A structured float corpus would measure something else, and
+  should, before this number carries any weight.
+- **Enum encode, +34.6% cycles / +10.3% instructions**
+  (`just-compress-enums 1000`). Real coding work, and the largest single result
+  against `Ans`. String encode goes the other way (−0.9% / −3.0%), so it looks
+  specific to the `AtMost` discriminant path rather than to `Ans` encoding
+  generally. Unexplained; the obvious thing to chase before making `Ans` the
+  default.
+
+**Compression rate is not a differentiator.** `Ans` is larger by **+0.00% to
++0.06%** on every workload that reports a size — 42,535 → 42,553 bytes on
+strings, 44,709 → 44,711 on `AtMost<127>`, 17,577 → 17,588 on 3-variant enums.
+Whatever decides between these coders, it is not the rate.
+
+So: **dropping async for `Range` is well-supported** — `Range`'s async decode is
+the slowest path measured, `Ans` beats it 12–23% there, rate is a wash, and it
+is what unblocks the `pump` in TODO #1 (worth ~11 points on `records`). Dropping
+`Range` *entirely* is a larger claim than this data supports, on the strength of
+the enum-encode row alone.
 
 ### Profiling `just-decompress` (random u64)
 - IPC ≈ 1.39 (latency-bound), branch-miss ≈ 15%, L1-dcache miss ≈ 0.16%.
