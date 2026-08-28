@@ -2345,8 +2345,14 @@ extreme" was very nearly right: **−36.9%** at the peak, decaying as arrival
 outruns decode. The **+1.5–1.9%** at the fast end is real and repeatable, and it
 is the per-handoff cost: before the source completes, every element takes its own
 `with_sync`, and at that arrival rate there is no waiting left to hide it behind.
-It is TODO #1 above. (Wall clock, so ±1% run-to-run on this machine; the sign of
-that column is stable across repeats, the magnitude less so.)
+(Wall clock, so ±1% run-to-run on this machine; the sign of that column is stable
+across repeats, the magnitude less so.)
+
+**`can_continue` removed that**, and then some — see the section above, which
+also shows the fast-end column going negative. Measuring it only on `u64` is what
+made it look like a ~1% question: on the record and string workloads the same
+per-handoff cost was **15–31%**, because the unit handed over there is a `char`.
+That is why `async-decode-cost` grew the `records` workloads.
 
 Costs, same machine:
 
@@ -2386,6 +2392,75 @@ round-trip test: it halves a non-final frame's declared op count, which puts a
 boundary mid-value, and asserts `decode_stream` returns `Err` rather than a
 plausible value or a hang.
 
+### Re-asking inside the handoff: `can_continue` (2026-08-28)
+
+`sync_capacity` has to answer *before* a handoff opens, and mid-stream all it can
+lean on is `ops_left`, which says nothing about where the value *after* the next
+one falls. So it promises **one**. That is a limit on what is knowable in
+advance, not on what is decodable — and `decode_elements` was treating it as the
+latter, returning to the async loop after every element to pay another handoff.
+
+`EntropyDecoder::can_continue` re-asks the same question from inside the run,
+after each element. For `Ans` it is `ops_left > 0` (plus the boundedness test),
+exactly what `sync_capacity` checks. The default is `false`, which reproduces the
+old decode-exactly-the-budget loop with the check folded away, so `Range` — whose
+budget is an exact byte count — is untouched. **No const gate was needed**: the
+`Range` control measures −0.10% instructions, and the `RECHECKS_ROOM` const this
+document used to plan for would have bought nothing. (Contrast the `pump` in TODO
+#1, whose cost to `Range` a const *cannot* remove, because that one adds an await
+point rather than a call.)
+
+The run is still a counted loop over the promised budget, with the re-check only
+on the tail past it, so the promise-is-exact case keeps the shape it had.
+
+**Handoffs, counted** (per run, `CHUNKS=64`; `main` reaches `reached_final` early
+under a fast source and then batches in bulk, which is what the middle column
+loses):
+
+| workload | `main` | chunk-alignment | + `can_continue` |
+|---|---|---|---|
+| `u64` 1M | 9,800 | 39,927,240 | **14,960** (2,673 elements each) |
+| `records` | 1,040 | 66,940,640 | **3,797,352** (one per `String`) |
+| `strings` | 1,144 | 67,283,320 | **3,823,352** |
+
+**Raw decode**, `async-decode-cost`, no delay in the measurement, quiesced, min
+of 5, vs `main` (cycles / instructions):
+
+| workload | chunk-alignment | + `can_continue` |
+|---|---|---|
+| `u64` 1M c64 | +2.18% / +11.15% | **−3.76% / −1.01%** |
+| `u64` 100k c64 | +1.76% / +11.10% | **−4.27% / −1.70%** |
+| `u64` 1M c8 | +8.00% / +15.73% | +1.62% / +3.09% |
+| `strings` c64 | +16.94% / +30.66% | +5.85% / +7.99% |
+| `records` c64 | +19.18% / +30.88% | +12.05% / +12.58% |
+| `records-wide` c64 | +15.50% / +26.76% | +11.51% / +13.09% |
+
+`u64` ends up **faster than `main`**. What is left on the string and record rows
+is not the handoff any more — it is the escalation failure, TODO #1 above.
+
+**Overlap**, `async-decode-overlap` `CODER=ans COUNT=100000 CHUNKS=64`, wall
+clock, min of 3×(min of 5), at fixed rates, vs `main`:
+
+| `RATE_MBPS` | chunk-alignment | + `can_continue` |
+|---|---|---|
+| 25 | −22.98% | −23.08% |
+| 50 (≈ decode) | −36.34% | **−39.16%** |
+| 100 | −22.54% | **−26.36%** |
+| 200 | −9.99% | **−14.42%** |
+| 400 | −3.78% | **−8.48%** |
+| 800 | **+1.13%** | **−4.58%** |
+| 1600 | **+0.18%** | **−5.24%** |
+
+So it does not trade the overlap win for the raw-decode one: it deepens the peak
+and **inverts the fast-arrival regression** that the section below recorded as
+"+1.5–1.9% … real and repeatable". That regression is gone. (The `collect`
+reference row drifts 0.3–1.1% in the new build's favour, so discount about a
+point; the 5.7pp gap at 800 is well outside it.)
+
+**Where the mid-stream gate cannot fire, nothing moves**: `ans-slice`,
+`slice`/`async-split` on `Range`, single-frame and single-chunk `ans-async` all
+within ±0.02% instructions.
+
 ### Charging handoff ops to the transport pump — DEAD END (2026-08-17)
 
 `PUMP_INTERVAL` throttles `read_ahead`'s `drain_ready` to once per 1024 calls,
@@ -2418,15 +2493,33 @@ says it counts calls rather than ops, and why that is the faster reading.
 
 ## TODO (in rough priority order)
 
-1. **Let `Ans` batch more than one value per mid-stream handoff** — the loose
-   end left by the chunk-alignment work below. `sync_capacity` can promise only
-   one chunk-atomic value up front, so `decode_elements` pays an `AnsDecoder`
-   field shuffle per element mid-stream. That is what the fast-arrival
-   regression (+1.6% at `RATE_MBPS=1600`) is. The recorded fix is
-   `EntropyDecoder::RECHECKS_ROOM` + `can_continue`, additive because both have
-   defaults, prototyped on `can-continue-prototype`; for `Ans` the re-check is
-   `ops_left > 0 || reader.has_unentered()` — exact, and it costs nothing for
-   `Range`, which const-gates it off.
+1. **Let the mid-stream handoff escalate once the source completes** — what is
+   left after `can_continue` (below). The batch path never reaches `read_ahead`,
+   which is the only thing that notices `ChunkSource::is_complete`, so
+   `sync_capacity` is slow to graduate to `usize::MAX`. That matters for an
+   **unbounded** `T`, where the promise is 0 and only that graduation lets the
+   outer loop batch at all: 96% of a `Vec<Record>` still decodes field-by-field
+   through the async state machine. Worth **+12.1% → +0.7%** on `records` and
+   **+5.9% → +0.2%** on `strings` (cycles vs `main`, no-delay).
+
+   The measured fix is an `AsyncEntropyDecoder::pump` that `Ans` forwards to its
+   already-throttled `read_ahead`, called once per batch — but it costs
+   **+2.3% instructions** on `Range`'s async path, which pays for an await point
+   in `decode_elements`'s state machine that it never uses. An associated const
+   at the call site does **not** remove it (measured: +2.33% gated vs +2.37%
+   ungated) — a suspension point inside `if CONST` is still a state in the
+   generated machine. So this wants either a coder-specialized `decode_elements`
+   or no `AsyncRangeDecoder` at all; it is the concrete thing that dropping
+   async for `Range` would buy.
+
+1. **Let a handoff cross into a frame that has already arrived.** `can_continue`
+   answers `ops_left > 0`, so a run ends at every chunk boundary even when the
+   next frame is wholly buffered. The exact re-check is
+   `ops_left > 0 || reader.has_unentered()`, but `has_unentered` lives on
+   `FrameBuffer` and `AnsDecoder` is generic over its reader, so reaching it
+   means a bound the public `Ans::decode_from<T, R: Read>` cannot carry. Worth
+   one handoff per frame rather than per element — small next to what
+   `can_continue` already took, and listed for completeness.
 
 1. **Batch a derived struct's bounded fields into one `with_sync`** — the same
    insight as `decode_elements`, applied to structs instead of collections. A

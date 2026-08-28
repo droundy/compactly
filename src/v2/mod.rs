@@ -303,6 +303,29 @@ pub trait EntropyDecoder {
     /// [`Self::decode_value`] applies it, and is where the precedence rule lives.
     fn finish(self) -> std::io::Result<()>;
 
+    /// Whether one more unit of `unit_bytes` can be decoded from what is already
+    /// in hand — asked *during* a
+    /// [`with_sync`](AsyncEntropyDecoder::with_sync) handoff, once the budget
+    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity) promised up front
+    /// has run out.
+    ///
+    /// `sync_capacity` has to answer before the handoff begins, and a frame-based
+    /// coder mid-stream cannot promise more than the one value it knows lies
+    /// inside the chunk in hand. That is not a real limit on how much is
+    /// decodable, only on what was knowable in advance: after each value the
+    /// answer may still be yes, and asking again costs a comparison where
+    /// returning to the async loop costs a whole handoff. Same contract as
+    /// `sync_capacity` — `usize::MAX` in means an unbounded unit, and a `true`
+    /// here is a promise that decoding one more will not run past the data.
+    ///
+    /// The default is `false`: a decoder whose budget is exact has nothing to add
+    /// after it is spent, and answering `false` reproduces the plain
+    /// decode-exactly-`sync_capacity`-units loop with the check folded away.
+    #[inline]
+    fn can_continue(&self, _unit_bytes: usize) -> bool {
+        false
+    }
+
     /// Decode a whole value with strategy `S` and finish the decoder — **the**
     /// way to use one, and why [`Self::finish`] is rarely called by hand.
     ///

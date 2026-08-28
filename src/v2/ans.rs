@@ -1263,6 +1263,31 @@ impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHU
         self.error.take().map_or(Ok(()), Err)
     }
 
+    /// The same judgement [`AsyncAnsDecoder::sync_capacity`] makes mid-stream,
+    /// re-made from inside the handoff where it is no longer a prediction.
+    ///
+    /// A chunk ends only at a
+    /// [`split_point`](super::EntropyCoder::split_point), and a bounded unit
+    /// declares none, so `ops_left > 0` says the whole of the next such unit
+    /// lies in the chunk already in hand. `sync_capacity` can say that once, up
+    /// front, about one unit; here it can be said again after each one, which is
+    /// what turns a per-element handoff mid-stream into a per-*chunk* one. It
+    /// stops being true exactly when `ops_left` hits zero, and the caller then
+    /// goes back to the async loop to have the next frame awaited.
+    ///
+    /// `ops_left` is `usize::MAX` in a final chunk, so this keeps saying yes
+    /// there, which is right: past end of stream the decoder zero-pads and
+    /// `finish` reports it.
+    ///
+    /// Unbounded units are refused for the reason `sync_capacity` refuses them —
+    /// they declare split points and so may straddle any number of boundaries.
+    /// When `!CHUNKED` there is one final chunk and `ops_left` is not maintained,
+    /// so the question does not arise; the const folds this to `false` there.
+    #[inline]
+    fn can_continue(&self, unit_bytes: usize) -> bool {
+        CHUNKED && unit_bytes != usize::MAX && self.ops_left > 0
+    }
+
     #[inline]
     fn decode_atmost<const MAX: usize>(&mut self, ctx: &mut AtMostContext<MAX>) -> AtMost<MAX> {
         walks::decode_symbol_or_bitwise(self, ctx)
@@ -2863,10 +2888,22 @@ where
     /// lie wholly in the *next* chunk, and would open with a
     /// `load_next_chunk`.
     ///
-    /// One and not more: alignment says nothing about where the unit *after*
-    /// this one falls, so only the current chunk can be promised. Extending the
-    /// promise across frames already buffered is the `can_continue` follow-up
-    /// in OPTIMIZING.md.
+    /// One and not more, because this has to answer *before* the handoff starts
+    /// and `ops_left` is the only thing it can lean on: after the next unit is
+    /// decoded the count may or may not still be positive, and from here there
+    /// is no way to tell. That is a limit on what is knowable in advance rather
+    /// than on what is decodable, and it is not where the story ends —
+    /// [`can_continue`](super::EntropyDecoder::can_continue) re-asks exactly
+    /// this question from inside the handoff, after each unit, which is what
+    /// covers the rest of the chunk. Promising one here and re-asking there is
+    /// the whole design; promising one and *not* re-asking is a handoff per
+    /// element, which measured 15-31% on record and string workloads.
+    ///
+    /// What neither can reach is the frame *after* this one, even when it has
+    /// wholly arrived: `has_unentered` lives on the [`FrameBuffer`], and the
+    /// sync decoder is generic over its reader. That is the remaining
+    /// `can_continue` follow-up in OPTIMIZING.md, and it is worth one handoff
+    /// per frame rather than per element.
     #[inline]
     fn sync_capacity(&self, unit_bytes: usize) -> usize {
         if self.reached_final {
