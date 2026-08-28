@@ -154,6 +154,10 @@ name = "async-decode-cost"
 required-features = ["v2", "stream"]
 
 [[bin]]
+name = "decode-routes"
+required-features = ["v2", "stream"]
+
+[[bin]]
 name = "async-decode-overlap"
 required-features = ["v2", "stream"]
 
