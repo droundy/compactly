@@ -2527,17 +2527,17 @@ harnesses now do this and say why at the definition.
      feature, bounded double-buffering of the op buffers to keep peak memory
      stated, and emphatically *not* a spawn onto the caller's async executor,
      which would reintroduce the runtime dependency the async work exists
-     without. See `plans/async-encode-ans.md`, which is written so as not to
+     without. See `plans/async-encode.md`, which is written so as not to
      foreclose this.
 
 1. **There is no async encode, for either coder.** No `AsyncEntropyCoder`, no
    `encode_stream` — "async" currently means decode only, which is worth
    remembering whenever the route tables tempt a conclusion about dropping
    `Range`'s async path: that decision is narrower than it looks, and it is not
-   symmetric with anything on the encode side. Plans exist on
-   `origin/async-encode-range` (PR #49), now one per coder, and they build the
+   symmetric with anything on the encode side. A plan covering both coders is on
+   `origin/async-encode-range` (PR #49, `plans/async-encode.md`); it builds the
    traversal once over an `AsyncEntropyCoder` trait — so "we would have to build
-   it twice" is not a cost in the drop-`Range` decision. They sequence **`Ans`
+   it twice" is not a cost in the drop-`Range` decision. It sequences **`Ans`
    first**, because `Ans` chunk boundaries are *in the bytes*: byte-identity with
    sync encode is then equivalent to "the async traversal reached exactly the
    sync traversal's split points", which is the traversal's characteristic bug.
