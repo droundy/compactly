@@ -15,6 +15,20 @@ one traversal, one sink trait, two front ends, and a per-coder adapter of a few
 dozen lines. `Ans` is built first, for reasons given under
 [Sequencing](#sequencing).
 
+**Build the implementation on top of #54, and preferably after it merges rather
+than stacked on its branch.** Building `Ans` first makes #54 a hard dependency:
+without it, `AnsEncoder::split_point` is not the sole non-final flush site, so
+`AsyncAnsEncoder::split()` has nothing to be a passthrough to and the
+byte-identity property the sequencing rests on does not exist. Its fixtures are
+wanted too — the over-`CHUNK_OPS` corpora from
+`every_unbounded_type_offers_split_points` are what the byte-identity tests need.
+Prefer merging over stacking for a reason past convenience: `split_point`'s
+*second* half — a bounded impl must **not** declare one — is what forbids a size
+threshold in [the gate](#the-gate-max_bytes-at-run-time) and makes bounded values
+deliberately atomic, so if review moves that contract, this document moves with
+it and not just the code. This plan itself does not depend on #54 and can land
+independently.
+
 ## The goal
 
 `v2::encode(&T) -> Vec<u8>` holds both the value and its whole compressed output
