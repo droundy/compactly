@@ -125,10 +125,18 @@ jobs:
       # (command substitution in --body "$(...)" is auto-denied), and the
       # mcp__github_inline_comment tool, which claude-code-action only
       # installs when it appears in allowedTools.
+      #
+      # TEMPORARY, for diagnosing the is_error:true failures: the action
+      # redacts the SDK stream by default, so the API error that ends the
+      # session after one turn never reaches the log. show_full_output
+      # prints it — along with every tool result, which is why it is off
+      # by default and must come back off once the cause is known. This
+      # repository is public; the run log is world-readable.
       - uses: anthropics/claude-code-action@v1
         id: review
         if: steps.pre.outputs.proceed == 'true'
         with:
+          show_full_output: true
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git
