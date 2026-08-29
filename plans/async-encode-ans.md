@@ -6,14 +6,18 @@ that both coders share; read that first. Depends on the same two things it does:
 async decode (PR #46, merged as `54d2d66`) for the trait shapes it mirrors, and
 `EntropyCoder::split_point` (PR #54) for the drain schedule.
 
-**The headline: `Ans` is not a second implementation.** Once the Range plan's
-steps 2, 4 and 5 exist, `Ans` async encode is one `AsyncEntropyCoder` impl of
-about thirty lines, and it needs **no changes to `ans.rs`** beyond making the
-existing streaming encoder reachable. The reason is that everything the Range
-plan has to build — a place to cut, a policy for when to cut, a proof that
-cutting there is safe — `Ans` already has, because its output *is* a sequence of
-self-contained frames and PR #54 already made `split_point` the only place a
-non-final frame is emitted.
+**The headline: `Ans` is not a second implementation.** Given the shared
+traversal, `Ans` async encode is one `AsyncEntropyCoder` impl of about thirty
+lines, and it needs **no changes to `ans.rs`** beyond making the existing
+streaming encoder reachable. The reason is that everything the Range plan has to
+build — a place to cut, a policy for when to cut, a proof that cutting there is
+safe — `Ans` already has, because its output *is* a sequence of self-contained
+frames and PR #54 already made `split_point` the only place a non-final frame is
+emitted.
+
+**And `Ans` is the coder to build the shared traversal against**, which is why
+[the sequencing](#sequencing) puts it first rather than after `Range`. See
+[Why `Ans` goes first](#why-ans-goes-first).
 
 ## What `Ans` already has
 
@@ -52,12 +56,12 @@ impl<S: ChunkSink> AsyncEntropyCoder for AsyncAnsEncoder<'_, S> {
 
     fn sync(&mut self) -> &mut Self::Coder { &mut self.coder }
 
-    /// The coder decides whether a frame is due; we only carry away what it
-    /// produced. At most one frame per call, because `split_point` flushes at
-    /// most one.
+    /// The coder decides whether a frame is due; we only carry away whatever it
+    /// has finished. A `while let` rather than an `if let` on purpose — see
+    /// "Do not foreclose parallel frames" below.
     async fn split(&mut self) -> std::io::Result<()> {
         self.coder.split_point();
-        if let Some(frame) = self.coder.take_flushed() {
+        while let Some(frame) = self.coder.take_flushed() {
             self.sink.put(frame).await?;
         }
         Ok(())
@@ -65,7 +69,7 @@ impl<S: ChunkSink> AsyncEntropyCoder for AsyncAnsEncoder<'_, S> {
 
     async fn finish(mut self) -> std::io::Result<()> {
         self.coder.finish_into_buffer();      // flush_chunk(true) — the final frame
-        if let Some(tail) = self.coder.take_flushed() {
+        while let Some(tail) = self.coder.take_flushed() {
             self.sink.put(tail).await?;
         }
         Ok(())
@@ -93,6 +97,49 @@ The `Send`/`Sync` analysis, the `YieldSink` generator, the borrowed-sink
 `ChunkSink`, cancellation, and the two front ends are all coder-independent and
 are inherited unchanged from the Range plan. Nothing in them mentions `Range`.
 
+## Do not foreclose parallel frames
+
+`flush_chunk` reads only `self.ops` and `self.incompressible_bytes`, builds a
+fresh `Encoder::new()` per chunk, and **never touches a `BitContext`** —
+`encode_bits` resolves each probability at record time and stores it *in* the op
+(`Op::Bit(b, probability)`). The entropy pass is therefore a pure function of
+`(ops, incompressible_bytes)`, and non-final frames carry their own
+`entropy_len`/`raw_len`, so a frame is self-describing. Frames are consequently
+**embarrassingly parallel across chunks** — not merely pipelineable against the
+traversal — and because a pure function cannot change its output, parallelizing
+them is byte-identical for free.
+
+That is an `Ans` *encoder* optimization, not an async one: it would apply equally
+to the sync `Ans::encode_to`, it is measured and sequenced in OPTIMIZING.md, and
+**nothing here depends on it**. Its value is worth roughly `(r + e) / max(r, e)`
+for record and entropy phase costs `r` and `e`, so it grows as the two phases
+even out — and both are data-dependent and both are optimization targets, so
+today's ratio is a snapshot, not a bound. What this plan owes it is only that the
+async design not rule it out. Four things do that, and they cost nothing if it
+never happens:
+
+1. **`take_flushed()` returns the next *completed* frame in order, if any** —
+   not "the frame this split point produced". So `split()` may get `None` at a
+   split point that did flush, and may get several later. Hence the `while let`
+   above rather than an `if let`; with one worker or none, the loop runs at most
+   once and the shapes are identical.
+2. **`finish()` drains the pipeline** before emitting the final frame, which the
+   `while let` also covers, plus a join inside `finish_into_buffer`.
+3. **The memory bound is stated as `K × (ops buffer + frame)`**, not one frame.
+   The ops buffer is `CHUNK_OPS × size_of::<Op>()` ≈ 384 KiB, so the pool must be
+   bounded — double-buffering at minimum — or a fast traversal with a slow sink
+   races ahead and the bounded-memory claim is lost. State `K = 1` today.
+4. **"Frames reach the sink as they are produced" weakens to "within `K` frames
+   of being produced"**, which is what the correctness surface below asserts.
+   The stronger "one `put` per frame, at the same offsets as sync `encode_to`"
+   is unaffected, since identity is preserved.
+
+One thing to *not* accommodate: spawning frame work onto the caller's async
+executor. That would reintroduce the runtime dependency this whole design exists
+without, and it would make the `Stream` front end incoherent — its backpressure
+is defined by the consumer's `poll_next` driving a single task. If parallelism
+happens it is a `std::thread` pool behind an optional feature, invisible here.
+
 ## What it shares, and why that is the real cost
 
 The async **traversal** — `Encode::encode_awaiting` on every unbounded impl, the
@@ -112,8 +159,48 @@ wrong, because the traversal is needed for backpressure and not for chunking.
 Without it, `Ans` would buffer every frame it produced until the encode finished
 — which is `Ans::encode` into a `Vec` with extra steps.
 
-So the sequencing is: build the Range plan's steps 2, 4 and 5, then add this
-impl. There is no `Ans`-specific step before or between.
+## Why `Ans` goes first
+
+The traversal is shared, so it has to be built against *some* coder. It should be
+this one, and the reason is testing rather than the size of the adapter.
+
+The traversal's characteristic bug is **an `encode_awaiting` body that forgets
+its drain** — byte-correct, silently `O(value)`, and easy to miss in one of
+thirteen impls.
+
+- On `Ans` that bug **changes the bytes**. Frame boundaries are in the output,
+  `split()` is a passthrough to the same `split_point` the sync encoder calls,
+  and `flush_chunk` is untouched — so *"the async traversal reaches exactly the
+  sync traversal's split points"* is **equivalent to** byte-identity with sync
+  encode. One property, applied to every corpus already in the tree, catches both
+  omitted drains and spurious ones.
+- On `Range` that same bug is **invisible**. Chunk-boundary invariance — the
+  property that lets `take_ready` cut anywhere — means the output does not depend
+  on where you drain, so a body that never drains at all passes byte-identity.
+  Catching it needs a bespoke peak-buffered or `put`-count assertion per fixture.
+
+The flexibility that makes `Range`'s coder side easy is the same flexibility that
+hides its traversal bugs. That outweighs `Ans`'s adapter being smaller, though it
+points the same way.
+
+One caveat on the fixtures: the value must cross `CHUNK_OPS` (65536 ops) or no
+non-final frame is flushed and byte-identity is vacuous. PR #54's
+`every_unbounded_type_offers_split_points` already had to build such fixtures.
+
+One risk, and its cheap insurance: a trait with a single implementation can bake
+in that implementation's assumptions. It is small here — the traversal only ever
+calls `split()` — but the Range plan's step 1 (the `RangeEncoder` buffer API) is
+pure sync, independently testable against the existing `finish`, and gated on
+nothing, so doing it up front lets `AsyncEntropyCoder` be designed against both
+shapes before either is wired up.
+
+What argues the other way, and how much it is worth: `Range` is the default
+coder, so `v2::encode_stream` would be `Range` and going that way ships the
+user-visible thing first — weak, since nothing is released and v2 is unfrozen.
+More concretely, **`Range`-first is the only order that can start before PR #54
+merges**, since `Ans`'s `split_point` flush lives on that branch while `Range`
+could place its own drains without it. That is a reason to merge #54, not a
+reason to maintain a second drain schedule.
 
 ## The one thing `Ans` can fix that `Range` cannot
 
@@ -215,24 +302,53 @@ Inherit the Range plan's list, minus chunk-boundary invariance (no knob), plus:
   same offsets — not merely that concatenating them matches. A `split()` that
   drained twice per frame, or coalesced two, would still be byte-identical and is
   otherwise invisible.
-- **Frames reach the sink as they are produced**, not at `finish`: encode a value
-  spanning several `CHUNK_OPS` and assert `put` was called before the traversal
-  ended. This is the `Ans` form of the Range plan's split-point-coverage test,
-  and it fails the same way — a `encode_awaiting` body missing its drain is
-  byte-correct.
+- **Frames reach the sink within `K` frames of being produced**, not at `finish`:
+  encode a value spanning several `CHUNK_OPS` and assert `put` was called before
+  the traversal ended. This is the `Ans` form of the Range plan's
+  split-point-coverage test, and it fails the same way — an `encode_awaiting`
+  body missing its drain is byte-correct. `K = 1` unless frames are parallelized;
+  write the assertion so raising `K` does not invalidate it.
+- **Byte-identity is the traversal's test, not just the coder's.** Because
+  omitting a drain moves a frame boundary, assert byte-identity with sync
+  `Ans::encode_to` on a corpus that crosses `CHUNK_OPS` for *every* container
+  type — that is the property doing the work described in
+  [Why `Ans` goes first](#why-ans-goes-first), and it is worthless on a fixture
+  small enough to fit one frame.
 - **The `4 GiB` incompressible bound is asserted or documented, not both
   quietly.** Until the second flush trigger exists, state the bound on the public
   entry point; do not imply the frame structure makes it go away.
 
 ## Sequencing
 
-1. Land the Range plan's steps 2, 4, 5 (traits, traversal, derive). Nothing here
-   is possible before that, and nothing here influences it.
-2. Add `AnsEncoder::take_flushed`, and `AsyncAnsEncoder` — the impl above.
-3. `Ans::encode_to_sink` and `Ans::encode_stream`, reusing the Range plan's front
-   ends verbatim; they are generic over `ChunkSink`, not over the coder.
-4. Measure against sync `Ans::encode_to` and against `Range`'s async encode, on
+This is the sequencing for the async encode work as a whole, since `Ans` goes
+first; the Range plan's step list picks up at step 5.
+
+1. *Optional insurance:* the Range plan's step 1 — `buffered()` / `take_ready()`
+   / `finish_into_buffer()` on `RangeEncoder`. Pure sync, gated on nothing, and
+   having a second coder in hand while designing `AsyncEntropyCoder` is what
+   stops a one-implementation trait from baking in `Ans`'s assumptions.
+2. `AnsEncoder::take_flushed` (and `flush_chunk(true)` reachable as
+   `finish_into_buffer`), then `ChunkSink` + `AsyncEntropyCoder` +
+   `AsyncAnsEncoder` + `encode_to_sink`, with `Encode::encode_async`'s provided
+   default and hand-written `encode_awaiting` for `Vec<T>` and `String` only.
+   Vertical slice, checked by byte-identity against sync `Ans::encode_to` on an
+   over-`CHUNK_OPS` corpus. A recording sink suffices; no `Stream` front end yet.
+   Settle the `ChunkSink` shape here, before impls exist to churn.
+3. `encode_elements` mirroring `sentinel::decode_elements`, then the remaining
+   container bodies — maps, sets, `Compressible`, `Arc<str>`, `Sorted`,
+   `LowCardinality`, and `low_cardinality::encode_miss`'s char loop. The list is
+   exactly the impls that reach a `split_point`. Byte-identity checked at each.
+4. Derive `encode_awaiting`, mirroring `decode_awaiting` field for field and
+   variant for variant.
+5. **Then `Range`:** `AsyncRangeEncoder`, `chunk_target`, and the invariance and
+   peak-buffered tests that `Range` needs and `Ans` gets for free. The traversal
+   is settled by now, so this is a coder impl plus its own tests.
+6. `YieldSink` / `encode_stream` / the `Send + Sync + 'static` assertion /
+   cancellation — coder-independent, and doing it once at the end avoids
+   repeating the `Send` analysis per coder.
+7. Measure both coders against their sync `encode_to`, on
    `src/bin/coder-routes.rs`'s corpus, and add the rows to OPTIMIZING.md's
    coder-routes tables — which currently say "**There is no async encode for
    either coder**" and will need that sentence retired.
-5. *Optional follow-up, separately measured:* the byte-size flush trigger.
+8. *Optional follow-ups, separately measured:* the byte-size flush trigger for
+   the incompressible bound, and parallel frame encoding (OPTIMIZING.md).

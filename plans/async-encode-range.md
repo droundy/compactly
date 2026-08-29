@@ -564,35 +564,42 @@ branch, which is also cheaper than the latch it replaces.
 
 ## Sequencing
 
+**The shared traversal is built against `Ans`, not against `Range`** — the full
+ordering lives in [the companion plan](async-encode-ans.md#sequencing), because
+it starts there. The short reason: the traversal's characteristic bug is an
+`encode_awaiting` body that forgets its drain, and on `Ans` that bug moves a
+frame boundary and so fails a plain byte-identity check, whereas `Range`'s
+chunk-boundary invariance — the very property that lets `take_ready` cut anywhere
+— hides it completely. The flexibility that makes `Range`'s coder side easy is
+what makes its traversal bugs silent.
+
+`Range`'s own steps are then:
+
 1. **Expose the buffer API on `RangeEncoder`** (`buffered` / `take_ready` /
    `finish_into_buffer` over `Writer<BytesMut>`), unit-tested against the
-   existing sync `finish` for byte-identity. No async yet.
-2. **`AsyncEntropyCoder` + `ChunkSink` + `AsyncRangeEncoder` +
-   `encode_to_sink(value, &mut sink)`**, with `Encode::encode_async`'s provided
-   default and hand-written `encode_awaiting` for `Vec` and `String` only.
-   Vertical slice: `Vec<u64>` and `Vec<String>` stream byte-identically to sync.
-   Settle the `ChunkSink` shape here, before impls exist to churn.
-3. **Prototype the `Bytes`-stream front end** (`YieldSink` /
-   `Range::encode_stream`) as `src/bin/async-encode-*.rs`, driven by
-   `futures_executor::block_on` into a fake S3 sink, to confirm the tokio-free
-   `Stream` end to end and **measure the async tax** against sync `encode_to`.
-   Land the `Send + Sync + 'static` assertion in this commit. The binary needs
-   `required-features = ["stream"]` under its `[[bin]]` entry or CI silently
-   skips it.
-4. **Fill in the remaining `encode_awaiting` bodies** — an `encode_elements`
-   helper mirroring `sentinel::decode_elements`, then maps, sets,
-   `Compressible`, `Arc<str>`, `Sorted`, `LowCardinality`, and
-   `low_cardinality::encode_miss`'s char loop. The list is exactly the impls
-   that reach a `split_point`; nothing else needs a body.
-5. **Derive `encode_awaiting`**, mirroring `decode_awaiting` field for field and
-   variant for variant (`compactly-derive/src/v2.rs:443`), with the same
-   bounds-on-type-parameters plumbing. No `MAX_BYTES` gate in the derive — the
-   gate is in `encode_async`'s default, at run time.
-6. **Ship both front ends** under `stream`; optional `tokio` adapters and
+   existing sync `finish` for byte-identity. No async yet, gated on nothing —
+   so it can go **first**, before the traversal, as insurance against a
+   single-implementation `AsyncEntropyCoder` baking in `Ans`'s assumptions.
+2. **`AsyncRangeEncoder` + `chunk_target`**, once the traversal, the derive and
+   `ChunkSink` exist (the companion plan's steps 2–4). At that point this is one
+   `AsyncEntropyCoder` impl.
+3. **The tests `Range` needs and `Ans` gets for free:** chunk-boundary
+   invariance across `chunk_target` in 1, 2, 7, 64 KiB and `usize::MAX`, and the
+   peak-buffered assertion against a counting sink — which for `Range` is the
+   *only* thing that catches a missing drain.
+4. **Prototype the `Bytes`-stream front end** (`YieldSink` / `encode_stream`) as
+   `src/bin/async-encode-*.rs`, driven by `futures_executor::block_on` into a
+   fake S3 sink, to confirm the tokio-free `Stream` end to end and **measure the
+   async tax** against sync `encode_to`. Land the `Send + Sync + 'static`
+   assertion in this commit. The binary needs `required-features = ["stream"]`
+   under its `[[bin]]` entry or CI silently skips it. Coder-independent, so it
+   happens once rather than per coder.
+5. **Ship both front ends** under `stream`; optional `tokio` adapters and
    S3 / reqwest examples behind a `tokio` feature.
 
-Steps 1 and 3 are `Range`-specific. Steps 2, 4 and 5 are shared with `Ans`, which
-is the point of making the traversal generic — see the companion plan.
+Everything else — `AsyncEntropyCoder`, `ChunkSink`, `encode_elements`, the
+container bodies, the derive — is shared, which is the point of making the
+traversal generic.
 
 ## Bearing on "should `Range` keep async at all?"
 
