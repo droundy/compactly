@@ -110,6 +110,13 @@ impl<W: std::io::Write> std::fmt::Debug for AnsEncoder<W> {
 /// boundaries so there is no compression loss beyond one state-flush per chunk.
 /// A value fitting in one chunk emits a single (final) chunk. Small enough to
 /// bound memory, large enough that the per-chunk overhead is negligible.
+///
+/// This is a *threshold*, not a cap: a chunk ends at the first
+/// [`split_point`](EntropyCoder::split_point) at or after this many ops, so it
+/// overruns by however many ops the one bounded value being coded at that
+/// moment takes. Bounded, but by that value's type rather than by a constant —
+/// see [`oversized_entropy_region`], which reads the real figure off each
+/// frame's header instead of assuming one.
 const CHUNK_OPS: usize = 1 << 16;
 
 /// One deferred coding operation. rANS runs the coder backwards over each chunk
@@ -160,7 +167,17 @@ impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
                 *ctx = ctx.adapt(b);
                 Op::Bit(b, probability)
             }));
-        self.maybe_flush();
+    }
+
+    /// End the chunk here if it is full. The caller has just told us no bounded
+    /// value is open, and this is the *only* place a non-final chunk is flushed
+    /// — which is what makes a bounded value provably whole within one chunk,
+    /// since a bounded value never calls this.
+    #[inline]
+    fn split_point(&mut self) {
+        if self.ops.len() >= CHUNK_OPS {
+            self.flush_chunk(false);
+        }
     }
 
     #[inline]
@@ -176,7 +193,6 @@ impl<W: std::io::Write> EntropyCoder for AnsEncoder<W> {
     fn encode_incompressible_bytes(&mut self, bytes: &[u8]) {
         self.ops.push(Op::Incompressible);
         self.incompressible_bytes.extend_from_slice(bytes);
-        self.maybe_flush();
     }
 }
 
@@ -188,7 +204,6 @@ impl<W: std::io::Write> SymbolCoder for AnsEncoder<W> {
             start: range.start() as u16,
             width_minus_1: (range.width() - 1) as u16,
         });
-        self.maybe_flush();
     }
 }
 
@@ -205,6 +220,10 @@ impl EntropyCoder for Ans {
     #[inline]
     fn encode_bits<const N: usize>(&mut self, contexts: &mut [BitContext; N], bits: [bool; N]) {
         self.0.encode_bits(contexts, bits)
+    }
+    #[inline]
+    fn split_point(&mut self) {
+        self.0.split_point()
     }
     #[inline]
     fn encode_atmost<const MAX: usize>(
@@ -234,16 +253,6 @@ impl<W: std::io::Write> AnsEncoder<W> {
             if let Err(e) = self.writer.write_all(bytes) {
                 self.error = Some(e);
             }
-        }
-    }
-
-    /// Flush a non-final chunk once the op buffer reaches `CHUNK_OPS`. Called
-    /// after each recorded batch, so chunk boundaries always land between batches
-    /// (a `decode_bits<N>` never straddles two chunks' separate rANS streams).
-    #[inline]
-    fn maybe_flush(&mut self) {
-        if self.ops.len() >= CHUNK_OPS {
-            self.flush_chunk(false);
         }
     }
 
@@ -318,6 +327,16 @@ impl Ans {
     /// Decode a value from an async stream of [`Bytes`](::bytes::Bytes), decoding
     /// each chunk frame as it arrives rather than waiting for the whole input.
     /// Accepts the same bytes [`Ans::encode`] produces.
+    ///
+    /// # Memory
+    ///
+    /// One chunk frame at a time — except the last, which carries no length and
+    /// so is held until the stream ends. Peak memory is therefore proportional
+    /// to what the stream delivers and has no ceiling of its own. A frame that
+    /// *declares* a length it does not deliver is rejected before anything is
+    /// allocated for it, so an endless stream costs a byte per byte sent rather
+    /// than amplifying; bounding an untrusted producer is the caller's to do,
+    /// by ending the stream.
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
@@ -378,6 +397,16 @@ impl Ans {
     /// chunk-header varints a byte at a time and pulls each chunk body in bulk via
     /// `read_exact`, so it is less syscall-bound than `Range`, which reads a byte
     /// at a time for the whole stream.
+    ///
+    /// # Memory
+    ///
+    /// One chunk frame at a time — except the last, which carries no length and
+    /// so is read to end of input. Peak memory is therefore proportional to what
+    /// `reader` yields and has no ceiling of its own. A frame that *declares* a
+    /// length it does not deliver is rejected before anything is allocated for
+    /// it, so an endless reader costs a byte per byte read rather than
+    /// amplifying; bounding an untrusted one is the caller's to do, with
+    /// [`Read::take`](std::io::Read::take).
     pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
@@ -1011,45 +1040,30 @@ fn read_region<R: std::io::Read>(
     out
 }
 
-/// The most entropy bytes a single chunk can legitimately hold.
-///
-/// A chunk is flushed once the op buffer reaches [`CHUNK_OPS`], and one
-/// `encode_bits::<N>` batch can overshoot by at most `N`. Every `encode_bits`
-/// call site in the repo passes `N = 1` — batching so far is decode-side only
-/// (`micro-batch` goes up to 16, but only through `decode_bits`) — so today the
-/// overshoot is zero; the slack below is deliberately generous against future
-/// encode-side batching. A bit op emits at most one byte and a symbol op at
-/// most two, plus the [`STATE_BYTES`] flush.
-///
-/// This exists because the *final* chunk's entropy body has no length field —
-/// it runs to end of stream (see [`AnsEncoder::flush_chunk`]) — so the streaming
-/// reader would otherwise buffer whatever a stream chose to append.
-const MAX_CHUNK_ENTROPY: usize = 2 * (CHUNK_OPS + 256) + STATE_BYTES;
-
 /// Read the rest of `reader` — the final chunk's entropy body, which carries no
-/// length — capped at [`MAX_CHUNK_ENTROPY`] so a stream cannot make the decoder
-/// buffer without bound. Exceeding the cap means the frame is corrupt.
+/// length and so runs to end of stream.
+///
+/// **Deliberately not capped**, unlike [`oversized_entropy_region`]'s check on
+/// the frames that *do* declare a length. The asymmetry is the point: a declared
+/// length is amplification, ten bytes of varint asking for a `usize::MAX`
+/// buffer, and has to be rejected before a byte is read. This region has no
+/// declared length, so it grows only as bytes actually arrive — to make the
+/// decoder hold N bytes a peer must send N bytes, which is the cost the
+/// transport already imposes and the caller already controls (wrap an untrusted
+/// reader in [`Read::take`](std::io::Read::take)). A cap here would buy nothing
+/// against that and would put a ceiling on how large a single bounded value may
+/// be, since chunk alignment can legitimately make one whole value the final
+/// chunk.
 fn read_final_region<R: std::io::Read>(
     reader: &mut R,
     error: &mut Option<std::io::Error>,
 ) -> Vec<u8> {
-    use std::io::Read;
     if error.is_some() {
         return Vec::new();
     }
     let mut out = Vec::new();
-    // One byte past the cap, so hitting it is distinguishable from filling it.
-    if let Err(e) = reader
-        .take(MAX_CHUNK_ENTROPY as u64 + 1)
-        .read_to_end(&mut out)
-    {
+    if let Err(e) = reader.read_to_end(&mut out) {
         *error = Some(e);
-        return Vec::new();
-    }
-    if out.len() > MAX_CHUNK_ENTROPY {
-        *error = Some(std::io::Error::other(
-            "corrupt stream: final chunk exceeds the maximum entropy size",
-        ));
         return Vec::new();
     }
     out
@@ -1061,17 +1075,32 @@ fn read_final_region<R: std::io::Read>(
 /// A non-final frame declares its region lengths, so this is decidable before a
 /// byte of the region is buffered — worth checking, because both lengths come
 /// straight off the wire and a buffering reader would otherwise grow to whatever
-/// a hostile transport was willing to send. [`MAX_CHUNK_ENTROPY`] is exactly the
-/// legitimate bound: a chunk is flushed at [`CHUNK_OPS`], and that caps the
-/// entropy it can emit.
+/// a hostile transport was willing to send.
+///
+/// The legitimate bound comes off the frame itself. A chunk ends at the first
+/// split point at or after [`CHUNK_OPS`] ops, so its op count is not a constant
+/// — it overruns by whatever the one bounded value straddling the threshold
+/// costs. But the header already carries that count in `tag >> 1`, and a bit op
+/// emits at most one byte, a symbol op at most two, plus the [`STATE_BYTES`]
+/// flush. So `2 * (op_count + 256) + STATE_BYTES`, which is *tighter* than any
+/// global constant for an ordinary frame and exactly right for an overrunning
+/// one. (The `256` is slack against future encode-side batching: every
+/// `encode_bits::<N>` call site in the repo passes `N = 1` today, batching so
+/// far being decode-side only, so the batch overshoot is currently zero.)
 ///
 /// **Only the entropy region.** The incompressible region has no such bound —
 /// one `encode_incompressible_bytes` op appends a caller-supplied slice of any
 /// length — so a large `Incompressible` field legitimately produces a large
 /// region, and capping it would reject valid streams.
-fn oversized_entropy_region(entropy_len: usize) -> Option<std::io::Error> {
-    (entropy_len > MAX_CHUNK_ENTROPY)
-        .then(|| std::io::Error::other("corrupt stream: chunk exceeds the maximum entropy size"))
+fn oversized_entropy_region(entropy_len: usize, op_count: usize) -> Option<std::io::Error> {
+    // Saturating throughout: `op_count` comes straight off the wire, where a
+    // ten-byte varint reaches `usize::MAX`, and an overflow here would panic on
+    // exactly the malformed input this exists to reject.
+    (entropy_len
+        > 2usize
+            .saturating_mul(op_count.saturating_add(256))
+            .saturating_add(STATE_BYTES))
+    .then(|| std::io::Error::other("corrupt stream: chunk exceeds the maximum entropy size"))
 }
 
 /// Streaming ANS decoder: pulls one chunk frame at a time from `R` rather than
@@ -1147,9 +1176,10 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
             self.entropy = read_final_region(&mut self.reader, &mut self.error);
             self.ops_left = usize::MAX;
         } else {
+            let op_count = tag >> 1;
             let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
             let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
-            if let Some(e) = oversized_entropy_region(entropy_len) {
+            if let Some(e) = oversized_entropy_region(entropy_len, op_count) {
                 // Reject on the declaration, without reading a byte of it. This
                 // must fall through to the seeding below rather than return:
                 // latching an error does not stop decoding, and leaving `epos`
@@ -1166,7 +1196,6 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
                 // A non-final frame claiming 0 ops would re-enter this on the
                 // very next op; treat it as unbounded so corrupt input cannot
                 // spin here.
-                let op_count = tag >> 1;
                 self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
             }
         }
@@ -1232,6 +1261,31 @@ impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHU
     /// mid-read latches [`truncated_stream`] rather than setting a separate flag.
     fn finish(mut self) -> std::io::Result<()> {
         self.error.take().map_or(Ok(()), Err)
+    }
+
+    /// The same judgement [`AsyncAnsDecoder::sync_capacity`] makes mid-stream,
+    /// re-made from inside the handoff where it is no longer a prediction.
+    ///
+    /// A chunk ends only at a
+    /// [`split_point`](super::EntropyCoder::split_point), and a bounded unit
+    /// declares none, so `ops_left > 0` says the whole of the next such unit
+    /// lies in the chunk already in hand. `sync_capacity` can say that once, up
+    /// front, about one unit; here it can be said again after each one, which is
+    /// what turns a per-element handoff mid-stream into a per-*chunk* one. It
+    /// stops being true exactly when `ops_left` hits zero, and the caller then
+    /// goes back to the async loop to have the next frame awaited.
+    ///
+    /// `ops_left` is `usize::MAX` in a final chunk, so this keeps saying yes
+    /// there, which is right: past end of stream the decoder zero-pads and
+    /// `finish` reports it.
+    ///
+    /// Unbounded units are refused for the reason `sync_capacity` refuses them —
+    /// they declare split points and so may straddle any number of boundaries.
+    /// When `!CHUNKED` there is one final chunk and `ops_left` is not maintained,
+    /// so the question does not arise; the const folds this to `false` there.
+    #[inline]
+    fn can_continue(&self, unit_bytes: usize) -> bool {
+        CHUNKED && unit_bytes != usize::MAX && self.ops_left > 0
     }
 
     #[inline]
@@ -1574,6 +1628,204 @@ fn multi_chunk_round_trips() {
 
     let decoded: Vec<Item> = Ans::decode(&encoded).unwrap();
     assert_eq!(decoded, items);
+}
+
+/// Every unbounded type really does offer split points.
+///
+/// This is the only check on the liveness half of
+/// [`split_point`](EntropyCoder::split_point)'s rule, so it aims at it directly:
+/// one large value per *encode loop* that has to declare split points, each
+/// asserted to have been chopped into more than one chunk. A new collection
+/// whose loop forgets the rule shows up here as a single enormous frame.
+///
+/// Per loop, not per type, since that is what can forget: `BTreeSet<u64>`
+/// reaches three different ones (`Values<Sorted>`, `Small`'s delta loop, and
+/// `Sorted for String` when its element is a string), while `Arc<str>`,
+/// `Rc<str>` and `String` under `LowCardinality` all reach `encode_generic`'s
+/// one. So the fixtures below name strategies where a type alone would not say
+/// which code runs, and the prefix-coding impls appear twice, their two
+/// branches being two loops. Between them they reach every `split_point` call
+/// site in the crate but the one named at the end, and all but one of those
+/// fails this test when its call is removed.
+#[test]
+fn every_unbounded_type_offers_split_points() {
+    use crate::{Compressible, Encoded, LowCardinality, Mapping, Small, Sorted, Values};
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+    let mut x = 0x1234_5678_9abc_def0u64;
+    let mut rng = move || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    // Every fixture below codes well over `CHUNK_OPS` ops, so a type offering a
+    // split point anywhere gets at least two chunks.
+    let n = 200_000;
+    let nums: Vec<u64> = (0..n).map(|_| rng()).collect();
+    let text: String = (0..n)
+        .map(|_| (b'a' + (rng() % 26) as u8) as char)
+        .collect();
+    // High byte, not low: an LCG's low bits cycle with a period of 256, and
+    // `Compressible` would (correctly) crush that to nothing.
+    let raw: Vec<u8> = (0..n).map(|_| (rng() >> 40) as u8).collect();
+
+    fn split<T: super::Encode>(what: &str, value: T) {
+        let bytes = Ans::encode(&value);
+        assert!(
+            count_chunks(&bytes) >= 2,
+            "{what} produced {} chunk(s) from {} bytes: its encode loop is not \
+             calling `EntropyCoder::split_point`",
+            count_chunks(&bytes),
+            bytes.len(),
+        );
+    }
+    /// Sugar for the strategies, which are reached through the wrapper that
+    /// applies them rather than through a strategy-taking `Ans::encode`.
+    fn as_strategy<T, S>(value: T) -> Encoded<T, S> {
+        Encoded::new(value)
+    }
+
+    split("Vec<u64>", nums.clone());
+    split(
+        "Vec<u64> as Values",
+        as_strategy::<_, Values<Normal>>(nums.clone()),
+    );
+    split("Box<[u64]>", nums.clone().into_boxed_slice());
+    split("VecDeque<u64>", VecDeque::from(nums.clone()));
+    let sorted: Vec<u64> = {
+        let mut v = nums.clone();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    // The empty-`previous` branch, then — same shape as `Sorted for String`
+    // below, and the same reason for the tiny first element — the other one.
+    split(
+        "Vec<u64> as Sorted",
+        as_strategy::<_, Sorted>(sorted.clone()),
+    );
+    split(
+        "Vec<u64> as Sorted, against a previous vec",
+        as_strategy::<_, Values<Sorted>>(vec![vec![1u64], sorted.clone()]),
+    );
+    split("String", text.clone());
+    split(
+        "String as LowCardinality",
+        as_strategy::<_, LowCardinality>(text.clone()),
+    );
+    split("Vec<String>", vec![text.clone(), text.clone()]);
+    split("Vec<u8>", raw.clone());
+    split(
+        "Vec<u8> as Compressible",
+        as_strategy::<_, Compressible>(raw.clone()),
+    );
+    split("Box<str>", text.clone().into_boxed_str());
+    split(
+        "String as Compressible",
+        as_strategy::<_, Compressible>(text.clone()),
+    );
+    // The empty-`previous` branch. Its other branch is the fixture below.
+    split("String as Sorted", as_strategy::<_, Sorted>(text.clone()));
+    split(
+        "String as Sorted, against a previous string",
+        // A one-char first element, so the *outer* `Values` loop reaches its
+        // second element long before a chunk is due and contributes no boundary
+        // of its own: every chunk here comes from the inner loop, which is the
+        // shared-prefix branch of `Sorted for String`.
+        as_strategy::<_, Values<Sorted>>(vec!["a".to_string(), text.clone()]),
+    );
+    split(
+        "HashMap<u64, u64>",
+        nums.iter().map(|&k| (k, k ^ 7)).collect::<HashMap<_, _>>(),
+    );
+    split(
+        "HashMap<u64, u64> as Mapping",
+        // A separate loop from the one above: `Encode for HashMap` does not
+        // delegate to `Mapping`, where `BTreeMap` does.
+        as_strategy::<_, Mapping<Normal, Normal>>(
+            nums.iter().map(|&k| (k, k ^ 7)).collect::<HashMap<_, _>>(),
+        ),
+    );
+    split(
+        "BTreeMap<u64, u64>",
+        nums.iter().map(|&k| (k, k ^ 7)).collect::<BTreeMap<_, _>>(),
+    );
+    split("HashSet<u64>", nums.iter().copied().collect::<HashSet<_>>());
+    split(
+        "BTreeSet<u64>",
+        nums.iter().copied().collect::<BTreeSet<_>>(),
+    );
+    split(
+        "BTreeSet<u64> as Small",
+        // Its own delta-coding loop, reached by no other fixture.
+        as_strategy::<_, Small>(nums.iter().copied().collect::<BTreeSet<u64>>()),
+    );
+    split(
+        "Vec<u64> as LowCardinality",
+        as_strategy::<_, LowCardinality>(nums.iter().map(|v| v % 64).collect::<Vec<u64>>()),
+    );
+
+    // `Incompressible for Vec<u8>` is deliberately absent. It records one op per
+    // `INCOMPRESSIBLE_PIECE` (64 KiB), so reaching `CHUNK_OPS` ops would take a
+    // 4 GiB value — too big to encode in a test. Its `split_point` call is there
+    // for the rule rather than because a chunk can plausibly fill up on it.
+    //
+    // One more site is reached but not *pinned*: `Lz77::encode`'s loop, above
+    // the two `Compressible` fixtures. Deleting it leaves them splitting anyway,
+    // because each `Chunk` it codes carries a `Box<[u8]>` literal whose own loop
+    // splits. That is the rule working, not a hole in it — nesting an unbounded
+    // part inside an unbounded value is exactly how composites inherit split
+    // points — and it is why the fixtures are checked by mutation rather than
+    // assumed to bite: every other site here fails this test when removed.
+}
+
+/// A chunk boundary never falls inside a bounded value.
+///
+/// `[u64; 8]` is bounded and costs ~80 ops, so a `Vec` of them crosses many
+/// boundaries and every one of them has to land between elements — the property
+/// `AsyncAnsDecoder::sync_capacity` relies on to hand a whole element to the
+/// synchronous decoder mid-stream.
+///
+/// All three decode routes, since each reaches a boundary differently: slice
+/// indexing, a short `Read`, and a frame at a time from a stream. The last is
+/// the one with something extra to lose — it is the only route that takes the
+/// mid-stream handoff, so a boundary landing inside an element would show up
+/// there as a wrong value rather than as a slower decode. Nothing checks
+/// *where* the encoder split (there is no assertion inside `flush_chunk` to do
+/// it); this checks the value that comes back, which is what the property is
+/// for.
+#[test]
+fn chunk_atomic_values_round_trip_across_boundaries() {
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    let mut rng = || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        x
+    };
+    let items: Vec<[u64; 8]> = (0..20_000)
+        .map(|_| std::array::from_fn(|_| rng()))
+        .collect();
+    let encoded = Ans::encode(&items);
+    assert!(
+        count_chunks(&encoded) >= 4,
+        "test wants several boundaries, got {}",
+        count_chunks(&encoded)
+    );
+
+    assert_eq!(Ans::decode::<Vec<[u64; 8]>>(&encoded).unwrap(), items);
+    assert_eq!(
+        Ans::decode_from::<Vec<[u64; 8]>, _>(&encoded[..]).unwrap(),
+        items
+    );
+    #[cfg(feature = "stream")]
+    {
+        // Chunked well below a frame, so the decoder is still mid-stream — and
+        // so still handing single elements to the sync decoder — at every one
+        // of those boundaries.
+        let decoded: Vec<[u64; 8]> = futures_executor::block_on(Ans::decode_stream(
+            crate::v2::stream::tests::Chunks::new(&encoded, 4096),
+        ))
+        .unwrap();
+        assert_eq!(decoded, items);
+    }
 }
 
 /// A stream cut short must be **rejected**, not quietly decoded into a plausible
@@ -2069,13 +2321,17 @@ fn final_frame_costs_one_byte() {
 
 /// A *non*-final chunk declares its entropy length, so an oversized one is
 /// rejected on the declaration rather than after buffering it — otherwise a
-/// hostile transport chooses how much the reader holds. The incompressible
-/// region is deliberately not capped; see [`oversized_entropy_region`].
+/// hostile transport chooses how much the reader holds from ten bytes of
+/// varint. The bound comes off the frame's own op count, so a 1-op frame may
+/// not claim megabytes. The incompressible region is deliberately not capped,
+/// nor is the final chunk's entropy; see [`oversized_entropy_region`] and
+/// [`read_final_region`] for why those two differ from this one.
 #[test]
 fn oversized_non_final_chunk_is_rejected() {
     let mut bytes = Vec::new();
     push_varint(&mut bytes, 3); // tag: non-final, 1 op
-    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1); // entropy_len, one past the cap
+                                // One op can account for 2 bytes; this claims far past what 1 op allows.
+    push_varint(&mut bytes, 1 << 20); // entropy_len
     push_varint(&mut bytes, 0); // incompressible_len
     bytes.extend_from_slice(&[0xab; 64]);
 
@@ -2120,7 +2376,7 @@ fn rejecting_an_oversized_chunk_leaves_the_decoder_indexable() {
     // second frame declaring an entropy region one byte past the cap.
     let mut bytes = encoded[..starts[1]].to_vec();
     push_varint(&mut bytes, 3); // tag: non-final, 1 op
-    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1);
+    push_varint(&mut bytes, 1 << 20); // entropy_len, far past what 1 op allows
     push_varint(&mut bytes, 0);
     bytes.extend_from_slice(&[0xab; 64]);
 
@@ -2132,23 +2388,59 @@ fn rejecting_an_oversized_chunk_leaves_the_decoder_indexable() {
     );
 }
 
-/// The final chunk's entropy body has no length field, so the streaming reader
-/// reads it to EOF — capped, or a stream could make it buffer without bound.
+/// A frame's declared entropy length is checked against *its own* op count, so
+/// a legitimately huge chunk is accepted and a small one claiming to be huge is
+/// not. Chunk alignment makes the first case reachable: one bounded value that
+/// crosses the `CHUNK_OPS` threshold stays whole, so its chunk is as large as
+/// it is.
 #[test]
-fn oversized_final_chunk_is_rejected() {
-    let mut bytes = vec![0u8]; // tag 0: final chunk, empty raw run
-    bytes.resize(1 + MAX_CHUNK_ENTROPY + 16, 0xab);
+fn a_frames_entropy_bound_comes_from_its_own_op_count() {
+    // Two frames' worth of ops in one value, none of which may be split: the
+    // second frame is the final one and carries the overrun.
+    let value: Vec<[u64; 8]> = (0..20_000).map(|i| [i as u64 * 2_654_435_761; 8]).collect();
+    let encoded = Ans::encode(&value);
+    assert!(count_chunks(&encoded) >= 2, "test wants several frames");
+    assert_eq!(
+        Ans::decode_from::<Vec<[u64; 8]>, _>(encoded.as_slice()).unwrap(),
+        value,
+        "a frame whose length is justified by its op count must be accepted"
+    );
+
+    // A frame declaring more than its op count can account for is still
+    // rejected, at the declaration.
+    let mut bytes = Vec::new();
+    push_varint(&mut bytes, 4 * 2 + 1); // tag: non-final, 4 ops
+    push_varint(&mut bytes, 1 << 20); // entropy_len, far past 4 ops' worth
+    push_varint(&mut bytes, 0);
+    bytes.extend_from_slice(&[0xab; 64]);
     let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
-        .expect_err("a final chunk past the cap must be rejected, not buffered");
-    // Assert on the *cap's* own message: this much garbage would make `Vec<u64>`
-    // decode fail for unrelated reasons anyway, so a bare `is_err` would pass
-    // even with no cap at all.
+        .expect_err("an unjustified entropy length must be rejected");
     assert!(
         err.to_string().contains("exceeds the maximum entropy size"),
-        "expected the size cap to reject this, got: {err}"
+        "expected the size check to reject this, got: {err}"
     );
-    // The slice decoder indexes rather than buffering, so it is not at risk and
-    // must still merely fail to produce a value rather than panic.
+}
+
+/// The final chunk's entropy body carries no length, so it is read to EOF and
+/// **not** capped — the deliberate asymmetry `read_final_region` documents.
+///
+/// A cap here would bound nothing a peer does not pay for 1:1 in bytes sent,
+/// and it would put a ceiling on how large one bounded value may be. This pins
+/// the resulting contract: a long final region is not an error by itself, it is
+/// simply data, and it fails (if at all) as a decode failure.
+#[test]
+fn a_long_final_region_is_not_an_error_by_itself() {
+    let mut bytes = vec![0u8]; // tag 0: final chunk, empty raw run
+    bytes.resize(1 << 20, 0xab);
+    // Garbage, so `Vec<u64>` will not decode from it -- but on the sentinel's
+    // terms, not because a length cap fired.
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice()).unwrap_err();
+    assert!(
+        !err.to_string().contains("exceeds the maximum entropy size"),
+        "the final region must no longer be size-capped, got: {err}"
+    );
+    // And the slice decoder, which indexes rather than buffering, still merely
+    // fails to produce a value rather than panicking.
     assert_eq!(Ans::decode::<Vec<u64>>(&bytes), None);
 }
 
@@ -2220,8 +2512,18 @@ impl std::io::Read for FrameBuffer {
 /// It has to exceed the most ops one call through the decoder can consume,
 /// because `read_ahead` runs once per call and not once per op.
 ///
-/// **Today every call spends exactly one op, so this is insurance, not a live
-/// constraint** — setting it to 0 passes the whole test suite. The two multi-op
+/// A [`with_sync`](super::AsyncEntropyDecoder::with_sync) handoff consumes many
+/// ops and calls no `read_ahead` at all, and is nonetheless **not** what this
+/// has to cover: it decodes one bounded value, which the encoder's
+/// [`split_point`](EntropyCoder::split_point) rule keeps inside the chunk that
+/// is already entered, so it never reaches for the next frame. A stream that
+/// breaks that rule is the one case where it would, and
+/// `a_boundary_inside_a_value_errors_rather_than_decoding_wrong` pins what
+/// happens then: the loud failure below, not a wrong value.
+///
+/// **Every call that does run `read_ahead` spends exactly one op today, so this
+/// is insurance, not a live constraint** — setting it to 0 passes the whole
+/// test suite. The two multi-op
 /// calls are `decode_bits::<N>`, where every *encode* site passes `N = 1` and
 /// the encoder flushes between batches, and a bitwise `AtMost` walk, which
 /// `Walk::production` selects only for `MAX == 1` (one bit) or
@@ -2241,10 +2543,29 @@ const OPS_MARGIN: usize = 256;
 /// Ops between polls of the transport while the decoder is working through a
 /// buffered frame.
 ///
-/// `read_ahead` runs once per op and polling a `Stream` is far from free, so the
-/// pump is throttled rather than run every time. 1024 gives 64 chances to notice
-/// an arrival within one [`CHUNK_OPS`] frame — ample, since acting on it any
-/// time before the frame's ops run out is equally good — for 0.1% of the ops.
+/// Polling a `Stream` is far from free, so the pump is throttled rather than run
+/// every time `read_ahead` does. 1024 was picked against [`CHUNK_OPS`]: 64
+/// chances to notice an arrival within one frame, for 0.1% of the ops — ample,
+/// since acting on an arrival any time before the frame's ops run out is
+/// equally good.
+///
+/// What it decrements on is **calls into the async decoder**, which is one op
+/// only where the handoff cannot fire.
+/// Mid-stream it usually can, and then a whole frame's worth of ops runs inside
+/// [`with_sync`](super::AsyncEntropyDecoder::with_sync) without passing through
+/// here at all — so the transport goes unpolled for up to one frame's decode,
+/// and the pump fires far less often than once per 1024 ops.
+///
+/// **That is the faster arrangement, not an oversight.** Charging the handoff's
+/// ops to the countdown was tried, and it restores the per-op cadence exactly;
+/// it also costs **+4.1%** wall clock where arrival and decode are balanced
+/// (`async-decode-overlap`, `CODER=ans RATE_MBPS=50`, min of 3, quiesced),
+/// +0.8% at 100 MB/s and at 200, and nothing at 800. Each drain that
+/// collects anything coalesces the ready bytes into one buffer — an allocation
+/// and a copy — so polling 64× more often per frame buys prefetch that was
+/// already being had and pays for it in copying. A frame is buffered whole
+/// before any of it is decoded, and its successor is fetched once [`OPS_MARGIN`]
+/// ops remain, so nothing the decoder needs is waiting on a skipped poll.
 #[cfg(feature = "stream")]
 const PUMP_INTERVAL: u32 = 1024;
 
@@ -2349,8 +2670,9 @@ where
         // Nothing else reads the source while the sync decoder works through a
         // buffered frame, so `ready_bytes` goes stale unless we poll — and a
         // stale zero looks exactly like a transport that has fallen behind.
-        // Throttled, because polling a stream is far from free and this runs
-        // once per op; see `PUMP_INTERVAL`.
+        // Throttled, because polling a stream is far from free and this runs on
+        // the way into every op that is not handed off; see `PUMP_INTERVAL`,
+        // which measures what happens when the handoff's ops are charged too.
         if self.pump_countdown == 0 {
             self.pump_countdown = PUMP_INTERVAL;
             self.source.drain_ready().await;
@@ -2441,12 +2763,14 @@ where
             self.append_region(&mut frame, tag >> 1).await;
             self.append_rest(&mut frame).await;
         } else {
+            let op_count = tag >> 1;
             let entropy_len = self.read_varint().await;
             let incompressible_len = self.read_varint().await;
-            // Before buffering a byte of it: a declared length past the cap can
-            // only be corruption, and buffering first is what a hostile
-            // transport would want. Mirrors the sync `enter_chunk`.
-            if let Some(e) = oversized_entropy_region(entropy_len) {
+            // Before buffering a byte of it: a declared length past what the
+            // frame's own op count can account for is corruption, and buffering
+            // first is what a hostile transport would want. Mirrors the sync
+            // `enter_chunk`.
+            if let Some(e) = oversized_entropy_region(entropy_len, op_count) {
                 self.inner.error.get_or_insert(e);
                 self.reached_final = true;
                 return;
@@ -2505,12 +2829,11 @@ where
     }
 
     /// Append everything left in the stream, for the final chunk's unbounded
-    /// entropy region. Capped one byte past `MAX_CHUNK_ENTROPY`, exactly as
-    /// `read_final_region` does, so "full" stays distinguishable from
-    /// "overflowed".
+    /// entropy region. Uncapped, for the reason `read_final_region` gives: this
+    /// region declares no length, so it grows only with bytes the source
+    /// actually delivered.
     async fn append_rest(&mut self, out: &mut Vec<u8>) {
-        let cap = out.len() + MAX_CHUNK_ENTROPY + 1;
-        while out.len() < cap {
+        loop {
             let ready = self.source.ready_bytes();
             if ready == 0 {
                 // Nothing buffered: one awaited byte tops the source up, and the
@@ -2529,7 +2852,7 @@ where
                 }
                 continue;
             }
-            let want = ready.min(cap - out.len());
+            let want = ready;
             let start = out.len();
             out.resize(start + want, 0);
             if let Err(e) = self.source.read_exact(&mut out[start..]).await {
@@ -2549,20 +2872,44 @@ where
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
 
-    /// All or nothing, and `unit_bytes` never enters into it. What bounds a safe
-    /// handoff here is whether another *frame* can still arrive: nothing in a
-    /// frame is decodable until the whole frame is in hand, so there is no
-    /// partial byte count to divide by, and once no frame can follow, the sync
-    /// decoder holds the entire rest of the stream.
+    /// Unbounded once no further frame can arrive: the sync decoder then holds
+    /// the entire rest of the stream, and `unit_bytes` cannot matter.
     ///
-    /// This is where a mid-stream answer would go once the encoder guarantees a
-    /// bounded value never straddles a chunk boundary — `unit_bytes !=
-    /// usize::MAX && ops_left > 0`, reading the unit's *boundedness* rather than
-    /// its size. See OPTIMIZING.md.
+    /// Mid-stream the answer is **one** bounded unit. Two facts combine. The
+    /// encoder only ever ends a chunk at a
+    /// [`split_point`](super::EntropyCoder::split_point), and a bounded unit
+    /// declares none — so it lies wholly within one chunk. And `ops_left > 0`
+    /// says the next op belongs to the chunk already in hand. Together: this
+    /// unit finishes without reading a frame that may not have arrived.
+    ///
+    /// Neither half is optional. Without the boundedness test a `Vec` or a
+    /// `String` — which do declare split points — could straddle any number of
+    /// boundaries. Without `ops_left > 0` the unit is still un-straddled but may
+    /// lie wholly in the *next* chunk, and would open with a
+    /// `load_next_chunk`.
+    ///
+    /// One and not more, because this has to answer *before* the handoff starts
+    /// and `ops_left` is the only thing it can lean on: after the next unit is
+    /// decoded the count may or may not still be positive, and from here there
+    /// is no way to tell. That is a limit on what is knowable in advance rather
+    /// than on what is decodable, and it is not where the story ends —
+    /// [`can_continue`](super::EntropyDecoder::can_continue) re-asks exactly
+    /// this question from inside the handoff, after each unit, which is what
+    /// covers the rest of the chunk. Promising one here and re-asking there is
+    /// the whole design; promising one and *not* re-asking is a handoff per
+    /// element, which measured 15-31% on record and string workloads.
+    ///
+    /// What neither can reach is the frame *after* this one, even when it has
+    /// wholly arrived: `has_unentered` lives on the [`FrameBuffer`], and the
+    /// sync decoder is generic over its reader. That is the remaining
+    /// `can_continue` follow-up in OPTIMIZING.md, and it is worth one handoff
+    /// per frame rather than per element.
     #[inline]
-    fn sync_capacity(&self, _unit_bytes: usize) -> usize {
+    fn sync_capacity(&self, unit_bytes: usize) -> usize {
         if self.reached_final {
             usize::MAX
+        } else if unit_bytes != usize::MAX && self.inner.ops_left > 0 {
+            1
         } else {
             0
         }
@@ -2650,6 +2997,65 @@ mod async_tests {
     use super::*;
     use crate::v2::stream::tests::Chunks;
     use futures_executor::block_on;
+
+    /// A misaligned stream must **error**, not decode to a wrong value.
+    ///
+    /// `sync_capacity`'s mid-stream promise is a claim about the bitstream — a
+    /// bounded value lies inside one chunk — and bitstreams arrive from
+    /// places that did not run our encoder. So test the claim being false. This
+    /// shortens a non-final frame's declared op count, which is exactly a
+    /// boundary landing in the middle of a value: the decoder hands the element
+    /// to the sync decoder believing `ops_left` covers it, and `ops_left` runs
+    /// out part way through.
+    ///
+    /// It is contained because the sync decoder runs over a `FrameBuffer` that
+    /// holds only frames already delivered — so `load_next_chunk` finds a short
+    /// region or none, sets `truncated`, and `into_result` errors — and because
+    /// the collection's `Sentinel` markers cannot be forged out of the resulting
+    /// desync. What must not happen is a plausible `Ok`, or a hang.
+    #[test]
+    fn a_boundary_inside_a_value_errors_rather_than_decoding_wrong() {
+        let value: Vec<u64> = (0..200_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        let starts = frame_starts(&encoded);
+        assert!(starts.len() >= 4, "test wants a multi-frame stream");
+
+        // The second frame's tag is `op_count * 2 + 1`. Halving the op count
+        // moves the boundary it declares far inside the chunk's real contents,
+        // and lands it mid-value with near-certainty at ~10 ops per `u64`.
+        let mut bytes = encoded.clone();
+        let mut at = starts[1];
+        let tag = {
+            let mut rest = &bytes[at..];
+            let before = rest.len();
+            let tag = read_varint(&mut rest).expect("frame tag");
+            at += before - rest.len();
+            tag
+        };
+        assert_eq!(tag & 1, 1, "frame 1 should be non-final");
+        let mut shortened = Vec::new();
+        push_varint(&mut shortened, (tag >> 1) / 2 * 2 + 1);
+        // Rewritten in place, so every later frame offset stays put — which
+        // halving a full chunk's op count allows, both fitting the same varint
+        // width. Asserted rather than skipped so the test cannot pass by
+        // quietly declining to run.
+        assert_eq!(
+            shortened.len(),
+            at - starts[1],
+            "op count did not rewrite in place"
+        );
+        bytes[starts[1]..at].copy_from_slice(&shortened);
+
+        match block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
+            &bytes, 512,
+        ))) {
+            Err(_) => {}
+            Ok(got) => panic!(
+                "a boundary inside a value decoded to {} elements instead of erroring",
+                got.len()
+            ),
+        }
+    }
 
     /// A crafted frame header must not overflow the "has the next frame
     /// arrived?" arithmetic. Both region lengths come straight off the wire,

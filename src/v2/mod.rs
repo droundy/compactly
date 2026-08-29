@@ -199,6 +199,34 @@ pub trait EntropyCoder: Sized {
         self.encode_bits(std::array::from_mut(context), [bit]);
     }
 
+    /// Declare that a coder which splits its output into chunks may end one
+    /// here, because no *bounded* value is partially encoded at this point.
+    ///
+    /// One rule governs this, and every `Encode` impl is subject to it:
+    ///
+    /// > An impl whose [`MAX_BYTES`](Encode::MAX_BYTES) is [`usize::MAX`] must
+    /// > call this between the parts it encodes. A **bounded** impl must not.
+    ///
+    /// Both halves matter. The first keeps chunks from growing without bound,
+    /// since a chunking coder can only end a chunk where it is told it may. The
+    /// second is what a decoder buys with it: a bounded value contains no split
+    /// point, so it cannot straddle a chunk boundary, so a decoder holding the
+    /// chunk holds all of it — which is what lets `Ans`'s async decoder hand a
+    /// whole value to the synchronous decoder mid-stream rather than awaiting
+    /// it op by op.
+    ///
+    /// In practice this is the collections and the strings, and almost all of
+    /// them inherit it from `Sentinel::encode`, which every length-driven loop
+    /// already calls once per element. **Composites need nothing**: a value is
+    /// unbounded because one of its parts is, and that part declares its own
+    /// splits — so a `(u64, String)` or a struct with a `Vec` field is covered
+    /// by the `String` or the `Vec`, recursively.
+    ///
+    /// The default does nothing, which is right for every coder that does not
+    /// chunk ([`Range`], [`Millibits`]) — there the call folds away entirely.
+    #[inline(always)]
+    fn split_point(&mut self) {}
+
     /// Encode the `value` into a `Vec<u8>` of bytes.
     fn encode<T: Encode>(value: &T) -> Self
     where
@@ -274,6 +302,29 @@ pub trait EntropyDecoder {
     ///
     /// [`Self::decode_value`] applies it, and is where the precedence rule lives.
     fn finish(self) -> std::io::Result<()>;
+
+    /// Whether one more unit of `unit_bytes` can be decoded from what is already
+    /// in hand — asked *during* a
+    /// [`with_sync`](AsyncEntropyDecoder::with_sync) handoff, once the budget
+    /// [`sync_capacity`](AsyncEntropyDecoder::sync_capacity) promised up front
+    /// has run out.
+    ///
+    /// `sync_capacity` has to answer before the handoff begins, and a frame-based
+    /// coder mid-stream cannot promise more than the one value it knows lies
+    /// inside the chunk in hand. That is not a real limit on how much is
+    /// decodable, only on what was knowable in advance: after each value the
+    /// answer may still be yes, and asking again costs a comparison where
+    /// returning to the async loop costs a whole handoff. Same contract as
+    /// `sync_capacity` — `usize::MAX` in means an unbounded unit, and a `true`
+    /// here is a promise that decoding one more will not run past the data.
+    ///
+    /// The default is `false`: a decoder whose budget is exact has nothing to add
+    /// after it is spent, and answering `false` reproduces the plain
+    /// decode-exactly-`sync_capacity`-units loop with the check folded away.
+    #[inline]
+    fn can_continue(&self, _unit_bytes: usize) -> bool {
+        false
+    }
 
     /// Decode a whole value with strategy `S` and finish the decoder — **the**
     /// way to use one, and why [`Self::finish`] is rarely called by hand.

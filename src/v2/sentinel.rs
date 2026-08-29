@@ -142,8 +142,16 @@ impl Sentinel {
     }
 
     /// Call once per element, before coding it.
+    ///
+    /// Doubles as the [`split_point`](EntropyCoder::split_point) every
+    /// length-driven loop owes a chunking coder. The two belong together: this
+    /// is already defined as the moment before an element starts, which is
+    /// exactly where no bounded value is open, and every such loop already
+    /// calls it. A loop that codes elements without a `Sentinel` has to declare
+    /// its own — see [`split_point`](EntropyCoder::split_point) for the rule.
     #[inline]
     pub(crate) fn encode<E: EntropyCoder>(&mut self, writer: &mut E) {
+        writer.split_point();
         if self.tick() {
             // A fresh copy every time: the context must not adapt.
             writer.encode_bit(&mut { SEEDED }, true);
@@ -258,6 +266,16 @@ impl<K: std::hash::Hash + Eq, V> ExtendOne<(K, V)> for std::collections::HashMap
 /// data is still arriving*, so the loop degrades to the naive one rather than
 /// misbehaving — correct, just not faster. Once the source is complete every
 /// `T` is promised, unbounded or not, and the batch runs at full width.
+///
+/// The run does not stop at the promised width. `sync_capacity` answers before
+/// the handoff opens, and a frame-based coder mid-stream can only vouch for the
+/// one unit it knows lies inside the chunk in hand — not because more is
+/// undecodable but because more is unknowable from there. So once the budget is
+/// spent the run asks
+/// [`can_continue`](crate::v2::EntropyDecoder::can_continue) after each further
+/// element, a comparison against the alternative of returning to the async loop
+/// and paying a whole handoff. A decoder whose budget was exact answers `false`
+/// and the tail folds away.
 pub(crate) async fn decode_elements<D, T, S, C>(
     reader: &mut D,
     ctx: &mut <T as Encode<S>>::Context,
@@ -272,22 +290,34 @@ where
     let mut sentinel = Sentinel::new();
     let mut decoded = 0;
     while decoded < n {
-        let batch = reader
-            .sync_capacity(<T as Encode<S>>::MAX_BYTES)
-            .min(sentinel.until_marker())
-            .min(n - decoded);
+        // The most this run could cover however much the decoder can promise: a
+        // run may not span a marker, and must not overshoot `n`.
+        let limit = sentinel.until_marker().min(n - decoded);
+        let batch = reader.sync_capacity(<T as Encode<S>>::MAX_BYTES).min(limit);
         if batch > 0 {
+            let mut done = 0;
             // Bound to a `let` so the closure's borrows end at the semicolon.
             let result = reader.with_sync(|sync| {
-                for _ in 0..batch {
-                    out.extend_one_element(<T as Encode<S>>::decode(sync, ctx)?);
+                let mut run = batch;
+                loop {
+                    for _ in 0..run {
+                        out.extend_one_element(<T as Encode<S>>::decode(sync, ctx)?);
+                    }
+                    done += run;
+                    if done >= limit || !sync.can_continue(<T as Encode<S>>::MAX_BYTES) {
+                        return Ok::<(), std::io::Error>(());
+                    }
+                    // Past what was promised, so one at a time, re-asking after
+                    // each. For a decoder that answers `false` — every one whose
+                    // budget was exact — this whole tail folds away and the run
+                    // above is the counted loop it has always been.
+                    run = 1;
                 }
-                Ok::<(), std::io::Error>(())
             });
             result?;
             // The run held no marker by construction; see `Sentinel::skip`.
-            sentinel.skip(batch);
-            decoded += batch;
+            sentinel.skip(done);
+            decoded += done;
             continue;
         }
         // Either too little is buffered to promise even one element, or a
