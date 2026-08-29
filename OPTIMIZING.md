@@ -2509,10 +2509,19 @@ harnesses now do this and say why at the definition.
      function, this **cannot change the output**, so there is no format question
      and byte-identity is free.
 
-     But the 17.9% above is the ceiling: ~1.22× on `Ans` encode at best. That
-     is the difference between losing and winning on some rows (`strings` +5.0%
-     would become ~14% *faster* than `Range`) and does not touch `floats`
-     +52.1% or rescue `enums` +29.6%. Weigh it against the cost, which is
+     **Do not read 17.9% as a cap.** With full overlap the win is
+     `(r + e) / max(r, e)` for record cost `r` and entropy cost `e`, which at
+     today's split is ~1.22× — enough to flip some rows (`strings` +5.0% would
+     become ~14% *faster* than `Range`) and not enough to touch `floats` +52.1%
+     or `enums` +29.6%. But that ratio is a snapshot of one workload, not a
+     property of the design: both phases are data-dependent, and both are
+     optimization targets, so effort will go to whichever is limiting and tend
+     to even them out. Balanced phases would be 2×. Note in particular that the
+     `CHUNK_OPS` experiment above is sequenced first because it is cheap, **not**
+     because it substitutes — succeeding at it shrinks `r` and so makes this
+     *more* attractive, not less. The two are complements.
+
+     Weigh it instead against the cost, which is
      **threads** — the whole streaming design is executor-free and
      dependency-free, so this wants a `std::thread` pool behind an optional
      feature, bounded double-buffering of the op buffers to keep peak memory
