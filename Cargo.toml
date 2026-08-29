@@ -154,7 +154,7 @@ name = "async-decode-cost"
 required-features = ["v2", "stream"]
 
 [[bin]]
-name = "decode-routes"
+name = "coder-routes"
 required-features = ["v2", "stream"]
 
 [[bin]]

@@ -1,24 +1,38 @@
-//! The same bytes decoded six ways: three decode routes × both coders.
+//! `Ans` against `Range` on every route either coder actually supports.
 //!
-//! The `just-decompress-*` bins each compare `Ans` against `Range` on **one**
-//! route, the borrowing slice decoder, which is the fastest path and not the one
-//! a streaming caller takes. That leaves the interesting question unanswered: a
+//! The `just-decompress-*` bins each compare the two on **one** route, the
+//! borrowing slice decoder, which is the fastest path and not the one a
+//! streaming caller takes. That leaves the interesting question unanswered: a
 //! coder that wins on slices can lose once the bytes arrive through a `Read` or
 //! a `Stream`, because the routes differ in what they can keep in registers and
-//! in how much they must buffer before decoding anything.
+//! in how much they must buffer before decoding anything. They do — see
+//! OPTIMIZING.md, where `f64` reverses from +32% to +310% between two of these.
 //!
-//! So this runs the whole matrix over one workload set:
+//! Decoding:
 //!
 //!   slice   `Ans::decode` / `v2::decode` — borrows the buffer.
 //!   from    `Ans::decode_from` / `Range::decode_from` over a `&[u8]` used as a
 //!           `Read`. Owned-ish, one byte per `read`, no filesystem in the loop.
 //!   stream  `Ans::decode_stream` / `v2::decode_stream` over a chunked source.
 //!
+//! Encoding:
+//!
+//!   encode     `Ans::encode` / `v2::encode` — straight to a fresh `Vec`.
+//!   encode-to  `Ans::encode_to` / `Range::encode_to` into a fresh `Vec` used as
+//!              a `Write`. Fresh rather than reused so it allocates like
+//!              `encode` does and the two differ only in the route.
+//!
+//! **There is no async encode**, for either coder — no `encode_stream` exists to
+//! measure. That asymmetry is the point of listing the encode routes here: the
+//! decode matrix on its own invites the conclusion that `Range`'s async path
+//! could go, and the encode side is a reminder that "async" currently means
+//! decode only, so the comparison is narrower than it looks.
+//!
 //! The workloads are the ones the `just-decompress-*` bins already use, brought
 //! together so every route runs identical harness code — a comparison across
 //! routes is only worth anything if nothing but the route differs.
 //!
-//! Usage: `decode-routes <workload> [ans|range] [slice|from|stream] [iters]`
+//! Usage: `coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to] [iters]`
 //!
 //! Workloads: `strings`, `enums`, `enums17`, `floats`, `compressible`,
 //! `records`, `records-wide`, and `atmost<N>` for N in the monomorphized ladder
@@ -116,7 +130,28 @@ fn run<T: Encode>(
             }
         };
     }
+    // Encode routes measure the encode itself, so unlike the decode routes the
+    // work is inside the loop rather than hoisted above it.
+    macro_rules! loop_encoding {
+        ($encode:expr) => {
+            for _ in 0..iters {
+                total += std::hint::black_box($encode).len();
+            }
+        };
+    }
     match (coder, route) {
+        ("ans", "encode") => loop_encoding!(Ans::encode(value)),
+        ("range", "encode") => loop_encoding!(compactly::v2::encode(value)),
+        ("ans", "encode-to") => loop_encoding!({
+            let mut sink = Vec::new();
+            Ans::encode_to(value, &mut sink).unwrap();
+            sink
+        }),
+        ("range", "encode-to") => loop_encoding!({
+            let mut sink = Vec::new();
+            compactly::v2::encode_to(value, &mut sink).unwrap();
+            sink
+        }),
         ("ans", "slice") => loop_over!(Ans::decode::<T>(&encoded)),
         ("range", "slice") => loop_over!(compactly::v2::decode::<T>(&encoded)),
         ("ans", "from") => loop_over!(Ans::decode_from::<T, _>(&encoded[..])),
@@ -129,7 +164,7 @@ fn run<T: Encode>(
         ("range", "stream") => {
             loop_over!(block_on(decode_stream::<T, _, _>(Chunks::new(&encoded, n))))
         }
-        (_, other) => panic!("unknown route {other:?}; use slice|from|stream"),
+        (_, other) => panic!("unknown route {other:?}; use slice|from|stream|encode|encode-to"),
     }
     total
 }
@@ -295,7 +330,12 @@ fn main() {
         .find(|a| a == "ans" || a == "range")
         .unwrap_or_else(|| "ans".to_string());
     let route = std::env::args()
-        .find(|a| a == "slice" || a == "from" || a == "stream")
+        .find(|a| {
+            matches!(
+                a.as_str(),
+                "slice" | "from" | "stream" | "encode" | "encode-to"
+            )
+        })
         .unwrap_or_else(|| "slice".to_string());
     let iters: usize = std::env::args()
         .filter_map(|a| a.parse().ok())
@@ -329,12 +369,19 @@ fn main() {
         other => {
             eprintln!(
                 "unknown workload {other:?}\n\
-                 usage: decode-routes <workload> [ans|range] [slice|from|stream] [iters]\n\
+                 usage: coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to] [iters]\n\
                  workloads: strings enums enums17 floats compressible \
                  records records-wide atmost{{3,4,6,8,12,16,24,32,64,128}}"
             );
             std::process::exit(2);
         }
     };
-    println!("total decoded {total}");
+    // `total` is decoded elements on a decode route and encoded bytes on an
+    // encode one; say which, so a stray run is not misread.
+    let unit = if route.starts_with("encode") {
+        "encoded bytes"
+    } else {
+        "decoded elements"
+    };
+    println!("total {unit} {total}");
 }

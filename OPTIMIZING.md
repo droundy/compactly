@@ -14,7 +14,7 @@ wash (≤0.06%) — but *which decode route* changes the answer, and on
 incompressible data through `decode_from` it reverses to **+310%**. See
 [`Ans` against `Range`](#ans-against-range-across-the-workload-set-2026-08-28)
 below, which is the place to start before any decision that turns on which coder
-wins, and `./decode-routes-table.sh` to bring its table up to date.
+wins, and `./coder-routes-table.sh` to bring its table up to date.
 
 ## How to benchmark on this machine
 
@@ -117,15 +117,19 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
 "`Ans` is faster at decoding" is asserted at the top of this document; this is
 the measurement behind it, and the places it does not hold.
 
-**Regenerate with `./decode-routes-table.sh`** — it prints the table below on
-stdout, ready to paste back. `-n 3` for a quicker pass, or name workloads
-(`./decode-routes-table.sh strings records`) to refresh a few rows. It refuses
-to run unless the machine is quiesced.
+**Regenerate with `./coder-routes-table.sh`** — it prints both tables below on
+stdout, ready to paste back. `-n 3` for a quicker pass, `-d`/`-e` for one table,
+or name workloads (`./coder-routes-table.sh strings records`) to refresh a few
+rows. It refuses to run unless the machine is quiesced.
 
-Every cell runs `src/bin/decode-routes.rs`, which decodes the same bytes three
-ways — `slice` (the borrowing decoder), `from` (`decode_from` over a `&[u8]`
-used as a `Read`) and `stream` (`decode_stream` over a 64-chunk source) — under
-both coders. **Both arms of a comparison are the same binary** with different
+Every cell runs `src/bin/coder-routes.rs`, which puts the same value through
+every route either coder supports: decoding by `slice` (the borrowing decoder),
+`from` (`decode_from` over a `&[u8]` used as a `Read`) and `stream`
+(`decode_stream` over a 64-chunk source); encoding by `encode` (to a fresh
+`Vec`) and `encode-to` (`encode_to` into a fresh `Vec` used as a `Write`).
+**There is no async encode for either coder**, which is why the encode table has
+two routes where the decode table has three — worth keeping in view, because it
+means "async" here is decode only. **Both arms of a comparison are the same binary** with different
 arguments, so binary-layout noise cancels and none of this needs the alternated
 A/B an across-commits comparison does; min of 5.
 
@@ -136,6 +140,8 @@ gets two of the conclusions below wrong, so the route is not a detail.
 > mid-stream handoff `Ans` cannot hand a value to the sync decoder until the
 > whole stream has landed, so those rows measure something that is on its way
 > out. Re-run once it merges.
+
+#### Decode
 
 | workload | route | Range cyc | Ans cyc | Δ | Range ins | Ans ins | Δ | size Δ |
 |---|---|---|---|---|---|---|---|---|
@@ -176,6 +182,35 @@ gets two of the conclusions below wrong, so the route is not a detail.
 | `atmost128` | `from` | 10.956G | 9.597G | **-12.4%** | 15.224G | 13.399G | -12.0% | +0.00% |
 | `atmost128` | `stream` | 10.930G | 9.505G | **-13.0%** | 15.362G | 12.749G | -17.0% | +0.00% |
 
+#### Encode
+
+| workload | route | Range cyc | Ans cyc | Δ | Range ins | Ans ins | Δ | size Δ |
+|---|---|---|---|---|---|---|---|---|
+| `strings` | `encode` | 5.662G | 5.945G | **+5.0%** | 17.398G | 16.840G | -3.2% | +0.04% |
+| `strings` | `encode-to` | 5.652G | 5.726G | **+1.3%** | 17.460G | 16.864G | -3.4% | +0.04% |
+| `enums` | `encode` | 4.052G | 5.250G | **+29.6%** | 12.091G | 11.255G | -6.9% | +0.06% |
+| `enums` | `encode-to` | 4.023G | 5.341G | **+32.8%** | 11.970G | 11.306G | -5.5% | +0.06% |
+| `enums17` | `encode` | 2.553G | 2.644G | **+3.5%** | 5.569G | 5.025G | -9.8% | +0.02% |
+| `enums17` | `encode-to` | 2.556G | 2.643G | **+3.4%** | 5.528G | 5.075G | -8.2% | +0.02% |
+| `floats` | `encode` | 3.523G | 5.361G | **+52.1%** | 9.020G | 12.423G | +37.7% | +0.00% |
+| `floats` | `encode-to` | 3.500G | 5.370G | **+53.4%** | 8.728G | 12.424G | +42.3% | +0.00% |
+| `compressible` | `encode` | 6.136G | 6.011G | **-2.0%** | 16.979G | 16.552G | -2.5% | +0.06% |
+| `compressible` | `encode-to` | 6.083G | 6.017G | **-1.1%** | 16.997G | 16.551G | -2.6% | +0.06% |
+| `records` | `encode` | 4.743G | 4.436G | **-6.5%** | 17.026G | 15.561G | -8.6% | +0.03% |
+| `records` | `encode-to` | 4.791G | 4.448G | **-7.2%** | 17.032G | 15.567G | -8.6% | +0.03% |
+| `records-wide` | `encode` | 5.232G | 4.712G | **-9.9%** | 16.328G | 14.582G | -10.7% | +0.02% |
+| `records-wide` | `encode-to` | 5.255G | 4.712G | **-10.3%** | 16.283G | 14.585G | -10.4% | +0.02% |
+| `atmost3` | `encode` | 2.804G | 2.806G | **+0.1%** | 6.389G | 4.915G | -23.1% | +0.03% |
+| `atmost3` | `encode-to` | 2.722G | 2.875G | **+5.6%** | 6.086G | 5.000G | -17.9% | +0.03% |
+| `atmost8` | `encode` | 2.250G | 2.306G | **+2.5%** | 9.293G | 8.610G | -7.3% | +0.02% |
+| `atmost8` | `encode-to` | 2.174G | 2.331G | **+7.2%** | 8.884G | 8.772G | -1.3% | +0.02% |
+| `atmost16` | `encode` | 2.593G | 2.582G | **-0.4%** | 11.323G | 10.290G | -9.1% | +0.01% |
+| `atmost16` | `encode-to` | 2.456G | 2.612G | **+6.4%** | 10.656G | 10.505G | -1.4% | +0.01% |
+| `atmost32` | `encode` | 3.119G | 2.946G | **-5.5%** | 13.349G | 12.091G | -9.4% | +0.01% |
+| `atmost32` | `encode-to` | 3.046G | 2.953G | **-3.1%** | 12.785G | 12.359G | -3.3% | +0.01% |
+| `atmost128` | `encode` | 4.030G | 3.660G | **-9.2%** | 18.029G | 15.147G | -16.0% | +0.00% |
+| `atmost128` | `encode-to` | 3.931G | 3.712G | **-5.6%** | 17.253G | 15.521G | -10.0% | +0.00% |
+
 **Where `Ans` wins it wins broadly**: 13–30% of cycles on everything that
 entropy-codes, on all three routes. The `AtMost` ladder shows that advantage
 shrinking monotonically with alphabet size — −29.6% at `AtMost<2>` to −13.0% at
@@ -200,12 +235,21 @@ matrix shows:
   still favour `Ans` there, so this costs it its margin rather than the
   comparison, but it is the same effect as the `f64` row in milder form.
 
-**Encode is the other exception**, and is not a route question:
-`just-compress-enums 1000` measures **+34.6% cycles / +10.3% instructions** for
-`Ans`. Real coding work, and the largest single result against it; string encode
-goes the other way (−0.9% / −3.0%), so it looks specific to the `AtMost`
-discriminant path rather than to `Ans` encoding generally. Unexplained, and the
-obvious thing to chase before making `Ans` the default.
+**Encode inverts the usual reading of these two columns.** `Ans` executes
+*fewer* instructions on almost every encode row and still loses cycles on
+several: `enums` is **+29.6% cycles on 6.9% fewer instructions**, `strings`
++5.0% / −3.2%, `atmost3` +0.1% / −23.1%. Doing less and taking longer is an IPC
+problem, not a work problem, and points at the two-pass structure (record the
+ops, then encode backwards) rather than at the coding. It is the largest result
+against `Ans` that is not about incompressible bytes — TODO above. Where `Ans`
+does win on encode it wins on both columns (`records` −6.5% / −8.6%,
+`records-wide` −9.9% / −10.7%, `atmost128` −9.2% / −16.0%).
+
+**`f64` is the exception on the encode side too**, and there `Ans` really is
+doing more work: **+52.1% cycles / +37.7% instructions**. Together with the
+decode rows that makes the incompressible-byte path a weakness of `Ans` on every
+route in both directions, which is what separates it from the plumbing question
+— `slice` and `encode` do none of the streaming buffering.
 
 **Compression rate is not a differentiator.** `Ans` is larger by **+0.00% to
 +0.06%** everywhere — 42,535 → 42,553 bytes on strings, 17,577 → 17,588 on
@@ -214,10 +258,12 @@ obvious thing to chase before making `Ans` the default.
 So: **dropping async for `Range` is supported for everything except
 incompressible data**, where `Range`'s streaming decode is 3–4× faster and would
 be the thing being removed. That is the case to answer first — either by fixing
-`Ans`'s incompressible path off the slice route, or by deciding that streaming
-incompressible payloads is not a case worth keeping a coder for. Dropping
-`Range` *entirely* is a larger claim still, on the strength of the enum-encode
-row alone.
+`Ans`'s incompressible path, or by deciding that streaming incompressible
+payloads is not a case worth keeping a coder for. Two things to hold on to
+before going further: there is **no async encode at all**, so this decision is
+narrower than "drop async for `Range`" makes it sound and is not symmetric with
+anything on the encode side; and dropping `Range` *entirely* is a larger claim
+still, which the encode table argues against on its own.
 
 ### Profiling `just-decompress` (random u64)
 - IPC ≈ 1.39 (latency-bound), branch-miss ≈ 15%, L1-dcache miss ≈ 0.16%.
@@ -2383,6 +2429,57 @@ harnesses now do this and say why at the definition.
    than a type, since the run's bound is a sum no single type names. Unmeasured;
    size the win first on a struct with several scalar fields beside a `String`,
    mid-stream on `Range` (the `Ans` arm cannot benefit until #1 lands).
+
+1. **`Ans`'s `Read`/`Write` plumbing copies every byte four times** — transport
+   chunk → `ChunkSource`'s coalesced buffer → `buffer_next_frame`'s frame `Vec`
+   → `FrameBuffer::bytes` → `AnsDecoder`'s `entropy`/`incompressible` `Vec`s. The
+   slice decoder does none of them. The design is already worked out in "What
+   this says about the deeper change" above: delete `FrameBuffer` and run the
+   slice `Decoder<'a, true>` over `ChunkSource`'s buffer, capped at the last
+   complete frame — the `with_sync` handoff `Range` already uses, saving
+   `entropy`/`incompressible`/`rest` as offsets.
+
+   That note sized the prize at ~5% cycles / ~19% instructions, which was
+   measured on entropy-coded workloads. The route table says the ceiling is far
+   higher: `f64` through `decode_from` is **+309.6%** against `Range` and
+   through `decode_stream` **+243.2%**, where the same corpus on `slice` is only
+   +32.1%. The `records`/`f64` pair separates the cause from payload size —
+   nearly identical encoded sizes (808,105 vs 800,033 bytes) but `from`-over-
+   `slice` overheads of +0.251B and **+3.506B** — so it is charged per
+   *incompressible* byte, not per byte. The write side shows the milder form of
+   the same thing: `encode_to` costs `Ans` up to +7pp against `encode` on the
+   `AtMost` ladder while `Range` is unaffected.
+
+1. **`Ans`'s incompressible-byte path is slower than `Range`'s on every route,
+   in both directions** — and this one is *not* the plumbing, since it shows on
+   `slice` and on `encode`, which do none of that buffering. Decode `slice`
+   **+32.1%** cycles; encode **+52.1%** cycles / **+37.7%** instructions. Note
+   the instructions: unlike the encode rows below it, `Ans` is doing genuinely
+   *more work* here, not the same work more slowly.
+
+   Nothing recorded predicts this. TODO #4 below (const-generic
+   `decode_incompressible::<N>`) targets small compile-time-known reads like IP
+   octets, not bulk, and retired item #9's "ceiling ~2%" for the `memmove` was
+   measured on `just-decompress`'s ≤7-byte per-value copies. Unexplained, so the
+   first step is a profile rather than a patch: `perf record` on
+   `coder-routes floats ans slice` against the `range` arm.
+
+1. **`Ans` encode is cycle-bound, not work-bound** — `enums` costs **+29.6%
+   cycles on 6.9% *fewer* instructions** than `Range`, and the same shape holds
+   across `strings` (+5.0% / −3.2%), `enums17` (+3.5% / −9.8%) and the whole
+   `AtMost` ladder (`atmost3` +0.1% / −23.1%). `Ans` is executing less and
+   taking longer, which is an IPC problem and points at the two-pass structure
+   (record ops, then encode backwards) rather than at the coding. This is the
+   largest result against `Ans` that is not about incompressible bytes, and the
+   one to explain before making it the default.
+
+1. **There is no async encode, for either coder.** No `AsyncEntropyCoder`, no
+   `encode_stream` — "async" currently means decode only, which is worth
+   remembering whenever the route tables tempt a conclusion about dropping
+   `Range`'s async path: that decision is narrower than it looks, and it is not
+   symmetric with anything on the encode side. A plan exists on
+   `origin/async-encode-range` (PR #49) and targets `Range` first; if `Range`'s
+   async decode is dropped, that plan needs revisiting rather than following.
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:
