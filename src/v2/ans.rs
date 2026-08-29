@@ -1,9 +1,15 @@
 use super::atmost::{walks, AtMost, AtMostContext};
 use super::bit_context::BitContext;
 use super::model::{Probability, SymbolCoder, SymbolDecoder, SymbolRange};
+#[cfg(feature = "stream")]
+use super::AsyncEntropyDecoder;
 use super::{EntropyCoder, EntropyDecoder};
-mod bytebuf;
-use bytebuf::Bytes;
+mod bytes;
+#[cfg(test)]
+use super::Strategy;
+#[cfg(test)]
+use crate::Normal;
+use bytes::Bytes;
 
 type State = u32;
 const STATE_BYTES: usize = std::mem::size_of::<State>();
@@ -309,17 +315,14 @@ impl<W: std::io::Write> AnsEncoder<W> {
 }
 
 impl Ans {
-    /// Decode a value from an async stream of [`Bytes`](bytes::Bytes), decoding
+    /// Decode a value from an async stream of [`Bytes`](::bytes::Bytes), decoding
     /// each chunk frame as it arrives rather than waiting for the whole input.
     /// Accepts the same bytes [`Ans::encode`] produces.
-    ///
-    /// Overlap stops at the final chunk, whose entropy region has no length and
-    /// so cannot be read before end of stream; see [`AsyncAnsDecoder`].
     #[cfg(feature = "stream")]
     pub async fn decode_stream<T, S, E>(stream: S) -> std::io::Result<T>
     where
-        crate::Normal: super::DecodeAsync<T>,
-        S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+        T: super::Encode,
+        S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
         E: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
         let mut source = super::stream::ChunkSource::new(stream).await;
@@ -327,31 +330,23 @@ impl Ans {
         // here: an input already in hand has no overlap to offer, and `Ans`'s
         // slice decoder is the one that does no copying at all.
         if let Some(whole) = source.take_if_single_chunk().await {
-            let value = Self::decode_with_result::<T>(&whole);
+            // `Self::decode`'s dispatch, but keeping the error rather than
+            // discarding it — a stream decode reports *why* it failed.
+            let bytes: &[u8] = &whole;
+            let value = if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
+                Decoder::<false>::from(bytes).decode_value::<T, crate::Normal>()
+            } else {
+                Decoder::<true>::from(bytes).decode_value::<T, crate::Normal>()
+            };
             return match source.take_error() {
                 Some(e) => Err(e),
                 None => value,
             };
         }
-        super::stream_decode_async::<T, crate::Normal, _>(
-            AsyncAnsDecoder::from_source(source).await,
-        )
-        .await
-    }
-
-    /// [`Self::decode`]'s dispatch, keeping the error rather than discarding it
-    /// — what [`Self::decode_stream`]'s fast path needs, since a stream decode
-    /// reports *why* it failed.
-    #[cfg(feature = "stream")]
-    fn decode_with_result<T>(bytes: &[u8]) -> std::io::Result<T>
-    where
-        crate::Normal: super::EncodingStrategy<T>,
-    {
-        if read_varint(&mut { bytes }).unwrap_or(0) & 1 == 0 {
-            super::stream_decode_with::<T, crate::Normal, Decoder<false>>(Decoder::from(bytes))
-        } else {
-            super::stream_decode_with::<T, crate::Normal, Decoder<true>>(Decoder::from(bytes))
-        }
+        AsyncAnsDecoder::from_source(source)
+            .await
+            .decode_value::<T, crate::Normal>()
+            .await
     }
 
     /// Encode value directly to a `Vec<u8>`.
@@ -366,7 +361,7 @@ impl Ans {
     /// [`BufWriter`](std::io::BufWriter) yourself. (`Ans` writes each chunk's body
     /// in bulk, so it is less syscall-bound than `Range`, which writes a byte at a
     /// time.) The returned writer is flushed before return, so a final flush error
-    /// surfaces here rather than being lost in a wrapping `BufWriter`'s `Drop`.
+    /// surfaces here rather than being lost on drop.
     pub fn encode_to<T: super::Encode, W: std::io::Write>(
         value: &T,
         writer: W,
@@ -379,10 +374,10 @@ impl Ans {
     /// Accepts the same bytes [`Ans::encode`]/[`Ans::encode_to`] produce.
     ///
     /// No buffering is applied — wrap an unbuffered source in a
-    /// [`BufReader`](std::io::BufReader) yourself. (`Ans` reads only the small
+    /// [`BufReader`](std::io::BufReader) yourself. This reads only the small
     /// chunk-header varints a byte at a time and pulls each chunk body in bulk via
     /// `read_exact`, so it is less syscall-bound than `Range`, which reads a byte
-    /// at a time for the whole stream.)
+    /// at a time for the whole stream.
     pub fn decode_from<T: super::Encode, R: std::io::Read>(mut reader: R) -> std::io::Result<T> {
         // Consume the first frame's tag to pick the decoder, exactly as
         // `Ans::decode` peeks it: an even tag marks the *final* chunk, so the
@@ -402,15 +397,17 @@ impl Ans {
     /// One arm of [`Self::decode_from`]'s dispatch; kept out of line for the
     /// same reason as [`Self::decode_with`]. The latched-IO-error-wins rule (a
     /// mid-stream read failure must not be masked by a downstream `T::decode`
-    /// validation error) lives in [`stream_decode`](super::stream_decode) via
-    /// [`AnsDecoder`]'s `into_result`.
+    /// validation error) lives in
+    /// [`decode_value`](super::EntropyDecoder::decode_value) via [`AnsDecoder`]'s
+    /// `finish`.
     #[inline(never)]
     fn decode_from_with<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
         reader: R,
         tag: usize,
         error: Option<std::io::Error>,
     ) -> std::io::Result<T> {
-        super::stream_decode::<T, _>(AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error))
+        AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error)
+            .decode_value::<T, crate::Normal>()
     }
     /// [`Self::decode_from`] with the chunk-boundary tracking forced rather than
     /// chosen from the first tag, so a benchmark can measure both instantiations
@@ -468,9 +465,11 @@ impl Ans {
     /// measurable — it happens once per decoded value, not per op.
     #[inline(never)]
     fn decode_with<T: super::Encode, const CHUNKED: bool>(bytes: &[u8]) -> Option<T> {
-        // Via `into_result`, so the truncation check is the same one every other
+        // Via `finish`, so the truncation check is the same one every other
         // route through this decoder gets.
-        super::stream_decode::<T, Decoder<CHUNKED>>(Decoder::from(bytes)).ok()
+        Decoder::<CHUNKED>::from(bytes)
+            .decode_value::<T, crate::Normal>()
+            .ok()
     }
     /// Whether `Ans`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
@@ -586,19 +585,7 @@ impl Ans {
         }
         checksum
     }
-    /// Finish encoding: flush the final chunk and return the framed stream.
-    ///
-    /// The stream is a sequence of chunks, each opening with a varint tag whose
-    /// low bit distinguishes the two frame shapes (see
-    /// [`AnsEncoder::flush_chunk`]). Non-final chunks — flushed during recording
-    /// once the op buffer reaches [`CHUNK_OPS`] — are
-    /// `[op_count * 2 + 1][entropy-len][incompressible-len][entropy][incompressible]`.
-    /// The final chunk is `[raw-len * 2][incompressible][entropy]`, its entropy
-    /// running to the end of the stream: nothing follows it, so that length would
-    /// be redundant. `entropy` is the chunk's self-contained rANS stream (state
-    /// then body, in decode order). The contexts adapt continuously across chunk
-    /// boundaries, so chunking costs only one rANS state-flush (plus the frame
-    /// header) per chunk.
+    /// Finish encoding and return the completed byte stream.
     #[inline]
     pub fn into_vec(self) -> Vec<u8> {
         self.0.finish().expect("writing to a Vec<u8> is infallible")
@@ -652,7 +639,7 @@ impl Encoder {
 /// measured **+21%** on a cache-resident `Vec<u64>` decode and +6% on a
 /// memory-bound one. [`Ans::decode`] peeks the first frame and picks.
 #[derive(Eq, PartialEq)]
-pub struct Decoder<'a, const CHUNKED: bool = true> {
+struct Decoder<'a, const CHUNKED: bool = true> {
     state: StateOnly,
     /// The current chunk's rANS body (entropy bytes after the initial state).
     bytes: &'a [u8],
@@ -705,11 +692,6 @@ impl<'a, const CHUNKED: bool> From<&'a [u8]> for Decoder<'a, CHUNKED> {
 }
 
 impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
-    /// Enter the next chunk from `self.rest`: parse its frame, initialize the
-    /// rANS state from the entropy body, point `incompressible` at its raw run,
-    /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
-    /// rANS stream, so the state restarts here; the model contexts (owned by the
-    /// caller) carry over, exactly as they did across the boundary on encode.
     /// Read one header varint, noting truncation if the stream ran out inside
     /// it. That includes running out *before* it: a frame is only ever read
     /// where one is due, so an empty `rest` means the stream stopped on a frame
@@ -726,6 +708,11 @@ impl<'a, const CHUNKED: bool> Decoder<'a, CHUNKED> {
         }
     }
 
+    /// Enter the next chunk from `self.rest`: parse its frame, initialize the
+    /// rANS state from the entropy body, point `incompressible` at its raw run,
+    /// advance `self.rest`, and set `ops_left`. Each chunk is an independent
+    /// rANS stream, so the state restarts here; the model contexts (owned by the
+    /// caller) carry over, exactly as they did across the boundary on encode.
     #[inline]
     fn load_next_chunk(&mut self) {
         let mut rest = self.rest;
@@ -861,15 +848,19 @@ impl<'a, const CHUNKED: bool> EntropyDecoder for Decoder<'a, CHUNKED> {
         Self::from(bytes)
     }
 
-    /// The slice decoder never latches an IO error, but it does notice a stream
-    /// that ran out inside a frame — see [`Self::saw_whole_chunks`], which is
-    /// why the check lives here rather than in one caller: every route through
-    /// this decoder gets it, including [`Ans::decode_stream`]'s fast path.
+    /// The slice decoder reads no IO, but it does notice a buffer that ran out
+    /// inside a frame — see [`Self::saw_whole_chunks`], which is why the check
+    /// lives here rather than in one caller: every route through this decoder
+    /// gets it, including [`Ans::decode_stream`]'s fast path.
+    ///
+    /// Truncation takes precedence over whatever the decode itself returned,
+    /// since the missing frame is what fabricated the bits that tripped it.
     #[inline]
-    fn into_result<T>(self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match value {
-            Ok(_) if !self.saw_whole_chunks() => Err(truncated_stream()),
-            other => other,
+    fn finish(self) -> std::io::Result<()> {
+        if self.saw_whole_chunks() {
+            Ok(())
+        } else {
+            Err(truncated_stream())
         }
     }
 
@@ -995,7 +986,7 @@ fn read_varint_io<R: std::io::Read>(reader: &mut R, error: &mut Option<std::io::
 /// Read `len` bytes from `reader` into a fresh buffer, in bounded increments so a
 /// corrupt/huge declared length can't drive one giant allocation. A short read
 /// latches the error and returns the partial buffer; the rANS decode then
-/// zero-pads / reports insufficient bytes, and `into_result` surfaces the error.
+/// zero-pads / reports insufficient bytes, and `finish` surfaces the error.
 fn read_region<R: std::io::Read>(
     reader: &mut R,
     len: usize,
@@ -1064,12 +1055,31 @@ fn read_final_region<R: std::io::Read>(
     out
 }
 
+/// The error for a *non*-final chunk whose declared entropy length is past what
+/// any chunk can legitimately hold, or `None` if it is in range.
+///
+/// A non-final frame declares its region lengths, so this is decidable before a
+/// byte of the region is buffered — worth checking, because both lengths come
+/// straight off the wire and a buffering reader would otherwise grow to whatever
+/// a hostile transport was willing to send. [`MAX_CHUNK_ENTROPY`] is exactly the
+/// legitimate bound: a chunk is flushed at [`CHUNK_OPS`], and that caps the
+/// entropy it can emit.
+///
+/// **Only the entropy region.** The incompressible region has no such bound —
+/// one `encode_incompressible_bytes` op appends a caller-supplied slice of any
+/// length — so a large `Incompressible` field legitimately produces a large
+/// region, and capping it would reject valid streams.
+fn oversized_entropy_region(entropy_len: usize) -> Option<std::io::Error> {
+    (entropy_len > MAX_CHUNK_ENTROPY)
+        .then(|| std::io::Error::other("corrupt stream: chunk exceeds the maximum entropy size"))
+}
+
 /// Streaming ANS decoder: pulls one chunk frame at a time from `R` rather than
 /// indexing a whole slice, so decoding a large value need only hold one chunk's
 /// entropy + incompressible bytes at once. Reads the same bytes
 /// [`Ans`]/[`AnsEncoder`] produce and recovers identical values (the per-chunk
 /// arithmetic is the slice [`Decoder`]'s; only the byte source differs). IO
-/// errors are latched and surfaced by [`AnsDecoder::into_result`].
+/// errors are latched and surfaced by [`AnsDecoder::finish`].
 ///
 /// `CHUNKED` plays exactly the role it does on [`Decoder`]: an even first tag
 /// means the whole value is one final chunk, so `CHUNKED = false` compiles the
@@ -1139,13 +1149,26 @@ impl<R: std::io::Read, const CHUNKED: bool> AnsDecoder<R, CHUNKED> {
         } else {
             let entropy_len = read_varint_io(&mut self.reader, &mut self.error);
             let incompressible_len = read_varint_io(&mut self.reader, &mut self.error);
-            self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
-            self.incompressible =
-                read_region(&mut self.reader, incompressible_len, &mut self.error);
-            // A non-final frame claiming 0 ops would re-enter this on the very
-            // next op; treat it as unbounded so corrupt input cannot spin here.
-            let op_count = tag >> 1;
-            self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
+            if let Some(e) = oversized_entropy_region(entropy_len) {
+                // Reject on the declaration, without reading a byte of it. This
+                // must fall through to the seeding below rather than return:
+                // latching an error does not stop decoding, and leaving `epos`
+                // at the previous chunk's value with an empty `entropy` breaks
+                // the invariant the hot paths index on.
+                self.error.get_or_insert(e);
+                self.entropy = Vec::new();
+                self.incompressible = Vec::new();
+                self.ops_left = usize::MAX;
+            } else {
+                self.entropy = read_region(&mut self.reader, entropy_len, &mut self.error);
+                self.incompressible =
+                    read_region(&mut self.reader, incompressible_len, &mut self.error);
+                // A non-final frame claiming 0 ops would re-enter this on the
+                // very next op; treat it as unbounded so corrupt input cannot
+                // spin here.
+                let op_count = tag >> 1;
+                self.ops_left = if op_count == 0 { usize::MAX } else { op_count };
+            }
         }
         self.ipos = 0;
         if self.entropy.len() < STATE_BYTES {
@@ -1205,14 +1228,10 @@ impl<R: std::io::Read, const CHUNKED: bool> EntropyDecoder for AnsDecoder<R, CHU
         Self::with_first_tag(reader, tag, error)
     }
 
-    /// Return `value` unless a read error was latched during decoding — the
-    /// latched IO error wins even when `value` is itself `Err` (see the trait
-    /// method's contract).
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        match self.error.take() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// Fails with any read error latched during decoding; a frame that ran out
+    /// mid-read latches [`truncated_stream`] rather than setting a separate flag.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.error.take().map_or(Ok(()), Err)
     }
 
     #[inline]
@@ -1615,6 +1634,38 @@ fn truncation_is_rejected_rather_than_decoded_short() {
     assert_eq!(Ans::decode::<Vec<u64>>(&encoded), Some(value));
 }
 
+/// R13: both v2 coders must reject empty input, and for the same reason.
+///
+/// `Range` used to accept it and hand back a zero-padded value (`decode::<u32>`
+/// returned `Some(0)`) while `Ans` rejected it as a missing frame tag. That was
+/// an inconsistency rather than a property of the formats: **neither** coder can
+/// encode anything in zero bytes — even a zero-size value settles the range into
+/// one byte under `Range`, and carries a frame tag under `Ans` — so empty input
+/// is not an encoding of anything under either.
+#[test]
+fn both_coders_reject_empty_input() {
+    use crate::v2::Range;
+
+    // Neither coder can produce an empty encoding, even for a zero-size value.
+    assert_eq!(Range::encode(&()).len(), 1);
+    assert_eq!(Ans::encode(&()).len(), 1);
+
+    // So empty input decodes to nothing, for both coders and both types.
+    assert_eq!(Range::decode::<()>(&[]), None);
+    assert_eq!(Range::decode::<u32>(&[]), None);
+    assert_eq!(Ans::decode::<()>(&[]), None);
+    assert_eq!(Ans::decode::<u32>(&[]), None);
+
+    // The reader entry points agree with the slice ones.
+    assert!(Range::decode_from::<u32, _>([].as_slice()).is_err());
+    assert!(Ans::decode_from::<u32, _>([].as_slice()).is_err());
+
+    // And a one-byte encoding still round-trips, so the check rejects only the
+    // genuinely empty case rather than anything short.
+    assert_eq!(Range::decode::<()>(&Range::encode(&())), Some(()));
+    assert_eq!(Ans::decode::<()>(&Ans::encode(&())), Some(()));
+}
+
 /// The truncation that the region-length checks alone cannot see: a stream cut
 /// **exactly on a frame boundary**, so every region it delivered is complete and
 /// only the absence of the next frame gives it away.
@@ -1696,10 +1747,9 @@ fn streaming_matches_in_memory() {
     }
 }
 
-/// The "latched IO error wins" rule now lives in the shared
-/// [`AnsDecoder::into_result`] (reached via `stream_decode`), where the round-trip
-/// tests above never exercise it. This covers all three things the consolidation
-/// put on that path:
+/// The "latched IO error wins" rule lives in [`EntropyDecoder::decode_value`],
+/// fed by [`AnsDecoder::finish`], where the round-trip tests above never
+/// exercise it. This covers all three things the consolidation put on that path:
 ///  - a construction-time latch (first chunk tag unreadable) beating a downstream
 ///    `Err`, at the trait method directly;
 ///  - a read failure **mid-decode, inside `load_next_chunk`** of a genuine
@@ -1730,20 +1780,19 @@ fn ans_decode_from_surfaces_latched_read_error() {
         }
     }
 
-    // (a) Construction-time latch beats a downstream `Err`, at the trait method.
+    // (a) A construction-time latch is reported, at the trait method. That it
+    // then beats a downstream `Err` is `decode_value`'s rule, covered by
+    // `arith`'s `decode_value_prefers_latched_error_over_downstream`.
     let decoder = AnsDecoder::<FailAfter, true>::new(FailAfter {
         data: Vec::new(),
         pos: 0,
         fail_after: 0,
     });
-    let downstream: std::io::Result<u8> =
-        Err(std::io::Error::other("downstream validation symptom"));
-    let err = decoder
-        .into_result(downstream)
-        .expect_err("a latched read error must surface as Err");
+    let err = EntropyDecoder::finish(decoder)
+        .expect_err("a read error latched during construction must be reported");
     assert!(
         err.to_string().contains("transient read failure"),
-        "the latched IO error must win over the downstream error, got: {err}"
+        "the latched IO error must be the one reported, got: {err}"
     );
 
     // (b) Mid-decode failure inside `load_next_chunk` of a real multi-chunk
@@ -1943,7 +1992,11 @@ fn debug_summarizes_rather_than_dumping() {
     let big: Vec<u64> = (0..50_000).collect();
 
     let mut coder = Ans::default();
-    big.encode(&mut coder, &mut <Vec<u64> as Encode>::Context::default());
+    Normal::encode(
+        &big,
+        &mut coder,
+        &mut <Vec<u64> as Encode>::Context::default(),
+    );
     let shown = format!("{coder:?}");
     assert!(
         shown.len() < 300,
@@ -2011,6 +2064,71 @@ fn final_frame_costs_one_byte() {
     assert_eq!(
         Ans::decode::<Vec<u64>>(&Ans::encode(&Vec::<u64>::new())),
         Some(vec![])
+    );
+}
+
+/// A *non*-final chunk declares its entropy length, so an oversized one is
+/// rejected on the declaration rather than after buffering it — otherwise a
+/// hostile transport chooses how much the reader holds. The incompressible
+/// region is deliberately not capped; see [`oversized_entropy_region`].
+#[test]
+fn oversized_non_final_chunk_is_rejected() {
+    let mut bytes = Vec::new();
+    push_varint(&mut bytes, 3); // tag: non-final, 1 op
+    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1); // entropy_len, one past the cap
+    push_varint(&mut bytes, 0); // incompressible_len
+    bytes.extend_from_slice(&[0xab; 64]);
+
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
+        .expect_err("a non-final chunk past the cap must be rejected");
+    // On the cap's own message: this stream fails for other reasons too, so a
+    // bare `is_err` would pass with no cap at all.
+    assert!(
+        err.to_string().contains("exceeds the maximum entropy size"),
+        "expected the size cap to reject this, got: {err}"
+    );
+
+    // A legitimately large *incompressible* region must still be accepted: it
+    // has no bound, so capping it would reject valid data.
+    use crate::{Encoded, Incompressible};
+    let big: Encoded<Vec<u8>, Incompressible> = Encoded::new(vec![0x5a; 4 << 20]);
+    let encoded = Ans::encode(&big);
+    assert_eq!(
+        Ans::decode_from::<Encoded<Vec<u8>, Incompressible>, _>(encoded.as_slice())
+            .expect("a 4 MiB incompressible region is legitimate"),
+        big
+    );
+}
+
+/// Rejecting an oversized region must leave the decoder's `epos <=
+/// entropy.len()` invariant intact, since the hot paths index `entropy[epos..]`
+/// unclamped and the rejection does not stop decoding — it latches an error and
+/// the caller reads on until it finishes the value.
+///
+/// The frame has to be spliced in *after* a real one, unlike
+/// `oversized_non_final_chunk_is_rejected` above: `epos` starts at 0, so a bad
+/// first frame cannot expose a missed reset. Only a preceding frame that
+/// actually decoded advances `epos` past the emptied region's length.
+#[test]
+fn rejecting_an_oversized_chunk_leaves_the_decoder_indexable() {
+    let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+    let encoded = Ans::encode(&value);
+    let starts = frame_starts(&encoded);
+    assert!(starts.len() >= 3, "test wants a multi-frame stream");
+
+    // The first frame intact, so decoding it drives `epos` well past 0, then a
+    // second frame declaring an entropy region one byte past the cap.
+    let mut bytes = encoded[..starts[1]].to_vec();
+    push_varint(&mut bytes, 3); // tag: non-final, 1 op
+    push_varint(&mut bytes, MAX_CHUNK_ENTROPY + 1);
+    push_varint(&mut bytes, 0);
+    bytes.extend_from_slice(&[0xab; 64]);
+
+    let err = Ans::decode_from::<Vec<u64>, _>(bytes.as_slice())
+        .expect_err("a non-final chunk past the cap must be rejected");
+    assert!(
+        err.to_string().contains("exceeds the maximum entropy size"),
+        "expected the size cap to reject this, got: {err}"
     );
 }
 
@@ -2100,12 +2218,19 @@ impl std::io::Read for FrameBuffer {
 /// suspend to buffer the next frame.
 ///
 /// It has to exceed the most ops one call through the decoder can consume,
-/// because `read_ahead` runs once per call and not once per op: a `decode_bits`
-/// batch spends `N`, and a multi-step `AtMost` walk spends one per tree level.
-/// Both are small — the library only ever batches through `decode_bit`
-/// (`N = 1`) today, and the deepest walk is bounded by the tree height — so 256
-/// is generous by a wide margin while costing 0.4% of a chunk's `CHUNK_OPS`
-/// worth of overlap.
+/// because `read_ahead` runs once per call and not once per op.
+///
+/// **Today every call spends exactly one op, so this is insurance, not a live
+/// constraint** — setting it to 0 passes the whole test suite. The two multi-op
+/// calls are `decode_bits::<N>`, where every *encode* site passes `N = 1` and
+/// the encoder flushes between batches, and a bitwise `AtMost` walk, which
+/// `Walk::production` selects only for `MAX == 1` (one bit) or
+/// `MAX >= SymbolRange::M` — and the latter needs an `[BitContext; MAX]` context
+/// that does not survive const evaluation at that size.
+///
+/// 256 covers the bound either would have if that changed (a walk is one op per
+/// tree level, so `usize::BITS`), for 0.4% of a chunk's `CHUNK_OPS` worth of
+/// overlap. `ops_margin_covers_the_widest_call` pins both facts.
 ///
 /// Being wrong here fails loudly rather than silently: the sync decoder's
 /// `load_next_chunk` would find no frame in the buffer, and `read_varint_io`
@@ -2123,7 +2248,7 @@ const OPS_MARGIN: usize = 256;
 #[cfg(feature = "stream")]
 const PUMP_INTERVAL: u32 = 1024;
 
-/// Decodes [`Ans`]'s format from a stream of [`Bytes`](bytes::Bytes), one chunk
+/// Decodes [`Ans`]'s format from a stream of [`Bytes`](::bytes::Bytes), one chunk
 /// frame at a time.
 ///
 /// Where [`AsyncRangeDecoder`](super::arith::AsyncRangeDecoder) must be able to
@@ -2149,7 +2274,7 @@ pub struct AsyncAnsDecoder<S> {
     inner: AnsDecoder<FrameBuffer, true>,
     /// Set once the final frame is buffered. No further frame can arrive, so
     /// the sync decoder may then run to completion without blocking — which is
-    /// what [`AsyncEntropyDecoder::is_final`] reports.
+    /// the whole of what [`AsyncEntropyDecoder::sync_capacity`] answers here.
     reached_final: bool,
     /// Monotone lower bound on the source bytes the next frame needs; see
     /// [`Self::next_frame_has_arrived`].
@@ -2170,7 +2295,7 @@ impl<S> std::fmt::Debug for AsyncAnsDecoder<S> {
 #[cfg(feature = "stream")]
 impl<S, E> AsyncAnsDecoder<S>
 where
-    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     /// Build a decoder over a source, entering its first chunk.
@@ -2230,8 +2355,8 @@ where
             self.pump_countdown = PUMP_INTERVAL;
             self.source.drain_ready().await;
             // Everything has arrived, so taking the rest cannot suspend. Worth
-            // doing in one go: it sets `reached_final`, and `is_final` then lets
-            // whole values decode through the sync decoder rather than op by op.
+            // doing in one go: it sets `reached_final`, which is what lets whole
+            // values decode through the sync decoder rather than op by op.
             if self.source.is_complete() {
                 while !self.reached_final {
                     self.buffer_next_frame().await;
@@ -2239,7 +2364,7 @@ where
                 return;
             }
             // Frames that have *wholly* arrived are free to take, and taking
-            // them is what gets `is_final` true — and whole values decoding
+            // them is what gets `reached_final` true — and whole values decoding
             // synchronously — as soon as the transport is ahead of us.
             while !self.reached_final && self.next_frame_has_arrived() {
                 self.buffer_next_frame().await;
@@ -2289,7 +2414,13 @@ where
             return false;
         };
         let header = buffered.len() - rest.len();
-        let need = header + entropy_len + incompressible_len;
+        // Saturating for the same reason `load_next_chunk` is: both lengths come
+        // straight off the wire, where a 10-byte varint can declare a value near
+        // `usize::MAX`, and plain `+` panics (debug) or wraps into a bogus
+        // "arrived" (release) on a crafted header.
+        let need = header
+            .saturating_add(entropy_len)
+            .saturating_add(incompressible_len);
         if ready >= need {
             self.next_frame_bytes = 1;
             true
@@ -2312,6 +2443,14 @@ where
         } else {
             let entropy_len = self.read_varint().await;
             let incompressible_len = self.read_varint().await;
+            // Before buffering a byte of it: a declared length past the cap can
+            // only be corruption, and buffering first is what a hostile
+            // transport would want. Mirrors the sync `enter_chunk`.
+            if let Some(e) = oversized_entropy_region(entropy_len) {
+                self.inner.error.get_or_insert(e);
+                self.reached_final = true;
+                return;
+            }
             push_varint(&mut frame, entropy_len);
             push_varint(&mut frame, incompressible_len);
             self.append_region(&mut frame, entropy_len).await;
@@ -2355,7 +2494,7 @@ where
             if let Err(e) = self.source.read_exact(&mut out[start..]).await {
                 // Latch rather than discard: `read_exact` *takes* the error out
                 // of the source, so dropping it here loses it for good, and
-                // `into_result` would then report whatever the short region
+                // `decode_value` would then report whatever the short region
                 // happened to decode to — an empty `Vec`, in the test below.
                 self.inner.error.get_or_insert(e);
                 out.truncate(start);
@@ -2405,32 +2544,33 @@ where
 #[cfg(feature = "stream")]
 impl<S, E> super::AsyncEntropyDecoder for AsyncAnsDecoder<S>
 where
-    S: futures_core::Stream<Item = Result<bytes::Bytes, E>>,
+    S: futures_core::Stream<Item = Result<::bytes::Bytes, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     type Sync<'a> = AnsDecoder<&'a mut FrameBuffer, true>;
 
-    /// Nothing to hold back: the gate here is whole frames, not bytes.
-    const SETTLING_BYTES: usize = 0;
-
-    /// Always 0, which keeps the byte-counted fast path switched off. It is the
-    /// wrong instrument for `Ans` — what bounds a safe sync handoff is whether
-    /// another *frame* can still arrive, not how many bytes are buffered, and
-    /// [`Self::is_final`] answers that exactly rather than approximately. So no
-    /// `MAX_BYTES` is consulted on this path at all.
+    /// All or nothing, and `unit_bytes` never enters into it. What bounds a safe
+    /// handoff here is whether another *frame* can still arrive: nothing in a
+    /// frame is decodable until the whole frame is in hand, so there is no
+    /// partial byte count to divide by, and once no frame can follow, the sync
+    /// decoder holds the entire rest of the stream.
+    ///
+    /// This is where a mid-stream answer would go once the encoder guarantees a
+    /// bounded value never straddles a chunk boundary — `unit_bytes !=
+    /// usize::MAX && ops_left > 0`, reading the unit's *boundedness* rather than
+    /// its size. See OPTIMIZING.md.
     #[inline]
-    fn ready_bytes(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    fn is_final(&self) -> bool {
-        self.reached_final
+    fn sync_capacity(&self, _unit_bytes: usize) -> usize {
+        if self.reached_final {
+            usize::MAX
+        } else {
+            0
+        }
     }
 
     /// Hands over the sync decoder itself — no state to translate, since its
     /// whole per-chunk state already lives in owned buffers and its reader
-    /// holds every remaining frame once [`Self::is_final`] holds.
+    /// holds every remaining frame once [`Self::reached_final`] holds.
     #[inline]
     fn with_sync<R>(&mut self, f: impl FnOnce(&mut Self::Sync<'_>) -> R) -> R {
         // A view rather than a reborrow only because the associated type has to
@@ -2459,17 +2599,13 @@ where
         result
     }
 
-    /// A latched stream error wins over a downstream validation error, for the
-    /// reason given on the trait method; a frame-level error latched by the sync
-    /// decoder comes next, being closer to the cause than the value is.
-    fn into_result<T>(mut self, value: Result<T, std::io::Error>) -> std::io::Result<T> {
-        if let Some(e) = self.source.take_error() {
-            return Err(e);
-        }
-        match self.inner.error.take() {
-            Some(e) => Err(e),
-            None => value,
-        }
+    /// A stream-level error comes first, being closer to the cause than a
+    /// frame-level one the sync decoder latched from the bytes it did receive.
+    fn finish(mut self) -> std::io::Result<()> {
+        self.source
+            .take_error()
+            .or_else(|| self.inner.error.take())
+            .map_or(Ok(()), Err)
     }
 
     #[inline]
@@ -2515,6 +2651,46 @@ mod async_tests {
     use crate::v2::stream::tests::Chunks;
     use futures_executor::block_on;
 
+    /// A crafted frame header must not overflow the "has the next frame
+    /// arrived?" arithmetic. Both region lengths come straight off the wire,
+    /// where a 10-byte varint reaches `usize::MAX`, so `next_frame_has_arrived`
+    /// sums them saturatingly exactly as the sync `load_next_chunk` does.
+    ///
+    /// Without that, this panics with `attempt to add with overflow` under the
+    /// test profile, and in release wraps to a small `need` — reporting a frame
+    /// as wholly arrived when almost none of it is. Reachable from the public
+    /// `decode_stream`, which is documented as taking arbitrary transports.
+    #[test]
+    fn crafted_frame_lengths_do_not_overflow_the_arrival_check() {
+        // Keep a real, *non-final* first frame: the look-ahead only runs while
+        // the decoder still expects another frame, so a final first frame (what
+        // any small value encodes to) never reaches the arithmetic at all.
+        let value: Vec<u64> = (0..20_000).map(|i| i * 2_654_435_761).collect();
+        let encoded = Ans::encode(&value);
+        let starts = frame_starts(&encoded);
+        assert!(starts.len() >= 3, "test wants a multi-frame stream");
+
+        let mut bytes = encoded[..starts[1]].to_vec();
+        // In place of the second frame, a header declaring both regions as
+        // `usize::MAX`. Tag is odd (non-final) so the length pair is read.
+        push_varint(&mut bytes, 3);
+        push_varint(&mut bytes, usize::MAX);
+        push_varint(&mut bytes, usize::MAX);
+        bytes.extend_from_slice(&[0u8; 64]);
+
+        // Small chunks so `Chunks`' Pending/Ready alternation forces the async
+        // decoder rather than the single-chunk fast path.
+        let decoded = block_on(Ans::decode_stream::<Vec<u64>, _, _>(Chunks::new(
+            &bytes, 16,
+        )));
+        // The requirement is that it does not panic; a header promising
+        // `usize::MAX` bytes can never be satisfied, so this cannot succeed.
+        assert!(
+            decoded.is_err(),
+            "a frame declaring usize::MAX regions must fail, not decode"
+        );
+    }
+
     /// The point of the whole exercise: a value spanning several `Ans` frames,
     /// re-chopped at stream boundaries that have nothing to do with where the
     /// frame boundaries fall.
@@ -2550,8 +2726,8 @@ mod async_tests {
         }
     }
 
-    /// A value small enough to be a single (final) frame: `is_final` holds from
-    /// the start, so this runs entirely through the sync decoder.
+    /// A value small enough to be a single (final) frame: `reached_final` holds
+    /// from the start, so this runs entirely through the sync decoder.
     #[test]
     fn single_frame_round_trips_from_a_stream() {
         let value: Vec<String> = vec![
@@ -2570,8 +2746,8 @@ mod async_tests {
 
     /// A stream that yields some real chunks and then fails, so the failure
     /// lands *inside* a decode rather than at construction — the distinction
-    /// R5 drew about the sync path, which applies here for the same reason:
-    /// `AsyncAnsDecoder::into_result` prefers a latched source error over a
+    /// R5 drew about the sync path, which applies here for the same reason: the
+    /// latched source error `AsyncAnsDecoder::finish` reports must beat a
     /// downstream validation error, and only a mid-stream failure exercises it.
     struct FailAfter {
         chunks: std::collections::VecDeque<::bytes::Bytes>,
@@ -2608,6 +2784,67 @@ mod async_tests {
             err.to_string().contains("transient stream failure"),
             "expected the latched stream error, got: {err}"
         );
+    }
+
+    /// [`OPS_MARGIN`] must exceed the ops any *single* call into the decoder can
+    /// spend, since `read_ahead` runs per call and not per op.
+    ///
+    /// Today every call spends exactly one op, so the margin is insurance rather
+    /// than load-bearing — setting it to 0 passes the whole suite. This test
+    /// pins the two facts that make that true, so a change to either fails here
+    /// rather than silently at a frame boundary:
+    ///
+    /// - The only walks that spend more than one op are the bitwise ones, and
+    ///   [`Walk::production`](crate::v2::Walk::production) selects those only for
+    ///   `MAX == 1` (a single bit) or `MAX >= SymbolRange::M`. The latter needs
+    ///   an `AtMostContext<MAX>` of `[BitContext; MAX]`, which does not survive
+    ///   const evaluation at that size — so it is unreachable in practice.
+    /// - Even if it became reachable, a bitwise walk is one op per tree level
+    ///   and `MAX` is a `usize`, so `usize::BITS` bounds it.
+    ///
+    /// `decode_bits::<N>` is the other multi-op call. Every *encode* site passes
+    /// `N = 1` (batching is decode-side only), and the encoder flushes between
+    /// batches, so a batch never straddles two chunks.
+    #[test]
+    fn ops_margin_covers_the_widest_call() {
+        use crate::v2::atmost::walks::Walk;
+        assert!(
+            OPS_MARGIN > usize::BITS as usize,
+            "a bitwise walk spends one op per tree level, bounded by usize::BITS"
+        );
+        for max in [1usize, 2, 7, 8, 255, 256, 1000, 65535] {
+            let bitwise = matches!(
+                walk_for(max),
+                Some(Walk::CompleteBitwise | Walk::UnevenBitwise)
+            );
+            assert_eq!(
+                bitwise,
+                max == 1,
+                "MAX={max}: only a single-bit walk should be bitwise below \
+                 SymbolRange::M, or `read_ahead` needs to run per op"
+            );
+        }
+    }
+
+    /// `Walk::production` is const-generic over `MAX`; this reaches it for a
+    /// runtime value by table, which is enough for the handful of `MAX`es the
+    /// test above cares about.
+    fn walk_for(max: usize) -> Option<crate::v2::atmost::walks::Walk> {
+        fn at<const MAX: usize>() -> Option<crate::v2::atmost::walks::Walk> {
+            use crate::v2::atmost::walks::Walk;
+            Walk::production::<MAX>(<Decoder<'static> as SymbolDecoder>::SPECULATES)
+        }
+        match max {
+            1 => at::<1>(),
+            2 => at::<2>(),
+            7 => at::<7>(),
+            8 => at::<8>(),
+            255 => at::<255>(),
+            256 => at::<256>(),
+            1000 => at::<1000>(),
+            65535 => at::<65535>(),
+            _ => unreachable!("add {max} to the table"),
+        }
     }
 
     #[test]

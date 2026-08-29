@@ -1,4 +1,5 @@
-use super::{bits::Bits, Encode, EncodingStrategy, ULessThan};
+use super::bits::Bits;
+use super::{Encode, EncodingStrategy, ULessThan};
 use crate::{Compressible, Small, Sorted};
 
 #[cfg(test)]

@@ -22,6 +22,16 @@ CI runs clippy on the *newest* stable, which may know lints the locally
 installed clippy doesn't — if CI's clippy job fails while local clippy passes,
 read the CI log and apply its suggested fix (or `rustup update stable`).
 
+`rustfmt.toml` sets `imports_granularity = "Module"`, which is an unstable
+rustfmt option. Stable rustfmt doesn't reject it — it prints a
+can't-set-this-option warning and exits 0 — so a stable `cargo fmt --check`
+(what the pre-commit hook runs) passes even on unmerged, nested imports and
+enforces nothing about them. CI's `rustfmt` job therefore runs on nightly,
+where the option is actually applied — a similar gap to the clippy
+stable/nightly one above, but here it means the CI job can fail on imports
+the pre-commit hook saw as clean. Reproduce locally with `cargo +nightly fmt
+--all --check` (needs `rustup component add rustfmt --toolchain nightly`).
+
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
 The optional `benchmarking` feature exposes the benchmark-support API — forced
@@ -34,8 +44,12 @@ that calls them (`benches/atmost.rs`, `src/bin/ans-decode-phases.rs`,
 `src/bin/just-decompress-stream.rs`) needs `benchmarking` in its
 `required-features`, **and** cargo silently *skips* targets whose
 required-features are off — so a lint or build break in them hides unless the
-feature is named. That is why CI clippies twice and runs `cargo test
---all-features`. Items the lib's own unit tests also use are gated
+feature is on. That is why CI clippies twice — the second pass with
+`--all-features`, which is what reaches every gated target rather than a named
+list that a new one can be left out of — and runs `cargo test --all-features`.
+`src/bin/char-freq.rs`, gated on the optional `csv`/`ureq` dependencies, hid
+that way and collected six clippy warnings nobody saw. Items the lib's own unit
+tests also use are gated
 `#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
 coverage.
 
@@ -63,20 +77,27 @@ This is a Rust serialization library that encodes data using **adaptive entropy 
 
 ### Format versions
 
-The library has two independently stable binary formats, each living in its own module:
+The library has two binary formats, each living in its own module:
 
-| Module | Coder | Notes |
-|--------|-------|-------|
-| `compactly::v1` | Arithmetic/range coding | Written to any `std::io::Write` |
-| `compactly::v2` | ANS (Asymmetric Numeral Systems) | Default re-exported as `compactly::{encode, decode, Encode}` |
+| Module | Coder | Stability | Notes |
+|--------|-------|-----------|-------|
+| `compactly::v1` | Arithmetic/range coding | **Frozen** — guarded by `tests/v1-encoding` | Written to any `std::io::Write` |
+| `compactly::v2` | ANS (Asymmetric Numeral Systems) | **Not stable; still free to change** | Default re-exported as `compactly::{encode, decode, Encode}` |
 
 Both versions share the same overall design — only the entropy coder differs.
+
+**`v2` is not a frozen format.** There is no `v2-encoding` stability test and none
+is wanted yet: changes that move the bitstream (context seeds, tree shapes, chunk
+boundaries) are still fair game, and are made on their merits. Only `v1` is
+committed to. Do not add a v2 stability test, and do not reject a v2 change on
+compatibility grounds, without an explicit decision to freeze it.
 
 ### Core traits
 
 **In `v2`** ([src/v2/mod.rs](src/v2/mod.rs)):
-- `Encode` — types that can be encoded; has an associated `Context` (the adaptive probability model) and `encode`/`decode` methods
-- `EncodingStrategy<T>` — alternate encodings for a type (e.g. `Small`, `LowCardinality`); plug-in strategies used via `#[compactly(Small)]` derive attributes
+- `Encode<S = Normal>` — types that can be encoded; has an associated `Context` (the adaptive probability model) and `encode`/`decode` **associated functions** (they take `value: &Self`, not `&self`, so a type with several strategies has no ambiguous method call). `S` is the encoding strategy: `Encode<Small> for u64` is the same type coded a different way, selected per field via `#[compactly(Small)]`. There is no separate `EncodingStrategy` trait — the strategy is a parameter, so wrapper types like `Option<T>` and `Box<T>` lift *every* strategy generically in one impl.
+- There is **no** `.encode(...)` method — `Encode::encode` takes `value: &Self`, so every call goes through a strategy: `Normal::encode(&v, coder, ctx)` for the default, `Small::encode(&v, coder, ctx)` for a named one. A `&self` method could only ever sugar the default strategy (and could not sugar `decode` at all, which has no receiver), so it would leave two spellings for one operation; it was tried and removed. Size estimation is the crate-private `v2::millibits(&value)`, used by the size tests.
+- `Strategy` — opt-in marker on the strategy types giving `Small::encode(&v, coder, ctx)` / `Small::decode(r, ctx)` syntax. Not blanket-implemented (that would make `u8::encode` ambiguous) and not inherent methods (that would collide with v1's identically-spelled calls on the same shared marker types).
 - `EntropyCoder` — something that can accept bits with probabilities (`Range`, `Ans`, `Millibits` all implement this)
 - `EntropyDecoder` — the read side
 

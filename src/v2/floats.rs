@@ -1,5 +1,5 @@
-use super::{Encode, EncodingStrategy, EntropyCoder, EntropyDecoder};
-use crate::{Decimal, Small};
+use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
+use crate::{Decimal, Normal, Small};
 
 #[cfg(test)]
 use expect_test::expect;
@@ -56,31 +56,31 @@ macro_rules! impl_float {
             pub struct FloatContext {
                 is_raw: <bool as Encode>::Context,
                 is_int: <bool as Encode>::Context,
-                integer: <Small as EncodingStrategy<i64>>::Context,
-                mantissa: <Small as EncodingStrategy<i32>>::Context,
-                exponent: <Small as EncodingStrategy<i8>>::Context,
+                integer: <i64 as Encode<Small>>::Context,
+                mantissa: <i32 as Encode<Small>>::Context,
+                exponent: <i8 as Encode<Small>>::Context,
             }
 
             impl Encode for $t {
                 type Context = FloatContext;
                 #[inline]
-                fn encode<E: EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
+                fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
                     use super::super::bit_context::BitContext;
                     // Once `is_raw` has saturated, every value is stored raw with
                     // no selector — return immediately so no classification work
                     // (`to_decimal`, etc.) is done past saturation.
                     if ctx.is_raw == BitContext::SATURATED_TRUE {
-                        writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        writer.encode_incompressible_bytes(&value.to_le_bytes());
                         return;
                     }
 
-                    let intvalue = *self as i64;
+                    let intvalue = *value as i64;
                     // Decimal first, so round/small integers *fold* their
                     // trailing zeros into the power (`5000 -> (5,3)`) and share a
                     // small, compressible mantissa. `Small<i64>` (`is_int`) is
                     // only for large integers `to_decimal` can't fold to `i32`.
-                    let decimal = to_decimal(*self);
-                    let big_int = if decimal.is_none() && intvalue as $t == *self {
+                    let decimal = to_decimal(*value);
+                    let big_int = if decimal.is_none() && intvalue as $t == *value {
                         Some(intvalue)
                     } else {
                         None
@@ -90,32 +90,28 @@ macro_rules! impl_float {
                     // anything else falls back to raw.
                     if ctx.is_int == BitContext::SATURATED_TRUE {
                         if let Some(iv) = big_int {
-                            false.encode(writer, &mut ctx.is_raw);
-                            <Small as EncodingStrategy<i64>>::encode(&iv, writer, &mut ctx.integer);
+                            Normal::encode(&false, writer, &mut ctx.is_raw);
+                            <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
                         } else {
-                            true.encode(writer, &mut ctx.is_raw);
-                            writer.encode_incompressible_bytes(&self.to_le_bytes());
+                            Normal::encode(&true, writer, &mut ctx.is_raw);
+                            writer.encode_incompressible_bytes(&value.to_le_bytes());
                         }
                         return;
                     }
                     let is_raw = decimal.is_none() && big_int.is_none();
-                    is_raw.encode(writer, &mut ctx.is_raw);
+                    Normal::encode(&is_raw, writer, &mut ctx.is_raw);
                     if is_raw {
-                        writer.encode_incompressible_bytes(&self.to_le_bytes());
+                        writer.encode_incompressible_bytes(&value.to_le_bytes());
                         return;
                     }
                     let is_int = big_int.is_some();
-                    is_int.encode(writer, &mut ctx.is_int);
+                    Normal::encode(&is_int, writer, &mut ctx.is_int);
                     if let Some(iv) = big_int {
-                        <Small as EncodingStrategy<i64>>::encode(&iv, writer, &mut ctx.integer);
+                        <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
                     } else {
                         let (mantissa, power) = decimal.unwrap();
-                        <Small as EncodingStrategy<i32>>::encode(
-                            &mantissa,
-                            writer,
-                            &mut ctx.mantissa,
-                        );
-                        <Small as EncodingStrategy<i8>>::encode(&power, writer, &mut ctx.exponent);
+                        <i32 as Encode<Small>>::encode(&mantissa, writer, &mut ctx.mantissa);
+                        <i8 as Encode<Small>>::encode(&power, writer, &mut ctx.exponent);
                     }
                 }
                 #[inline]
@@ -125,36 +121,30 @@ macro_rules! impl_float {
                 ) -> Result<Self, std::io::Error> {
                     use super::super::bit_context::BitContext;
                     let raw = ctx.is_raw == BitContext::SATURATED_TRUE
-                        || bool::decode(reader, &mut ctx.is_raw)?;
+                        || <bool as Encode>::decode(reader, &mut ctx.is_raw)?;
                     if raw {
                         let mut bytes = [0u8; $bits / 8];
                         reader.decode_incompressible_bytes(&mut bytes)?;
                         return Ok($t::from_le_bytes(bytes));
                     }
                     let is_int = ctx.is_int == BitContext::SATURATED_TRUE
-                        || bool::decode(reader, &mut ctx.is_int)?;
+                        || <bool as Encode>::decode(reader, &mut ctx.is_int)?;
                     if is_int {
-                        let intvalue =
-                            <Small as EncodingStrategy<i64>>::decode(reader, &mut ctx.integer)?;
+                        let intvalue = <i64 as Encode<Small>>::decode(reader, &mut ctx.integer)?;
                         Ok(intvalue as $t)
                     } else {
-                        let mantissa =
-                            <Small as EncodingStrategy<i32>>::decode(reader, &mut ctx.mantissa)?;
-                        let power =
-                            <Small as EncodingStrategy<i8>>::decode(reader, &mut ctx.exponent)?;
+                        let mantissa = <i32 as Encode<Small>>::decode(reader, &mut ctx.mantissa)?;
+                        let power = <i8 as Encode<Small>>::decode(reader, &mut ctx.exponent)?;
                         Ok(decimal_value(mantissa, power))
                     }
                 }
-            }
 
-            impl crate::v2::DecodeAsync<$t> for crate::Normal {
                 /// One of a few tiers — raw bytes, `Small<i64>`, or a decimal
                 /// mantissa and power — behind a couple of selector bits.
                 /// Loose on purpose; property-tested rather than derived tightly.
-                const MAX_BYTES: usize = 4
-                    * <crate::Normal as crate::v2::DecodeAsync<bool>>::MAX_BYTES
+                const MAX_BYTES: usize = 4 * <bool as Encode>::MAX_BYTES
                     + std::mem::size_of::<$t>()
-                    + 2 * <Small as crate::v2::DecodeAsync<i64>>::MAX_BYTES;
+                    + 2 * <i64 as Encode<Small>>::MAX_BYTES;
 
                 #[inline]
                 async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
@@ -163,40 +153,23 @@ macro_rules! impl_float {
                 ) -> Result<$t, std::io::Error> {
                     use super::super::bit_context::BitContext;
                     let raw = ctx.is_raw == BitContext::SATURATED_TRUE
-                        || <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
-                            reader,
-                            &mut ctx.is_raw,
-                        )
-                        .await?;
+                        || <bool as Encode>::decode_async(reader, &mut ctx.is_raw).await?;
                     if raw {
                         let mut bytes = [0u8; $bits / 8];
                         reader.decode_incompressible_bytes(&mut bytes).await?;
                         return Ok($t::from_le_bytes(bytes));
                     }
                     let is_int = ctx.is_int == BitContext::SATURATED_TRUE
-                        || <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
-                            reader,
-                            &mut ctx.is_int,
-                        )
-                        .await?;
+                        || <bool as Encode>::decode_async(reader, &mut ctx.is_int).await?;
                     if is_int {
-                        let intvalue = <Small as crate::v2::DecodeAsync<i64>>::decode_async(
-                            reader,
-                            &mut ctx.integer,
-                        )
-                        .await?;
+                        let intvalue =
+                            <i64 as Encode<Small>>::decode_async(reader, &mut ctx.integer).await?;
                         Ok(intvalue as $t)
                     } else {
-                        let mantissa = <Small as crate::v2::DecodeAsync<i32>>::decode_async(
-                            reader,
-                            &mut ctx.mantissa,
-                        )
-                        .await?;
-                        let power = <Small as crate::v2::DecodeAsync<i8>>::decode_async(
-                            reader,
-                            &mut ctx.exponent,
-                        )
-                        .await?;
+                        let mantissa =
+                            <i32 as Encode<Small>>::decode_async(reader, &mut ctx.mantissa).await?;
+                        let power =
+                            <i8 as Encode<Small>>::decode_async(reader, &mut ctx.exponent).await?;
                         Ok(decimal_value(mantissa, power))
                     }
                 }
@@ -290,10 +263,10 @@ macro_rules! impl_float {
             #[derive(Clone, Default)]
             pub struct DecimalContext {
                 is_decimal: <bool as Encode>::Context,
-                mantissa: <Small as EncodingStrategy<i32>>::Context,
-                exponent: <Small as EncodingStrategy<i8>>::Context,
+                mantissa: <i32 as Encode<Small>>::Context,
+                exponent: <i8 as Encode<Small>>::Context,
             }
-            impl EncodingStrategy<$t> for Decimal {
+            impl Encode<Decimal> for $t {
                 type Context = DecimalContext;
                 fn encode<E: super::EntropyCoder>(
                     value: &$t,
@@ -307,14 +280,10 @@ macro_rules! impl_float {
                     // integers, extreme magnitudes) stores its raw bits
                     // incompressibly.
                     let decimal = to_decimal(*value);
-                    decimal.is_some().encode(writer, &mut ctx.is_decimal);
+                    Normal::encode(&decimal.is_some(), writer, &mut ctx.is_decimal);
                     if let Some((mantissa, power)) = decimal {
-                        <Small as EncodingStrategy<i32>>::encode(
-                            &mantissa,
-                            writer,
-                            &mut ctx.mantissa,
-                        );
-                        <Small as EncodingStrategy<i8>>::encode(&power, writer, &mut ctx.exponent);
+                        <i32 as Encode<Small>>::encode(&mantissa, writer, &mut ctx.mantissa);
+                        <i8 as Encode<Small>>::encode(&power, writer, &mut ctx.exponent);
                     } else {
                         writer.encode_incompressible_bytes(&value.to_le_bytes());
                     }
@@ -324,43 +293,28 @@ macro_rules! impl_float {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
-                    if bool::decode(reader, &mut ctx.is_decimal)? {
-                        let mantissa =
-                            <Small as EncodingStrategy<i32>>::decode(reader, &mut ctx.mantissa)?;
-                        let power =
-                            <Small as EncodingStrategy<i8>>::decode(reader, &mut ctx.exponent)?;
+                    if <bool as Encode>::decode(reader, &mut ctx.is_decimal)? {
+                        let mantissa = <i32 as Encode<Small>>::decode(reader, &mut ctx.mantissa)?;
+                        let power = <i8 as Encode<Small>>::decode(reader, &mut ctx.exponent)?;
                         return Ok(decimal_value(mantissa, power));
                     }
                     let mut bytes = [0u8; $bits / 8];
                     reader.decode_incompressible_bytes(&mut bytes)?;
                     Ok($t::from_le_bytes(bytes))
                 }
-            }
 
-            impl crate::v2::DecodeAsync<$t> for Decimal {
                 /// As the default encoding, plus the non-decimal fallback.
-                const MAX_BYTES: usize = <crate::Normal as crate::v2::DecodeAsync<$t>>::MAX_BYTES;
+                const MAX_BYTES: usize = <$t as Encode>::MAX_BYTES;
 
                 async fn decode_awaiting<D: crate::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> Result<$t, std::io::Error> {
-                    if <crate::Normal as crate::v2::DecodeAsync<bool>>::decode_async(
-                        reader,
-                        &mut ctx.is_decimal,
-                    )
-                    .await?
-                    {
-                        let mantissa = <Small as crate::v2::DecodeAsync<i32>>::decode_async(
-                            reader,
-                            &mut ctx.mantissa,
-                        )
-                        .await?;
-                        let power = <Small as crate::v2::DecodeAsync<i8>>::decode_async(
-                            reader,
-                            &mut ctx.exponent,
-                        )
-                        .await?;
+                    if <bool as Encode>::decode_async(reader, &mut ctx.is_decimal).await? {
+                        let mantissa =
+                            <i32 as Encode<Small>>::decode_async(reader, &mut ctx.mantissa).await?;
+                        let power =
+                            <i8 as Encode<Small>>::decode_async(reader, &mut ctx.exponent).await?;
                         return Ok(decimal_value(mantissa, power));
                     }
                     let mut bytes = [0u8; $bits / 8];

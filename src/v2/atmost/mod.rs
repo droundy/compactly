@@ -177,8 +177,8 @@ impl<const MAX: usize> Default for AtMostContext<MAX> {
 impl<const MAX: usize> Encode for AtMost<MAX> {
     type Context = AtMostContext<MAX>;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        writer.encode_atmost(ctx, *self)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        writer.encode_atmost(ctx, *value)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -187,9 +187,7 @@ impl<const MAX: usize> Encode for AtMost<MAX> {
     ) -> Result<Self, std::io::Error> {
         Ok(reader.decode_atmost(ctx))
     }
-}
 
-impl<const MAX: usize> super::DecodeAsync<AtMost<MAX>> for crate::Normal {
     const MAX_BYTES: usize = if MAX == 0 {
         // One possible value carries no information, so nothing is coded at all
         // (`walks::Walk::production` returns `None`). Worth spelling out because
@@ -199,8 +197,7 @@ impl<const MAX: usize> super::DecodeAsync<AtMost<MAX>> for crate::Normal {
     } else if MAX < super::model::SymbolRange::M as usize {
         super::MAX_INFO_BYTES_PER_SYMBOL
     } else {
-        (usize::BITS - MAX.leading_zeros()) as usize
-            * <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
+        (usize::BITS - MAX.leading_zeros()) as usize * <bool as Encode>::MAX_BYTES
     };
 
     #[inline]
@@ -245,7 +242,7 @@ fn size() {
         for i in 0..=MAX {
             let v = AtMost::<MAX>::new(i);
             assert_eq!(
-                super::Encode::millibits(&v),
+                super::millibits(&v),
                 super::Millibits::bits(bits),
                 "AtMost::<{MAX}>::new({i}) should cost exactly {bits} bits"
             );

@@ -27,19 +27,35 @@
 // what the fast path costs, and `stream | slice` is the already-known cost of
 // not borrowing.
 //
-// Usage: `[COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async [u64|strings]`
+// Usage: `[COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async
+//         [u64|strings|records|records-wide]`
 //
 // COUNT (default 2000) sets how many u64s per value; ITERS is derived so the
 // total number of values decoded stays fixed, keeping runtimes comparable
 // across sizes. 2000 is cache-resident, 100000 is memory-bound. The `strings`
-// workload uses the meteorite names, so run it from the workspace root.
+// and `records` workloads use the meteorite names, so run them from the
+// workspace root; they take their size from the corpus and ignore `COUNT`.
+//
+// The workloads sit at three points on the one axis that turned out to matter,
+// the amount of decoding one *bounded* value covers:
+//
+//   u64           every element bounded and ~10 ops apiece — the cheapest thing
+//                 a mid-stream handoff can be asked to carry.
+//   strings       a `Vec<String>`, so the elements that get handed over are
+//                 `char`s, the smallest bounded unit in the crate.
+//   records       a struct of a short string beside integers, and
+//   records-wide  the same with the integer side widened. This is the shape
+//                 callers actually stream, and it is a mix rather than either
+//                 extreme: the string's characters take the handoffs while the
+//                 integer fields go through the derive's per-field path and
+//                 take none, so the two differ only in how much non-handoff
+//                 work sits beside the same number of handoffs.
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use compactly::v2::{decode_stream, Ans, DecodeAsync, Encode, Range};
-use compactly::Normal;
+use compactly::v2::{decode_stream, Ans, Encode, Range};
 use futures_core::Stream;
 
 /// How many chunks the `async-split` arm delivers. 2 (a single byte, then the
@@ -119,10 +135,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn decode_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(compactly::v2::decode::<T>(compressed))
@@ -132,10 +145,7 @@ where
     total
 }
 
-fn decode_sync_stream<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_sync_stream<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(Range::decode_from::<T, _>(compressed))
@@ -145,10 +155,7 @@ where
     total
 }
 
-fn decode_ans_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_ans_slice<T: Encode + Len>(compressed: &[u8], iters: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         total += std::hint::black_box(Ans::decode::<T>(compressed))
@@ -161,10 +168,7 @@ where
 /// `Ans` has no single-chunk look-ahead: a frame is decodable only once it has
 /// arrived whole, so the async decoder runs whatever the stream shape. What
 /// varies with `chunks` is only how the frames are cut up on the way in.
-fn decode_ans_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_ans_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         let source = Chunks::new(compressed, chunks);
@@ -175,10 +179,7 @@ where
     total
 }
 
-fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn decode_async<T: Encode + Len>(compressed: &[u8], iters: usize, chunks: usize) -> usize {
     let mut total = 0;
     for _ in 0..iters {
         let source = Chunks::new(compressed, chunks);
@@ -203,6 +204,80 @@ impl Len for Vec<String> {
     fn len(&self) -> usize {
         Vec::len(self)
     }
+}
+
+/// A record shaped the way streamed data usually is: a short string beside a
+/// couple of integers. The two `Vec` workloads above are the extremes — every
+/// element bounded, or every element a string — and a struct is the mix that
+/// decides whether the mid-stream handoff pays. `name` saturates
+/// `MAX_BYTES` to `usize::MAX`, so the outer loop cannot batch and each
+/// `String`'s characters are what take the handoffs.
+#[derive(Debug, Clone, PartialEq, compactly::v2::Encode)]
+struct Record {
+    id: u64,
+    count: u32,
+    name: String,
+    active: bool,
+}
+
+/// The same record with the integer side widened, which dilutes the fraction of
+/// the decode that runs through the per-character loop.
+#[derive(Debug, Clone, PartialEq, compactly::v2::Encode)]
+struct WideRecord {
+    id: u64,
+    count: u32,
+    a: u64,
+    b: u64,
+    c: u32,
+    d: u16,
+    name: String,
+    active: bool,
+}
+
+impl Len for Vec<Record> {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+impl Len for Vec<WideRecord> {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+/// Meteorite names paired with deterministic integers, so the record workloads
+/// share the string corpus the `strings` workload uses.
+fn records() -> (Vec<Record>, Vec<WideRecord>) {
+    let mut x = 0x243f_6a88_85a3_08d3u64;
+    let mut rng = || {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        x
+    };
+    let names = meteorite_names();
+    let mut narrow = Vec::with_capacity(names.len());
+    let mut wide = Vec::with_capacity(names.len());
+    for name in names {
+        let (id, r) = (rng(), rng());
+        narrow.push(Record {
+            id,
+            count: r as u32,
+            name: name.clone(),
+            active: r & 1 == 0,
+        });
+        wide.push(WideRecord {
+            id,
+            count: r as u32,
+            a: rng(),
+            b: rng(),
+            c: rng() as u32,
+            d: rng() as u16,
+            name,
+            active: r & 1 == 0,
+        });
+    }
+    (narrow, wide)
 }
 
 /// Extract the first (quote-aware) CSV field of each record, skipping the header
@@ -232,10 +307,7 @@ fn meteorite_names() -> Vec<String> {
     out.into_iter().collect()
 }
 
-fn run<T: Encode + Len>(which: &str, compressed: &[u8], iters: usize) -> usize
-where
-    Normal: DecodeAsync<T>,
-{
+fn run<T: Encode + Len>(which: &str, compressed: &[u8], iters: usize) -> usize {
     match which {
         "slice" => decode_slice::<T>(compressed, iters),
         "stream" => decode_sync_stream::<T>(compressed, iters),
@@ -245,7 +317,7 @@ where
         "ans-async" => decode_ans_async::<T>(compressed, iters, split_chunks()),
         _ => {
             eprintln!(
-                "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async [u64|strings]"
+                "usage: [COUNT=n] async-decode-cost slice|stream|async|async-split|ans-slice|ans-async [u64|strings|records|records-wide]"
             );
             std::process::exit(2);
         }
@@ -288,14 +360,30 @@ fn main() {
             };
             (bytes, (STRING_VALUE_BUDGET / n).max(1), n)
         }
+        "records" | "records-wide" => {
+            let (narrow, wide) = records();
+            let n = narrow.len();
+            let wide_workload = workload == "records-wide";
+            let bytes = match (which.starts_with("ans"), wide_workload) {
+                (true, false) => Ans::encode(&narrow),
+                (false, false) => compactly::v2::encode(&narrow),
+                (true, true) => Ans::encode(&wide),
+                (false, true) => compactly::v2::encode(&wide),
+            };
+            (bytes, (STRING_VALUE_BUDGET / n).max(1), n)
+        }
         _ => {
-            eprintln!("usage: [COUNT=n] async-decode-cost slice|stream|async [u64|strings]");
+            eprintln!(
+                "usage: [COUNT=n] async-decode-cost slice|stream|async [u64|strings|records|records-wide]"
+            );
             std::process::exit(2);
         }
     };
 
     let total = match workload.as_str() {
         "u64" => run::<Vec<u64>>(&which, &compressed, iters),
+        "records" => run::<Vec<Record>>(&which, &compressed, iters),
+        "records-wide" => run::<Vec<WideRecord>>(&which, &compressed, iters),
         _ => run::<Vec<String>>(&which, &compressed, iters),
     };
     println!(

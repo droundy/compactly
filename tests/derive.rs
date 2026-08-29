@@ -239,6 +239,38 @@ fn low_cardinality() {
 }
 
 #[test]
+#[deny(deprecated)]
+fn low_cardinality_string_allow_string() {
+    // `allow_string` opts a `LowCardinality<String>` field out of the deprecation
+    // warning that otherwise steers you toward `Arc<str>`. `#[deny(deprecated)]`
+    // on this test makes the opt-out load-bearing: if a regression dropped the
+    // flag, the derive-generated deprecation marker would become a hard error
+    // right here. Deriving both `v1::Encode` and `v2::Encode` also proves the flag
+    // is tolerated by the v1 derive (which never emits the warning) and that the
+    // field still round-trips through both formats.
+    #[derive(Debug, PartialEq, Eq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Data {
+        #[compactly(LowCardinality, allow_string)]
+        value: String,
+    }
+
+    assert_bits!(
+        Data {
+            value: String::from("hello")
+        },
+        expect!["v1: 37 bits, v2: 37 bits"]
+    );
+    assert_bits!(
+        (0..1024)
+            .map(|v| Data {
+                value: format!("class-{}", v % 3)
+            })
+            .collect::<Vec<_>>(),
+        expect!["v1: 1897 bits, v2: 1870 bits"]
+    );
+}
+
+#[test]
 fn unnamed_variants() {
     #[derive(compactly::v2::Encode, compactly::v1::Encode)]
     enum _SomeEnum {
@@ -456,21 +488,18 @@ fn mixed_enum_variants() {
     }
 }
 
-// The derive's `MAX_BYTES` tests live with the async derive, which computes it
-// onto the `DecodeAsync` impl; see the async-decode work in progress.
-
 mod max_bytes {
-    use compactly::v2::{AtMost, DecodeAsync};
-    use compactly::Normal;
+    use compactly::v2::{AtMost, Encode};
 
-    /// `Normal: DecodeAsync<T>` is the async counterpart of `T: Encode`, so
-    /// this is where a derived type's `MAX_BYTES` lives.
+    /// `Encode<S>::MAX_BYTES` is where a derived type's async-decode bound
+    /// lives — the same trait as `encode`/`decode`, since there is no separate
+    /// `DecodeAsync` twin.
     macro_rules! bound {
         ($t:ty) => {
-            <Normal as DecodeAsync<$t>>::MAX_BYTES
+            <$t as Encode>::MAX_BYTES
         };
         ($s:ty, $t:ty) => {
-            <$s as DecodeAsync<$t>>::MAX_BYTES
+            <$t as Encode<$s>>::MAX_BYTES
         };
     }
 
@@ -557,10 +586,11 @@ mod max_bytes {
     }
 }
 
-/// The derive emits a `DecodeAsync` impl alongside `Encode`; this is the only
-/// place it can be exercised, since the lib's own tests cannot use the derive
-/// (`extern crate self as compactly` does not satisfy the generated
-/// `extern crate compactly`).
+/// The derive emits the async-decode members (`MAX_BYTES`, `decode_awaiting`)
+/// alongside `Encode`'s sync ones; this is the only place they can be
+/// exercised, since the lib's own tests cannot use the derive (`extern crate
+/// self as compactly` does not satisfy the generated `extern crate
+/// compactly`).
 #[cfg(feature = "stream")]
 mod async_decode {
     use bytes::Bytes;
@@ -584,24 +614,56 @@ mod async_decode {
         },
     }
 
+    /// A bounded compound record: no field may be unbounded, or the batch loop
+    /// this exists to reach would never run mid-stream. See
+    /// [`a_long_vector_of_derived_records_batches_from_a_stream`].
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    struct Record {
+        flag: bool,
+        #[compactly(Small)]
+        id: u64,
+        kind: Kind,
+    }
+
+    #[derive(compactly::v2::Encode, Debug, PartialEq)]
+    enum Kind {
+        Nothing,
+        Byte(u8),
+        Wide { x: u16 },
+    }
+
     #[derive(compactly::v2::Encode, Debug, PartialEq)]
     struct Generic<T> {
         first: T,
         rest: Vec<T>,
     }
 
-    /// One `Bytes` per `chunk_size` bytes, so the decoder actually suspends.
+    /// One `Bytes` per `chunk_size` bytes, yielding `Pending` before each so the
+    /// decoder actually suspends.
+    ///
+    /// The `Pending` is the whole point and not politeness. An always-ready
+    /// stream is drained to the end by `ChunkSource`'s look-ahead before any
+    /// decoding starts, which makes it a *single chunk* and routes the decode to
+    /// the in-memory slice decoder — so a test built on one silently checks the
+    /// sync path twice and never runs `decode_awaiting` at all. That is exactly
+    /// what every test in this module did before this waker was added.
     fn chunks(
         bytes: &[u8],
         chunk_size: usize,
     ) -> impl futures_core::Stream<Item = Result<Bytes, std::io::Error>> {
-        struct Iter(std::vec::IntoIter<Bytes>);
+        struct Iter(std::vec::IntoIter<Bytes>, bool);
         impl futures_core::Stream for Iter {
             type Item = Result<Bytes, std::io::Error>;
             fn poll_next(
                 mut self: std::pin::Pin<&mut Self>,
-                _: &mut std::task::Context<'_>,
+                cx: &mut std::task::Context<'_>,
             ) -> std::task::Poll<Option<Self::Item>> {
+                if self.1 {
+                    self.1 = false;
+                    cx.waker().wake_by_ref();
+                    return std::task::Poll::Pending;
+                }
+                self.1 = true;
                 std::task::Poll::Ready(self.0.next().map(Ok))
             }
         }
@@ -611,6 +673,7 @@ mod async_decode {
                 .map(Bytes::copy_from_slice)
                 .collect::<Vec<_>>()
                 .into_iter(),
+            true,
         )
     }
 
@@ -618,7 +681,6 @@ mod async_decode {
     fn round_trips<T>(value: T)
     where
         T: compactly::v2::Encode + std::fmt::Debug + PartialEq,
-        compactly::Normal: compactly::v2::DecodeAsync<T>,
     {
         let encoded = compactly::v2::encode(&value);
         assert_eq!(
@@ -652,6 +714,52 @@ mod async_decode {
         ]);
     }
 
+    /// A bounded derived record, batched.
+    ///
+    /// Every other fixture here is small enough that the collection codes no
+    /// sentinel marker and `Range` hands over one element at a time. Past
+    /// `SENTINEL_EVERY` (4096, internal) a `Vec` instead runs the batch loop in
+    /// `v2::sentinel`, whose own fixtures are all scalars, strings, or pairs —
+    /// so the loop has never met a *compound* generated `Context`, which is
+    /// what `Vec<SomeRecord>`, the most ordinary shape there is, produces.
+    ///
+    /// Every field is bounded, deliberately: an unbounded one (a `String`, say)
+    /// makes the whole record unbounded, `sync_capacity` then reports 0 for the
+    /// entire mid-stream, and the batch loop would only ever see the few
+    /// elements left after the source completes. The enum is here so the
+    /// discriminant's `AtMost` walk is inside a batched run too.
+    #[test]
+    fn a_long_vector_of_derived_records_batches_from_a_stream() {
+        let records: Vec<Record> = (0..9000_u64)
+            .map(|i| Record {
+                flag: i % 3 == 0,
+                id: i.wrapping_mul(2654435761) % 100_000,
+                kind: match i % 3 {
+                    0 => Kind::Nothing,
+                    1 => Kind::Byte((i % 251) as u8),
+                    _ => Kind::Wide {
+                        x: (i % 65521) as u16,
+                    },
+                },
+            })
+            .collect();
+
+        let encoded = compactly::v2::encode(&records);
+        assert_eq!(
+            compactly::v2::decode::<Vec<Record>>(&encoded).as_ref(),
+            Some(&records),
+            "sync decode disagrees, so the fixture is wrong"
+        );
+        // A quarter of the input leaves room for real runs; 7 bytes holds less
+        // than one record's `MAX_BYTES`, so every element takes the awaiting
+        // path instead. Both regimes of the same loop.
+        for chunk_size in [7, encoded.len() / 4] {
+            let decoded: Vec<Record> =
+                block_on(compactly::v2::decode_stream(chunks(&encoded, chunk_size))).unwrap();
+            assert_eq!(decoded, records, "chunk_size = {chunk_size}");
+        }
+    }
+
     #[test]
     fn a_generic_derived_type_round_trips_from_a_stream() {
         round_trips(Generic {
@@ -663,4 +771,122 @@ mod async_decode {
             rest: vec!["a".to_string(), "b".to_string()],
         });
     }
+}
+
+/// A hand-written `v2::Encode` impl must supply `MAX_BYTES`/`decode_awaiting`
+/// too — `Encode<S>` is one trait with no opt-out, so a hand-written type used
+/// as a field is exactly as stream-decodable as a derived one, with nothing
+/// left to distinguish "sync-only" impls.
+mod hand_written_encode_needs_the_async_members_too {
+    use compactly::v2::{AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder};
+
+    #[derive(Debug, PartialEq)]
+    struct Manual(bool);
+
+    impl Encode for Manual {
+        type Context = <bool as Encode>::Context;
+        fn encode<E: EntropyCoder>(value: &Self, encoder: &mut E, ctx: &mut Self::Context) {
+            <bool as Encode>::encode(&value.0, encoder, ctx)
+        }
+        fn decode<D: EntropyDecoder>(
+            decoder: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            Ok(Manual(<bool as Encode>::decode(decoder, ctx)?))
+        }
+
+        const MAX_BYTES: usize = <bool as Encode>::MAX_BYTES;
+
+        async fn decode_awaiting<D: AsyncEntropyDecoder>(
+            decoder: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            Ok(Manual(
+                <bool as Encode>::decode_awaiting(decoder, ctx).await?,
+            ))
+        }
+    }
+
+    #[derive(Debug, PartialEq, compactly::v2::Encode)]
+    struct Holder {
+        field: Manual,
+        count: u32,
+    }
+
+    #[test]
+    fn round_trips() {
+        let value = Holder {
+            field: Manual(true),
+            count: 42,
+        };
+        let bytes = compactly::v2::encode(&value);
+        assert_eq!(compactly::v2::decode::<Holder>(&bytes), Some(value));
+    }
+}
+
+/// Strategies now lift through the transparent wrappers `Option` and `Box`
+/// automatically, for *any* strategy the inner type supports.
+///
+/// Before `Encode` took its strategy as a parameter, `Normal`'s blanket impl
+/// covered every type and so overlapped any `impl<T, S> EncodingStrategy<W<T>>
+/// for S`. Wrapper support had to be enumerated by hand — `src/v2/option.rs`
+/// carried a macro listing `(type, strategy)` pairs — and every combination
+/// nobody thought to add simply did not compile. These do now.
+#[test]
+fn strategies_lift_through_option_and_box() {
+    #[derive(Debug, PartialEq, compactly::v2::Encode)]
+    struct Wrapped {
+        #[compactly(Small)]
+        small_option: Option<u32>,
+        #[compactly(Small)]
+        small_box: Box<u64>,
+        #[compactly(Small)]
+        small_boxed_option: Option<Box<usize>>,
+        #[compactly(Compressible)]
+        compressible_option: Option<String>,
+        #[compactly(LowCardinality)]
+        low_cardinality_option: Option<u64>,
+        #[compactly(Sorted)]
+        sorted_option: Option<u8>,
+    }
+
+    for v in [
+        Wrapped {
+            small_option: None,
+            small_box: Box::new(0),
+            small_boxed_option: None,
+            compressible_option: None,
+            low_cardinality_option: None,
+            sorted_option: None,
+        },
+        Wrapped {
+            small_option: Some(7),
+            small_box: Box::new(1_000_000),
+            small_boxed_option: Some(Box::new(42)),
+            compressible_option: Some("aaaaaaaaaaaaaaaaaaaa".to_string()),
+            low_cardinality_option: Some(9),
+            sorted_option: Some(3),
+        },
+    ] {
+        let bytes = compactly::v2::encode(&v);
+        assert_eq!(
+            compactly::v2::decode(&bytes),
+            Some(v),
+            "v2 roundtrip failed"
+        );
+    }
+}
+
+/// A `Box<T>` costs nothing on the wire: it encodes exactly as the `T` inside,
+/// under the default strategy and under a named one alike.
+#[test]
+fn box_is_transparent_on_the_wire() {
+    assert_eq!(
+        compactly::v2::encode(&Box::new(1234_u64)),
+        compactly::v2::encode(&1234_u64),
+    );
+    assert_eq!(
+        compactly::v2::encode_with(compactly::Small, &Box::new(1234_u64)),
+        compactly::v2::encode_with(compactly::Small, &1234_u64),
+    );
 }

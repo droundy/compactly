@@ -29,14 +29,14 @@ use futures_core::Stream;
 /// Matches the sync streaming decoders' behaviour at the edges so the two agree
 /// on bad input as well as good: a clean end of stream yields zero bytes (as
 /// `read_one_byte` does past EOF), and a stream error is latched rather than
-/// returned, to be surfaced by `into_result`.
+/// returned, to be surfaced by `finish`.
 pub(crate) struct ChunkSource<S> {
     /// Boxed rather than requiring `S: Unpin`: one allocation for a whole
     /// decode is not worth constraining what callers may pass.
     stream: Pin<Box<S>>,
     /// Everything delivered and not yet consumed, as one contiguous run.
     ///
-    /// Contiguity is a requirement, not a convenience: [`Self::buffered`] hands
+    /// Contiguity is a requirement, not a convenience: [`Self::peek`] hands
     /// this to a sync decoder that will read up to [`Self::ready_bytes`] of it,
     /// so the two must describe the same bytes. Coalescing is what
     /// [`Self::drain_ready`] pays for that, and it pays only when it actually
@@ -52,6 +52,17 @@ pub(crate) struct ChunkSource<S> {
     /// this flag, which fuses the stream for us.
     ended: bool,
     error: Option<std::io::Error>,
+    /// Whether the transport ever failed — **sticky**, unlike [`Self::error`],
+    /// which [`Self::take_error`] moves out to whoever will report it.
+    ///
+    /// [`Self::is_complete`] must not say "the stream finished cleanly" once a
+    /// failure has happened, and it cannot ask `error` that: by the time anyone
+    /// checks, the error has usually been taken. That matters because
+    /// `is_complete` is what `AsyncRangeDecoder::sync_capacity` consults first,
+    /// and a complete source hands the sync decoder `usize::MAX` capacity — i.e.
+    /// licence to run to the end of the buffer — which is exactly wrong over an
+    /// incomplete one.
+    failed: bool,
 }
 
 impl<S> std::fmt::Debug for ChunkSource<S> {
@@ -62,6 +73,7 @@ impl<S> std::fmt::Debug for ChunkSource<S> {
             .field("buffered", &(self.current.len() - self.pos))
             .field("ended", &self.ended)
             .field("error", &self.error)
+            .field("failed", &self.failed)
             .finish_non_exhaustive()
     }
 }
@@ -98,12 +110,13 @@ where
             pos: 0,
             ended: false,
             error: None,
+            failed: false,
         };
         source.fill().await;
         source
     }
 
-    /// Take any latched stream error, for `into_result`.
+    /// Take any latched stream error, for `finish`.
     pub(crate) fn take_error(&mut self) -> Option<std::io::Error> {
         self.error.take()
     }
@@ -128,6 +141,7 @@ where
             Some(Ok(chunk)) => Some(chunk),
             Some(Err(e)) => {
                 self.error = Some(std::io::Error::other(e));
+                self.failed = true;
                 self.ended = true;
                 None
             }
@@ -139,7 +153,7 @@ where
     ///
     /// This is what makes [`Self::ready_bytes`] mean "what has arrived" rather
     /// than "what is in the chunk I happen to be holding". The difference is not
-    /// cosmetic: both async decoders decide whether to run their fast sync path
+    /// cosmetic: the `Range` decoder decides whether to run its fast sync path
     /// by comparing `ready_bytes` against what a decode step needs, and a
     /// producer that delivers 800-byte chunks was making that comparison fail
     /// even when the whole input had in fact arrived.
@@ -165,7 +179,7 @@ where
             // the closure can run while `self` still owns what the collected
             // chunks will be folded into.
             let stream = &mut self.stream;
-            let (ended, error) = (&mut self.ended, &mut self.error);
+            let (ended, error, failed) = (&mut self.ended, &mut self.error, &mut self.failed);
             std::future::poll_fn(|cx| {
                 while unread + collected < READY_TARGET {
                     match stream.as_mut().poll_next(cx) {
@@ -180,6 +194,7 @@ where
                         }
                         std::task::Poll::Ready(Some(Err(e))) => {
                             *error = Some(std::io::Error::other(e));
+                            *failed = true;
                             *ended = true;
                             break;
                         }
@@ -226,7 +241,7 @@ where
     /// Whether every byte of the input is now in hand — the stream has finished
     /// cleanly and what remains unread is all there will ever be.
     pub(crate) fn is_complete(&self) -> bool {
-        self.ended && self.error.is_none()
+        self.ended && !self.failed
     }
 
     /// Bytes already buffered, decodable without awaiting anything.
@@ -234,19 +249,13 @@ where
         self.current.len() - self.pos
     }
 
-    /// Everything the source has buffered, as one slice.
+    /// Everything the source has buffered, as one borrowed slice.
     ///
-    /// Returned owned (a `Bytes` slice is a refcount bump, not a copy) rather
-    /// than borrowed, so the caller can go on mutating the source while holding
-    /// it — which is exactly what handing it to a sync decoder and then
-    /// [advancing](Self::advance) by what that decoder consumed requires.
-    pub(crate) fn buffered(&self) -> Bytes {
-        self.current.slice(self.pos..)
-    }
-
-    /// The ready bytes, borrowed — for looking without taking. Free, where
-    /// [`Self::buffered`] costs a refcount bump, so this is what a per-op check
-    /// should use.
+    /// Handing this to a sync decoder and then [advancing](Self::advance) by
+    /// whatever that decoder consumed is the sync handoff; it works because the
+    /// buffer is kept contiguous for exactly this reason. Borrowing rather than
+    /// handing out an owned `Bytes` is what keeps a handoff free of the
+    /// refcount pair, which matters once handoffs are per value.
     #[inline]
     pub(crate) fn peek(&self) -> &[u8] {
         &self.current[self.pos..]
@@ -514,6 +523,51 @@ pub(crate) mod tests {
         assert!(s.take_error().is_some(), "the error must still be latched");
     }
 
+    /// [`READY_TARGET`] is the bounded-buffer promise, and it is the whole
+    /// reason `drain_ready` stops asking. Without it a transport with the input
+    /// already in hand would be emptied into memory, and `decode_stream`'s peak
+    /// would be the value *plus the entire compressed input* — which is what
+    /// collect-then-decode gives you for free, so the API would have nothing
+    /// left to offer. Asserted here rather than through the allocator because
+    /// this is the mechanism, and `stats_alloc` cannot report a peak anyway.
+    #[test]
+    fn the_drain_is_bounded_however_much_has_arrived() {
+        // Deliberately not a divisor of `READY_TARGET`, so the drain has to
+        // overshoot — it tests its budget before polling, not after, so the
+        // chunk that crosses the line is taken whole.
+        const CHUNK: usize = 48 * 1024;
+        // 4.5 MB, seventeen times the target, every byte deliverable at once.
+        const N: usize = 96;
+        let mut s = source_of(
+            (0..N)
+                .map(|i| Ok(Bytes::from(vec![i as u8; CHUNK])))
+                .collect(),
+        );
+        let mut buf = vec![0u8; 4096];
+        let mut total = 0;
+        let mut peak = 0;
+        loop {
+            let ready = s.ready_bytes();
+            peak = peak.max(ready);
+            assert!(
+                ready <= READY_TARGET + CHUNK,
+                "buffered {ready} bytes, past the {READY_TARGET} target (+ one \
+                 {CHUNK}-byte chunk of overshoot, since the drain checks before \
+                 it polls)"
+            );
+            if block_on(s.read_exact(&mut buf)).is_err() {
+                break;
+            }
+            total += buf.len();
+        }
+        assert_eq!(total, N * CHUNK, "the cap must not lose bytes, only defer");
+        assert!(
+            peak >= READY_TARGET,
+            "only ever buffered {peak} bytes, so the cap was never reached and \
+             the bound above proves nothing"
+        );
+    }
+
     /// The two paths must agree: same bytes, one chunk versus many.
     #[test]
     fn single_chunk_and_multi_chunk_paths_agree() {
@@ -591,6 +645,52 @@ pub(crate) mod tests {
                 block_on(decode_stream(Chunks::new(&encoded, chunk_size))).unwrap();
             assert_eq!(decoded, value, "chunk_size = {chunk_size}");
         }
+    }
+
+    /// R4: once the transport has failed, `is_complete` must never again say the
+    /// stream finished cleanly — even after the error has been taken out to be
+    /// reported.
+    ///
+    /// It gates the unconditional sync handoff (complete ⇒ `usize::MAX`
+    /// capacity), so a "clean" answer here is licence to run the sync decoder to
+    /// the end of an incomplete buffer.
+    #[test]
+    fn a_failed_transport_never_looks_complete_again() {
+        /// Yields one chunk, then fails.
+        struct FailsAfterOne(bool);
+        impl Stream for FailsAfterOne {
+            type Item = Result<Bytes, std::io::Error>;
+            fn poll_next(
+                mut self: Pin<&mut Self>,
+                _: &mut std::task::Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                if self.0 {
+                    Poll::Ready(Some(Err(std::io::Error::other("transport died"))))
+                } else {
+                    self.0 = true;
+                    Poll::Ready(Some(Ok(Bytes::from_static(b"hello"))))
+                }
+            }
+        }
+
+        block_on(async {
+            let mut source = ChunkSource::new(FailsAfterOne(false)).await;
+            // Drive it until the failure lands: consume what arrived, then ask
+            // for more.
+            source.advance(source.ready_bytes());
+            source.next_byte_or_eof().await;
+            assert!(
+                !source.is_complete(),
+                "a failed transport must not report a clean finish"
+            );
+            let err = source.take_error().expect("the failure must be reported");
+            assert!(err.to_string().contains("transport died"));
+            // The whole point: taking the error must not launder the failure.
+            assert!(
+                !source.is_complete(),
+                "is_complete went clean once the error was taken"
+            );
+        });
     }
 
     /// On truncated input the async decoder must behave exactly as the sync one

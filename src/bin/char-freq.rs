@@ -18,9 +18,7 @@ fn download_file(url: &str, path: &Path) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let response = ureq::get(url)
-        .call()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let response = ureq::get(url).call().map_err(io::Error::other)?;
     let mut tmp_path = path.to_path_buf();
     tmp_path.set_extension("tmp");
     {
@@ -32,10 +30,9 @@ fn download_file(url: &str, path: &Path) -> io::Result<()> {
 }
 
 fn process_csv(path: &Path, global_freqs: &mut HashMap<char, u64>) -> io::Result<()> {
-    let mut rdr =
-        csv::Reader::from_path(path).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let mut rdr = csv::Reader::from_path(path).map_err(io::Error::other)?;
     for result in rdr.records() {
-        let record = result.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let record = result.map_err(io::Error::other)?;
         let (Some(char_str), Some(count_str)) = (record.get(4), record.get(7)) else {
             continue;
         };
@@ -134,20 +131,13 @@ fn main() -> io::Result<()> {
     eprintln!("Fetching manifest...");
     download_file(&manifest_url, &manifest_path)?;
 
-    let mut manifest_rdr = csv::Reader::from_path(&manifest_path)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    let headers = manifest_rdr
-        .headers()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-        .clone();
+    let mut manifest_rdr = csv::Reader::from_path(&manifest_path).map_err(io::Error::other)?;
+    let headers = manifest_rdr.headers().map_err(io::Error::other)?.clone();
 
     let find_col = |name: &str| {
         headers.iter().position(|h| h == name).ok_or_else(|| {
             eprintln!("Manifest columns: {:?}", headers.iter().collect::<Vec<_>>());
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("{name} column not found in manifest"),
-            )
+            io::Error::other(format!("{name} column not found in manifest"))
         })
     };
     let path_col = find_col("relative_path")?;

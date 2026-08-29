@@ -1,15 +1,17 @@
 use super::atmost::AtMost;
-use super::{Encode, EncodingStrategy};
-use crate::{Incompressible, Small, Sorted};
+use super::{Encode, Strategy};
+use crate::{Incompressible, Normal, Small, Sorted};
 
+#[cfg(test)]
+use super::millibits;
 #[cfg(test)]
 use expect_test::expect;
 
 impl Encode for u8 {
     type Context = <AtMost<255> as Encode>::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        AtMost::<255>::new(*self as usize).encode(writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&AtMost::<255>::new(*value as usize), writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -18,27 +20,23 @@ impl Encode for u8 {
     ) -> Result<Self, std::io::Error> {
         Ok(usize::from(AtMost::<255>::decode(reader, ctx)?) as u8)
     }
-}
 
-impl super::DecodeAsync<u8> for crate::Normal {
-    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<255>>>::MAX_BYTES;
+    const MAX_BYTES: usize = <AtMost<255> as Encode>::MAX_BYTES;
 
     #[inline]
     async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
-        Ok(usize::from(
-            <crate::Normal as super::DecodeAsync<AtMost<255>>>::decode_async(reader, ctx).await?,
-        ) as u8)
+        Ok(usize::from(<AtMost<255> as Encode>::decode_async(reader, ctx).await?) as u8)
     }
 }
 
 impl Encode for i8 {
     type Context = <u8 as Encode>::Context;
     #[inline]
-    fn encode<E: super::EntropyCoder>(&self, writer: &mut E, ctx: &mut Self::Context) {
-        (*self as u8).encode(writer, ctx)
+    fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        Normal::encode(&(*value as u8), writer, ctx)
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -46,6 +44,17 @@ impl Encode for i8 {
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
         <u8 as Encode>::decode(reader, ctx).map(|v| v as i8)
+    }
+
+    /// Reinterpreted as a `u8`.
+    const MAX_BYTES: usize = <u8 as Encode>::MAX_BYTES;
+
+    #[inline]
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        Ok(<u8 as Encode>::decode_async(reader, ctx).await? as i8)
     }
 }
 
@@ -62,44 +71,44 @@ pub struct SmallContext {
     b7: <AtMost<127> as Encode>::Context,
 }
 
-impl EncodingStrategy<u8> for Small {
+impl Encode<Small> for u8 {
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         // A 3-bit bucket code, then the value's offset into the bucket.
         let bucket = |code: usize| AtMost::<7>::new(code);
         let rest = |first: u8| (*value - first) as usize;
         match *value {
-            0 => bucket(0).encode(writer, &mut ctx.nonzero),
-            1 => bucket(1).encode(writer, &mut ctx.nonzero),
+            0 => Normal::encode(&bucket(0), writer, &mut ctx.nonzero),
+            1 => Normal::encode(&bucket(1), writer, &mut ctx.nonzero),
             2..4 => {
-                bucket(2).encode(writer, &mut ctx.nonzero);
-                AtMost::<1>::new(rest(2)).encode(writer, &mut ctx.b1)
+                Normal::encode(&bucket(2), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<1>::new(rest(2)), writer, &mut ctx.b1)
             }
             4..8 => {
-                bucket(3).encode(writer, &mut ctx.nonzero);
-                AtMost::<3>::new(rest(4)).encode(writer, &mut ctx.b2)
+                Normal::encode(&bucket(3), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<3>::new(rest(4)), writer, &mut ctx.b2)
             }
             8..16 => {
-                bucket(4).encode(writer, &mut ctx.nonzero);
-                AtMost::<7>::new(rest(8)).encode(writer, &mut ctx.b3)
+                Normal::encode(&bucket(4), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<7>::new(rest(8)), writer, &mut ctx.b3)
             }
             16..32 => {
-                bucket(5).encode(writer, &mut ctx.nonzero);
-                AtMost::<15>::new(rest(16)).encode(writer, &mut ctx.b4)
+                Normal::encode(&bucket(5), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<15>::new(rest(16)), writer, &mut ctx.b4)
             }
             32..64 => {
-                bucket(6).encode(writer, &mut ctx.nonzero);
-                AtMost::<31>::new(rest(32)).encode(writer, &mut ctx.b5)
+                Normal::encode(&bucket(6), writer, &mut ctx.nonzero);
+                Normal::encode(&AtMost::<31>::new(rest(32)), writer, &mut ctx.b5)
             }
             64..128 => {
-                bucket(7).encode(writer, &mut ctx.nonzero);
-                false.encode(writer, &mut ctx.need_seven_bits);
-                AtMost::<63>::new(rest(64)).encode(writer, &mut ctx.b6)
+                Normal::encode(&bucket(7), writer, &mut ctx.nonzero);
+                Normal::encode(&false, writer, &mut ctx.need_seven_bits);
+                Normal::encode(&AtMost::<63>::new(rest(64)), writer, &mut ctx.b6)
             }
             128..=255 => {
-                bucket(7).encode(writer, &mut ctx.nonzero);
-                true.encode(writer, &mut ctx.need_seven_bits);
-                AtMost::<127>::new(rest(128)).encode(writer, &mut ctx.b7)
+                Normal::encode(&bucket(7), writer, &mut ctx.nonzero);
+                Normal::encode(&true, writer, &mut ctx.need_seven_bits);
+                Normal::encode(&AtMost::<127>::new(rest(128)), writer, &mut ctx.b7)
             }
         }
     }
@@ -131,9 +140,45 @@ impl EncodingStrategy<u8> for Small {
             _ => unreachable!(),
         }
     }
+
+    /// A bucket symbol, then either an offset symbol or (top bucket) a bool
+    /// plus an offset symbol.
+    const MAX_BYTES: usize = <AtMost<7> as Encode>::MAX_BYTES
+        + <bool as Encode>::MAX_BYTES
+        + <AtMost<127> as Encode>::MAX_BYTES;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        async fn rest<const MAX: usize, D: super::AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut <AtMost<MAX> as Encode>::Context,
+        ) -> Result<u8, std::io::Error> {
+            Ok(usize::from(<AtMost<MAX> as Encode>::decode_async(reader, ctx).await?) as u8)
+        }
+        let bucket = <AtMost<7> as Encode>::decode_async(reader, &mut ctx.nonzero).await?;
+        match usize::from(bucket) {
+            0 => Ok(0),
+            1 => Ok(1),
+            2 => Ok(rest::<1, D>(reader, &mut ctx.b1).await? + 2),
+            3 => Ok(rest::<3, D>(reader, &mut ctx.b2).await? + 4),
+            4 => Ok(rest::<7, D>(reader, &mut ctx.b3).await? + 8),
+            5 => Ok(rest::<15, D>(reader, &mut ctx.b4).await? + 16),
+            6 => Ok(rest::<31, D>(reader, &mut ctx.b5).await? + 32),
+            7 => {
+                if <bool as Encode>::decode_async(reader, &mut ctx.need_seven_bits).await? {
+                    Ok(rest::<127, D>(reader, &mut ctx.b7).await? + 128)
+                } else {
+                    Ok(rest::<63, D>(reader, &mut ctx.b6).await? + 64)
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
-impl EncodingStrategy<i8> for Small {
+impl Encode<Small> for i8 {
     type Context = SmallContext;
     fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
         let v = *value as u8;
@@ -145,12 +190,23 @@ impl EncodingStrategy<i8> for Small {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<i8, std::io::Error> {
-        let z = <Small as EncodingStrategy<u8>>::decode(reader, ctx)?;
+        let z = <u8 as Encode<Small>>::decode(reader, ctx)?;
+        Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
+    }
+
+    /// Zig-zagged into `Small<u8>`.
+    const MAX_BYTES: usize = <u8 as Encode<Small>>::MAX_BYTES;
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        let z = <u8 as Encode<Small>>::decode_async(reader, ctx).await?;
         Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
     }
 }
 
-impl EncodingStrategy<u8> for Incompressible {
+impl Encode<Incompressible> for u8 {
     type Context = ();
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, _ctx: &mut Self::Context) {
         writer.encode_incompressible_bytes(&[*value])
@@ -163,15 +219,27 @@ impl EncodingStrategy<u8> for Incompressible {
         reader.decode_incompressible_bytes(&mut byte)?;
         Ok(byte[0])
     }
+
+    /// One byte, straight through.
+    const MAX_BYTES: usize = std::mem::size_of::<u8>();
+
+    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+        reader: &mut D,
+        _ctx: &mut Self::Context,
+    ) -> Result<u8, std::io::Error> {
+        let mut byte = [0u8];
+        reader.decode_incompressible_bytes(&mut byte).await?;
+        Ok(byte[0])
+    }
 }
 
 #[derive(Default, Clone)]
 pub struct SortedU8Context {
     previous: Option<u8>,
-    delta: <Small as EncodingStrategy<i8>>::Context,
+    delta: <i8 as Encode<Small>>::Context,
 }
 
-impl EncodingStrategy<u8> for Sorted {
+impl Encode<Sorted> for u8 {
     type Context = SortedU8Context;
     fn encode<E: super::EntropyCoder>(value: &u8, writer: &mut E, ctx: &mut Self::Context) {
         if let Some(previous) = ctx.previous.take() {
@@ -204,116 +272,11 @@ impl EncodingStrategy<u8> for Sorted {
         ctx.previous = Some(out);
         Ok(out)
     }
-}
 
-impl EncodingStrategy<i8> for Sorted {
-    type Context = SortedU8Context;
-    fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
-        Sorted::encode(&(*value as u8), writer, ctx)
-    }
-    fn decode<D: super::EntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<i8, std::io::Error> {
-        <Sorted as EncodingStrategy<u8>>::decode(reader, ctx).map(|v| v as i8)
-    }
-}
-
-impl super::DecodeAsync<i8> for crate::Normal {
-    /// Reinterpreted as a `u8`.
-    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<u8>>::MAX_BYTES;
-
-    #[inline]
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<i8, std::io::Error> {
-        Ok(<crate::Normal as super::DecodeAsync<u8>>::decode_async(reader, ctx).await? as i8)
-    }
-}
-
-impl super::DecodeAsync<u8> for Small {
-    /// A bucket symbol, then either an offset symbol or (top bucket) a bool
-    /// plus an offset symbol.
-    const MAX_BYTES: usize = <crate::Normal as super::DecodeAsync<AtMost<7>>>::MAX_BYTES
-        + <crate::Normal as super::DecodeAsync<bool>>::MAX_BYTES
-        + <crate::Normal as super::DecodeAsync<AtMost<127>>>::MAX_BYTES;
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<u8, std::io::Error> {
-        async fn rest<const MAX: usize, D: super::AsyncEntropyDecoder>(
-            reader: &mut D,
-            ctx: &mut <AtMost<MAX> as Encode>::Context,
-        ) -> Result<u8, std::io::Error> {
-            Ok(usize::from(
-                <crate::Normal as super::DecodeAsync<AtMost<MAX>>>::decode_async(reader, ctx)
-                    .await?,
-            ) as u8)
-        }
-        let bucket = <crate::Normal as super::DecodeAsync<AtMost<7>>>::decode_async(
-            reader,
-            &mut ctx.nonzero,
-        )
-        .await?;
-        match usize::from(bucket) {
-            0 => Ok(0),
-            1 => Ok(1),
-            2 => Ok(rest::<1, D>(reader, &mut ctx.b1).await? + 2),
-            3 => Ok(rest::<3, D>(reader, &mut ctx.b2).await? + 4),
-            4 => Ok(rest::<7, D>(reader, &mut ctx.b3).await? + 8),
-            5 => Ok(rest::<15, D>(reader, &mut ctx.b4).await? + 16),
-            6 => Ok(rest::<31, D>(reader, &mut ctx.b5).await? + 32),
-            7 => {
-                if <crate::Normal as super::DecodeAsync<bool>>::decode_async(
-                    reader,
-                    &mut ctx.need_seven_bits,
-                )
-                .await?
-                {
-                    Ok(rest::<127, D>(reader, &mut ctx.b7).await? + 128)
-                } else {
-                    Ok(rest::<63, D>(reader, &mut ctx.b6).await? + 64)
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl super::DecodeAsync<i8> for Small {
-    /// Zig-zagged into `Small<u8>`.
-    const MAX_BYTES: usize = <Small as super::DecodeAsync<u8>>::MAX_BYTES;
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        ctx: &mut Self::Context,
-    ) -> Result<i8, std::io::Error> {
-        let z = <Small as super::DecodeAsync<u8>>::decode_async(reader, ctx).await?;
-        Ok(((z >> 1) as i8) ^ (-((z & 1) as i8)))
-    }
-}
-
-impl super::DecodeAsync<u8> for Incompressible {
-    /// One byte, straight through.
-    const MAX_BYTES: usize = std::mem::size_of::<u8>();
-
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
-        reader: &mut D,
-        _ctx: &mut Self::Context,
-    ) -> Result<u8, std::io::Error> {
-        let mut byte = [0u8];
-        reader.decode_incompressible_bytes(&mut byte).await?;
-        Ok(byte[0])
-    }
-}
-
-impl super::DecodeAsync<u8> for Sorted {
     /// The first value is raw; every later one is a `Small<i8>` delta.
     const MAX_BYTES: usize = {
         let raw = std::mem::size_of::<u8>();
-        let delta = <Small as super::DecodeAsync<i8>>::MAX_BYTES;
+        let delta = <i8 as Encode<Small>>::MAX_BYTES;
         if delta > raw {
             delta
         } else {
@@ -326,8 +289,7 @@ impl super::DecodeAsync<u8> for Sorted {
         ctx: &mut Self::Context,
     ) -> Result<u8, std::io::Error> {
         let out = if let Some(previous) = ctx.previous.take() {
-            let delta: i8 =
-                <Small as super::DecodeAsync<i8>>::decode_async(reader, &mut ctx.delta).await?;
+            let delta: i8 = <i8 as Encode<Small>>::decode_async(reader, &mut ctx.delta).await?;
             previous.wrapping_add(delta as u8)
         } else {
             let mut byte = [0u8];
@@ -339,14 +301,25 @@ impl super::DecodeAsync<u8> for Sorted {
     }
 }
 
-impl super::DecodeAsync<i8> for Sorted {
-    const MAX_BYTES: usize = <Sorted as super::DecodeAsync<u8>>::MAX_BYTES;
+impl Encode<Sorted> for i8 {
+    type Context = SortedU8Context;
+    fn encode<E: super::EntropyCoder>(value: &i8, writer: &mut E, ctx: &mut Self::Context) {
+        Sorted::encode(&(*value as u8), writer, ctx)
+    }
+    fn decode<D: super::EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<i8, std::io::Error> {
+        <u8 as Encode<Sorted>>::decode(reader, ctx).map(|v| v as i8)
+    }
+
+    const MAX_BYTES: usize = <u8 as Encode<Sorted>>::MAX_BYTES;
 
     async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<i8, std::io::Error> {
-        Ok(<Sorted as super::DecodeAsync<u8>>::decode_async(reader, ctx).await? as i8)
+        Ok(<u8 as Encode<Sorted>>::decode_async(reader, ctx).await? as i8)
     }
 }
 
@@ -392,7 +365,7 @@ fn small() {
             println!("Checking {v}");
             let bits = super::encoded_bits!(Encoded::<u8, Small>::new(v));
             assert_eq!(
-                Encoded::<u8, Small>::new(v).millibits(),
+                millibits(&Encoded::<u8, Small>::new(v)),
                 super::Millibits::bits(bits.parse().unwrap()),
                 "millibits estimate disagrees for {v}"
             );
@@ -414,7 +387,7 @@ fn small() {
     expect!["10"].assert_eq(&size_of(64..128));
     expect!["11"].assert_eq(&size_of(128..255));
     assert_eq!(
-        Encoded::<u8, Small>::new(255u8).millibits(),
+        millibits(&Encoded::<u8, Small>::new(255u8)),
         super::Millibits::bits(11)
     );
 }
@@ -465,7 +438,7 @@ fn small_i8() {
     // -128 → zigzag 255 → all-ones bit pattern (nonzero=7=111, need_seven=1, b7=127=1111111).
     // Mirror the small_u8 test for u8=255: verify the millibits entropy estimate directly.
     assert_eq!(
-        crate::Encoded::<i8, Small>::new(-128).millibits(),
+        millibits(&crate::Encoded::<i8, Small>::new(-128)),
         super::Millibits::bits(11)
     );
 }
