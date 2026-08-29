@@ -2473,13 +2473,66 @@ harnesses now do this and say why at the definition.
    largest result against `Ans` that is not about incompressible bytes, and the
    one to explain before making it the default.
 
+   **Which of the two passes, measured (2026-08-28):** a flat `perf record` of
+   `src/bin/ans-encode-phases.rs` (38k meteorite names, `BTreeSet<String>` under
+   `Values<Sorted>`) puts `AnsEncoder::flush_chunk` at **17.9%** of cycles,
+   against 21.7% in `<u8 as Encode>::encode` and 15.6% in
+   `<String as Encode<Sorted>>::encode`. So the *second* pass is a minority of
+   the cost and the suspect is the first: recording ~`CHUNK_OPS × size_of::<Op>()`
+   ≈ 384 KiB of ops out to memory and reading them back. Machine not quiesced,
+   one workload — the split will be higher on symbol-heavy corpora and much
+   lower on `floats`, where raw bytes bypass the coder entirely.
+
+   Note that the binary's *own* summary says `into_vec` is 5.7% and that is not
+   the number to quote: its header explains that it isolates the **final-chunk
+   flush only**, so on any input past one chunk every non-final `flush_chunk` is
+   charged to `build`. The profile is what separates them.
+
+   Two follow-ups, cheapest first:
+
+   - **Shrink `CHUNK_OPS` so the ops buffer is L2-resident.** At 384 KiB the
+     record→flush round trip goes through L3 or DRAM, which is exactly the shape
+     of an IPC problem. Quartering it costs one extra `STATE_BYTES` flush per
+     chunk and nothing else; it is a one-line experiment with no threads and no
+     API change, and it must be tried before anything below. (It moves the
+     bytes, which is allowed — v2 is unfrozen and chunk boundaries are named as
+     fair game — but it will move the `expect-test` size assertions.)
+   - **Encode frames in parallel.** `flush_chunk` reads only `self.ops` and
+     `self.incompressible_bytes`, builds a fresh `Encoder::new()` per chunk, and
+     never touches a `BitContext` — `encode_bits` resolves the probability at
+     record time and stores it *in* the op (`Op::Bit(b, probability)`). So the
+     entropy pass is a **pure function** of `(ops, incompressible_bytes)`, and
+     non-final frames carry their own `entropy_len`/`raw_len`, so a frame is
+     self-describing. Frames are therefore embarrassingly parallel across
+     chunks, not merely pipelineable against the traversal: K workers plus a
+     sequence number and a reorder buffer to emit in order. Being a pure
+     function, this **cannot change the output**, so there is no format question
+     and byte-identity is free.
+
+     But the 17.9% above is the ceiling: ~1.22× on `Ans` encode at best. That
+     is the difference between losing and winning on some rows (`strings` +5.0%
+     would become ~14% *faster* than `Range`) and does not touch `floats`
+     +52.1% or rescue `enums` +29.6%. Weigh it against the cost, which is
+     **threads** — the whole streaming design is executor-free and
+     dependency-free, so this wants a `std::thread` pool behind an optional
+     feature, bounded double-buffering of the op buffers to keep peak memory
+     stated, and emphatically *not* a spawn onto the caller's async executor,
+     which would reintroduce the runtime dependency the async work exists
+     without. See `plans/async-encode-ans.md`, which is written so as not to
+     foreclose this.
+
 1. **There is no async encode, for either coder.** No `AsyncEntropyCoder`, no
    `encode_stream` — "async" currently means decode only, which is worth
    remembering whenever the route tables tempt a conclusion about dropping
    `Range`'s async path: that decision is narrower than it looks, and it is not
-   symmetric with anything on the encode side. A plan exists on
-   `origin/async-encode-range` (PR #49) and targets `Range` first; if `Range`'s
-   async decode is dropped, that plan needs revisiting rather than following.
+   symmetric with anything on the encode side. Plans exist on
+   `origin/async-encode-range` (PR #49), now one per coder, and they build the
+   traversal once over an `AsyncEntropyCoder` trait — so "we would have to build
+   it twice" is not a cost in the drop-`Range` decision. They sequence **`Ans`
+   first**, because `Ans` chunk boundaries are *in the bytes*: byte-identity with
+   sync encode is then equivalent to "the async traversal reached exactly the
+   sync traversal's split points", which is the traversal's characteristic bug.
+   `Range`'s chunk-boundary invariance hides that same bug completely.
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:
