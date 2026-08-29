@@ -9,6 +9,13 @@ entropy coders `Range` and `Ans`.  `Range` is currently the default, but `Ans`
 is faster at decoding and may become the default in the future.  We want to
 optimize both approaches with a slight focus on `Ans`.
 
+"Faster at decoding" is **13–30% across the workload set** and the rate is a
+wash (≤0.06%) — but *which decode route* changes the answer, and on
+incompressible data through `decode_from` it reverses to **+310%**. See
+[`Ans` against `Range`](#ans-against-range-across-the-workload-set-2026-08-28)
+below, which is the place to start before any decision that turns on which coder
+wins, and `./coder-routes-table.sh` to bring its table up to date.
+
 ## How to benchmark on this machine
 
 The benchmark harness in `benches/` is convenient but the laptop is noisy
@@ -104,6 +111,159 @@ The benchmark harness in `benches/` is convenient but the laptop is noisy
   4–6% apart between two builds differing only in compactly code.
 
 ## Empirical results so far
+
+### `Ans` against `Range` across the workload set (2026-08-28)
+
+"`Ans` is faster at decoding" is asserted at the top of this document; this is
+the measurement behind it, and the places it does not hold.
+
+**Regenerate with `./coder-routes-table.sh`** — it prints both tables below on
+stdout, ready to paste back. `-n 3` for a quicker pass, `-d`/`-e` for one table,
+or name workloads (`./coder-routes-table.sh strings records`) to refresh a few
+rows. It refuses to run unless the machine is quiesced.
+
+Every cell runs `src/bin/coder-routes.rs`, which puts the same value through
+every route either coder supports: decoding by `slice` (the borrowing decoder),
+`from` (`decode_from` over a `&[u8]` used as a `Read`) and `stream`
+(`decode_stream` over a 64-chunk source); encoding by `encode` (to a fresh
+`Vec`) and `encode-to` (`encode_to` into a fresh `Vec` used as a `Write`).
+**There is no async encode for either coder**, which is why the encode table has
+two routes where the decode table has three — worth keeping in view, because it
+means "async" here is decode only. **Both arms of a comparison are the same binary** with different
+arguments, so binary-layout noise cancels and none of this needs the alternated
+A/B an across-commits comparison does; min of 5.
+
+Measuring only the `slice` route, which is what the `just-decompress-*` bins do,
+gets two of the conclusions below wrong, so the route is not a detail.
+
+> Taken at `19ab6af`, the head of PR #54. The `stream` rows need it: without its
+> mid-stream handoff `Ans` cannot hand a value to the sync decoder until the
+> whole stream has landed, so those rows measure something that is on its way
+> out. Re-run once it merges.
+
+#### Decode
+
+| workload | route | Range cyc | Ans cyc | Δ | Range ins | Ans ins | Δ | size Δ |
+|---|---|---|---|---|---|---|---|---|
+| `strings` | `slice` | 6.348G | 5.156G | **-18.8%** | 22.113G | 19.367G | -12.4% | +0.04% |
+| `strings` | `from` | 6.346G | 5.349G | **-15.7%** | 21.606G | 20.368G | -5.7% | +0.04% |
+| `strings` | `stream` | 6.367G | 5.171G | **-18.8%** | 22.131G | 19.365G | -12.5% | +0.04% |
+| `enums` | `slice` | 6.408G | 4.805G | **-25.0%** | 15.738G | 11.857G | -24.7% | +0.06% |
+| `enums` | `from` | 6.519G | 4.955G | **-24.0%** | 16.108G | 12.855G | -20.2% | +0.06% |
+| `enums` | `stream` | 6.429G | 4.816G | **-25.1%** | 15.784G | 11.877G | -24.8% | +0.06% |
+| `enums17` | `slice` | 6.017G | 4.755G | **-21.0%** | 14.480G | 7.095G | -51.0% | +0.02% |
+| `enums17` | `from` | 5.990G | 4.762G | **-20.5%** | 14.725G | 7.359G | -50.0% | +0.02% |
+| `enums17` | `stream` | 6.068G | 4.759G | **-21.6%** | 14.535G | 7.103G | -51.1% | +0.02% |
+| `floats` | `slice` | 0.863G | 1.140G | **+32.1%** | 4.388G | 5.287G | +20.5% | +0.00% |
+| `floats` | `from` | 1.134G | 4.646G | **+309.6%** | 4.544G | 14.094G | +210.1% | +0.00% |
+| `floats` | `stream` | 2.158G | 7.407G | **+243.2%** | 7.616G | 19.209G | +152.2% | +0.00% |
+| `compressible` | `slice` | 6.168G | 4.843G | **-21.5%** | 14.758G | 12.054G | -18.3% | +0.06% |
+| `compressible` | `from` | 6.226G | 5.195G | **-16.6%** | 14.622G | 13.772G | -5.8% | +0.06% |
+| `compressible` | `stream` | 6.975G | 6.366G | **-8.7%** | 17.146G | 18.077G | +5.4% | +0.06% |
+| `records` | `slice` | 7.620G | 5.675G | **-25.5%** | 17.871G | 14.900G | -16.6% | +0.03% |
+| `records` | `from` | 7.658G | 5.926G | **-22.6%** | 18.121G | 16.031G | -11.5% | +0.03% |
+| `records` | `stream` | 8.229G | 6.666G | **-19.0%** | 18.465G | 18.554G | +0.5% | +0.03% |
+| `records-wide` | `slice` | 7.479G | 5.716G | **-23.6%** | 16.453G | 13.434G | -18.3% | +0.02% |
+| `records-wide` | `from` | 7.719G | 6.100G | **-21.0%** | 17.145G | 15.138G | -11.7% | +0.02% |
+| `records-wide` | `stream` | 7.893G | 6.749G | **-14.5%** | 17.084G | 17.020G | -0.4% | +0.02% |
+| `atmost3` | `slice` | 3.762G | 2.647G | **-29.6%** | 6.930G | 3.782G | -45.4% | +0.03% |
+| `atmost3` | `from` | 3.654G | 2.670G | **-26.9%** | 6.403G | 3.976G | -37.9% | +0.03% |
+| `atmost3` | `stream` | 3.771G | 2.657G | **-29.5%** | 6.948G | 3.801G | -45.3% | +0.03% |
+| `atmost8` | `slice` | 5.169G | 3.696G | **-28.5%** | 9.883G | 6.735G | -31.9% | +0.02% |
+| `atmost8` | `from` | 5.299G | 3.941G | **-25.6%** | 9.331G | 7.885G | -15.5% | +0.02% |
+| `atmost8` | `stream` | 5.200G | 3.707G | **-28.7%** | 9.903G | 6.757G | -31.8% | +0.02% |
+| `atmost16` | `slice` | 6.822G | 5.121G | **-24.9%** | 11.823G | 8.569G | -27.5% | +0.01% |
+| `atmost16` | `from` | 6.818G | 5.751G | **-15.7%** | 11.768G | 9.088G | -22.8% | +0.01% |
+| `atmost16` | `stream` | 6.840G | 5.132G | **-25.0%** | 11.844G | 8.591G | -27.5% | +0.01% |
+| `atmost32` | `slice` | 8.584G | 7.055G | **-17.8%** | 13.257G | 9.956G | -24.9% | +0.01% |
+| `atmost32` | `from` | 8.548G | 7.313G | **-14.4%** | 13.245G | 10.527G | -20.5% | +0.01% |
+| `atmost32` | `stream` | 8.597G | 7.071G | **-17.7%** | 13.276G | 9.978G | -24.8% | +0.01% |
+| `atmost128` | `slice` | 10.922G | 9.502G | **-13.0%** | 15.339G | 12.724G | -17.0% | +0.00% |
+| `atmost128` | `from` | 10.956G | 9.597G | **-12.4%** | 15.224G | 13.399G | -12.0% | +0.00% |
+| `atmost128` | `stream` | 10.930G | 9.505G | **-13.0%** | 15.362G | 12.749G | -17.0% | +0.00% |
+
+#### Encode
+
+| workload | route | Range cyc | Ans cyc | Δ | Range ins | Ans ins | Δ | size Δ |
+|---|---|---|---|---|---|---|---|---|
+| `strings` | `encode` | 5.662G | 5.945G | **+5.0%** | 17.398G | 16.840G | -3.2% | +0.04% |
+| `strings` | `encode-to` | 5.652G | 5.726G | **+1.3%** | 17.460G | 16.864G | -3.4% | +0.04% |
+| `enums` | `encode` | 4.052G | 5.250G | **+29.6%** | 12.091G | 11.255G | -6.9% | +0.06% |
+| `enums` | `encode-to` | 4.023G | 5.341G | **+32.8%** | 11.970G | 11.306G | -5.5% | +0.06% |
+| `enums17` | `encode` | 2.553G | 2.644G | **+3.5%** | 5.569G | 5.025G | -9.8% | +0.02% |
+| `enums17` | `encode-to` | 2.556G | 2.643G | **+3.4%** | 5.528G | 5.075G | -8.2% | +0.02% |
+| `floats` | `encode` | 3.523G | 5.361G | **+52.1%** | 9.020G | 12.423G | +37.7% | +0.00% |
+| `floats` | `encode-to` | 3.500G | 5.370G | **+53.4%** | 8.728G | 12.424G | +42.3% | +0.00% |
+| `compressible` | `encode` | 6.136G | 6.011G | **-2.0%** | 16.979G | 16.552G | -2.5% | +0.06% |
+| `compressible` | `encode-to` | 6.083G | 6.017G | **-1.1%** | 16.997G | 16.551G | -2.6% | +0.06% |
+| `records` | `encode` | 4.743G | 4.436G | **-6.5%** | 17.026G | 15.561G | -8.6% | +0.03% |
+| `records` | `encode-to` | 4.791G | 4.448G | **-7.2%** | 17.032G | 15.567G | -8.6% | +0.03% |
+| `records-wide` | `encode` | 5.232G | 4.712G | **-9.9%** | 16.328G | 14.582G | -10.7% | +0.02% |
+| `records-wide` | `encode-to` | 5.255G | 4.712G | **-10.3%** | 16.283G | 14.585G | -10.4% | +0.02% |
+| `atmost3` | `encode` | 2.804G | 2.806G | **+0.1%** | 6.389G | 4.915G | -23.1% | +0.03% |
+| `atmost3` | `encode-to` | 2.722G | 2.875G | **+5.6%** | 6.086G | 5.000G | -17.9% | +0.03% |
+| `atmost8` | `encode` | 2.250G | 2.306G | **+2.5%** | 9.293G | 8.610G | -7.3% | +0.02% |
+| `atmost8` | `encode-to` | 2.174G | 2.331G | **+7.2%** | 8.884G | 8.772G | -1.3% | +0.02% |
+| `atmost16` | `encode` | 2.593G | 2.582G | **-0.4%** | 11.323G | 10.290G | -9.1% | +0.01% |
+| `atmost16` | `encode-to` | 2.456G | 2.612G | **+6.4%** | 10.656G | 10.505G | -1.4% | +0.01% |
+| `atmost32` | `encode` | 3.119G | 2.946G | **-5.5%** | 13.349G | 12.091G | -9.4% | +0.01% |
+| `atmost32` | `encode-to` | 3.046G | 2.953G | **-3.1%** | 12.785G | 12.359G | -3.3% | +0.01% |
+| `atmost128` | `encode` | 4.030G | 3.660G | **-9.2%** | 18.029G | 15.147G | -16.0% | +0.00% |
+| `atmost128` | `encode-to` | 3.931G | 3.712G | **-5.6%** | 17.253G | 15.521G | -10.0% | +0.00% |
+
+**Where `Ans` wins it wins broadly**: 13–30% of cycles on everything that
+entropy-codes, on all three routes. The `AtMost` ladder shows that advantage
+shrinking monotonically with alphabet size — −29.6% at `AtMost<2>` to −13.0% at
+`AtMost<127>` — which is worth knowing before reading any single ladder result
+as representative.
+
+**The route erodes it, and on one workload reverses it.** Two patterns only the
+matrix shows:
+
+- **`f64` collapses off the slice route.** +32.1% on `slice` is a modest loss;
+  `from` is **+309.6%** and `stream` **+243.2%**, a 3–4× slowdown. Note the
+  size: 800,033 bytes for 100k floats is *exactly* 8.0 bytes/float, so this
+  corpus is pure incompressible bytes and the entropy coder is barely in the
+  loop. The likely mechanism — not measured, so treat it as the hypothesis to
+  test first — is that an `Ans` frame is decoded from its end backwards and so
+  must be gathered whole before any of it can be decoded, which for
+  incompressible data means copying the entire payload per frame, while
+  `Range` needs only a value's `MAX_BYTES` buffered and streams through.
+- **The instruction advantage disappears on `stream` for the workloads with
+  large incompressible regions**: `records` goes −16.6% (slice) to **+0.5%**,
+  `records-wide` −18.3% to −0.4%, `compressible` −18.3% to **+5.4%**. Cycles
+  still favour `Ans` there, so this costs it its margin rather than the
+  comparison, but it is the same effect as the `f64` row in milder form.
+
+**Encode inverts the usual reading of these two columns.** `Ans` executes
+*fewer* instructions on almost every encode row and still loses cycles on
+several: `enums` is **+29.6% cycles on 6.9% fewer instructions**, `strings`
++5.0% / −3.2%, `atmost3` +0.1% / −23.1%. Doing less and taking longer is an IPC
+problem, not a work problem, and points at the two-pass structure (record the
+ops, then encode backwards) rather than at the coding. It is the largest result
+against `Ans` that is not about incompressible bytes — TODO above. Where `Ans`
+does win on encode it wins on both columns (`records` −6.5% / −8.6%,
+`records-wide` −9.9% / −10.7%, `atmost128` −9.2% / −16.0%).
+
+**`f64` is the exception on the encode side too**, and there `Ans` really is
+doing more work: **+52.1% cycles / +37.7% instructions**. Together with the
+decode rows that makes the incompressible-byte path a weakness of `Ans` on every
+route in both directions, which is what separates it from the plumbing question
+— `slice` and `encode` do none of the streaming buffering.
+
+**Compression rate is not a differentiator.** `Ans` is larger by **+0.00% to
++0.06%** everywhere — 42,535 → 42,553 bytes on strings, 17,577 → 17,588 on
+3-variant enums. Whatever decides between these coders, it is not the rate.
+
+So: **dropping async for `Range` is supported for everything except
+incompressible data**, where `Range`'s streaming decode is 3–4× faster and would
+be the thing being removed. That is the case to answer first — either by fixing
+`Ans`'s incompressible path, or by deciding that streaming incompressible
+payloads is not a case worth keeping a coder for. Two things to hold on to
+before going further: there is **no async encode at all**, so this decision is
+narrower than "drop async for `Range`" makes it sound and is not symmetric with
+anything on the encode side; and dropping `Range` *entirely* is a larger claim
+still, which the encode table argues against on its own.
 
 ### Profiling `just-decompress` (random u64)
 - IPC ≈ 1.39 (latency-bound), branch-miss ≈ 15%, L1-dcache miss ≈ 0.16%.
@@ -2269,6 +2429,119 @@ harnesses now do this and say why at the definition.
    than a type, since the run's bound is a sum no single type names. Unmeasured;
    size the win first on a struct with several scalar fields beside a `String`,
    mid-stream on `Range` (the `Ans` arm cannot benefit until #1 lands).
+
+1. **`Ans`'s `Read`/`Write` plumbing copies every byte four times** — transport
+   chunk → `ChunkSource`'s coalesced buffer → `buffer_next_frame`'s frame `Vec`
+   → `FrameBuffer::bytes` → `AnsDecoder`'s `entropy`/`incompressible` `Vec`s. The
+   slice decoder does none of them. The design is already worked out in "What
+   this says about the deeper change" above: delete `FrameBuffer` and run the
+   slice `Decoder<'a, true>` over `ChunkSource`'s buffer, capped at the last
+   complete frame — the `with_sync` handoff `Range` already uses, saving
+   `entropy`/`incompressible`/`rest` as offsets.
+
+   That note sized the prize at ~5% cycles / ~19% instructions, which was
+   measured on entropy-coded workloads. The route table says the ceiling is far
+   higher: `f64` through `decode_from` is **+309.6%** against `Range` and
+   through `decode_stream` **+243.2%**, where the same corpus on `slice` is only
+   +32.1%. The `records`/`f64` pair separates the cause from payload size —
+   nearly identical encoded sizes (808,105 vs 800,033 bytes) but `from`-over-
+   `slice` overheads of +0.251B and **+3.506B** — so it is charged per
+   *incompressible* byte, not per byte. The write side shows the milder form of
+   the same thing: `encode_to` costs `Ans` up to +7pp against `encode` on the
+   `AtMost` ladder while `Range` is unaffected.
+
+1. **`Ans`'s incompressible-byte path is slower than `Range`'s on every route,
+   in both directions** — and this one is *not* the plumbing, since it shows on
+   `slice` and on `encode`, which do none of that buffering. Decode `slice`
+   **+32.1%** cycles; encode **+52.1%** cycles / **+37.7%** instructions. Note
+   the instructions: unlike the encode rows below it, `Ans` is doing genuinely
+   *more work* here, not the same work more slowly.
+
+   Nothing recorded predicts this. TODO #4 below (const-generic
+   `decode_incompressible::<N>`) targets small compile-time-known reads like IP
+   octets, not bulk, and retired item #9's "ceiling ~2%" for the `memmove` was
+   measured on `just-decompress`'s ≤7-byte per-value copies. Unexplained, so the
+   first step is a profile rather than a patch: `perf record` on
+   `coder-routes floats ans slice` against the `range` arm.
+
+1. **`Ans` encode is cycle-bound, not work-bound** — `enums` costs **+29.6%
+   cycles on 6.9% *fewer* instructions** than `Range`, and the same shape holds
+   across `strings` (+5.0% / −3.2%), `enums17` (+3.5% / −9.8%) and the whole
+   `AtMost` ladder (`atmost3` +0.1% / −23.1%). `Ans` is executing less and
+   taking longer, which is an IPC problem and points at the two-pass structure
+   (record ops, then encode backwards) rather than at the coding. This is the
+   largest result against `Ans` that is not about incompressible bytes, and the
+   one to explain before making it the default.
+
+   **Which of the two passes, measured (2026-08-28):** a flat `perf record` of
+   `src/bin/ans-encode-phases.rs` (38k meteorite names, `BTreeSet<String>` under
+   `Values<Sorted>`) puts `AnsEncoder::flush_chunk` at **17.9%** of cycles,
+   against 21.7% in `<u8 as Encode>::encode` and 15.6% in
+   `<String as Encode<Sorted>>::encode`. So the *second* pass is a minority of
+   the cost and the suspect is the first: recording ~`CHUNK_OPS × size_of::<Op>()`
+   ≈ 384 KiB of ops out to memory and reading them back. Machine not quiesced,
+   one workload — the split will be higher on symbol-heavy corpora and much
+   lower on `floats`, where raw bytes bypass the coder entirely.
+
+   Note that the binary's *own* summary says `into_vec` is 5.7% and that is not
+   the number to quote: its header explains that it isolates the **final-chunk
+   flush only**, so on any input past one chunk every non-final `flush_chunk` is
+   charged to `build`. The profile is what separates them.
+
+   Two follow-ups, cheapest first:
+
+   - **Shrink `CHUNK_OPS` so the ops buffer is L2-resident.** At 384 KiB the
+     record→flush round trip goes through L3 or DRAM, which is exactly the shape
+     of an IPC problem. Quartering it costs one extra `STATE_BYTES` flush per
+     chunk and nothing else; it is a one-line experiment with no threads and no
+     API change, and it must be tried before anything below. (It moves the
+     bytes, which is allowed — v2 is unfrozen and chunk boundaries are named as
+     fair game — but it will move the `expect-test` size assertions.)
+   - **Encode frames in parallel.** `flush_chunk` reads only `self.ops` and
+     `self.incompressible_bytes`, builds a fresh `Encoder::new()` per chunk, and
+     never touches a `BitContext` — `encode_bits` resolves the probability at
+     record time and stores it *in* the op (`Op::Bit(b, probability)`). So the
+     entropy pass is a **pure function** of `(ops, incompressible_bytes)`, and
+     non-final frames carry their own `entropy_len`/`raw_len`, so a frame is
+     self-describing. Frames are therefore embarrassingly parallel across
+     chunks, not merely pipelineable against the traversal: K workers plus a
+     sequence number and a reorder buffer to emit in order. Being a pure
+     function, this **cannot change the output**, so there is no format question
+     and byte-identity is free.
+
+     **Do not read 17.9% as a cap.** With full overlap the win is
+     `(r + e) / max(r, e)` for record cost `r` and entropy cost `e`, which at
+     today's split is ~1.22× — enough to flip some rows (`strings` +5.0% would
+     become ~14% *faster* than `Range`) and not enough to touch `floats` +52.1%
+     or `enums` +29.6%. But that ratio is a snapshot of one workload, not a
+     property of the design: both phases are data-dependent, and both are
+     optimization targets, so effort will go to whichever is limiting and tend
+     to even them out. Balanced phases would be 2×. Note in particular that the
+     `CHUNK_OPS` experiment above is sequenced first because it is cheap, **not**
+     because it substitutes — succeeding at it shrinks `r` and so makes this
+     *more* attractive, not less. The two are complements.
+
+     Weigh it instead against the cost, which is
+     **threads** — the whole streaming design is executor-free and
+     dependency-free, so this wants a `std::thread` pool behind an optional
+     feature, bounded double-buffering of the op buffers to keep peak memory
+     stated, and emphatically *not* a spawn onto the caller's async executor,
+     which would reintroduce the runtime dependency the async work exists
+     without. See `plans/async-encode.md`, which is written so as not to
+     foreclose this.
+
+1. **There is no async encode, for either coder.** No `AsyncEntropyCoder`, no
+   `encode_stream` — "async" currently means decode only, which is worth
+   remembering whenever the route tables tempt a conclusion about dropping
+   `Range`'s async path: that decision is narrower than it looks, and it is not
+   symmetric with anything on the encode side. A plan covering both coders is on
+   `origin/async-encode-range` (PR #49, `plans/async-encode.md`); it builds the
+   traversal once over an `AsyncEntropyCoder` trait — so "we would have to build
+   it twice" is not a cost in the drop-`Range` decision. It sequences **`Ans`
+   first**, because `Ans` chunk boundaries are *in the bytes*: byte-identity with
+   sync encode is then equivalent to "the async traversal reached exactly the
+   sync traversal's split points", which is the traversal's characteristic bug.
+   `Range`'s chunk-boundary invariance hides that same bug completely.
 
 1. ~~**Convert more independent-fixed-width callers to `decode_bits::<N>`**~~ —
    TRIED on `Ipv6Addr` zero-flags (14 independent bits). A/B'd on **both** coders:
