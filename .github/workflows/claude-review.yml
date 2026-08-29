@@ -125,10 +125,16 @@ jobs:
       # (command substitution in --body "$(...)" is auto-denied), and the
       # mcp__github_inline_comment tool, which claude-code-action only
       # installs when it appears in allowedTools.
+      #
+      # show_full_output is on while the CLAUDE_CODE_OAUTH_TOKEN auth
+      # failures are being tracked down (see #58) — turn it back off once
+      # the reviewer is reliably succeeding again. It also prints every
+      # tool result, which may include secrets, and this repo is public.
       - uses: anthropics/claude-code-action@v1
         id: review
         if: steps.pre.outputs.proceed == 'true'
         with:
+          show_full_output: true
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git
