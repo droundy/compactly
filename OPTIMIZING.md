@@ -1450,20 +1450,11 @@ encode.
 
 ## TODO (in rough priority order)
 
-1. **Empirically test whether wall-clock timing is "good enough" for normal
-   benchmarking.** Everything in "How to benchmark on this machine" above
-   exists to make `perf` cycle counts trustworthy (quiescing, pinning,
-   `cpu_core/`-prefixed events, alternation, forced-alignment rebuilds) —
-   substantial ceremony compared to just timing a loop. If wall-clock on a
-   quiesced, pinned core turns out to reproduce the same verdicts as cycle
-   counts on the A/Bs already recorded in this document (same sign, similar
-   magnitude, same call on "layout noise vs real"), most future benchmarking
-   here gets much easier. If it doesn't — because wall-clock still can't see
-   through the ~1–5% layout noise that instruction counts cut through cleanly
-   — that's worth knowing precisely, rather than assumed. Test by re-running
-   a handful of the A/Bs already on record (a clear real win, a confirmed
-   dead end, and a known layout-noise case) with both methods and comparing
-   verdicts, not just numbers.
+1. **Switch to the new version of `scaling` and update the benchmarking
+   methodology accordingly.** The wall-clock-vs-perf question this item used
+   to pose has been answered; `scaling` is being updated with the findings,
+   and once that lands, "How to benchmark on this machine" above should be
+   revised to match.
 
 2. **Let the mid-stream handoff escalate once the source completes** — the
    batch path never reaches `read_ahead`, which is the only thing that
