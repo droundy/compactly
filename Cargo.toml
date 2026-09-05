@@ -12,11 +12,12 @@ repository = "https://github.com/droundy/compactly"
 
 generate_bit_context = []
 # Exposes the benchmark-support surface (forced tree walks, forced decoder
-# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive.
+# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive,
+# and pulls in `scaling`, which every benchmark binary times itself with.
 # Off by default: these bypass the choices the library makes for itself, and
 # some silently produce wrong answers when pointed at the wrong input. Not
 # covered by semver.
-benchmarking = []
+benchmarking = ["dep:scaling"]
 v1 = []
 v2 = []
 # Async decoding from a `Stream` of `Bytes` chunks: `v2::decode_stream` and the
@@ -34,13 +35,21 @@ ureq = { version = "2", optional = true }
 bytes = { version = "1.12", optional = true }
 futures-core = { version = "0.3", optional = true }
 
+# The measurement harness for everything in `src/bin/`: it times a closure
+# until its standard error is small enough and says so when it could not. A
+# dev-dependency would not reach `src/bin` (only benches, tests and examples
+# see those), so it is an optional *normal* dependency switched on by the
+# `benchmarking` feature. Git rather than plain 0.9.0 until that is published;
+# drop the `git` key then, here and in dev-dependencies.
+scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling", optional = true }
+
 nonmax = { version = "0.5.5", optional = true }
 uuid = { version = "1.18.1", optional = true }
 
 [dev-dependencies]
 
 expect-test = "1.5.1"
-scaling = "0.1.3"
+scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -87,80 +96,34 @@ name = "atmost"
 harness = false
 required-features = ["v2", "benchmarking"]
 
-# These binaries use the v2 API, so they cannot build without it.
+# The benchmark binaries: `v2` for the API they measure, `benchmarking` for
+# `scaling` (which times them) and for the forced walks and decoders some of
+# them drive.
 [[bin]]
-name = "just-compress"
-required-features = ["v2"]
+name = "ans-phases"
+required-features = ["v2", "benchmarking"]
 
 [[bin]]
-name = "just-decompress"
-required-features = ["v2"]
-
-[[bin]]
-name = "range-decode-collapse"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-floats"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-net"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-uless"
-required-features = ["v2"]
+name = "ans-chunk-tracking"
+required-features = ["v2", "benchmarking"]
 
 [[bin]]
 name = "micro-batch"
-required-features = ["v2"]
+required-features = ["v2", "benchmarking"]
 
 [[bin]]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
 [[bin]]
-name = "ans-decode-phases"
-required-features = ["v2", "benchmarking"]
-
-[[bin]]
-name = "ans-encode-phases"
-required-features = ["v2"]
-
-
-[[bin]]
-name = "just-decompress-compressible"
-required-features = ["v2"]
-
-[[bin]]
-name = "async-decode-cost"
-required-features = ["v2", "stream"]
-
-[[bin]]
 name = "coder-routes"
-required-features = ["v2", "stream"]
+required-features = ["v2", "stream", "benchmarking"]
 
 [[bin]]
 name = "async-decode-overlap"
-required-features = ["v2", "stream"]
+required-features = ["v2", "stream", "benchmarking"]
 
+# Times itself with `scaling`, and uses the v2 API throughout.
 [[bin]]
-name = "just-decompress-stream"
+name = "bench-arc-str"
 required-features = ["v2", "benchmarking"]

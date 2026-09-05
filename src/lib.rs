@@ -114,6 +114,8 @@
 //! compactly will adaptively learn the distinct patterns of values for each
 //! field.
 
+#[cfg(feature = "benchmarking")]
+pub mod benchmarking;
 mod encoded;
 #[cfg(feature = "v2")]
 mod string_set;

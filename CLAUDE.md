@@ -36,14 +36,16 @@ Features `v1` and `v2` are both on by default. The optional `generate_bit_contex
 
 The optional `benchmarking` feature exposes the benchmark-support API — forced
 tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
-forced decoder instantiations (`Ans::decode_from_forced`), and entropy-phase
-replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
-the library makes for itself and some silently produce wrong answers on the
-wrong input, so they are off by default and not covered by semver. Anything
-that calls them (`benches/atmost.rs`, `src/bin/ans-decode-phases.rs`,
-`src/bin/just-decompress-stream.rs`) needs `benchmarking` in its
-`required-features`, **and** cargo silently *skips* targets whose
-required-features are off — so a lint or build break in them hides unless the
+forced decoder instantiations (`Ans::decode_from_forced`), entropy-phase
+replay (`replay_entropy_decode`, `is_single_chunk`), and the
+`compactly::benchmarking` reporting helpers — and pulls in the `scaling`
+dependency they time themselves with (a dev-dependency would not reach
+`src/bin`). These bypass the choices the library makes for itself and some
+silently produce wrong answers on the wrong input, so they are off by default
+and not covered by semver. **Every binary in `src/bin/` except the
+bit-context generators and `char-freq` now needs `benchmarking` in its
+`required-features`**, as does `benches/atmost.rs`, **and** cargo silently
+*skips* targets whose required-features are off — so a lint or build break in them hides unless the
 feature is on. That is why CI clippies twice — the second pass with
 `--all-features`, which is what reaches every gated target rather than a named
 list that a new one can be left out of — and runs `cargo test --all-features`.
@@ -66,6 +68,25 @@ entry whenever you add a binary. The pre-commit hook runs
 without harming the compression rate: how to benchmark reliably on this (noisy)
 machine, empirical results, dead ends to avoid, and a prioritized TODO list.
 Update it as that work progresses.
+
+All timing goes through the [`scaling`](https://github.com/droundy/scaling)
+crate, which samples until the standard error of its mean is under 0.1% and
+says so when it could not. Two things follow for anyone running a benchmark
+here:
+
+- **Run benchmarks outside the command sandbox** (`dangerouslyDisableSandbox`).
+  The sandbox intercepts the process, and pinning to the reserved CPU is
+  exactly the kind of thing it restricts — a benchmark that cannot pin itself
+  measures the machine's other work as well as its own. Building and linting
+  are fine inside it; only the measurement runs need to be outside.
+- **Run them under `quiet-bench run …`**, and never run `quiet-bench reserve`
+  or `restore` yourself — those need sudo and are the human's to do.
+  `quiet-bench run true` exits 0 iff a CPU is reserved; if it fails, stop and
+  ask.
+- **Add a workload to `src/bin/coder-routes.rs`; do not add a new bin.** A
+  dozen one-workload binaries accumulated there and were folded into it on
+  2026-09-05. A new bin earns its place only by measuring something
+  `coder-routes` structurally cannot — see the list in OPTIMIZING.md.
 
 ## Architecture
 

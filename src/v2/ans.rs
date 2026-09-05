@@ -448,7 +448,7 @@ impl Ans {
     /// check compiled out, `load_next_chunk` never fires, the exhausted entropy
     /// buffer simply stops renormalizing, and decode runs to completion emitting
     /// silently corrupted values. Benchmark support for
-    /// `src/bin/just-decompress-stream.rs`, not part of the stable API.
+    /// `src/bin/ans-chunk-tracking.rs`, not part of the stable API.
     #[doc(hidden)]
     #[cfg(feature = "benchmarking")]
     pub fn decode_from_forced<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
@@ -565,7 +565,7 @@ impl Ans {
     /// oracle for the probabilities and symbol intervals that the adaptive
     /// contexts would supply. This isolates the rANS state/byte work from the
     /// model (context adaptation) and value construction; see
-    /// `src/bin/ans-decode-phases.rs`. Panics if a decoded bit disagrees with
+    /// `src/bin/ans-phases.rs`. Panics if a decoded bit disagrees with
     /// the recorded one. Returns a checksum so callers can `black_box` it.
     ///
     /// Only valid for a **single-chunk** value: once encoding flushes a chunk

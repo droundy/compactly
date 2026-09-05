@@ -6,7 +6,8 @@
 // bool contexts in the same order); only their `decode` differs. So decoding the
 // same byte stream both ways is a clean A/B of the batch machinery.
 //
-// Usage: `micro-batch seq|batch`   (decode ITERS× under `perf stat`)
+// Usage: `micro-batch seq|batch`
+use compactly::benchmarking::report;
 use compactly::v2::{
     Ans, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
 };
@@ -14,7 +15,6 @@ use compactly::Normal;
 
 const N: usize = 16; // bits per group (compile-time batch width)
 const GROUPS: usize = 100_000;
-const ITERS: usize = 1500;
 
 type Ctx = [<bool as Encode>::Context; N];
 
@@ -108,21 +108,17 @@ fn main() {
         enc_seq.len() as f64 * 8.0 / (GROUPS * N) as f64,
     );
 
-    let mut checksum = 0u64;
     match mode.as_str() {
         "seq" => {
-            for _ in 0..ITERS {
-                let d = Ans::decode::<Vec<Seq>>(&enc_seq).expect("decode");
-                checksum = checksum.wrapping_add(d[GROUPS / 2].0[0] as u64);
-            }
+            report("decode_bit (seq)", || {
+                Ans::decode::<Vec<Seq>>(&enc_seq).expect("decode")[GROUPS / 2].0[0]
+            });
         }
         "batch" => {
-            for _ in 0..ITERS {
-                let d = Ans::decode::<Vec<Batch>>(&enc_batch).expect("decode");
-                checksum = checksum.wrapping_add(d[GROUPS / 2].0[0] as u64);
-            }
+            report("decode_bits (batch)", || {
+                Ans::decode::<Vec<Batch>>(&enc_batch).expect("decode")[GROUPS / 2].0[0]
+            });
         }
         other => panic!("unknown mode {other:?}; use seq|batch"),
     }
-    eprintln!("mode={mode} checksum={checksum}");
 }

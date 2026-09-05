@@ -1,8 +1,8 @@
 //! `Ans` against `Range` on every route either coder actually supports.
 //!
-//! The `just-decompress-*` bins each compare the two on **one** route, the
-//! borrowing slice decoder, which is the fastest path and not the one a
-//! streaming caller takes. That leaves the interesting question unanswered: a
+//! One route — the borrowing slice decoder — is the fastest path and not the
+//! one a streaming caller takes, so measuring only it leaves the interesting
+//! question unanswered: a
 //! coder that wins on slices can lose once the bytes arrive through a `Read` or
 //! a `Stream`, because the routes differ in what they can keep in registers and
 //! in how much they must buffer before decoding anything. They do — see
@@ -28,28 +28,45 @@
 //! could go, and the encode side is a reminder that "async" currently means
 //! decode only, so the comparison is narrower than it looks.
 //!
-//! The workloads are the ones the `just-decompress-*` bins already use, brought
-//! together so every route runs identical harness code — a comparison across
-//! routes is only worth anything if nothing but the route differs.
+//! Every workload runs identical harness code — a comparison across routes or
+//! coders is only worth anything if nothing but the route or coder differs.
 //!
-//! Usage: `coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to] [iters]`
+//! Usage: `coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to]`
 //!
-//! Workloads: `strings`, `enums`, `enums17`, `floats`, `compressible`,
-//! `records`, `records-wide`, and `atmost<N>` for N in the monomorphized ladder
-//! (3 4 6 8 12 16 24 32 64 128). All but `enums`, `enums17`, `floats` and the
-//! ladder read `comparison/src/meteorites.csv`, so run from the workspace root.
+//! Prints the timed line and then a `result …` line of the same numbers, which
+//! is what `./coder-routes-table.sh` parses.
 //!
-//! `records`/`records-wide` are the same types and corpus `async-decode-cost`
-//! uses, so their sizes and slice numbers line up with that bin's.
+//! Workloads: `u64`, `u64-seq`, `strings`, `enums`, `enums17`, `floats`,
+//! `compressible`, `records`, `records-wide`, `ipv6`, and `atmost<N>` for N in
+//! the monomorphized ladder (3 4 6 8 12 16 24 32 64 128). `strings`,
+//! `compressible`, `records` and `records-wide` read
+//! `comparison/src/meteorites.csv`, so run from the workspace root; `ipv6`
+//! reads `ipv6.txt` from the cwd.
 //!
-//! `CHUNKS` (default 64) sets how many pieces the `stream` route delivers the
-//! buffer in; it is the only knob that changes what that route has in hand.
+//! Two knobs:
+//!
+//!   `COUNT`   (default 100000) values in the `u64` workloads. It changes what
+//!             one decode *is*, so the per-value line is the one to compare
+//!             across settings: 2000 is cache-resident and single-chunk,
+//!             100000 spans several chunks and is memory-bound.
+//!   `CHUNKS`  (default 64) pieces the `stream` route delivers the buffer in —
+//!             the only knob that changes what that route has in hand. `1`
+//!             feeds it whole, which `Range`'s look-ahead routes straight to
+//!             the slice decoder; `2` defeats that and forces the async path.
+//!
+//! This is the crate's one decode/encode workload runner. The `just-compress-*`
+//! and `just-decompress-*` bins, `range-decode-collapse` and
+//! `async-decode-cost` were each a special case of it, and were folded in here
+//! on 2026-09-05 — older entries in OPTIMIZING.md still name them.
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use std::net::Ipv6Addr;
+
 use bytes::Bytes;
+use compactly::benchmarking::{per_unit, print, report};
 use compactly::v2::{decode_stream, Ans, AtMost, Encode, Range};
 use compactly::{Compressible, Encoded};
 use futures_core::Stream;
@@ -97,80 +114,113 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 fn chunks() -> usize {
-    std::env::var("CHUNKS")
-        .ok()
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(64)
+    env("CHUNKS", 64)
 }
 
-/// Encode once with `coder`, then decode `iters` times by `route`, folding
+fn env(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(default)
+}
+
+/// `COUNT` pseudo-random `u64`s.
+fn u64s() -> Vec<u64> {
+    let mut rng = lcg();
+    (0..env("COUNT", 100_000)).map(|_| rng()).collect()
+}
+
+/// The same length of *consecutive* integers: highly compressible, and the
+/// cheapest thing to encode of anything here.
+fn u64_seq() -> Vec<u64> {
+    (0..env("COUNT", 100_000) as u64).collect()
+}
+
+fn ipv6s() -> Vec<Ipv6Addr> {
+    std::fs::read_to_string("ipv6.txt")
+        .expect("the `ipv6` workload reads ipv6.txt from the current directory")
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.trim().parse().expect("valid IPv6"))
+        .collect()
+}
+
+/// Encode once with `coder`, then time one pass along `route`, folding
 /// `measure` over each decoded value so the decode cannot be optimized away.
 ///
-/// The coder and route are branched on **once**, outside the loop, so the
-/// measurement contains the decode and nothing else.
-fn run<T: Encode>(
-    coder: &str,
-    route: &str,
-    iters: usize,
-    value: &T,
-    measure: impl Fn(&T) -> usize,
-) -> usize {
+/// The coder and route are branched on **once**, outside the timed closure, so
+/// the measurement contains the decode and nothing else.
+fn run<T: Encode>(coder: &str, route: &str, value: &T, measure: impl Fn(&T) -> usize) {
+    let elements = measure(value);
     let encoded = match coder {
         "ans" => Ans::encode(value),
         "range" => compactly::v2::encode(value),
         other => panic!("unknown coder {other:?}; use ans|range"),
     };
-    println!("encoded size {}", encoded.len());
+    eprintln!("encoded size {}", encoded.len());
     let n = chunks();
-    let mut total = 0usize;
-    macro_rules! loop_over {
+    let label = format!("{coder}/{route}");
+    macro_rules! time {
         ($decode:expr) => {
-            for _ in 0..iters {
-                total += measure(&std::hint::black_box($decode).unwrap());
-            }
+            report(&label, || measure(&$decode.unwrap()))
         };
     }
     // Encode routes measure the encode itself, so unlike the decode routes the
-    // work is inside the loop rather than hoisted above it.
-    macro_rules! loop_encoding {
+    // work is inside the closure rather than hoisted above it.
+    macro_rules! time_encoding {
         ($encode:expr) => {
-            for _ in 0..iters {
-                total += std::hint::black_box($encode).len();
-            }
+            report(&label, || $encode.len())
         };
     }
-    match (coder, route) {
-        ("ans", "encode") => loop_encoding!(Ans::encode(value)),
-        ("range", "encode") => loop_encoding!(compactly::v2::encode(value)),
-        ("ans", "encode-to") => loop_encoding!({
+    let stats = match (coder, route) {
+        ("ans", "encode") => time_encoding!(Ans::encode(value)),
+        ("range", "encode") => time_encoding!(compactly::v2::encode(value)),
+        ("ans", "encode-to") => time_encoding!({
             let mut sink = Vec::new();
             Ans::encode_to(value, &mut sink).unwrap();
             sink
         }),
-        ("range", "encode-to") => loop_encoding!({
+        ("range", "encode-to") => time_encoding!({
             let mut sink = Vec::new();
             compactly::v2::encode_to(value, &mut sink).unwrap();
             sink
         }),
-        ("ans", "slice") => loop_over!(Ans::decode::<T>(&encoded)),
-        ("range", "slice") => loop_over!(compactly::v2::decode::<T>(&encoded)),
-        ("ans", "from") => loop_over!(Ans::decode_from::<T, _>(&encoded[..])),
-        ("range", "from") => loop_over!(Range::decode_from::<T, _>(&encoded[..])),
+        ("ans", "slice") => time!(Ans::decode::<T>(&encoded)),
+        ("range", "slice") => time!(compactly::v2::decode::<T>(&encoded)),
+        ("ans", "from") => time!(Ans::decode_from::<T, _>(&encoded[..])),
+        ("range", "from") => time!(Range::decode_from::<T, _>(&encoded[..])),
         ("ans", "stream") => {
-            loop_over!(block_on(Ans::decode_stream::<T, _, _>(Chunks::new(
+            time!(block_on(Ans::decode_stream::<T, _, _>(Chunks::new(
                 &encoded, n
             ))))
         }
         ("range", "stream") => {
-            loop_over!(block_on(decode_stream::<T, _, _>(Chunks::new(&encoded, n))))
+            time!(block_on(decode_stream::<T, _, _>(Chunks::new(&encoded, n))))
         }
         (_, other) => panic!("unknown route {other:?}; use slice|from|stream|encode|encode-to"),
-    }
-    total
+    };
+    // Workload size is a knob (`COUNT`) on some of these, so say the cost per
+    // element as well as per call.
+    print("  per element", &per_unit(&stats, elements));
+    // One line for `./coder-routes-table.sh` to parse. `flags` carries what
+    // the human line marks as `(limit)`/`(untrusted)`, so a table cell can say
+    // when its number should not be believed rather than silently printing it.
+    println!(
+        "result coder={coder} route={route} ns={:.6} err={:.6} size={} flags={}",
+        stats.ns_per_iter,
+        stats.std_error,
+        encoded.len(),
+        match (stats.hit_limit, stats.untrustworthy) {
+            (true, true) => "limit,untrusted",
+            (true, false) => "limit",
+            (false, true) => "untrusted",
+            (false, false) => "ok",
+        }
+    );
 }
 
 /// Extract the first (quote-aware) CSV field of each record, skipping the header
-/// row — the same reader `just-decompress-strings` uses, so the corpus matches.
+/// row.
 fn meteorite_names() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for line in csv().lines().skip(1) {
@@ -213,8 +263,7 @@ fn seeded_lcg(seed: u64) -> impl FnMut() -> u64 {
 }
 
 /// A record shaped the way streamed data usually is: a short string beside a
-/// couple of integers. Same definition and same corpus as `async-decode-cost`'s
-/// workload of this name, so the sizes and the slice numbers line up.
+/// couple of integers — the shape callers actually stream.
 #[derive(Debug, Clone, PartialEq, compactly::v2::Encode)]
 struct Record {
     id: u64,
@@ -277,8 +326,8 @@ enum SeventeenOptions {
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q,
 }
 
-/// 20% A, 20% B, 60% C — the same skew `just-decompress-enums` uses, so the
-/// slice numbers here are comparable with that bin's.
+/// 20% A, 20% B, 60% C — the skew the `btreeset<vec![ThreeOptions; 15]>` case
+/// in `benches/bench.rs` uses.
 fn three() -> Vec<ThreeOptions> {
     let mut rng = lcg();
     (0..100_000)
@@ -300,7 +349,7 @@ fn seventeen() -> Vec<SeventeenOptions> {
 }
 
 /// Non-integer `f64`s, so decode takes the raw-bits path rather than the
-/// integer fast path — the same corpus `just-decompress-floats` builds.
+/// integer fast path.
 fn floats() -> Vec<f64> {
     let mut rng = lcg();
     (0..100_000)
@@ -316,12 +365,12 @@ fn floats() -> Vec<f64> {
         .collect()
 }
 
-fn atmost<const MAX: usize>(coder: &str, route: &str, iters: usize) -> usize {
+fn atmost<const MAX: usize>(coder: &str, route: &str) {
     let mut rng = lcg();
     let data: Vec<AtMost<MAX>> = (0..50_000)
         .map(|_| AtMost::<MAX>::new(((rng() >> 33) as usize) % (MAX + 1)))
         .collect();
-    run(coder, route, iters, &data, |v| v.len())
+    run(coder, route, &data, |v| v.len())
 }
 
 fn main() {
@@ -337,51 +386,43 @@ fn main() {
             )
         })
         .unwrap_or_else(|| "slice".to_string());
-    let iters: usize = std::env::args()
-        .filter_map(|a| a.parse().ok())
-        .next()
-        .unwrap_or(2000);
-    println!("{workload} / {coder} / {route}, {iters} iterations");
+    eprintln!("{workload} / {coder} / {route}");
 
-    let total = match workload.as_str() {
-        "strings" => run(&coder, &route, iters, &meteorite_names(), |v| v.len()),
-        "enums" => run(&coder, &route, iters, &three(), |v| v.len()),
-        "enums17" => run(&coder, &route, iters, &seventeen(), |v| v.len()),
-        "floats" => run(&coder, &route, iters, &floats(), |v| v.len()),
+    match workload.as_str() {
+        "u64" => run(&coder, &route, &u64s(), |v| v.len()),
+        "u64-seq" => run(&coder, &route, &u64_seq(), |v| v.len()),
+        "ipv6" => run(&coder, &route, &ipv6s(), |v| v.len()),
+        "strings" => run(&coder, &route, &meteorite_names(), |v| v.len()),
+        "enums" => run(&coder, &route, &three(), |v| v.len()),
+        "enums17" => run(&coder, &route, &seventeen(), |v| v.len()),
+        "floats" => run(&coder, &route, &floats(), |v| v.len()),
         "compressible" => {
             let corpus: Encoded<Vec<u8>, Compressible> = Encoded::new(csv().into_bytes());
-            run(&coder, &route, iters, &corpus, |v| v.len())
+            run(&coder, &route, &corpus, |v| v.len())
         }
-        "records" => run(&coder, &route, iters, &records().0, |v| v.len()),
-        "records-wide" => run(&coder, &route, iters, &records().1, |v| v.len()),
+        "records" => run(&coder, &route, &records().0, |v| v.len()),
+        "records-wide" => run(&coder, &route, &records().1, |v| v.len()),
         // The ladder is monomorphized, so `MAX` has to be a literal here; these
-        // are the values `just-decompress-uless` compiles.
-        "atmost3" => atmost::<2>(&coder, &route, iters),
-        "atmost4" => atmost::<3>(&coder, &route, iters),
-        "atmost6" => atmost::<5>(&coder, &route, iters),
-        "atmost8" => atmost::<7>(&coder, &route, iters),
-        "atmost12" => atmost::<11>(&coder, &route, iters),
-        "atmost16" => atmost::<15>(&coder, &route, iters),
-        "atmost24" => atmost::<23>(&coder, &route, iters),
-        "atmost32" => atmost::<31>(&coder, &route, iters),
-        "atmost64" => atmost::<63>(&coder, &route, iters),
-        "atmost128" => atmost::<127>(&coder, &route, iters),
+        // are the value counts the walk shootout also covers.
+        "atmost3" => atmost::<2>(&coder, &route),
+        "atmost4" => atmost::<3>(&coder, &route),
+        "atmost6" => atmost::<5>(&coder, &route),
+        "atmost8" => atmost::<7>(&coder, &route),
+        "atmost12" => atmost::<11>(&coder, &route),
+        "atmost16" => atmost::<15>(&coder, &route),
+        "atmost24" => atmost::<23>(&coder, &route),
+        "atmost32" => atmost::<31>(&coder, &route),
+        "atmost64" => atmost::<63>(&coder, &route),
+        "atmost128" => atmost::<127>(&coder, &route),
         other => {
             eprintln!(
                 "unknown workload {other:?}\n\
-                 usage: coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to] [iters]\n\
-                 workloads: strings enums enums17 floats compressible \
-                 records records-wide atmost{{3,4,6,8,12,16,24,32,64,128}}"
+                 usage: coder-routes <workload> [ans|range] [slice|from|stream|encode|encode-to]\n\
+                 workloads: u64 u64-seq strings enums enums17 floats \
+                 compressible records records-wide ipv6 \
+                 atmost{{3,4,6,8,12,16,24,32,64,128}}"
             );
             std::process::exit(2);
         }
-    };
-    // `total` is decoded elements on a decode route and encoded bytes on an
-    // encode one; say which, so a stray run is not misread.
-    let unit = if route.starts_with("encode") {
-        "encoded bytes"
-    } else {
-        "decoded elements"
-    };
-    println!("total {unit} {total}");
+    }
 }
