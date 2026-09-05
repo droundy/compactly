@@ -47,7 +47,7 @@ jobs:
     - name: Run clippy
       run: cargo clippy --all-targets --workspace -- -D warnings
       # Cargo silently *skips* a target whose `required-features` are off, so
-      # the pass above lints neither `benches/atmost.rs` and the bins gated on
+      # the pass above lints neither the benches gated on
       # `benchmarking`/`stream`, nor `src/bin/char-freq.rs`, gated on the
       # optional `csv`/`ureq` deps. `--all-features` rather than a list, so a
       # new gated target cannot go unlinted by being forgotten here.

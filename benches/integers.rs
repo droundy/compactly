@@ -3,7 +3,7 @@ use compactly::v2::{Ans, Range};
 use compactly::{Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
 use rand::distributions::{Distribution, Standard};
 use rand::{Rng, SeedableRng};
-use scaling::bench_gen_env;
+use scaling::{bench_gen_env, Stats};
 
 const N: usize = 8192;
 
@@ -105,14 +105,25 @@ type AlgoFn<T> = Box<dyn Fn(&Vec<T>) -> Vec<u8>>;
 type DecodeFn<T> = Box<dyn Fn(&[u8]) -> Vec<T>>;
 type Algo<T> = (&'static str, AlgoFn<T>, DecodeFn<T>);
 
-fn format_time(ns: f64) -> String {
-    if ns >= 1_000_000.0 {
+/// A time, marked `!` when `scaling` could not measure it to the 1% it aims
+/// for by default — either it ran out of time, or it took too few samples for
+/// the error bar itself to mean anything. This is a survey table, too wide to
+/// carry a `±` in every cell, so the mark is the whole precision signal:
+/// unmarked cells are good to about 1%, marked ones should not be compared.
+fn format_time(stats: &Stats) -> String {
+    let ns = stats.ns_per_iter;
+    let value = if ns >= 1_000_000.0 {
         format!("{:.1}ms", ns / 1_000_000.0)
     } else if ns >= 1_000.0 {
         format!("{:.0}us", ns / 1_000.0)
     } else {
         format!("{:.0}ns", ns)
-    }
+    };
+    // `rel_std_error` is NaN when there were too few samples to form one, so
+    // that is spelled out rather than left to a negated comparison.
+    let rel = stats.rel_std_error();
+    let unreliable = stats.hit_limit || stats.untrustworthy || rel.is_nan() || rel > 0.01;
+    format!("{value}{}", if unreliable { "!" } else { "" })
 }
 
 fn format_sz(sz: f64) -> String {
@@ -146,16 +157,16 @@ fn run_benchmarks<T: Clone + std::fmt::Debug + Eq>(
 
     print!("{:>14}:", "encode");
     for (_, enc, _) in algos {
-        let t = bench_gen_env(|| data.clone(), |d| enc(d)).ns_per_iter;
-        print!(" {:>W$}", format_time(t));
+        let t = bench_gen_env(|| data.clone(), |d| enc(d));
+        print!(" {:>W$}", format_time(&t));
     }
     println!();
 
     print!("{:>14}:", "decode");
     for (_, enc, dec) in algos {
         let encoded = enc(data);
-        let t = bench_gen_env(|| encoded.clone(), |b| dec(b)).ns_per_iter;
-        print!(" {:>W$}", format_time(t));
+        let t = bench_gen_env(|| encoded.clone(), |b| dec(b));
+        print!(" {:>W$}", format_time(&t));
     }
     println!();
 
@@ -299,6 +310,8 @@ fn benchmark_usize(heading: &str, data: &Vec<usize>) {
 }
 
 fn main() {
+    // One legend for every table below; see `format_time`.
+    println!("times are per operation; `!` marks a cell `scaling` could not pin down to 1%\n");
     let mut rng = rand::rngs::SmallRng::seed_from_u64(42);
     benchmark_int_type!(u16, rng);
     benchmark_int_type!(u32, rng);

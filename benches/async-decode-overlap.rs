@@ -2,9 +2,10 @@
 //
 // This is the claim that justifies `decode_stream` existing at all — otherwise
 // a caller may as well collect the stream and call `v2::decode`, which is four
-// lines they can write themselves. It is a **wall-clock** property, so unlike
-// `async-decode-cost` it cannot be instruction-counted; the two bins measure
-// different things and neither substitutes for the other.
+// lines they can write themselves. It is a property of a *delivery schedule*,
+// which is why it needs its own bin: `coder-routes … stream` measures what the
+// async machinery costs when every byte is already in hand, and that is a
+// different question.
 //
 // The source models a network delivering at a constant rate: chunk `i` becomes
 // available at `start + i * interval`, regardless of how long decoding takes.
@@ -18,8 +19,9 @@
 //
 // Usage: `[COUNT=n] [CHUNKS=n] [RATE_MBPS=n] async-decode-overlap collect|overlap|both`
 //
-// Wall-clock means this is sensitive to machine noise; run it under `bench` and
-// take the min of several runs, as with everything else here.
+// Wall-clock means this is sensitive to machine noise, so it wants a reserved
+// CPU (`quiet-bench run`) like everything else here; the `±` on each line says
+// how much of the gap between the two arms is real.
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -27,8 +29,11 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use common::{args, report_env};
 use compactly::v2::{decode_stream, Ans};
 use futures_core::Stream;
+
+mod common;
 
 const DEFAULT_COUNT: usize = 100_000;
 const DEFAULT_CHUNKS: usize = 64;
@@ -92,11 +97,6 @@ impl Timed {
             delivered: 0,
         }
     }
-
-    /// When the whole schedule finishes, for reporting.
-    fn arrival_time(&self) -> Duration {
-        self.interval * self.chunks.len() as u32
-    }
 }
 
 impl Stream for Timed {
@@ -148,8 +148,9 @@ fn main() {
     };
     let count = env("COUNT", DEFAULT_COUNT);
     let chunks = env("CHUNKS", DEFAULT_CHUNKS);
-    let which = std::env::args()
-        .nth(1)
+    let which = args()
+        .first()
+        .cloned()
         .unwrap_or_else(|| "both".to_string());
 
     let mut x = 0x123456789abcdef0u64;
@@ -176,15 +177,16 @@ fn main() {
     // regime — a network fast enough to outrun the decoder makes the whole
     // question moot, and one far slower hides the decode entirely.
     let baseline = {
-        let t = Instant::now();
-        std::hint::black_box(if ans {
-            Ans::decode::<Vec<u64>>(&compressed).unwrap().len()
-        } else {
-            compactly::v2::decode::<Vec<u64>>(&compressed)
-                .unwrap()
-                .len()
+        let stats = common::report("sync decode (no stream)", || {
+            if ans {
+                Ans::decode::<Vec<u64>>(&compressed).unwrap().len()
+            } else {
+                compactly::v2::decode::<Vec<u64>>(&compressed)
+                    .unwrap()
+                    .len()
+            }
         });
-        t.elapsed()
+        Duration::from_secs_f64(stats.ns_per_iter / 1e9)
     };
     let rate_mbps = env("RATE_MBPS", 0);
     let total_arrival = if rate_mbps > 0 {
@@ -194,7 +196,7 @@ fn main() {
     };
     let interval = total_arrival / chunks as u32;
 
-    println!(
+    eprintln!(
         "count={count} compressed={} chunks={chunks} interval={:?} \
          arrival={:?} sync_decode={:?}",
         compressed.len(),
@@ -203,49 +205,27 @@ fn main() {
         baseline
     );
 
-    let run_collect = || {
-        let source = Timed::new(&compressed, chunks, interval);
-        let arrival = source.arrival_time();
-        let t = Instant::now();
-        let n = block_on(collect_then_decode(source, ans));
-        (t.elapsed(), arrival, n)
-    };
-    let run_overlap = || {
-        let source = Timed::new(&compressed, chunks, interval);
-        let arrival = source.arrival_time();
-        let t = Instant::now();
-        let n = if ans {
-            block_on(Ans::decode_stream::<Vec<u64>, _, _>(source))
-                .unwrap()
-                .len()
-        } else {
-            block_on(decode_stream::<Vec<u64>, _, _>(source))
-                .unwrap()
-                .len()
-        };
-        (t.elapsed(), arrival, n)
-    };
-
-    // Min of a few: wall-clock, so the fastest run is the least contaminated.
-    let best = |f: &dyn Fn() -> (Duration, Duration, usize)| {
-        let mut best = Duration::MAX;
-        let mut arrival = Duration::ZERO;
-        let mut n = 0;
-        for _ in 0..5 {
-            let (d, a, got) = f();
-            best = best.min(d);
-            arrival = a;
-            n = got;
-        }
-        (best, arrival, n)
-    };
+    // The source is built fresh for each iteration and *not* timed: its
+    // constructor stamps the arrival clock, and one is consumed per decode.
+    // `Option` because the decode takes it by value while `bench_gen_env`
+    // hands out `&mut`.
+    let source = || Some(Timed::new(&compressed, chunks, interval));
 
     if which == "collect" || which == "both" {
-        let (d, a, n) = best(&run_collect);
-        println!("collect: {d:?}  (arrival {a:?} + decode) elements={n}");
+        report_env("collect (arrival + decode)", source, |s| {
+            block_on(collect_then_decode(s.take().unwrap(), ans))
+        });
     }
     if which == "overlap" || which == "both" {
-        let (d, a, n) = best(&run_overlap);
-        println!("overlap: {d:?}  (arrival {a:?}, decode hidden) elements={n}");
+        report_env("overlap (decode hidden)", source, |s| {
+            let s = s.take().unwrap();
+            if ans {
+                block_on(Ans::decode_stream::<Vec<u64>, _, _>(s))
+                    .unwrap()
+                    .len()
+            } else {
+                block_on(decode_stream::<Vec<u64>, _, _>(s)).unwrap().len()
+            }
+        });
     }
 }

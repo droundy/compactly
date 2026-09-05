@@ -13,44 +13,49 @@
 //! Usage:
 //! - `bench-arc-str` — human-readable size/ratio/wall-time summary for all
 //!   three, on the `ipv4.txt` corpus.
-//! - `bench-arc-str encode|decode old|btree|new [ipv4|repeated] [iterations]`
-//!   (default `ipv4`, 200 iterations) — encode-only or decode-only loop for
-//!   `bench perf stat -e cpu_core/cycles/ bench-arc-str encode|decode old|btree|new [ipv4|repeated]`,
-//!   per OPTIMIZING.md's methodology (alternate variants, take the min of a
-//!   few runs). `repeated` is the same string over and over (every
+//! - `bench-arc-str encode|decode old|btree|new [ipv4|repeated]` (corpus
+//!   defaults to `ipv4`) — one timed line for that variant alone, per
+//!   OPTIMIZING.md's methodology (run it under `quiet-bench run`, and
+//!   alternate the variants when comparing across builds). `repeated` is the
+//!   same string over and over (every
 //!   `ipv4.txt` line is distinct, so that corpus is 100% dictionary misses;
 //!   `repeated` is the opposite extreme, ~100% cache hits after the first
 //!   value) -- useful for isolating the exact-match/cache-hit path's cost
 //!   from the miss path's `StringSet` search cost.
 //!
-//! Everything lives behind the `v2` feature so that
+//! Run with no arguments it prints the summary; with none of it present —
+//! `ipv4.txt` is a local corpus, not something in the repository — it skips,
+//! since `cargo bench` runs every target with no arguments.
+//!
+//! Everything lives behind the `v2` feature, which together with the
+//! `benchmarking` feature this bench declares in `required-features` keeps
 //! `cargo check --no-default-features` (run by CI and the pre-commit hook)
-//! still compiles this bin.
+//! happy.
+mod common;
+
 #[cfg(feature = "v2")]
 mod imp {
+    use crate::common::report as bench_report;
     use compactly::v2::{
         decode, encode, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
     };
     use compactly::Normal;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use std::time::Instant;
 
     fn report<T: Encode + PartialEq>(label: &str, values: &Vec<T>, raw_bytes: usize) {
-        let t0 = Instant::now();
         let encoded = encode(values);
-        let encode_ms = t0.elapsed().as_secs_f64() * 1000.0;
-
-        let t1 = Instant::now();
         let decoded = decode::<Vec<T>>(&encoded).expect("decode failed");
-        let decode_ms = t1.elapsed().as_secs_f64() * 1000.0;
-
         assert!(decoded == *values, "roundtrip mismatch");
         println!(
-        "{label}: raw={raw_bytes}B encoded={}B ratio={:.2}x encode={encode_ms:.1}ms decode={decode_ms:.1}ms",
-        encoded.len(),
-        raw_bytes as f64 / encoded.len() as f64,
-    );
+            "{label}: raw={raw_bytes}B encoded={}B ratio={:.2}x",
+            encoded.len(),
+            raw_bytes as f64 / encoded.len() as f64,
+        );
+        bench_report(&format!("{} encode", label.trim()), || encode(values).len());
+        bench_report(&format!("{} decode", label.trim()), || {
+            decode::<Vec<T>>(&encoded).unwrap().len()
+        });
     }
 
     /// A frozen copy of the pre-prefix/suffix `Arc<str>` `LowCardinality`
@@ -572,13 +577,19 @@ mod imp {
     }
     use btree_variant::BTreeArcStr;
 
-    fn read_ips() -> Vec<Arc<str>> {
-        std::fs::read_to_string("ipv4.txt")
-            .expect("ipv4.txt")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| Arc::from(l.trim()))
-            .collect()
+    /// `None` when `ipv4.txt` is not in the current directory. It is a local
+    /// corpus, not something in the repository, and this is a benchmark
+    /// target now — `cargo bench` runs it with no arguments, and a missing
+    /// corpus should skip rather than fail the whole run.
+    fn read_ips() -> Option<Vec<Arc<str>>> {
+        Some(
+            std::fs::read_to_string("ipv4.txt")
+                .ok()?
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| Arc::from(l.trim()))
+                .collect(),
+        )
     }
 
     /// Every `ipv4.txt` line is distinct (checked with `sort -u`), so that
@@ -592,135 +603,79 @@ mod imp {
         std::iter::repeat_n(s, 20629).collect()
     }
 
-    fn read_corpus(name: &str) -> Vec<Arc<str>> {
+    fn read_corpus(name: &str) -> Option<Vec<Arc<str>>> {
         match name {
             "ipv4" => read_ips(),
-            "repeated" => repeated_corpus(),
+            "repeated" => Some(repeated_corpus()),
             _ => unreachable!(),
         }
     }
 
     fn read_string_corpus(name: &str) -> Vec<String> {
-        read_corpus(name).iter().map(|s| s.to_string()).collect()
+        missing_corpus(read_corpus(name))
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
-    /// Encode- or decode-only loop for `bench perf stat -e cpu_core/cycles/`:
-    /// repeat the chosen operation with `black_box` so the compiler can't
-    /// hoist it out, matching `just-compress-strings`/`just-decompress-strings`'s
-    /// convention. No internal wall-clock timing — per OPTIMIZING.md, cycle
-    /// counts via `perf` (alternating old/new, taking the min of a few runs)
-    /// are far less noisy than `Instant`-based wall time on this machine.
-    fn timing_loop(op: &str, mode: &str, corpus: &str, iterations: usize) {
-        let ips = read_corpus(corpus);
-        let mut total = 0usize;
+    /// Unwrap a corpus that [`run`] has already checked is present.
+    fn missing_corpus<T>(corpus: Option<T>) -> T {
+        corpus.expect("the corpus was checked before we got here")
+    }
+
+    /// Encode- or decode-only measurement of one variant, timed by `scaling`:
+    /// one line saying how long the operation takes and how well that is
+    /// known. The variant is chosen outside the timed closure, so nothing but
+    /// the operation is measured.
+    fn timing_loop(op: &str, mode: &str, corpus: &str) {
+        let ips = missing_corpus(read_corpus(corpus));
+        let label = format!("{op} {mode} ({corpus})");
+        macro_rules! encode_arm {
+            ($values:expr) => {{
+                let values = $values;
+                eprintln!("{mode} encoded size {}", encode(&values).len());
+                bench_report(&label, || encode(&values).len());
+            }};
+        }
+        macro_rules! decode_arm {
+            ($values:expr, $t:ty) => {{
+                let encoded = encode(&$values);
+                eprintln!("{mode} encoded size {}", encoded.len());
+                bench_report(&label, || decode::<$t>(&encoded).unwrap().len());
+            }};
+        }
+        let old = || -> Vec<OldStyleArcStr> { ips.iter().cloned().map(OldStyleArcStr).collect() };
+        let btree = || -> Vec<BTreeArcStr> { ips.iter().cloned().map(BTreeArcStr).collect() };
+        let string_old = || -> Vec<OldStyleString> {
+            read_string_corpus(corpus)
+                .into_iter()
+                .map(OldStyleString)
+                .collect()
+        };
+        type LowCardString = compactly::Encoded<String, compactly::LowCardinality>;
+        let string_new = || -> Vec<LowCardString> {
+            read_string_corpus(corpus)
+                .into_iter()
+                .map(compactly::Encoded::new)
+                .collect()
+        };
         match (op, mode) {
-            ("encode", "old") => {
-                let old: Vec<OldStyleArcStr> = ips.iter().cloned().map(OldStyleArcStr).collect();
-                for _ in 0..iterations {
-                    total += std::hint::black_box(encode(&old)).len();
-                }
-                println!("total encoded bytes {total}");
-            }
-            ("encode", "new") => {
-                for _ in 0..iterations {
-                    total += std::hint::black_box(encode(&ips)).len();
-                }
-                println!("total encoded bytes {total}");
-            }
-            ("encode", "btree") => {
-                let bt: Vec<BTreeArcStr> = ips.iter().cloned().map(BTreeArcStr).collect();
-                for _ in 0..iterations {
-                    total += std::hint::black_box(encode(&bt)).len();
-                }
-                println!("total encoded bytes {total}");
-            }
-            ("encode", "string-old") => {
-                let strs: Vec<OldStyleString> = read_string_corpus(corpus)
-                    .into_iter()
-                    .map(OldStyleString)
-                    .collect();
-                for _ in 0..iterations {
-                    total += std::hint::black_box(encode(&strs)).len();
-                }
-                println!("total encoded bytes {total}");
-            }
-            ("encode", "string-new") => {
-                let strs: Vec<compactly::Encoded<String, compactly::LowCardinality>> =
-                    read_string_corpus(corpus)
-                        .into_iter()
-                        .map(compactly::Encoded::new)
-                        .collect();
-                for _ in 0..iterations {
-                    total += std::hint::black_box(encode(&strs)).len();
-                }
-                println!("total encoded bytes {total}");
-            }
-            ("decode", "string-old") => {
-                let strs: Vec<OldStyleString> = read_string_corpus(corpus)
-                    .into_iter()
-                    .map(OldStyleString)
-                    .collect();
-                let encoded = encode(&strs);
-                println!("string-old encoded size {}", encoded.len());
-                for _ in 0..iterations {
-                    total += std::hint::black_box(decode::<Vec<OldStyleString>>(&encoded).unwrap())
-                        .len();
-                }
-                println!("total decoded {total}");
-            }
-            ("decode", "string-new") => {
-                let strs: Vec<compactly::Encoded<String, compactly::LowCardinality>> =
-                    read_string_corpus(corpus)
-                        .into_iter()
-                        .map(compactly::Encoded::new)
-                        .collect();
-                let encoded = encode(&strs);
-                println!("string-new encoded size {}", encoded.len());
-                for _ in 0..iterations {
-                    total += std::hint::black_box(
-                        decode::<Vec<compactly::Encoded<String, compactly::LowCardinality>>>(
-                            &encoded,
-                        )
-                        .unwrap(),
-                    )
-                    .len();
-                }
-                println!("total decoded {total}");
-            }
-            ("decode", "old") => {
-                let old: Vec<OldStyleArcStr> = ips.iter().cloned().map(OldStyleArcStr).collect();
-                let encoded = encode(&old);
-                println!("old encoded size {}", encoded.len());
-                for _ in 0..iterations {
-                    total += std::hint::black_box(decode::<Vec<OldStyleArcStr>>(&encoded).unwrap())
-                        .len();
-                }
-                println!("total decoded {total}");
-            }
-            ("decode", "new") => {
-                let encoded = encode(&ips);
-                println!("new encoded size {}", encoded.len());
-                for _ in 0..iterations {
-                    total += std::hint::black_box(decode::<Vec<Arc<str>>>(&encoded).unwrap()).len();
-                }
-                println!("total decoded {total}");
-            }
-            ("decode", "btree") => {
-                let bt: Vec<BTreeArcStr> = ips.iter().cloned().map(BTreeArcStr).collect();
-                let encoded = encode(&bt);
-                println!("btree encoded size {}", encoded.len());
-                for _ in 0..iterations {
-                    total +=
-                        std::hint::black_box(decode::<Vec<BTreeArcStr>>(&encoded).unwrap()).len();
-                }
-                println!("total decoded {total}");
-            }
+            ("encode", "old") => encode_arm!(old()),
+            ("encode", "btree") => encode_arm!(btree()),
+            ("encode", "new") => encode_arm!(ips.clone()),
+            ("encode", "string-old") => encode_arm!(string_old()),
+            ("encode", "string-new") => encode_arm!(string_new()),
+            ("decode", "old") => decode_arm!(old(), Vec<OldStyleArcStr>),
+            ("decode", "btree") => decode_arm!(btree(), Vec<BTreeArcStr>),
+            ("decode", "new") => decode_arm!(ips.clone(), Vec<Arc<str>>),
+            ("decode", "string-old") => decode_arm!(string_old(), Vec<OldStyleString>),
+            ("decode", "string-new") => decode_arm!(string_new(), Vec<LowCardString>),
             _ => unreachable!(),
         }
     }
 
     pub(crate) fn run() {
-        let args: Vec<String> = std::env::args().collect();
+        let args: Vec<String> = crate::common::args();
         let op = args
             .iter()
             .find(|a| a.as_str() == "encode" || a.as_str() == "decode")
@@ -739,17 +694,15 @@ mod imp {
             .find(|a| a.as_str() == "ipv4" || a.as_str() == "repeated")
             .map(String::as_str)
             .unwrap_or("ipv4");
+        let Some(ips) = read_corpus(corpus) else {
+            eprintln!("skipping: this benchmark reads ipv4.txt from the current directory");
+            return;
+        };
         if let (Some(op), Some(mode)) = (op, mode) {
-            let iterations: usize = args
-                .iter()
-                .filter_map(|a| a.parse().ok())
-                .next()
-                .unwrap_or(200);
-            timing_loop(op, mode, corpus, iterations);
+            timing_loop(op, mode, corpus);
             return;
         }
 
-        let ips = read_ips();
         let raw_bytes: usize = ips.iter().map(|s| s.len()).sum();
 
         println!("── IPv4 addresses as strings ({} lines) ──", ips.len());

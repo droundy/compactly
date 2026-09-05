@@ -12,10 +12,10 @@ repository = "https://github.com/droundy/compactly"
 
 generate_bit_context = []
 # Exposes the benchmark-support surface (forced tree walks, forced decoder
-# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive.
-# Off by default: these bypass the choices the library makes for itself, and
-# some silently produce wrong answers when pointed at the wrong input. Not
-# covered by semver.
+# instantiations, entropy-phase replay) that `benches/` drives. Off by
+# default: these bypass the choices the library makes for itself, and some
+# silently produce wrong answers when pointed at the wrong input. Not covered
+# by semver.
 benchmarking = []
 v1 = []
 v2 = []
@@ -40,7 +40,11 @@ uuid = { version = "1.18.1", optional = true }
 [dev-dependencies]
 
 expect-test = "1.5.1"
-scaling = "0.1.3"
+# The measurement harness for everything in `benches/`: it times a closure
+# until its standard error is small enough, and says so when it could not.
+# Git rather than plain 0.9.0 until that version is published; drop the `git`
+# key then, here and in comparison/Cargo.toml.
+scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -87,80 +91,43 @@ name = "atmost"
 harness = false
 required-features = ["v2", "benchmarking"]
 
-# These binaries use the v2 API, so they cannot build without it.
-[[bin]]
-name = "just-compress"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress"
-required-features = ["v2"]
-
-[[bin]]
-name = "range-decode-collapse"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-floats"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-net"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-uless"
-required-features = ["v2"]
-
-[[bin]]
-name = "micro-batch"
-required-features = ["v2"]
-
 [[bin]]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
-[[bin]]
-name = "ans-decode-phases"
+# The workload benchmarks. All are `harness = false` plain `main`s that take
+# arguments — `cargo bench --bench coder-routes -- strings ans slice`, or run
+# the executable `cargo bench --no-run` reports. `benchmarking` gets them the
+# forced walks and decoders; each also has a default arm, so
+# `cargo bench --all-features` — which runs them all with no arguments —
+# measures something rather than printing usage and failing.
+
+[[bench]]
+name = "coder-routes"
+harness = false
+required-features = ["v2", "stream", "benchmarking"]
+
+[[bench]]
+name = "micro-batch"
+harness = false
 required-features = ["v2", "benchmarking"]
 
-[[bin]]
-name = "ans-encode-phases"
-required-features = ["v2"]
+[[bench]]
+name = "ans-phases"
+harness = false
+required-features = ["v2", "benchmarking"]
 
+[[bench]]
+name = "ans-chunk-tracking"
+harness = false
+required-features = ["v2", "benchmarking"]
 
-[[bin]]
-name = "just-decompress-compressible"
-required-features = ["v2"]
-
-[[bin]]
-name = "async-decode-cost"
-required-features = ["v2", "stream"]
-
-[[bin]]
-name = "coder-routes"
-required-features = ["v2", "stream"]
-
-[[bin]]
+[[bench]]
 name = "async-decode-overlap"
-required-features = ["v2", "stream"]
+harness = false
+required-features = ["v2", "stream", "benchmarking"]
 
-[[bin]]
-name = "just-decompress-stream"
+[[bench]]
+name = "bench-arc-str"
+harness = false
 required-features = ["v2", "benchmarking"]

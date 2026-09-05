@@ -95,211 +95,99 @@ fn mem_allocated<T>(f: impl Fn() -> T) -> (T, usize) {
     }
 }
 
+/// One table per workload: a row per encoding, so each cell has room for the
+/// `±` `scaling` reports beside the time. A number here without its error bar
+/// would be unreadable as a comparison — the codecs differ by factors, but
+/// successive runs of the same one differ by percents, and only the `±` says
+/// which of those you are looking at.
 fn bench_encoding<T: Encodable>(name: &str, mut gen: impl FnMut() -> T) {
-    if name.len() <= 11 {
-        println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
-        );
-    } else {
-        println!("\n{}", name);
-        println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
-        );
-    }
-
-    print_times(
-        "encode",
-        &[
-            bench_gen_env(&mut gen, |value| Compactly.encode(value)).ns_per_iter,
-            bench_gen_env(&mut gen, |value| CompactlyAns.encode(value)).ns_per_iter,
-            bench_gen_env(&mut gen, |value| SerdeVar.encode(value)).ns_per_iter,
-            bench_gen_env(&mut gen, |value| ZstdSerdeVar.encode(value)).ns_per_iter,
-            bench_gen_env(&mut gen, |value| ZstdSerde.encode(value)).ns_per_iter,
-        ],
-    );
-    print_times(
-        "decode",
-        &[
-            bench_gen_env(
-                || Compactly.encode(&gen()),
-                |bytes| Compactly.decode::<T>(bytes),
-            )
-            .ns_per_iter,
-            bench_gen_env(
-                || CompactlyAns.encode(&gen()),
-                |bytes| CompactlyAns.decode::<T>(bytes),
-            )
-            .ns_per_iter,
-            bench_gen_env(
-                || SerdeVar.encode(&gen()),
-                |bytes| SerdeVar.decode::<T>(bytes),
-            )
-            .ns_per_iter,
-            bench_gen_env(
-                || ZstdSerdeVar.encode(&gen()),
-                |bytes| ZstdSerdeVar.decode::<T>(bytes),
-            )
-            .ns_per_iter,
-            bench_gen_env(
-                || ZstdSerde.encode(&gen()),
-                |bytes| ZstdSerde.decode::<T>(bytes),
-            )
-            .ns_per_iter,
-        ],
-    );
-    macro_rules! get_size {
-        ($encoding:ident) => {
-            (0..3)
+    header(name, "encode", "decode", FLAT_CELL);
+    macro_rules! row {
+        ($encoding:ident, $label:expr) => {{
+            let encode = bench_gen_env(&mut gen, |value| $encoding.encode(value));
+            let decode = bench_gen_env(
+                || $encoding.encode(&gen()),
+                |bytes| $encoding.decode::<T>(bytes),
+            );
+            let size = (0..3)
                 .map(|_| $encoding.encode(&gen()).len())
                 .sum::<usize>() as f64
-                / 3.0
-        };
-    }
-    print_sizes(
-        "",
-        &[
-            get_size!(Compactly),
-            get_size!(CompactlyAns),
-            get_size!(SerdeVar),
-            get_size!(ZstdSerdeVar),
-            get_size!(ZstdSerde),
-        ],
-    );
-    macro_rules! decoding_mem {
-        ($encoding:ident) => {{
+                / 3.0;
             let encoded = $encoding.encode(&gen());
-            mem_allocated(|| $encoding.decode::<T>(&encoded)).1 as f64
+            let mem = mem_allocated(|| $encoding.decode::<T>(&encoded)).1 as f64;
+            print_row(
+                $label,
+                &encode.to_string(),
+                &decode.to_string(),
+                size,
+                mem,
+                FLAT_CELL,
+            );
         }};
     }
-    print_sizes(
-        "decoding",
-        &[
-            decoding_mem!(Compactly),
-            decoding_mem!(CompactlyAns),
-            decoding_mem!(SerdeVar),
-            decoding_mem!(ZstdSerdeVar),
-            decoding_mem!(ZstdSerde),
-        ],
-    );
+    row!(Compactly, "compactly");
+    row!(CompactlyAns, "ans");
+    row!(SerdeVar, "bincode");
+    row!(ZstdSerdeVar, "zstd");
+    row!(ZstdSerde, "zstdfix");
 }
 
+/// As [`bench_encoding`], but each cell is a fitted scaling law rather than a
+/// single time. `R²` rides along with the `±` because the two answer different
+/// questions — which law, and how big its constant — and a tight `±` beside
+/// `R²=0.000` means the shape was never pinned down.
 fn bench_scaling<T: Encodable>(name: &str, mut gen: impl FnMut(usize) -> T) {
-    if name.len() <= 11 {
-        println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
-        );
-    } else {
-        println!("\n{}", name);
-        println!(
-            "{:11}:{:>13} {:>13} {:>13} {:>13} {:>13}",
-            name, "compactly", "ans", "bincode", "zstd", "zstdfix"
-        );
-    }
-
-    print_scalings(
-        "encode",
-        &[
-            bench_scaling_gen(&mut gen, |value| Compactly.encode(value), 5).scaling,
-            bench_scaling_gen(&mut gen, |value| CompactlyAns.encode(value), 5).scaling,
-            bench_scaling_gen(&mut gen, |value| SerdeVar.encode(value), 5).scaling,
-            bench_scaling_gen(&mut gen, |value| ZstdSerdeVar.encode(value), 5).scaling,
-            bench_scaling_gen(&mut gen, |value| ZstdSerde.encode(value), 5).scaling,
-        ],
-    );
-    print_scalings(
-        "decode",
-        &[
-            bench_scaling_gen(
-                |n| Compactly.encode(&gen(n)),
-                |bytes| Compactly.decode::<T>(bytes),
+    header(name, "encode /N", "decode /N", SCALING_CELL);
+    macro_rules! row {
+        ($encoding:ident, $label:expr) => {{
+            let encode = bench_scaling_gen(&mut gen, |value| $encoding.encode(value), 5);
+            let decode = bench_scaling_gen(
+                |n| $encoding.encode(&gen(n)),
+                |bytes| $encoding.decode::<T>(bytes),
                 5,
-            )
-            .scaling,
-            bench_scaling_gen(
-                |n| CompactlyAns.encode(&gen(n)),
-                |bytes| CompactlyAns.decode::<T>(bytes),
-                5,
-            )
-            .scaling,
-            bench_scaling_gen(
-                |n| SerdeVar.encode(&gen(n)),
-                |bytes| SerdeVar.decode::<T>(bytes),
-                5,
-            )
-            .scaling,
-            bench_scaling_gen(
-                |n| ZstdSerdeVar.encode(&gen(n)),
-                |bytes| ZstdSerdeVar.decode::<T>(bytes),
-                5,
-            )
-            .scaling,
-            bench_scaling_gen(
-                |n| ZstdSerde.encode(&gen(n)),
-                |bytes| ZstdSerde.decode::<T>(bytes),
-                5,
-            )
-            .scaling,
-        ],
-    );
-    macro_rules! get_size {
-        ($encoding:ident) => {
-            (0..10)
+            );
+            let size = (0..10)
                 .map(|_| $encoding.encode(&gen(1024)).len())
                 .sum::<usize>() as f64
-                / 10.0
-        };
-    }
-    print_sizes(
-        "",
-        &[
-            get_size!(Compactly),
-            get_size!(CompactlyAns),
-            get_size!(SerdeVar),
-            get_size!(ZstdSerdeVar),
-            get_size!(ZstdSerde),
-        ],
-    );
-    macro_rules! decoding_mem {
-        ($encoding:ident) => {{
+                / 10.0;
             let encoded = $encoding.encode(&gen(1024));
-            mem_allocated(|| $encoding.decode::<T>(&encoded)).1 as f64
+            let mem = mem_allocated(|| $encoding.decode::<T>(&encoded)).1 as f64;
+            print_row(
+                $label,
+                &encode.to_string(),
+                &decode.to_string(),
+                size,
+                mem,
+                SCALING_CELL,
+            );
         }};
     }
-    print_sizes(
-        "decode mem",
-        &[
-            decoding_mem!(Compactly),
-            decoding_mem!(CompactlyAns),
-            decoding_mem!(SerdeVar),
-            decoding_mem!(ZstdSerdeVar),
-            decoding_mem!(ZstdSerde),
-        ],
+    row!(Compactly, "compactly");
+    row!(CompactlyAns, "ans");
+    row!(SerdeVar, "bincode");
+    row!(ZstdSerdeVar, "zstd");
+    row!(ZstdSerde, "zstdfix");
+}
+
+/// Cell width for the flat tables, and for the scaling ones — a fitted law
+/// carries its `R²` and possibly a `(limit)` mark, so it needs more room.
+const FLAT_CELL: usize = 34;
+const SCALING_CELL: usize = 48;
+
+fn header(name: &str, encode: &str, decode: &str, cell: usize) {
+    println!("\n{name}");
+    println!(
+        "{:<11} {encode:>cell$} {decode:>cell$} {:>8} {:>10}",
+        "", "size", "decode mem"
     );
 }
 
-fn print_sizes(name: &str, sizes: &[f64]) {
-    print!("{:>11} ", name);
-    for s in sizes.iter().cloned() {
-        print!(" {:6}  {:<6}", "", format_sz(s));
-    }
-    println!();
-}
-fn print_times(name: &str, times: &[f64]) {
-    print!("{:>11}:    ", name);
-    for t in times.iter() {
-        print!(" {:^13}", format!("{:.0}ns", t));
-    }
-    println!();
-}
-fn print_scalings(name: &str, times: &[scaling::Scaling]) {
-    print!("{:>11}:    ", name);
-    for t in times.iter() {
-        print!(" {t:^13}");
-    }
-    println!();
+fn print_row(name: &str, encode: &str, decode: &str, size: f64, mem: f64, cell: usize) {
+    println!(
+        "{name:<11} {encode:>cell$} {decode:>cell$} {:>8} {:>10}",
+        format_sz(size),
+        format_sz(mem)
+    );
 }
 
 fn format_sz(sz: f64) -> String {

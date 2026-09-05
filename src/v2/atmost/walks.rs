@@ -176,7 +176,7 @@ const fn tree_depth(len: usize) -> u32 {
 
 /// Lower bound of the [`speculation_pays`] window: below this `MAX` the
 /// tree is too shallow for speculation to have any latency to hide
-/// (measured +11% at `MAX = 3`'s value count with `just-decompress-uless`).
+/// (measured +11% at `MAX = 3`'s value count with `coder-routes atmost3`).
 const SPECULATE_MIN_MAX: usize = 3;
 
 /// Upper [`tree_depth`] bound of the [`speculation_pays`] window: up to
@@ -567,7 +567,7 @@ mod complete {
     /// monomorphizations (the mid/large `bl` offset buckets, ~12% of random
     /// u64 decode cycles) — and that is the *faster* arrangement. Forcing
     /// full fusion (measured 2026-07-19 via a raised inline threshold) made
-    /// `just-decompress` reproducibly ~1.1% slower; see the TODO #9 entry
+    /// `coder-routes u64` reproducibly ~1.1% slower; see the TODO #9 entry
     /// in OPTIMIZING.md.
     #[inline]
     pub(super) fn from_slot_speculating<const MAX: usize>(
