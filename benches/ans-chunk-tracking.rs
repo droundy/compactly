@@ -17,8 +17,10 @@
 //
 // COUNT (default 2000) sets how many u64s per value, and must stay under
 // CHUNK_OPS for the forced arms to be valid.
-use compactly::benchmarking::{per_unit, print, report};
+use common::{args, per_unit, print, report};
 use compactly::v2::Ans;
+
+mod common;
 
 const DEFAULT_COUNT: usize = 2_000;
 
@@ -42,7 +44,10 @@ fn main() {
     // chunk is also the final one.
     let single_chunk = compressed[0] & 1 == 0;
 
-    let which = std::env::args().nth(1).unwrap_or_default();
+    let which = args()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "tracked".to_string());
     eprintln!(
         "{which}: count={count} single_chunk={single_chunk} compressed={}",
         compressed.len()

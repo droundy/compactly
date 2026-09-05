@@ -66,7 +66,7 @@ use std::task::{Context, Poll};
 use std::net::Ipv6Addr;
 
 use bytes::Bytes;
-use compactly::benchmarking::{per_unit, print, report};
+use common::{args, per_unit, print, report};
 use compactly::v2::{decode_stream, Ans, AtMost, Encode, Range};
 use compactly::{Compressible, Encoded};
 use futures_core::Stream;
@@ -373,18 +373,27 @@ fn atmost<const MAX: usize>(coder: &str, route: &str) {
     run(coder, route, &data, |v| v.len())
 }
 
+mod common;
+
 fn main() {
-    let workload = std::env::args().nth(1).unwrap_or_default();
-    let coder = std::env::args()
-        .find(|a| a == "ans" || a == "range")
+    let args = args();
+    // Defaults all round, so a bare `cargo bench` still measures something
+    // rather than printing usage and failing.
+    let workload = args.first().cloned().unwrap_or_else(|| "u64".to_string());
+    let coder = args
+        .iter()
+        .find(|a| *a == "ans" || *a == "range")
+        .cloned()
         .unwrap_or_else(|| "ans".to_string());
-    let route = std::env::args()
+    let route = args
+        .iter()
         .find(|a| {
             matches!(
                 a.as_str(),
                 "slice" | "from" | "stream" | "encode" | "encode-to"
             )
         })
+        .cloned()
         .unwrap_or_else(|| "slice".to_string());
     eprintln!("{workload} / {coder} / {route}");
 

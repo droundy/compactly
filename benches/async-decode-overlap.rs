@@ -29,9 +29,11 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use compactly::benchmarking::report_env;
+use common::{args, report_env};
 use compactly::v2::{decode_stream, Ans};
 use futures_core::Stream;
+
+mod common;
 
 const DEFAULT_COUNT: usize = 100_000;
 const DEFAULT_CHUNKS: usize = 64;
@@ -146,8 +148,9 @@ fn main() {
     };
     let count = env("COUNT", DEFAULT_COUNT);
     let chunks = env("CHUNKS", DEFAULT_CHUNKS);
-    let which = std::env::args()
-        .nth(1)
+    let which = args()
+        .first()
+        .cloned()
         .unwrap_or_else(|| "both".to_string());
 
     let mut x = 0x123456789abcdef0u64;
@@ -174,7 +177,7 @@ fn main() {
     // regime — a network fast enough to outrun the decoder makes the whole
     // question moot, and one far slower hides the decode entirely.
     let baseline = {
-        let stats = compactly::benchmarking::report("sync decode (no stream)", || {
+        let stats = common::report("sync decode (no stream)", || {
             if ans {
                 Ans::decode::<Vec<u64>>(&compressed).unwrap().len()
             } else {

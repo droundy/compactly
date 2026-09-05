@@ -23,13 +23,19 @@
 //!   value) -- useful for isolating the exact-match/cache-hit path's cost
 //!   from the miss path's `StringSet` search cost.
 //!
+//! Run with no arguments it prints the summary; with none of it present —
+//! `ipv4.txt` is a local corpus, not something in the repository — it skips,
+//! since `cargo bench` runs every target with no arguments.
+//!
 //! Everything lives behind the `v2` feature, which together with the
-//! `benchmarking` feature this bin declares in `required-features` keeps
+//! `benchmarking` feature this bench declares in `required-features` keeps
 //! `cargo check --no-default-features` (run by CI and the pre-commit hook)
 //! happy.
+mod common;
+
 #[cfg(feature = "v2")]
 mod imp {
-    use compactly::benchmarking::report as bench_report;
+    use crate::common::report as bench_report;
     use compactly::v2::{
         decode, encode, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
     };
@@ -571,13 +577,19 @@ mod imp {
     }
     use btree_variant::BTreeArcStr;
 
-    fn read_ips() -> Vec<Arc<str>> {
-        std::fs::read_to_string("ipv4.txt")
-            .expect("ipv4.txt")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| Arc::from(l.trim()))
-            .collect()
+    /// `None` when `ipv4.txt` is not in the current directory. It is a local
+    /// corpus, not something in the repository, and this is a benchmark
+    /// target now — `cargo bench` runs it with no arguments, and a missing
+    /// corpus should skip rather than fail the whole run.
+    fn read_ips() -> Option<Vec<Arc<str>>> {
+        Some(
+            std::fs::read_to_string("ipv4.txt")
+                .ok()?
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| Arc::from(l.trim()))
+                .collect(),
+        )
     }
 
     /// Every `ipv4.txt` line is distinct (checked with `sort -u`), so that
@@ -591,16 +603,24 @@ mod imp {
         std::iter::repeat_n(s, 20629).collect()
     }
 
-    fn read_corpus(name: &str) -> Vec<Arc<str>> {
+    fn read_corpus(name: &str) -> Option<Vec<Arc<str>>> {
         match name {
             "ipv4" => read_ips(),
-            "repeated" => repeated_corpus(),
+            "repeated" => Some(repeated_corpus()),
             _ => unreachable!(),
         }
     }
 
     fn read_string_corpus(name: &str) -> Vec<String> {
-        read_corpus(name).iter().map(|s| s.to_string()).collect()
+        missing_corpus(read_corpus(name))
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// Unwrap a corpus that [`run`] has already checked is present.
+    fn missing_corpus<T>(corpus: Option<T>) -> T {
+        corpus.expect("the corpus was checked before we got here")
     }
 
     /// Encode- or decode-only measurement of one variant, timed by `scaling`:
@@ -608,7 +628,7 @@ mod imp {
     /// known. The variant is chosen outside the timed closure, so nothing but
     /// the operation is measured.
     fn timing_loop(op: &str, mode: &str, corpus: &str) {
-        let ips = read_corpus(corpus);
+        let ips = missing_corpus(read_corpus(corpus));
         let label = format!("{op} {mode} ({corpus})");
         macro_rules! encode_arm {
             ($values:expr) => {{
@@ -655,7 +675,7 @@ mod imp {
     }
 
     pub(crate) fn run() {
-        let args: Vec<String> = std::env::args().collect();
+        let args: Vec<String> = crate::common::args();
         let op = args
             .iter()
             .find(|a| a.as_str() == "encode" || a.as_str() == "decode")
@@ -674,12 +694,15 @@ mod imp {
             .find(|a| a.as_str() == "ipv4" || a.as_str() == "repeated")
             .map(String::as_str)
             .unwrap_or("ipv4");
+        let Some(ips) = read_corpus(corpus) else {
+            eprintln!("skipping: this benchmark reads ipv4.txt from the current directory");
+            return;
+        };
         if let (Some(op), Some(mode)) = (op, mode) {
             timing_loop(op, mode, corpus);
             return;
         }
 
-        let ips = read_ips();
         let raw_bytes: usize = ips.iter().map(|s| s.len()).sum();
 
         println!("── IPv4 addresses as strings ({} lines) ──", ips.len());

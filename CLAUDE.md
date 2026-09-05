@@ -36,15 +36,11 @@ Features `v1` and `v2` are both on by default. The optional `generate_bit_contex
 
 The optional `benchmarking` feature exposes the benchmark-support API — forced
 tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
-forced decoder instantiations (`Ans::decode_from_forced`), entropy-phase
-replay (`replay_entropy_decode`, `is_single_chunk`), and the
-`compactly::benchmarking` reporting helpers — and pulls in the `scaling`
-dependency they time themselves with (a dev-dependency would not reach
-`src/bin`). These bypass the choices the library makes for itself and some
-silently produce wrong answers on the wrong input, so they are off by default
-and not covered by semver. **Every binary in `src/bin/` except the
-bit-context generators and `char-freq` now needs `benchmarking` in its
-`required-features`**, as does `benches/atmost.rs`, **and** cargo silently
+forced decoder instantiations (`Ans::decode_from_forced`) and entropy-phase
+replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
+the library makes for itself and some silently produce wrong answers on the
+wrong input, so they are off by default and not covered by semver. **Most of
+`benches/` declares it in `required-features`**, **and** cargo silently
 *skips* targets whose required-features are off — so a lint or build break in them hides unless the
 feature is on. That is why CI clippies twice — the second pass with
 `--all-features`, which is what reaches every gated target rather than a named
@@ -55,11 +51,16 @@ tests also use are gated
 `#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
 coverage.
 
+Everything that measures the library lives in `benches/`, as a `harness =
+false` target — a plain `main` that takes arguments. `src/bin/` holds only the
+three code generators, which are tools rather than benchmarks. Benches see
+dev-dependencies (which is how they reach `scaling`); `src/bin/` would not.
+
 CI also builds with `--no-default-features` (including a wasm target), so it
-compiles every target without `v1`/`v2`. The usual failure is a new `src/bin/`
-binary that uses `compactly::v2` without a matching
-`required-features = ["v2"]` entry under `[[bin]]` in Cargo.toml — add that
-entry whenever you add a binary. The pre-commit hook runs
+compiles every target without `v1`/`v2`. The usual failure is a new target
+that uses `compactly::v2` without a matching `required-features = ["v2"]`
+entry under `[[bin]]`/`[[bench]]` in Cargo.toml — add that entry whenever you
+add one. The pre-commit hook runs
 `cargo check --no-default-features` to catch this before CI does.
 
 ## Performance work
@@ -83,9 +84,9 @@ here:
   or `restore` yourself — those need sudo and are the human's to do.
   `quiet-bench run true` exits 0 iff a CPU is reserved; if it fails, stop and
   ask.
-- **Add a workload to `src/bin/coder-routes.rs`; do not add a new bin.** A
-  dozen one-workload binaries accumulated there and were folded into it on
-  2026-09-05. A new bin earns its place only by measuring something
+- **Add a workload to `benches/coder-routes.rs`; do not add a new target.** A
+  dozen one-workload binaries accumulated in `src/bin/` and were folded into
+  it on 2026-09-05. A new bench earns its place only by measuring something
   `coder-routes` structurally cannot — see the list in OPTIMIZING.md.
 
 ## Architecture

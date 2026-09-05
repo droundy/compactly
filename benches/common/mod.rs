@@ -1,4 +1,4 @@
-//! Reporting helpers shared by the benchmark binaries in `src/bin/`.
+//! Reporting helpers shared by the benchmarks in `benches/`.
 //!
 //! Every timing in this crate comes from [`scaling`], which samples a closure
 //! until the standard error of its mean is small enough and marks the line
@@ -7,6 +7,11 @@
 //! here has no iteration count to tune and no external `perf` wrapper to
 //! remember: it says how long one operation took, and how well it knows that.
 //!
+//! Included by each bench as `mod common;` — a module rather than a library
+//! target because every `benches/*.rs` is its own crate root, and a directory
+//! (rather than `benches/common.rs`) so cargo does not mistake it for another
+//! benchmark to run.
+//!
 //! What the `±` does *not* cover is anything that differs between whole
 //! processes — CPU frequency state, code layout, ASLR — so comparing two
 //! *builds* still means alternating them, and comparing anything at all means
@@ -14,8 +19,10 @@
 //! which every function here calls, says so on stderr when that has not been
 //! done.
 //!
-//! Available only under the `benchmarking` feature, and not covered by
-//! semver. See "How to benchmark on this machine" in OPTIMIZING.md.
+//! See "How to benchmark on this machine" in OPTIMIZING.md.
+
+// Every bench compiles its own copy of this module and uses part of it.
+#![allow(dead_code)]
 
 use scaling::Config;
 pub use scaling::Stats;
@@ -58,6 +65,19 @@ pub fn config() -> Config {
         max_time: Duration::from_secs_f64(env("BENCH_MAX_SECONDS", MAX_SECONDS)),
         ..Config::default()
     }
+}
+
+/// The positional arguments, with the program name and any flags dropped.
+///
+/// `cargo bench` passes `--bench` to a `harness = false` target, so a
+/// benchmark that reads `args().next()` would see that instead of its first
+/// real argument. Dropping anything that starts with `-` makes
+/// `cargo bench --bench x -- slice` and `./x slice` mean the same thing.
+pub fn args() -> Vec<String> {
+    std::env::args()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .collect()
 }
 
 /// Complain on stderr unless this process is pinned to a reserved CPU.

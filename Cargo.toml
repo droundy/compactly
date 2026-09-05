@@ -12,12 +12,11 @@ repository = "https://github.com/droundy/compactly"
 
 generate_bit_context = []
 # Exposes the benchmark-support surface (forced tree walks, forced decoder
-# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive,
-# and pulls in `scaling`, which every benchmark binary times itself with.
-# Off by default: these bypass the choices the library makes for itself, and
-# some silently produce wrong answers when pointed at the wrong input. Not
-# covered by semver.
-benchmarking = ["dep:scaling"]
+# instantiations, entropy-phase replay) that `benches/` drives. Off by
+# default: these bypass the choices the library makes for itself, and some
+# silently produce wrong answers when pointed at the wrong input. Not covered
+# by semver.
+benchmarking = []
 v1 = []
 v2 = []
 # Async decoding from a `Stream` of `Bytes` chunks: `v2::decode_stream` and the
@@ -35,20 +34,16 @@ ureq = { version = "2", optional = true }
 bytes = { version = "1.12", optional = true }
 futures-core = { version = "0.3", optional = true }
 
-# The measurement harness for everything in `src/bin/`: it times a closure
-# until its standard error is small enough and says so when it could not. A
-# dev-dependency would not reach `src/bin` (only benches, tests and examples
-# see those), so it is an optional *normal* dependency switched on by the
-# `benchmarking` feature. Git rather than plain 0.9.0 until that is published;
-# drop the `git` key then, here and in dev-dependencies.
-scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling", optional = true }
-
 nonmax = { version = "0.5.5", optional = true }
 uuid = { version = "1.18.1", optional = true }
 
 [dev-dependencies]
 
 expect-test = "1.5.1"
+# The measurement harness for everything in `benches/`: it times a closure
+# until its standard error is small enough, and says so when it could not.
+# Git rather than plain 0.9.0 until that version is published; drop the `git`
+# key then, here and in comparison/Cargo.toml.
 scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
@@ -96,34 +91,43 @@ name = "atmost"
 harness = false
 required-features = ["v2", "benchmarking"]
 
-# The benchmark binaries: `v2` for the API they measure, `benchmarking` for
-# `scaling` (which times them) and for the forced walks and decoders some of
-# them drive.
-[[bin]]
-name = "ans-phases"
-required-features = ["v2", "benchmarking"]
-
-[[bin]]
-name = "ans-chunk-tracking"
-required-features = ["v2", "benchmarking"]
-
-[[bin]]
-name = "micro-batch"
-required-features = ["v2", "benchmarking"]
-
 [[bin]]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
-[[bin]]
+# The workload benchmarks. All are `harness = false` plain `main`s that take
+# arguments — `cargo bench --bench coder-routes -- strings ans slice`, or run
+# the executable `cargo bench --no-run` reports. `benchmarking` gets them the
+# forced walks and decoders; each also has a default arm, so
+# `cargo bench --all-features` — which runs them all with no arguments —
+# measures something rather than printing usage and failing.
+
+[[bench]]
 name = "coder-routes"
+harness = false
 required-features = ["v2", "stream", "benchmarking"]
 
-[[bin]]
+[[bench]]
+name = "micro-batch"
+harness = false
+required-features = ["v2", "benchmarking"]
+
+[[bench]]
+name = "ans-phases"
+harness = false
+required-features = ["v2", "benchmarking"]
+
+[[bench]]
+name = "ans-chunk-tracking"
+harness = false
+required-features = ["v2", "benchmarking"]
+
+[[bench]]
 name = "async-decode-overlap"
+harness = false
 required-features = ["v2", "stream", "benchmarking"]
 
-# Times itself with `scaling`, and uses the v2 API throughout.
-[[bin]]
+[[bench]]
 name = "bench-arc-str"
+harness = false
 required-features = ["v2", "benchmarking"]

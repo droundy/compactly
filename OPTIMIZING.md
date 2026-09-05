@@ -76,20 +76,38 @@ eyeballing whether a difference was real.
 - **Precision knobs.** `BENCH_REL_ERROR` (default `0.001`) and
   `BENCH_MAX_SECONDS` (default `10`) override the target and the backstop —
   `BENCH_REL_ERROR=0.01` for a quick sweep over many cells. They are read by
-  `compactly::benchmarking::config`, which every binary below uses.
-- **Everything under `src/bin/` needs `--features benchmarking`.** That is
-  what pulls in `scaling` (a dev-dependency would not reach `src/bin`) as
-  well as the forced-walk and forced-decoder hooks. Cargo **silently skips** a
-  target whose required-features are missing — you get no error, just no
-  binary — so build them as e.g. `cargo build --release --features
-  benchmarking --bin coder-routes`, adding `,stream` for the async ones.
+  `common::config`, which every benchmark below uses.
+- **The benchmarks live in `benches/`, as `harness = false` targets** — plain
+  `main`s that take arguments. Two ways to run one:
+
+  ```
+  cargo bench --features benchmarking,stream --bench coder-routes -- strings ans slice
+  ```
+
+  or, when running many of them, build once and run the executable directly:
+
+  ```
+  cargo bench --no-run --features benchmarking,stream --bench coder-routes
+  quiet-bench run target/release/deps/coder_routes-<hash> strings ans slice
+  ```
+
+  The second keeps cargo itself off the reserved CPU, which is what
+  `./coder-routes-table.sh` does (it parses the path out of `--no-run`'s
+  output, since the hash cannot be hardcoded). Most of these need
+  `--features benchmarking` for the forced walks and decoders, and the async
+  ones need `,stream`; cargo **silently skips** a target whose
+  required-features are missing — you get no error, just no benchmark.
 - **`coder-routes` is the workload runner**, and most questions about a
   workload are a run of it:
 
   ```
-  [COUNT=n] [CHUNKS=n] coder-routes <workload> [ans|range] \
+  [COUNT=n] [CHUNKS=n] coder-routes [workload] [ans|range] \
       [slice|from|stream|encode|encode-to]
   ```
+
+  Every argument has a default (`u64 ans slice`), so a run with no arguments
+  — which is what `cargo bench --all-features` does to every benchmark —
+  measures something rather than printing usage and failing.
 
   Workloads: `u64` and `u64-seq` (`COUNT` values, random and consecutive),
   `strings` (a `BTreeSet<String>` of 38k meteorite names — THE per-character
@@ -105,13 +123,13 @@ eyeballing whether a difference was real.
   `comparison/src/meteorites.csv`, so run from the workspace root.
 
   It prints the time per call, the time per element, and a `result …` line
-  for `./coder-routes-table.sh` to parse. **This bin replaced a dozen
-  one-workload bins** (`just-decompress`, `just-compress-strings`,
-  `range-decode-collapse`, `async-decode-cost`, …) on 2026-09-05; entries
-  below that name those are records of runs made before that, and the
-  equivalent is a `coder-routes` invocation with the matching workload and
-  route.
-- The remaining bins each measure something `coder-routes` structurally
+  for `./coder-routes-table.sh` to parse. **It replaced a dozen one-workload
+  binaries** (`just-decompress`, `just-compress-strings`,
+  `range-decode-collapse`, `async-decode-cost`, …) on 2026-09-05, when the
+  benchmarks also moved out of `src/bin/`; entries below that name those are
+  records of runs made before that, and the equivalent is a `coder-routes`
+  invocation with the matching workload and route.
+- The remaining benchmarks each measure something `coder-routes` structurally
   cannot:
   - `micro-batch seq|batch` — the ANS adaptive bit-decode with nothing else in
     the loop: a stream of independent adaptive bits through `decode_bit`
@@ -131,12 +149,19 @@ eyeballing whether a difference was real.
   - `bench-arc-str` — frozen copies of the superseded `Arc<str>` encodings
     beside the current one, so a landed decision can be re-measured without
     checking out an old commit.
-- `cargo bench` runs the survey tables in `benches/`, which use `scaling`'s
-  default 1% target rather than the 0.1% above: they compare codecs that
-  differ by factors, so a percent is precision to spare. A cell those tables
-  could not pin down to 1% is marked `!`. `benches/atmost.rs` is the
-  exception — it is an A/B, uses the 0.1% config, and reports each margin
-  with the error bar the two measurements imply.
+- **The survey tables** — `bench`, `integers`, `signed`, `bytes` — are the
+  benches that need no features, so a bare `cargo bench` runs exactly those.
+  They use `scaling`'s default 1% target rather than the 0.1% above: they
+  compare codecs that differ by factors, so a percent is precision to spare.
+  A cell they could not pin down to 1% is marked `!`. `benches/atmost.rs` is
+  the exception among the featureful ones — it is an A/B, uses the 0.1%
+  config, and reports each margin with the error bar the two measurements
+  imply.
+- The precision policy and the reporting helpers live in
+  `benches/common/mod.rs`, included by each benchmark as `mod common;`. It is
+  a module rather than a crate because every `benches/*.rs` is its own crate
+  root, and a directory rather than `benches/common.rs` so cargo does not
+  take it for another benchmark to run.
 - Instruction counts are no longer part of the method. Decode is
   **latency-bound** (measured IPC ≈ 1.39), so fewer instructions can still be
   slower; `perf stat -e cpu_core/instructions/` remains useful when
@@ -158,7 +183,7 @@ stdout, ready to paste back, and takes a couple of minutes. `-q` for a quicker
 (`./coder-routes-table.sh strings records`) to refresh a few rows. It refuses to
 run unless the machine is quiesced.
 
-Every cell runs `src/bin/coder-routes.rs`, which puts the same value through
+Every cell runs `benches/coder-routes.rs`, which puts the same value through
 every route either coder supports: decoding by `slice` (the borrowing decoder),
 `from` (`decode_from` over a `&[u8]` used as a `Read`) and `stream`
 (`decode_stream` over a 64-chunk source); encoding by `encode` (to a fresh
@@ -302,7 +327,7 @@ that's why it "regresses" some all-extreme-value size assertions.
 ### Fused-context speculative tree walk — multisymbol now BEATS per-bit (2026-07-03)
 
 Profiling the multisymbol decode of an *unsorted* `Vec<String>` of the 38k
-meteorite names (`src/bin/ans-phases.rs`, built via `HashSet` so there
+meteorite names (`benches/ans-phases.rs`, built via `HashSet` so there
 is no shared-prefix coding; ~450 KB encoded) showed the model side (86% of
 decode) dominated by the `SymbolRange::from_slot` walk (~43% of the run) and
 the `BitContext` `LOOKUP`/`OUTCOMES` table loads (~32%). Every level of the
@@ -1189,8 +1214,7 @@ source: `Decoder<'a>` has a hand-fused batch `decode_bits` keeping
 `RangeDecoder<R>` pulls **one byte at a time through `Read`** (`read_one_byte`)
 with error-latch branches and a non-fused loop — `<&[u8] as Read>::read` does not
 optimize down to the fused path. Keep both decoders. (Reproducer, now that `range-decode-collapse` has been folded into
-`coder-routes`: `quiet-bench run ./target/release/coder-routes u64 range
-slice|from`.)
+`coder-routes`: `cargo bench --bench coder-routes -- u64 range slice|from`.)
 
 ### Async decode: what the machinery costs, and how it was paid down (2026-08-09 to 2026-08-28)
 

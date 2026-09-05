@@ -35,11 +35,14 @@
 //! one (halves the runtime, and lets separate quiesced processes measure the
 //! two distributions independently).
 
-use compactly::benchmarking::{config, per_unit, warn_unless_quiet};
 use compactly::v2::{Ans, AtMost, Range, Walk, WALKS};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use scaling::Stats;
+
+mod common;
+
+use common::{config, per_unit, warn_unless_quiet};
 
 /// Values per batch for a given `MAX`: large enough that the fixed per-call
 /// overhead (context setup — `AtMostContext::<MAX>::default()` seeds `MAX`

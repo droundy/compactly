@@ -7,7 +7,7 @@
 // same byte stream both ways is a clean A/B of the batch machinery.
 //
 // Usage: `micro-batch seq|batch`
-use compactly::benchmarking::report;
+use common::{args, report};
 use compactly::v2::{
     Ans, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
 };
@@ -90,9 +90,12 @@ fn gen_groups() -> Vec<[bool; N]> {
         .collect()
 }
 
+mod common;
+
 fn main() {
-    let mode = std::env::args()
-        .nth(1)
+    let mode = args()
+        .first()
+        .cloned()
         .unwrap_or_else(|| "batch".to_string());
     let groups = gen_groups();
 

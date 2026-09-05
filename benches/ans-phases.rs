@@ -30,7 +30,7 @@
 
 use std::collections::HashSet;
 
-use compactly::benchmarking::{difference, print, report};
+use common::{args, difference, print, report};
 use compactly::v2::{Ans, EntropyCoder};
 
 /// Extract the first (quote-aware) CSV field of each record, skipping the
@@ -133,9 +133,12 @@ fn decode_phases(all_names: &[String]) {
     );
 }
 
+mod common;
+
 fn main() {
-    let which = std::env::args()
-        .nth(1)
+    let which = args()
+        .first()
+        .cloned()
         .unwrap_or_else(|| "decode".to_string());
     let csv = std::fs::read_to_string("comparison/src/meteorites.csv")
         .or_else(|_| std::fs::read_to_string("../comparison/src/meteorites.csv"))

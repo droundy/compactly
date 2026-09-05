@@ -46,14 +46,23 @@ workloads=(
     atmost3 atmost8 atmost16 atmost32 atmost128
 )
 
-bin=target/release/coder-routes
 # `quiet-bench run true` succeeds iff a reservation exists — `quiet-bench
 # status` answers for *this* process, which is not itself pinned.
 quiet-bench run true 2>/dev/null || {
     echo "machine is not quiesced; see OPTIMIZING.md" >&2
     exit 1
 }
-[ -x "$bin" ] || cargo build --release --features stream,benchmarking --bin coder-routes >&2
+
+# Build outside the reservation (so compilation is not squeezed onto one core)
+# and take the path cargo reports: a bench executable's name carries a hash, so
+# it cannot be hardcoded. Running it directly rather than through `cargo bench`
+# keeps cargo itself out of the pinned CPU for every one of the ~120 cells.
+bin=$(cargo bench --no-run --features stream,benchmarking --bench coder-routes 2>&1 |
+      sed -n 's|.*Executable benches/coder-routes\.rs (\(.*\))$|\1|p' | tail -1)
+[ -n "$bin" ] && [ -x "$bin" ] || {
+    echo "could not find the coder-routes bench executable" >&2
+    exit 1
+}
 
 # One cell: `ns err size flags`, straight off the binary's `result` line.
 cell() {
