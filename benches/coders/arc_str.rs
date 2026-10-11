@@ -1,0 +1,687 @@
+//! The current `Arc<str>` encoding against the ones it replaced, on a corpus of
+//! IPv4 addresses read as strings — a favorable case, since sorted-neighbor
+//! addresses often share long prefixes ("192.168.0." for a whole subnet) and
+//! dotted-decimal addresses often share suffixes too.
+//!
+//! The variants, in the order they were superseded:
+//!
+//! - `old` — the pre-`StringSet` plain content-addressed cache.
+//! - `btree` — the `BTreeMap`-based `StringSet`: an `O(1)` exact-match `HashMap`
+//!   fast path, but two separate `O(log N)` searches plus two more `O(log N)`
+//!   inserts per miss.
+//! - `new` — current: the treap-based `StringSet`, fusing search and insert into
+//!   one `O(log N)` walk per ordering.
+//! - `string old` and `string new` — the same corpus as `String`s, through the
+//!   frozen `String` cache and through `LowCardinality`.
+//!
+//! These are frozen copies, kept here rather than in the library so that a landed
+//! decision can be re-measured without checking out an old commit. `new` is the
+//! baseline, so each row reads "what the old way costs".
+//!
+//! Two corpora, as inputs: `ipv4` (the lines of `ipv4.txt` in the current
+//! directory — a local corpus, not something in the repository, and left out when
+//! absent) and `repeated` (the same string over and over). Every `ipv4.txt` line
+//! is distinct, so that corpus is 100% dictionary misses; `repeated` is the
+//! opposite extreme, ~100% cache hits after the first value, useful for isolating
+//! the exact-match path's cost from the miss path's `StringSet` search cost.
+
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use compactly::v2::{
+    decode, encode, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
+};
+use compactly::Normal;
+use scaling::Metrics;
+
+/// A frozen copy of the pre-prefix/suffix `Arc<str>` `LowCardinality`
+/// encoding (see git history of `src/v2/low_cardinality.rs`): a plain
+/// content-addressed dictionary — one `is_cached` bit, then either an
+/// index or the full string encoded from scratch. Kept here, not in the
+/// library, purely so this benchmark can compare old vs. new without
+/// needing to check out an old commit.
+#[derive(Clone, PartialEq)]
+struct OldStyleArcStr(Arc<str>);
+
+#[derive(Default, Clone)]
+struct OldStyleContext {
+    cached: HashMap<Arc<str>, usize>,
+    cache: Vec<Arc<str>>,
+    is_cached: <bool as Encode>::Context,
+    string_ctx: <String as Encode>::Context,
+    index: <usize as Encode>::Context,
+}
+
+impl Encode for OldStyleArcStr {
+    type Context = OldStyleContext;
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let looked_up = ctx.cached.get(value.0.as_ref()).copied();
+        Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
+        if let Some(idx) = looked_up {
+            Normal::encode(&idx, writer, &mut ctx.index)
+        } else {
+            ctx.cached.insert(value.0.clone(), ctx.cached.len());
+            Normal::encode(&value.0.to_string(), writer, &mut ctx.string_ctx)
+        }
+    }
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
+        if is_cached {
+            let idx = <usize as Encode>::decode(reader, &mut ctx.index)?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .map(OldStyleArcStr)
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = <String as Encode>::decode(reader, &mut ctx.string_ctx)?;
+            let value: Arc<str> = Arc::from(s.as_str());
+            ctx.cache.push(value.clone());
+            Ok(OldStyleArcStr(value))
+        }
+    }
+
+    /// Unbounded: a cache index or a fresh `String`. This benchmark never
+    /// exercises the async path (it only compares `encode`/`decode`
+    /// throughput), so this exists purely to satisfy the trait.
+    const MAX_BYTES: usize = usize::MAX;
+    async fn decode_awaiting<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+        if is_cached {
+            let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .map(OldStyleArcStr)
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = <String as Encode>::decode_async(reader, &mut ctx.string_ctx).await?;
+            let value: Arc<str> = Arc::from(s.as_str());
+            ctx.cache.push(value.clone());
+            Ok(OldStyleArcStr(value))
+        }
+    }
+}
+
+/// A frozen copy of the pre-dictionary `String` `LowCardinality`
+/// encoding (the `impl_low_cardinality!(String, string)` macro
+/// expansion this crate used before `String` was switched to share the
+/// `Rc<str>` dictionary implementation): a plain content-addressed
+/// cache -- one `is_cached` bit, then either an index or the full
+/// string via `String`'s own char-by-char `Encode`. One allocation on
+/// an encode-side miss (the `String` clone stored as the `HashMap`
+/// key) and one more on a decode-side miss (`ctx.cache.push(value.clone())`).
+#[derive(Clone, PartialEq)]
+struct OldStyleString(String);
+
+#[derive(Default, Clone)]
+struct OldStyleStringContext {
+    cached: HashMap<String, usize>,
+    cache: Vec<String>,
+    is_cached: <bool as Encode>::Context,
+    string_ctx: <String as Encode>::Context,
+    index: <usize as Encode>::Context,
+}
+
+impl Encode for OldStyleString {
+    type Context = OldStyleStringContext;
+    fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+        let looked_up = ctx.cached.get(&value.0).copied();
+        Normal::encode(&looked_up.is_some(), writer, &mut ctx.is_cached);
+        if let Some(idx) = looked_up {
+            Normal::encode(&idx, writer, &mut ctx.index)
+        } else {
+            ctx.cached.insert(value.0.clone(), ctx.cached.len());
+            Normal::encode(&value.0, writer, &mut ctx.string_ctx)
+        }
+    }
+    fn decode<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
+        if is_cached {
+            let idx = <usize as Encode>::decode(reader, &mut ctx.index)?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .map(OldStyleString)
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = <String as Encode>::decode(reader, &mut ctx.string_ctx)?;
+            ctx.cache.push(s.clone());
+            Ok(OldStyleString(s))
+        }
+    }
+
+    /// Unbounded: a cache index or a fresh `String`. This benchmark never
+    /// exercises the async path (it only compares `encode`/`decode`
+    /// throughput), so this exists purely to satisfy the trait.
+    const MAX_BYTES: usize = usize::MAX;
+    async fn decode_awaiting<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut Self::Context,
+    ) -> Result<Self, std::io::Error> {
+        let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+        if is_cached {
+            let idx = <usize as Encode>::decode_async(reader, &mut ctx.index).await?;
+            ctx.cache
+                .get(idx)
+                .cloned()
+                .map(OldStyleString)
+                .ok_or_else(|| std::io::Error::other("bad low_cardinality index"))
+        } else {
+            let s = <String as Encode>::decode_async(reader, &mut ctx.string_ctx).await?;
+            ctx.cache.push(s.clone());
+            Ok(OldStyleString(s))
+        }
+    }
+}
+
+/// A frozen copy of the `BTreeMap`-based prefix/suffix `StringSet` +
+/// `ArcStrCacheContext` (i.e. the version with the O(1) exact-match
+/// `HashMap` fast path and the allocation-free suffix query, but
+/// *before* the treap rewrite: two separate `O(log N)` searches plus
+/// two more `O(log N)` inserts per miss, six tree walks total). Kept
+/// here, not in the library, so this benchmark can compare the treap
+/// against exactly what it replaced without checking out an old commit.
+mod btree_variant {
+    use compactly::v2::{AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy};
+    use compactly::{Normal, Small};
+    use std::collections::{BTreeMap, HashMap};
+    use std::ops::Bound;
+    use std::sync::Arc;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PrefixMatch<'a> {
+        Exact(usize),
+        Prefix(usize, &'a str),
+    }
+
+    const SUFFIX_STACK_BUF: usize = 128;
+
+    #[derive(Default, Clone)]
+    struct StringSet {
+        strings: Vec<Arc<str>>,
+        exact: HashMap<Arc<str>, usize>,
+        by_prefix: BTreeMap<Arc<str>, usize>,
+        by_suffix: BTreeMap<Box<[u8]>, usize>,
+    }
+
+    impl StringSet {
+        fn get(&self, index: usize) -> Option<&Arc<str>> {
+            self.strings.get(index)
+        }
+
+        fn insert(&mut self, s: Arc<str>) -> usize {
+            if let Some(&idx) = self.exact.get(s.as_ref()) {
+                return idx;
+            }
+            let idx = self.strings.len();
+            self.exact.insert(s.clone(), idx);
+            self.by_prefix.insert(s.clone(), idx);
+            self.by_suffix.insert(s.bytes().rev().collect(), idx);
+            self.strings.push(s);
+            idx
+        }
+
+        fn push(&mut self, s: Arc<str>) -> usize {
+            let idx = self.strings.len();
+            self.strings.push(s);
+            idx
+        }
+
+        fn prefix_match<'a>(&self, query: &'a str) -> Option<PrefixMatch<'a>> {
+            if let Some(&idx) = self.exact.get(query) {
+                return Some(PrefixMatch::Exact(idx));
+            }
+            let mut best: Option<(usize, usize)> = None;
+            if let Some((k, &idx)) = self
+                .by_prefix
+                .range::<str, _>((Bound::Included(query), Bound::Unbounded))
+                .next()
+            {
+                let len = common_prefix_len(query, k);
+                best = Some((idx, len));
+            }
+            if let Some((k, &idx)) = self
+                .by_prefix
+                .range::<str, _>((Bound::Unbounded, Bound::Excluded(query)))
+                .next_back()
+            {
+                let len = common_prefix_len(query, k);
+                if best.is_none_or(|(_, best_len)| len > best_len) {
+                    best = Some((idx, len));
+                }
+            }
+            best.map(|(idx, len)| PrefixMatch::Prefix(idx, &query[..len]))
+        }
+
+        fn suffix_match<'a>(&self, query: &'a str) -> Option<(usize, &'a str)> {
+            if self.strings.is_empty() {
+                return None;
+            }
+            let mut buf = [0u8; SUFFIX_STACK_BUF];
+            let heap;
+            let key: &[u8] = if query.len() <= SUFFIX_STACK_BUF {
+                for (dst, b) in buf.iter_mut().zip(query.bytes().rev()) {
+                    *dst = b;
+                }
+                &buf[..query.len()]
+            } else {
+                heap = query.bytes().rev().collect::<Vec<u8>>();
+                &heap
+            };
+
+            let mut best: Option<(usize, usize)> = None;
+            if let Some((_, &idx)) = self
+                .by_suffix
+                .range::<[u8], _>((Bound::Included(key), Bound::Unbounded))
+                .next()
+            {
+                let len = common_suffix_len(query, &self.strings[idx]);
+                best = Some((idx, len));
+            }
+            if let Some((_, &idx)) = self
+                .by_suffix
+                .range::<[u8], _>((Bound::Unbounded, Bound::Excluded(key)))
+                .next_back()
+            {
+                let len = common_suffix_len(query, &self.strings[idx]);
+                if best.is_none_or(|(_, best_len)| len > best_len) {
+                    best = Some((idx, len));
+                }
+            }
+            best.map(|(idx, len)| (idx, &query[query.len() - len..]))
+        }
+    }
+
+    fn common_prefix_len(a: &str, b: &str) -> usize {
+        let mut len = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
+        while !a.is_char_boundary(len) {
+            len -= 1;
+        }
+        len
+    }
+
+    fn common_suffix_len(a: &str, b: &str) -> usize {
+        let mut len = a
+            .bytes()
+            .rev()
+            .zip(b.bytes().rev())
+            .take_while(|(x, y)| x == y)
+            .count();
+        while !a.is_char_boundary(a.len() - len) {
+            len -= 1;
+        }
+        len
+    }
+
+    #[inline]
+    fn encode_match_len<E: EntropyCoder>(
+        len: usize,
+        writer: &mut E,
+        ctx: &mut <u16 as Encode<Small>>::Context,
+    ) {
+        let wire = if len == 0 { 0 } else { (len - 1) as u16 };
+        Small::encode(&wire, writer, ctx);
+    }
+
+    #[inline]
+    fn decode_match_len<D: EntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut <u16 as Encode<Small>>::Context,
+    ) -> Result<usize, std::io::Error> {
+        let wire: u16 = Small::decode(reader, ctx)?;
+        Ok(if wire == 0 { 0 } else { wire as usize + 1 })
+    }
+
+    #[inline]
+    async fn decode_match_len_async<D: AsyncEntropyDecoder>(
+        reader: &mut D,
+        ctx: &mut <u16 as Encode<Small>>::Context,
+    ) -> Result<usize, std::io::Error> {
+        let wire: u16 = <u16 as Encode<Small>>::decode_async(reader, ctx).await?;
+        Ok(if wire == 0 { 0 } else { wire as usize + 1 })
+    }
+
+    #[derive(Default, Clone)]
+    pub struct BTreeArcStrContext {
+        dict: StringSet,
+        is_cached: <bool as Encode>::Context,
+        index: <usize as Encode<Small>>::Context,
+        prefix_len: <u16 as Encode<Small>>::Context,
+        prefix_index: <usize as Encode<Small>>::Context,
+        suffix_len: <u16 as Encode<Small>>::Context,
+        suffix_index: <usize as Encode<Small>>::Context,
+        middle_len: <usize as Encode<Small>>::Context,
+        chars: <char as Encode>::Context,
+    }
+
+    #[derive(Clone, PartialEq)]
+    pub struct BTreeArcStr(pub Arc<str>);
+
+    impl Encode for BTreeArcStr {
+        type Context = BTreeArcStrContext;
+        fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+            let value = &value.0;
+            let prefix_match = ctx.dict.prefix_match(value);
+
+            if let Some(PrefixMatch::Exact(idx)) = prefix_match {
+                Normal::encode(&true, writer, &mut ctx.is_cached);
+                return Small::encode(&idx, writer, &mut ctx.index);
+            }
+            Normal::encode(&false, writer, &mut ctx.is_cached);
+
+            let (mut prefix_len, mut prefix_idx) = match prefix_match {
+                Some(PrefixMatch::Prefix(idx, matched)) if !matched.is_empty() => {
+                    (matched.len(), Some(idx))
+                }
+                _ => (0, None),
+            };
+            if prefix_len > u16::MAX as usize {
+                prefix_len = u16::MAX as usize;
+                while !value.is_char_boundary(prefix_len) {
+                    prefix_len -= 1;
+                }
+            }
+            if prefix_len <= 1 {
+                prefix_len = 0;
+                prefix_idx = None;
+            }
+            encode_match_len(prefix_len, writer, &mut ctx.prefix_len);
+            if let Some(idx) = prefix_idx {
+                Small::encode(&idx, writer, &mut ctx.prefix_index);
+            }
+
+            let suffix_match = ctx.dict.suffix_match(value);
+            let (mut suffix_len, mut suffix_idx) = match suffix_match {
+                Some((idx, matched)) if !matched.is_empty() => (matched.len(), Some(idx)),
+                _ => (0, None),
+            };
+            let mut suffix_adjusted = false;
+            if prefix_len + suffix_len > value.len() {
+                suffix_len = value.len() - prefix_len;
+                suffix_adjusted = true;
+            }
+            if suffix_len > u16::MAX as usize {
+                suffix_len = u16::MAX as usize;
+                suffix_adjusted = true;
+            }
+            if suffix_adjusted {
+                while !value.is_char_boundary(value.len() - suffix_len) {
+                    suffix_len -= 1;
+                }
+            }
+            if suffix_len <= 1 {
+                suffix_len = 0;
+                suffix_idx = None;
+            }
+            encode_match_len(suffix_len, writer, &mut ctx.suffix_len);
+            if let Some(idx) = suffix_idx {
+                Small::encode(&idx, writer, &mut ctx.suffix_index);
+            }
+
+            let middle = &value[prefix_len..value.len() - suffix_len];
+            Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
+            for c in middle.chars() {
+                Normal::encode(&c, writer, &mut ctx.chars);
+            }
+
+            ctx.dict.insert(value.clone());
+        }
+        fn decode<D: EntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let is_cached = <bool as Encode>::decode(reader, &mut ctx.is_cached)?;
+            if is_cached {
+                let idx: usize = Small::decode(reader, &mut ctx.index)?;
+                return ctx
+                    .dict
+                    .get(idx)
+                    .cloned()
+                    .map(BTreeArcStr)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality index"));
+            }
+
+            let prefix_len = decode_match_len(reader, &mut ctx.prefix_len)?;
+            let mut out = String::new();
+            if prefix_len > 0 {
+                let idx: usize = Small::decode(reader, &mut ctx.prefix_index)?;
+                let entry = ctx
+                    .dict
+                    .get(idx)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix index"))?;
+                out.push_str(&entry[..prefix_len]);
+            }
+
+            let suffix_len = decode_match_len(reader, &mut ctx.suffix_len)?;
+            let suffix_idx = if suffix_len > 0 {
+                Some(Small::decode(reader, &mut ctx.suffix_index)?)
+            } else {
+                None
+            };
+
+            let middle_len: usize = Small::decode(reader, &mut ctx.middle_len)?;
+            for _ in 0..middle_len {
+                out.push(<char as Encode>::decode(reader, &mut ctx.chars)?);
+            }
+
+            if let Some(idx) = suffix_idx {
+                let entry = ctx
+                    .dict
+                    .get(idx)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix index"))?;
+                out.push_str(&entry[entry.len() - suffix_len..]);
+            }
+
+            let value: Arc<str> = Arc::from(out.as_str());
+            ctx.dict.push(value.clone());
+            Ok(BTreeArcStr(value))
+        }
+
+        /// Unbounded: a dictionary index over arbitrarily many values, and
+        /// a miss codes the value itself. This benchmark never exercises
+        /// the async path (it only compares `encode`/`decode`
+        /// throughput), so this exists purely to satisfy the trait.
+        const MAX_BYTES: usize = usize::MAX;
+        async fn decode_awaiting<D: AsyncEntropyDecoder>(
+            reader: &mut D,
+            ctx: &mut Self::Context,
+        ) -> Result<Self, std::io::Error> {
+            let is_cached = <bool as Encode>::decode_async(reader, &mut ctx.is_cached).await?;
+            if is_cached {
+                let idx: usize =
+                    <usize as Encode<Small>>::decode_async(reader, &mut ctx.index).await?;
+                return ctx
+                    .dict
+                    .get(idx)
+                    .cloned()
+                    .map(BTreeArcStr)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality index"));
+            }
+
+            let prefix_len = decode_match_len_async(reader, &mut ctx.prefix_len).await?;
+            let mut out = String::new();
+            if prefix_len > 0 {
+                let idx: usize =
+                    <usize as Encode<Small>>::decode_async(reader, &mut ctx.prefix_index).await?;
+                let entry = ctx
+                    .dict
+                    .get(idx)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality prefix index"))?;
+                out.push_str(&entry[..prefix_len]);
+            }
+
+            let suffix_len = decode_match_len_async(reader, &mut ctx.suffix_len).await?;
+            let suffix_idx = if suffix_len > 0 {
+                Some(<usize as Encode<Small>>::decode_async(reader, &mut ctx.suffix_index).await?)
+            } else {
+                None
+            };
+
+            let middle_len: usize =
+                <usize as Encode<Small>>::decode_async(reader, &mut ctx.middle_len).await?;
+            for _ in 0..middle_len {
+                out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
+            }
+
+            if let Some(idx) = suffix_idx {
+                let entry = ctx
+                    .dict
+                    .get(idx)
+                    .ok_or_else(|| std::io::Error::other("bad low_cardinality suffix index"))?;
+                out.push_str(&entry[entry.len() - suffix_len..]);
+            }
+
+            let value: Arc<str> = Arc::from(out.as_str());
+            ctx.dict.push(value.clone());
+            Ok(BTreeArcStr(value))
+        }
+    }
+}
+use btree_variant::BTreeArcStr;
+
+type LowCardString = compactly::Encoded<String, compactly::LowCardinality>;
+
+/// `ipv4.txt`'s lines. Only called when the file is here: `main` leaves the
+/// `ipv4` input out otherwise.
+fn read_ips() -> Vec<Arc<str>> {
+    std::fs::read_to_string("ipv4.txt")
+        .expect("the `ipv4` input reads ipv4.txt from the current directory")
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| Arc::from(l.trim()))
+        .collect()
+}
+
+/// The same string, over and over — as many times as `ipv4.txt` has lines, for a
+/// comparable cycle count.
+fn repeated() -> Vec<Arc<str>> {
+    let s: Arc<str> = Arc::from("192.168.1.1");
+    std::iter::repeat_n(s, 20629).collect()
+}
+
+/// A corpus as every variant holds it, and what each variant wrote for it.
+#[derive(Clone)]
+struct Corpus(Rc<Variants>);
+
+struct Variants {
+    old: Vec<OldStyleArcStr>,
+    btree: Vec<BTreeArcStr>,
+    new: Vec<Arc<str>>,
+    string_old: Vec<OldStyleString>,
+    string_new: Vec<LowCardString>,
+    old_bytes: Vec<u8>,
+    btree_bytes: Vec<u8>,
+    new_bytes: Vec<u8>,
+    string_old_bytes: Vec<u8>,
+    string_new_bytes: Vec<u8>,
+}
+
+fn check<T: Encode + PartialEq>(what: &str, values: &Vec<T>) -> Vec<u8> {
+    let bytes = encode(values);
+    assert!(
+        decode::<Vec<T>>(&bytes).expect("decode failed") == *values,
+        "{what} did not round-trip"
+    );
+    bytes
+}
+
+fn variants(ips: Vec<Arc<str>>) -> Corpus {
+    let old: Vec<_> = ips.iter().cloned().map(OldStyleArcStr).collect();
+    let btree: Vec<_> = ips.iter().cloned().map(BTreeArcStr).collect();
+    let string_old: Vec<_> = ips.iter().map(|s| OldStyleString(s.to_string())).collect();
+    let string_new: Vec<LowCardString> = ips
+        .iter()
+        .map(|s| compactly::Encoded::new(s.to_string()))
+        .collect();
+    Corpus(Rc::new(Variants {
+        old_bytes: check("old", &old),
+        btree_bytes: check("btree", &btree),
+        new_bytes: check("new", &ips),
+        string_old_bytes: check("string old", &string_old),
+        string_new_bytes: check("string new", &string_new),
+        old,
+        btree,
+        new: ips,
+        string_old,
+        string_new,
+    }))
+}
+
+thread_local! {
+    static IPV4: Corpus = variants(read_ips());
+    static REPEATED: Corpus = variants(repeated());
+}
+
+#[scaling::input(group("arc-str encode", "arc-str decode"), name = "ipv4")]
+fn ipv4() -> Corpus {
+    IPV4.with(Corpus::clone)
+}
+
+#[scaling::input(group("arc-str encode", "arc-str decode"), name = "repeated")]
+fn repeated_input() -> Corpus {
+    REPEATED.with(Corpus::clone)
+}
+
+#[scaling::bench(group = "arc-str encode", name = "new (treap)", baseline)]
+fn encode_new(c: &Corpus) -> Vec<u8> {
+    encode(&c.0.new)
+}
+#[scaling::bench(group = "arc-str encode", name = "btree")]
+fn encode_btree(c: &Corpus) -> Vec<u8> {
+    encode(&c.0.btree)
+}
+#[scaling::bench(group = "arc-str encode", name = "old (dictionary only)")]
+fn encode_old(c: &Corpus) -> Vec<u8> {
+    encode(&c.0.old)
+}
+#[scaling::bench(group = "arc-str encode", name = "string new")]
+fn encode_string_new(c: &Corpus) -> Vec<u8> {
+    encode(&c.0.string_new)
+}
+#[scaling::bench(group = "arc-str encode", name = "string old")]
+fn encode_string_old(c: &Corpus) -> Vec<u8> {
+    encode(&c.0.string_old)
+}
+
+#[scaling::bench(group = "arc-str decode", name = "new (treap)", baseline)]
+fn decode_new(c: &Corpus) -> usize {
+    decode::<Vec<Arc<str>>>(&c.0.new_bytes).unwrap().len()
+}
+#[scaling::bench(group = "arc-str decode", name = "btree")]
+fn decode_btree(c: &Corpus) -> usize {
+    decode::<Vec<BTreeArcStr>>(&c.0.btree_bytes).unwrap().len()
+}
+#[scaling::bench(group = "arc-str decode", name = "old (dictionary only)")]
+fn decode_old(c: &Corpus) -> usize {
+    decode::<Vec<OldStyleArcStr>>(&c.0.old_bytes).unwrap().len()
+}
+#[scaling::bench(group = "arc-str decode", name = "string new")]
+fn decode_string_new(c: &Corpus) -> usize {
+    decode::<Vec<LowCardString>>(&c.0.string_new_bytes)
+        .unwrap()
+        .len()
+}
+#[scaling::bench(group = "arc-str decode", name = "string old")]
+fn decode_string_old(c: &Corpus) -> usize {
+    decode::<Vec<OldStyleString>>(&c.0.string_old_bytes)
+        .unwrap()
+        .len()
+}
+
+/// What each variant wrote: the point of the variants is as much their size as
+/// their speed.
+#[scaling::metrics(group = "arc-str encode")]
+fn size(out: Vec<u8>) -> Metrics {
+    Metrics::new().bytes("size", out.len())
+}

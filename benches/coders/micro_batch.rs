@@ -1,13 +1,15 @@
-// Microbenchmark isolating the ANS adaptive bit-decode batch (`decode_bits`)
-// against the sequential per-bit path (`decode_bit`), with nothing else in the
-// loop — no octet decode, no incompressible bytes, minimal Vec shape.
-//
-// `Seq` and `Batch` encode byte-for-byte identically (same independent adaptive
-// bool contexts in the same order); only their `decode` differs. So decoding the
-// same byte stream both ways is a clean A/B of the batch machinery.
-//
-// Usage: `micro-batch seq|batch`
-use common::{args, report};
+//! The ANS adaptive bit-decode batch (`decode_bits`) against the sequential
+//! per-bit path (`decode_bit`), with nothing else in the loop — no octet decode,
+//! no incompressible bytes, minimal `Vec` shape. The best signal for work on the
+//! batch coder.
+//!
+//! `Seq` and `Batch` encode byte-for-byte identically (the same independent
+//! adaptive bool contexts in the same order); only their `decode` differs. So
+//! decoding the same byte stream both ways is a clean A/B of the batch
+//! machinery, and the input asserts that the two streams are the same.
+
+use std::rc::Rc;
+
 use compactly::v2::{
     Ans, AsyncEntropyDecoder, Encode, EntropyCoder, EntropyDecoder, Strategy as _,
 };
@@ -76,8 +78,8 @@ impl Encode for Batch {
     }
 }
 
-// Deterministic biased bits: ~20% true, like real-world flag streams.
-fn gen_groups() -> Vec<[bool; N]> {
+/// Deterministic biased bits: ~20% true, like real-world flag streams.
+fn groups() -> Vec<[bool; N]> {
     let mut s: u64 = 0x9e3779b97f4a7c15;
     let mut next = || {
         s ^= s << 13;
@@ -90,38 +92,35 @@ fn gen_groups() -> Vec<[bool; N]> {
         .collect()
 }
 
-mod common;
-
-fn main() {
-    let mode = args()
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "batch".to_string());
-    let groups = gen_groups();
-
+fn encoded() -> Rc<Vec<u8>> {
+    let groups = groups();
     let seq: Vec<Seq> = groups.iter().map(|&g| Seq(g)).collect();
     let batch: Vec<Batch> = groups.iter().map(|&g| Batch(g)).collect();
-    let enc_seq = Ans::encode(&seq);
-    let enc_batch = Ans::encode(&batch);
-    assert_eq!(enc_seq, enc_batch, "Seq and Batch must encode identically");
+    let (seq, batch) = (Ans::encode(&seq), Ans::encode(&batch));
+    assert_eq!(seq, batch, "Seq and Batch must encode identically");
     eprintln!(
-        "{} groups × {N} bits, encoded {} bytes ({:.3} bits/bit)",
-        GROUPS,
-        enc_seq.len(),
-        enc_seq.len() as f64 * 8.0 / (GROUPS * N) as f64,
+        "micro-batch: {GROUPS} groups × {N} bits, encoded {} bytes ({:.3} bits/bit)",
+        seq.len(),
+        seq.len() as f64 * 8.0 / (GROUPS * N) as f64,
     );
+    Rc::new(seq)
+}
 
-    match mode.as_str() {
-        "seq" => {
-            report("decode_bit (seq)", || {
-                Ans::decode::<Vec<Seq>>(&enc_seq).expect("decode")[GROUPS / 2].0[0]
-            });
-        }
-        "batch" => {
-            report("decode_bits (batch)", || {
-                Ans::decode::<Vec<Batch>>(&enc_batch).expect("decode")[GROUPS / 2].0[0]
-            });
-        }
-        other => panic!("unknown mode {other:?}; use seq|batch"),
-    }
+thread_local! {
+    static BYTES: Rc<Vec<u8>> = encoded();
+}
+
+#[scaling::input(group = "micro-batch", name = "flag stream")]
+fn input() -> Rc<Vec<u8>> {
+    BYTES.with(Rc::clone)
+}
+
+#[scaling::bench(group = "micro-batch", name = "decode_bit (seq)", baseline)]
+fn seq(bytes: &Rc<Vec<u8>>) -> bool {
+    Ans::decode::<Vec<Seq>>(bytes).expect("decode")[GROUPS / 2].0[0]
+}
+
+#[scaling::bench(group = "micro-batch", name = "decode_bits (batch)")]
+fn batch(bytes: &Rc<Vec<u8>>) -> bool {
+    Ans::decode::<Vec<Batch>>(bytes).expect("decode")[GROUPS / 2].0[0]
 }

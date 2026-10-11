@@ -11,7 +11,7 @@
 #    one after the other. That is exactly the comparison whose floor is ~1%
 #    of binary-layout noise, and the survey tables run at `scaling`'s default
 #    1% precision on top of that. Treat anything under a few percent as
-#    nothing, and confirm a real finding with the focused `coder-routes`
+#    nothing, and confirm a real finding with the focused `coders`
 #    workloads alternated between builds.
 #  * It needs a reserved CPU like everything else. Both halves run under
 #    `quiet-bench run`; the build steps deliberately do not, so compilation is
