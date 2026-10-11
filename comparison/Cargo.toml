@@ -9,14 +9,3 @@ serde = { version = "1.0.217", features = ["derive", "rc"] }
 compactly = { path = ".." }
 serde_json = "1.0.138"
 csv = "1.3.1"
-
-[dev-dependencies]
-
-# The pre-0.9 API, until this crate's bench is folded into compactly's (plans/scaling-0.9.md).
-scaling_old = { package = "scaling", git = "https://github.com/droundy/scaling", rev = "b22898bbfe02671c4663dd50eef8ffd93c85f4b1" }
-bincode = "1.3.3"
-zstd = "0.13.2"
-
-[[bench]]
-name = "bench"
-harness = false

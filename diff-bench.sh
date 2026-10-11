@@ -1,5 +1,5 @@
 #!/bin/bash
-# Side-by-side `cargo bench -p comparison` before and after the working-tree
+# Side-by-side `cargo bench --bench bench` before and after the working-tree
 # changes — a quick survey of whether anything moved, not an A/B you should
 # act on.
 #
@@ -24,8 +24,8 @@ quiet-bench run true 2>/dev/null || {
 }
 
 run() {
-    cargo bench --no-run --package comparison >&2
-    quiet-bench run cargo bench --package comparison
+    cargo bench --no-run --bench bench >&2
+    quiet-bench run cargo bench --bench bench
 }
 
 git stash

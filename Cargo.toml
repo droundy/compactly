@@ -45,6 +45,9 @@ expect-test = "1.5.1"
 # plans/scaling-0.9.md). Delete it with the last of them.
 scaling_old = { package = "scaling", git = "https://github.com/droundy/scaling", rev = "b22898bbfe02671c4663dd50eef8ffd93c85f4b1" }
 scaling = "0.9"
+# The real-world corpora `benches/bench.rs` measures. It depends on this crate,
+# which cargo allows for a dev-dependency.
+comparison = { path = "comparison" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -69,7 +72,7 @@ members = [
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["v1", "v2"]
+required-features = ["v2"]
 
 [[bench]]
 name = "integers"
