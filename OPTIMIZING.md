@@ -107,6 +107,10 @@ differently, it is a candidate, an input or a metric.
     decode-time allocation are metrics beside the time.
   - `strategies` — which encoding strategy suits which data: every strategy,
     under both coders, on integer and byte vectors of several distributions.
+  - `atmost` — whether the tuned `AtMost<MAX>` walk choices stay correct: every
+    forced walk against what `Walk::production` picks, per coder, direction and
+    value count, on uniform and skewed data. Needs `--features benchmarking`; a
+    full run is about 40 minutes and asks hundreds of questions at once.
   - `coders` — `Ans` against `Range` on every route either supports
     (`slice`, `from`, `stream`, `stream 2`, `encode`, `encode-to`), across
     workloads. Each route is a group and each workload an input, so it prints
@@ -312,6 +316,86 @@ not incompressible, and not in the earlier table at all.
 | `atmost32` | `encode-to` | 1.5024ms±0.0014ms | **-1.63%±0.12%** | +0.0% |
 | `atmost128` | `encode` | 1.9770ms±0.0012ms | **-7.70%±0.14%** | +0.0% |
 | `atmost128` | `encode-to` | 1.923ms±0.003ms | **-3.59%±0.14%** | +0.0% |
+
+### The walk shootout disagrees with `Walk::production` (2026-10-11)
+
+`benches/atmost.rs` asks one question: is any forced tree walk faster than the one
+`Walk::production` picks? On a quiesced machine, one full run (112 tables: both
+coders, both directions, 28 value counts, two distributions) says yes, often —
+and nearly all of it is **decode**.
+
+The baseline of each table is `production`, which looks `Walk::production` up at
+run time and runs that walk, so it is correct whatever the table says. The
+check that the harness itself adds nothing: the forced walk that *is* production's
+read "no difference" in 110 of 112 tables, with a bound of at most 2.0% (median
+0.9%). Everything below is well outside that.
+
+**24 (coder, direction, `MAX`, walk) combinations are faster than production on
+*both* distributions** — 23 decode and 1 encode. Skewed is the one shaped like
+production data (string bytes, length buckets, enum discriminants), so a walk that
+wins there matters more than one that wins only on uniform values.
+
+| coder | direction | `MAX` | walk | skewed | uniform |
+|---|---|---|---|---|---|
+| ans | decode | 8 | `UnevenSpeculating` | **-4.1%** ± 0.2 | **-15.9%** ± 0.1 |
+| ans | decode | 15 | `UnevenSpeculating` | **-16.5%** ± 0.2 | **-4.7%** ± 0.2 |
+| ans | decode | 31 | `UnevenSpeculating` | **-12.1%** ± 0.2 | **-14.1%** ± 0.2 |
+| ans | decode | 48 | `UnevenBitwise` | **-33.2%** ± 0.0 | **-6.3%** ± 0.1 |
+| ans | decode | 48 | `UnevenSpeculating` | **-7.3%** ± 0.2 | **-6.5%** ± 0.2 |
+| ans | decode | 63 | `UnevenSpeculating` | **-28.5%** ± 0.1 | **-9.4%** ± 0.3† |
+| ans | decode | 700 | `UnevenBitwise` | **-24.6%** ± 0.1 | **-13.4%** ± 0.1 |
+| ans | decode | 700 | `UnevenSpeculating` | **-4.3%** ± 0.1 | **-14.3%** ± 0.1 |
+| ans | decode | 2048 | `UnevenBitwise` | **-29.4%** ± 0.1 | **-15.1%** ± 0.1 |
+| ans | decode | 2048 | `UnevenSpeculating` | **-3.5%** ± 0.1 | **-13.5%** ± 0.0 |
+| ans | decode | 3000 | `UnevenBitwise` | **-23.8%** ± 0.1 | **-35.7%** ± 0.1 |
+| ans | decode | 3000 | `UnevenSpeculating` | **-5.4%** ± 0.1 | **-12.7%** ± 0.1 |
+| ans | decode | 4095 | `CompleteBitwise` | **-6.8%** ± 0.1 | **-35.8%** ± 0.0 |
+| range | decode | 2 | `UnevenBitwise` | **-7.9%** ± 0.1 | **-6.9%** ± 0.1 |
+| range | decode | 2 | `UnevenSpeculating` | **-4.7%** ± 0.1 | **-11.0%** ± 0.2 |
+| range | decode | 4 | `Uneven` | **-5.4%** ± 0.2 | **-25.2%** ± 0.1 |
+| range | decode | 5 | `Uneven` | **-5.9%** ± 0.2 | **-5.8%** ± 0.3† |
+| range | decode | 8 | `Uneven` | **-1.1%** ± 0.2 | **-8.7%** ± 0.2 |
+| range | decode | 9 | `Uneven` | **-16.3%** ± 0.2 | **-14.1%** ± 0.2 |
+| range | decode | 15 | `UnevenSpeculating` | **-23.2%** ± 0.2 | **-8.1%** ± 0.2 |
+| range | decode | 31 | `UnevenSpeculating` | **-24.1%** ± 0.2 | **-12.0%** ± 0.2 |
+| range | decode | 48 | `UnevenSpeculating` | **-23.4%** ± 0.1 | **-16.4%** ± 0.1 |
+| range | decode | 63 | `UnevenSpeculating` | **-29.7%** ± 0.1 | **-12.9%** ± 0.2 |
+| range | encode | 7 | `Uneven` | **-3.0%** ± 0.1 | **-1.1%** ± 0.1 |
+
+† one of the two cells reached its time limit before its accuracy goal; the
+number is still the measurement, with the `±` it earned.
+
+What stands out:
+
+- **`UnevenSpeculating` beats the production choice at the power-of-two-minus-one
+  counts**: `Range` decode at `MAX` 15, 31 and 63 by 23–30% on skewed data
+  (8–13% on uniform), and `Ans` decode at 15, 31 and 63 by 12–28%. The production
+  comment says heap-layout speculation is "nearly free" and always takes
+  `CompleteSpeculating` there; on this machine the split tree speculates
+  better.
+- **The bitwise walks beat the symbol walks at large `MAX`.** At `MAX` 700, 2048
+  and 3000, `UnevenBitwise` is 24–29% faster than production for `Ans` decode on
+  skewed data (13–36% on uniform), and `CompleteBitwise` wins at 4095 on uniform.
+  Production only falls back to bitwise at `MAX >= SymbolRange::M` (65536), far
+  above where this says the crossover is. Large dictionaries and wide alphabets
+  are where this would matter.
+- **Encode choices hold.** One `Range` encode combination appears at all, by
+  1–3%; `Ans` encode appears nowhere. The tuning is sound there.
+- On uniform values alone another 17 combinations win by 3% or more (mostly
+  `CompleteBitwise` and `Uneven` at 31–255 and 4095) and on skewed alone four do;
+  neither is a finding by itself. They are in the full output, which
+  `cargo bench --bench atmost --features benchmarking` regenerates in about 40
+  minutes.
+
+**This is a measurement, not a retune.** `Walk::production` has not been changed.
+The 2026-07-12 shootouts that chose these walks predate `quiet-bench` and
+`scaling` 0.9's paired error bars, so they were taken with a different method,
+and this is one full pass. A retune should re-measure the specific `MAX` values
+it moves, in more than one run, and check the result in a real workload (the
+`strings`, `enums` and `records` rows of the route table) and not only in this
+tight loop. One independent, unpinned smoke run did reproduce the single value it
+covered (`Ans` decode at `MAX` 15, `UnevenSpeculating`: −17.2% against −16.5%
+here).
 
 ### Dead ends that should not be retried without new evidence
 
@@ -1694,6 +1778,18 @@ encode.
       `usize`: a ≤64 KiB offset uses the same bit-length depth at either
       width. The only way to get both the size win and the speed win is the
       `Small<usize>` redesign above, not a type swap.
+
+16. **Re-tune `Walk::production` for decode** — the 2026-10-11 walk shootout (see
+    [the section above](#the-walk-shootout-disagrees-with-walkproduction-2026-10-11))
+    found 23 decode combinations where a forced walk beats production on both
+    distributions, by 12–30% on skewed data at the power-of-two-minus-one counts
+    (`UnevenSpeculating`) and 24–29% for `Ans` at `MAX` 700–3000
+    (`UnevenBitwise`). It is probably the largest decode win on this list that needs
+    no new design — a table in `walks.rs`, not an algorithm — and it is *not*
+    done: re-measure each `MAX` it would move in more than one run, and confirm in
+    the `strings`/`enums`/`records` route rows that a tight-loop win survives a real
+    workload. Numbered last so existing references to items above stay valid; by
+    priority it belongs near the top.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
