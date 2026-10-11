@@ -188,11 +188,13 @@ impl<const MAX: usize> Prepared<MAX> {
     }
 }
 
+/// A pool of batches, type-erased because a `thread_local` cannot be generic,
+/// and how many of them have been handed out.
+type Pool = (Vec<Rc<dyn Any>>, usize);
+
 thread_local! {
-    /// `(MAX, distribution)` → its pool of batches and how many have been handed
-    /// out. Type-erased because a `thread_local` cannot be generic.
-    static POOLS: RefCell<HashMap<(usize, Dist), (Vec<Rc<dyn Any>>, usize)>> =
-        RefCell::new(HashMap::new());
+    /// `(MAX, distribution)` → its pool.
+    static POOLS: RefCell<HashMap<(usize, Dist), Pool>> = RefCell::new(HashMap::new());
 }
 
 impl<const MAX: usize> Batch<MAX> {
