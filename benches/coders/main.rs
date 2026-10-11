@@ -1,53 +1,41 @@
-//! The A/B workbench: `Ans` against `Range`, and the questions about either
-//! coder's internals that a workload table cannot ask.
+//! `Ans` against `Range`.
 //!
-//! Everything in the first list is available with no feature flags; the rest
-//! appear when the feature that exposes what they measure is on, and are
-//! simply not registered otherwise — so a plain `cargo bench` measures the route
-//! table instead of cargo silently skipping the target.
+//! - `routes.rs` — every route either coder supports, across workloads: the table
+//!   behind "`Ans` is faster at decoding", and the places it is not.
+//! - `overlap.rs` — does `decode_stream` actually overlap the wait for the next
+//!   chunk? (needs the `stream` feature)
 //!
-//! | file | question | needs |
-//! |---|---|---|
-//! | `routes.rs` | `Ans` vs `Range` on every route either supports, across workloads | — (`stream` adds the stream routes) |
-//! | `phases.rs` | where does ANS time go: model work or entropy coding? | `benchmarking` |
-//! | `micro_batch.rs` | `decode_bits` against `decode_bit`, nothing else in the loop | `benchmarking` |
-//! | `chunk_tracking.rs` | what does per-op chunk-boundary tracking cost? | `benchmarking` |
-//! | `overlap.rs` | does decoding overlap the wait for the next chunk? | `stream` |
-//! | `arc_str.rs` | the current `Arc<str>` encoding against the ones it replaced | `benchmarking` |
-//!
-//! Arguments choose what runs — see `support/mod.rs`. A bare word selects
-//! groups, so:
+//! Each route is a group and each workload an input to all of them, so a plain
+//! `cargo bench --bench coders` prints the whole grid. Arguments narrow it — see
+//! `support/mod.rs`; a bare word selects groups:
 //!
 //! ```text
-//! cargo bench --bench coders --features benchmarking,stream
 //! cargo bench --bench coders -- slice                    # the slice route, every workload
 //! cargo bench --bench coders -- slice input=strings      # one cell of that grid
 //! cargo bench --bench coders -- encode                   # `encode` and `encode-to`
-//! cargo bench --bench coders -- phases
+//! cargo bench --bench coders --features stream           # adds the stream routes and overlap
 //! ```
 //!
-//! Two corpora are local files, not part of the repository: `ipv6.txt` and
-//! `ipv4.txt`, read from the current directory. A workload whose file is absent
-//! is left out, with a note on stderr, rather than failing the whole run.
+//! `ipv6.txt` is a local corpus, not part of the repository, read from the
+//! current directory. Its workload is left out, with a note on stderr, when the
+//! file is absent.
+//!
+//! Questions that were asked of the coders once and answered — what chunk
+//! tracking costs, where ANS time goes between model and entropy coding, whether
+//! `decode_bits` beats `decode_bit`, the `Arc<str>` encodings that were
+//! superseded — each had a bench of its own. They are in git history (last at
+//! `0c7bf74`) and their answers are in OPTIMIZING.md.
 
 #[path = "../support/mod.rs"]
 mod support;
 
 mod routes;
 
-#[cfg(feature = "benchmarking")]
-mod arc_str;
-#[cfg(feature = "benchmarking")]
-mod chunk_tracking;
-#[cfg(feature = "benchmarking")]
-mod micro_batch;
 #[cfg(feature = "stream")]
 mod overlap;
-#[cfg(feature = "benchmarking")]
-mod phases;
 
 /// `(file, input)`: the workload called `input` reads `file`.
-const LOCAL_CORPORA: [(&str, &str); 2] = [("ipv6.txt", "ipv6"), ("ipv4.txt", "ipv4")];
+const LOCAL_CORPORA: [(&str, &str); 1] = [("ipv6.txt", "ipv6")];
 
 fn main() -> Result<(), scaling::RegistrationError> {
     let mut config = support::config();

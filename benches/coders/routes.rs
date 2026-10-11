@@ -51,7 +51,7 @@
 //! discriminant path through the derive), `floats` (non-integer `f64`, the
 //! incompressible raw-bits path), `compressible` (the meteorite CSV through
 //! Lz77), `records` and `records wide` (a short string beside integers, the
-//! shape callers stream), `ipv6` (needs `ipv6.txt`), and `atmost3` … `atmost128`
+//! shape callers stream), `ipv6` (needs `ipv6.txt`), and `atmost3`, `8`, `16`, `32` and `128`
 //! (50k uniform values of an `AtMost<N-1>`, the depth sweep that located the
 //! per-coder prefetch crossover).
 
@@ -354,28 +354,15 @@ case!(
 );
 case!(Ipv6, ipv6_input, "ipv6", Vec<Ipv6Addr>, ipv6s());
 
-// The ladder is monomorphized, so `MAX` is a literal here. These are the value
-// counts the walk shootout in `benches/atmost.rs` also covers.
+// The ladder is monomorphized, so `MAX` is a literal here. Five rungs are enough
+// to see the prefetch crossover (`Ans` loses at the bottom and wins at the top);
+// `benches/atmost.rs` sweeps every value count the production walk is chosen for.
 case!(
     AtMost3,
     atmost3_input,
     "atmost3",
     Vec<AtMost<2>>,
     atmost::<2>()
-);
-case!(
-    AtMost4,
-    atmost4_input,
-    "atmost4",
-    Vec<AtMost<3>>,
-    atmost::<3>()
-);
-case!(
-    AtMost6,
-    atmost6_input,
-    "atmost6",
-    Vec<AtMost<5>>,
-    atmost::<5>()
 );
 case!(
     AtMost8,
@@ -385,13 +372,6 @@ case!(
     atmost::<7>()
 );
 case!(
-    AtMost12,
-    atmost12_input,
-    "atmost12",
-    Vec<AtMost<11>>,
-    atmost::<11>()
-);
-case!(
     AtMost16,
     atmost16_input,
     "atmost16",
@@ -399,25 +379,11 @@ case!(
     atmost::<15>()
 );
 case!(
-    AtMost24,
-    atmost24_input,
-    "atmost24",
-    Vec<AtMost<23>>,
-    atmost::<23>()
-);
-case!(
     AtMost32,
     atmost32_input,
     "atmost32",
     Vec<AtMost<31>>,
     atmost::<31>()
-);
-case!(
-    AtMost64,
-    atmost64_input,
-    "atmost64",
-    Vec<AtMost<63>>,
-    atmost::<63>()
 );
 case!(
     AtMost128,
@@ -580,14 +546,9 @@ routes!(
     RecordsWide,
     Ipv6,
     AtMost3,
-    AtMost4,
-    AtMost6,
     AtMost8,
-    AtMost12,
     AtMost16,
-    AtMost24,
     AtMost32,
-    AtMost64,
     AtMost128,
 );
 

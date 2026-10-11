@@ -1,20 +1,23 @@
-//! Which encoding strategy suits which data: the survey that was `integers`,
-//! `signed` and `bytes`, as comparisons.
+//! Which encoding strategy suits which data.
 //!
 //! Each workload is a vector of 8192 values of one distribution and two
 //! comparisons over it, `<workload> encode` and `<workload> decode`. The
 //! candidates are compactly's strategies under both coders (`…/rng` is `Range`,
 //! `…/ans` is `Ans`, so a strategy's two coders sit side by side) and, for
-//! reference, bincode and bitcode, alone and under zstd. The baseline is
-//! `norm/rng`: the default strategy on the default coder,
-//! which is what a caller who chose nothing gets, so every other cell reads as
-//! "what choosing this instead would have done".
+//! reference, bincode and bitcode. The baseline is `norm/rng`: the default
+//! strategy on the default coder, which is what a caller who chose nothing gets,
+//! so every other cell reads as "what choosing this instead would have done".
 //!
 //! compactly's strategies are the candidates the survey is about, so each is
 //! counted when `scaling` corrects for how many questions it was asked. The
 //! other crates are `uninteresting`: shown as a size, with no verdict, since
 //! they differ from compactly by factors and nobody is asking whether a
 //! difference is real.
+//!
+//! The workloads are `u32`, `u64` and `usize` under five distributions (log-uniform
+//! magnitude, sorted, uniform bits, geometrically skewed small, and one repeated
+//! constant), `i32` under two, and `Vec<u8>` under four. The other widths behave
+//! as these do.
 //!
 //! The `size` column is the length of what each candidate wrote. A time is for
 //! the whole vector: one encode or one decode.
@@ -97,12 +100,6 @@ where
     }
 }
 
-fn unzstd(bytes: &[u8]) -> Vec<u8> {
-    // Not `bulk::decompress`, which allocates all the capacity it is given on
-    // every call.
-    zstd::stream::decode_all(bytes).unwrap()
-}
-
 struct Bincode;
 impl<E: Clone> Scheme<E> for Bincode
 where
@@ -118,19 +115,6 @@ where
     }
 }
 
-struct ZstdBincode;
-impl<E: Clone> Scheme<E> for ZstdBincode
-where
-    Vec<E>: bincode::Encode + bincode::Decode<()>,
-{
-    fn encode(data: &[E]) -> Vec<u8> {
-        zstd::bulk::compress(&<Bincode as Scheme<E>>::encode(data), 3).unwrap()
-    }
-    fn decode(bytes: &[u8]) -> Vec<E> {
-        <Bincode as Scheme<E>>::decode(&unzstd(bytes))
-    }
-}
-
 struct Bitcode;
 impl<E: Clone> Scheme<E> for Bitcode
 where
@@ -141,19 +125,6 @@ where
     }
     fn decode(bytes: &[u8]) -> Vec<E> {
         bitcode::decode::<Vec<E>>(bytes).unwrap()
-    }
-}
-
-struct ZstdBitcode;
-impl<E: Clone> Scheme<E> for ZstdBitcode
-where
-    Vec<E>: bitcode::Encode + bitcode::DecodeOwned,
-{
-    fn encode(data: &[E]) -> Vec<u8> {
-        zstd::bulk::compress(&<Bitcode as Scheme<E>>::encode(data), 3).unwrap()
-    }
-    fn decode(bytes: &[u8]) -> Vec<E> {
-        <Bitcode as Scheme<E>>::decode(&unzstd(bytes))
     }
 }
 
@@ -249,9 +220,7 @@ macro_rules! unsigned {
             (rng_inc, "inc/rng", Via<RangeCoder, Values<Incompressible>>),
             (ans_inc, "inc/ans", Via<AnsCoder, Values<Incompressible>>),
             (bincode, "bincode", Bincode, uninteresting),
-            (zstd_bincode, "zstd+bc", ZstdBincode, uninteresting),
             (bitcode, "bitcode", Bitcode, uninteresting),
-            (zstd_bitcode, "zstd+bit", ZstdBitcode, uninteresting),
         );
     };
 }
@@ -285,9 +254,7 @@ macro_rules! signed {
             (rng_sorted, "srt/rng", Via<RangeCoder, Values<Sorted>>),
             (ans_sorted, "srt/ans", Via<AnsCoder, Values<Sorted>>),
             (bincode, "bincode", Bincode, uninteresting),
-            (zstd_bincode, "zstd+bc", ZstdBincode, uninteresting),
             (bitcode, "bitcode", Bitcode, uninteresting),
-            (zstd_bitcode, "zstd+bit", ZstdBitcode, uninteresting),
         );
     };
 }
@@ -349,7 +316,6 @@ macro_rules! impl_log_uniform {
     };
 }
 
-impl_log_uniform!(u16);
 impl_log_uniform!(u32);
 impl_log_uniform!(u64);
 impl_log_uniform!(usize);
@@ -400,7 +366,6 @@ macro_rules! impl_skewed_small {
     };
 }
 
-impl_skewed_small!(u16);
 impl_skewed_small!(u32);
 impl_skewed_small!(u64);
 impl_skewed_small!(usize);
@@ -441,9 +406,7 @@ macro_rules! impl_gen_signed {
     };
 }
 
-impl_gen_signed!(i16, u16);
 impl_gen_signed!(i32, u32);
-impl_gen_signed!(i64, u64);
 
 fn signed_values<T: GenSigned>() -> Vec<T> {
     let mut rng = rng();
@@ -451,42 +414,6 @@ fn signed_values<T: GenSigned>() -> Vec<T> {
 }
 
 // ---------- the workloads ----------
-
-unsigned!(
-    u16_random,
-    "u16 random encode",
-    "u16 random decode",
-    u16,
-    log_uniform()
-);
-unsigned!(
-    u16_sorted,
-    "u16 sorted encode",
-    "u16 sorted decode",
-    u16,
-    sorted(log_uniform())
-);
-unsigned!(
-    u16_uniform,
-    "u16 uniform bits encode",
-    "u16 uniform bits decode",
-    u16,
-    uniform()
-);
-unsigned!(
-    u16_skewed,
-    "u16 skewed small encode",
-    "u16 skewed small decode",
-    u16,
-    skewed_small()
-);
-unsigned!(
-    u16_repeated,
-    "u16 repeated small const encode",
-    "u16 repeated small const decode",
-    u16,
-    vec![1; N]
-);
 
 unsigned!(
     u32_random,
@@ -588,20 +515,6 @@ sizes!(
 );
 
 signed!(
-    i16_random,
-    "i16 random encode",
-    "i16 random decode",
-    i16,
-    signed_values()
-);
-signed!(
-    i16_sorted,
-    "i16 sorted encode",
-    "i16 sorted decode",
-    i16,
-    sorted(signed_values())
-);
-signed!(
     i32_random,
     "i32 random encode",
     "i32 random decode",
@@ -613,20 +526,6 @@ signed!(
     "i32 sorted encode",
     "i32 sorted decode",
     i32,
-    sorted(signed_values())
-);
-signed!(
-    i64_random,
-    "i64 random encode",
-    "i64 random decode",
-    i64,
-    signed_values()
-);
-signed!(
-    i64_sorted,
-    "i64 sorted encode",
-    "i64 sorted decode",
-    i64,
     sorted(signed_values())
 );
 
@@ -645,10 +544,6 @@ fn sparse_bytes() -> Vec<u8> {
     (0..N).map(|_| rng.gen_range(0u8..16)).collect()
 }
 
-fn repeated_bytes() -> Vec<u8> {
-    (0..N).map(|i| (i % 4) as u8).collect()
-}
-
 /// A random walk with steps in `[-4, +4]`, wrapping at 256: slowly drifting,
 /// which is what `Sorted` should do well on.
 fn drifting_bytes() -> Vec<u8> {
@@ -661,10 +556,6 @@ fn drifting_bytes() -> Vec<u8> {
             here
         })
         .collect()
-}
-
-fn ramp_bytes() -> Vec<u8> {
-    (0..N).map(|i| i as u8).collect()
 }
 
 bytes!(
@@ -686,22 +577,10 @@ bytes!(
     sparse_bytes()
 );
 bytes!(
-    bytes_repeated,
-    "Vec<u8> repeated encode",
-    "Vec<u8> repeated decode",
-    repeated_bytes()
-);
-bytes!(
     bytes_drift,
     "Vec<u8> drift ±4 encode",
     "Vec<u8> drift ±4 decode",
     drifting_bytes()
-);
-bytes!(
-    bytes_ramp,
-    "Vec<u8> ramp +1 encode",
-    "Vec<u8> ramp +1 decode",
-    ramp_bytes()
 );
 
 fn main() -> Result<(), scaling::RegistrationError> {

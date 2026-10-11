@@ -17,9 +17,6 @@
 //! are a thousand-odd values each, and the real ones are a single large value
 //! (a whole `FullSet`) or all of a type's records (every `Card`).
 //!
-//! Below those, `scaling_*` benchmarks fit how encode and decode cost grow with
-//! the number of elements: per codec, a constant in front of a power of `N`.
-//!
 //! ```text
 //! cargo bench --bench bench -- usize                    # the usize workloads
 //! cargo bench --bench bench -- meteorites decode        # two words narrow
@@ -42,7 +39,7 @@
 //! `Range` writes one on the `0..10` workload, and that is the per-value
 //! overhead of a stream, not a poor model.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -463,139 +460,6 @@ workload!(
     one(MetNames {
         mets: meteorites::meteorite_names(),
     })
-);
-
-// ---- how cost grows with the number of elements ----
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, compactly::v2::Encode)]
-struct CompactSet {
-    #[compactly(Small)]
-    set: BTreeSet<u64>,
-}
-
-#[derive(
-    Debug,
-    compactly::v2::Encode,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Clone,
-)]
-enum ThreeOptions {
-    A,
-    B,
-    C,
-}
-
-/// A fixed seed for each size, so that a value of size `n` is always the same
-/// one.
-fn rng_for(n: usize) -> SmallRng {
-    SmallRng::seed_from_u64(n as u64)
-}
-
-fn hashset_of_usize(n: usize) -> HashSet<usize> {
-    let mut rng = rng_for(n);
-    (0..n).map(|_| rng.gen::<usize>()).collect()
-}
-
-fn btreeset_of_usize(n: usize) -> BTreeSet<usize> {
-    let mut rng = rng_for(n);
-    (0..n).map(|_| rng.gen::<usize>()).collect()
-}
-
-fn compact_btreeset(n: usize) -> CompactSet {
-    let mut rng = rng_for(n);
-    let mx = 2 * n as u64;
-    let mut set = BTreeSet::new();
-    while set.len() < n {
-        set.insert(rng.gen::<u64>() % mx);
-    }
-    CompactSet { set }
-}
-
-fn btreeset_of_vecs(n: usize) -> BTreeSet<Vec<usize>> {
-    let mut rng = rng_for(n);
-    let mut set = BTreeSet::new();
-    while set.len() < n {
-        set.insert((0..7).map(|_| rng.gen_range(0..8usize)).collect::<Vec<_>>());
-    }
-    set
-}
-
-fn btreeset_of_three_option_vecs(n: usize) -> BTreeSet<Vec<ThreeOptions>> {
-    let mut rng = rng_for(n);
-    let mut option = || match rng.gen_range(0..10) {
-        0 | 1 => ThreeOptions::A,
-        2 | 3 => ThreeOptions::B,
-        _ => ThreeOptions::C,
-    };
-    let mut set = BTreeSet::new();
-    while set.len() < n {
-        set.insert((0..15).map(|_| option()).collect::<Vec<_>>());
-    }
-    set
-}
-
-/// Four codecs, encode and decode, for one generator. The module name is what
-/// names them in the report (`bench::scaling_hashset::encode_range`).
-macro_rules! scaling_workload {
-    ($module:ident, $ty:ty, $gen:path) => {
-        mod $module {
-            use super::*;
-
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| $gen(n))]
-            fn encode_range(v: &mut $ty) -> Vec<u8> {
-                RangeCodec::encode(v)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| $gen(n))]
-            fn encode_ans(v: &mut $ty) -> Vec<u8> {
-                AnsCodec::encode(v)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| $gen(n))]
-            fn encode_bincode(v: &mut $ty) -> Vec<u8> {
-                Bincode::encode(v)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| $gen(n))]
-            fn encode_zstd3(v: &mut $ty) -> Vec<u8> {
-                Zstd3::encode(v)
-            }
-
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| RangeCodec::encode(&$gen(n)))]
-            fn decode_range(b: &mut Vec<u8>) -> $ty {
-                RangeCodec::decode(b)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| AnsCodec::encode(&$gen(n)))]
-            fn decode_ans(b: &mut Vec<u8>) -> $ty {
-                AnsCodec::decode(b)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| Bincode::encode(&$gen(n)))]
-            fn decode_bincode(b: &mut Vec<u8>) -> $ty {
-                Bincode::decode(b)
-            }
-            #[scaling::bench_scaling(nmin = 5, make_input = |n| Zstd3::encode(&$gen(n)))]
-            fn decode_zstd3(b: &mut Vec<u8>) -> $ty {
-                Zstd3::decode(b)
-            }
-        }
-    };
-}
-
-scaling_workload!(scaling_hashset, HashSet<usize>, hashset_of_usize);
-scaling_workload!(scaling_btreeset, BTreeSet<usize>, btreeset_of_usize);
-scaling_workload!(scaling_compact_btreeset, CompactSet, compact_btreeset);
-scaling_workload!(
-    scaling_btreeset_of_vecs,
-    BTreeSet<Vec<usize>>,
-    btreeset_of_vecs
-);
-scaling_workload!(
-    scaling_btreeset_of_enum_vecs,
-    BTreeSet<Vec<ThreeOptions>>,
-    btreeset_of_three_option_vecs
 );
 
 fn main() -> Result<(), scaling::RegistrationError> {
