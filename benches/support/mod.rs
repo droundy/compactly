@@ -116,6 +116,36 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     Ok(options)
 }
 
+/// Make the allocator behave the same wherever a benchmark runs.
+///
+/// glibc decides, as the process goes, whether a big allocation comes from fresh
+/// pages (`mmap`, and a page fault for each page touched) or from recycled heap,
+/// by a threshold it moves in response to what has been freed. So the cost of
+/// allocating a few hundred kilobytes — an 800 KB decoded `Vec<f64>` — depends on
+/// what the process did first: the *same* `Ans` decode of the *same* bytes read
+/// +160% to +320% against `Range` depending only on heap layout, and a cell run
+/// alone differed from the same cell run inside the whole suite. Pinning the
+/// thresholds makes it the same every time: allocations up to 32 MB (glibc's
+/// maximum for the `mmap` threshold) come from the heap, which is never trimmed
+/// and starts with room to spare.
+///
+/// With this, the cell above gave +137% six times running — alone, in the suite,
+/// and repeated. It is a choice of what to measure: the coder, not the page
+/// faults a particular allocator history happened to charge it.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn steady_allocator() {
+    // SAFETY: `mallopt` only sets allocator tunables, and this runs before any
+    // benchmark has allocated anything large.
+    unsafe {
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 32 << 20);
+        libc::mallopt(libc::M_TRIM_THRESHOLD, i32::MAX);
+        libc::mallopt(libc::M_TOP_PAD, 64 << 20);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn steady_allocator() {}
+
 /// The [`Config`] this run asks for: the policy above, narrowed by whatever
 /// the command line named. Exits, with the usage, when the arguments make no
 /// sense, and says on stderr — once — if the machine is not quiesced.
@@ -131,6 +161,7 @@ pub fn config() -> Config {
             std::process::exit(2);
         }
     };
+    steady_allocator();
     warn_unless_quiet();
     let mut config = Config::default()
         .with_relative_error(options.accuracy)

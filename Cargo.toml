@@ -40,11 +40,9 @@ uuid = { version = "1.18.1", optional = true }
 [dev-dependencies]
 
 expect-test = "1.5.1"
-# The measurement harness. `scaling_old` is the pre-0.9 API, pinned to the last
-# commit that had it, for the benches not yet moved to `scaling` 0.9 (see
-# plans/scaling-0.9.md). Delete it with the last of them.
-scaling_old = { package = "scaling", git = "https://github.com/droundy/scaling", rev = "b22898bbfe02671c4663dd50eef8ffd93c85f4b1" }
-scaling = "0.9"
+# The measurement harness for everything in `benches/`: functions register
+# themselves, and `scaling` samples, tests for differences and prints.
+scaling = "0.9.1"
 # The real-world corpora `benches/bench.rs` measures. It depends on this crate,
 # which cargo allows for a dev-dependency.
 comparison = { path = "comparison" }
@@ -58,6 +56,11 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 zstd = "0.13.2"
 rapidhash = "1.4.0"
 bitcode = "0.6.9"
+
+# For `benches/support`, which fixes glibc's allocator thresholds so a benchmark
+# does not depend on the heap history of the process that runs it.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dev-dependencies]
+libc = "0.2"
 
 [profile.bench]
 debug = true
