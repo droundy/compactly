@@ -39,9 +39,12 @@ tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
 forced decoder instantiations (`Ans::decode_from_forced`) and entropy-phase
 replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
 the library makes for itself and some silently produce wrong answers on the
-wrong input, so they are off by default and not covered by semver. **Most of
-`benches/` declares it in `required-features`**, **and** cargo silently
-*skips* targets whose required-features are off — so a lint or build break in them hides unless the
+wrong input, so they are off by default and not covered by semver. Only
+`benches/atmost.rs` still uses them (the forced walks); the other two had
+benches of their own, cut in the October 2026 cleanup (last at `0c7bf74`), and
+are candidates for removal. **`benches/atmost.rs` declares the feature in
+`required-features`**, **and** cargo silently *skips* targets whose
+required-features are off — so a lint or build break in it hides unless the
 feature is on. That is why CI clippies twice — the second pass with
 `--all-features`, which is what reaches every gated target rather than a named
 list that a new one can be left out of — and runs `cargo test --all-features`.
@@ -52,9 +55,12 @@ tests also use are gated
 coverage.
 
 Everything that measures the library lives in `benches/`, as a `harness =
-false` target — a plain `main` that takes arguments. `src/bin/` holds only the
-three code generators, which are tools rather than benchmarks. Benches see
-dev-dependencies (which is how they reach `scaling`); `src/bin/` would not.
+false` target. `src/bin/` holds tools — two code generators and `char-freq` —
+and no benchmarks. Benches see dev-dependencies (which is how they reach
+`scaling` and the `comparison` corpora); `src/bin/` would not. The other
+benches need only `v2` and register what `benchmarking` and `stream` unlock when
+those features are on, so a plain `cargo bench` measures something instead of
+cargo skipping the target.
 
 CI also builds with `--no-default-features` (including a wasm target), so it
 compiles every target without `v1`/`v2`. The usual failure is a new target
@@ -71,9 +77,11 @@ machine, empirical results, dead ends to avoid, and a prioritized TODO list.
 Update it as that work progresses.
 
 All timing goes through the [`scaling`](https://github.com/droundy/scaling)
-crate, which samples until the standard error of its mean is under 0.1% and
-says so when it could not. Two things follow for anyone running a benchmark
-here:
+crate (0.9): a benchmark is a registered function, `scaling` samples it until a
+1% difference would be significant (this project does not trust smaller
+changes), tests whether candidates really differ, and prints the result. There
+is no hand-built table and no script that assembles one. Things to know when
+running a benchmark here:
 
 - **Run benchmarks outside the command sandbox** (`dangerouslyDisableSandbox`).
   The sandbox intercepts the process, and pinning to the reserved CPU is
@@ -84,10 +92,23 @@ here:
   or `restore` yourself — those need sudo and are the human's to do.
   `quiet-bench run true` exits 0 iff a CPU is reserved; if it fails, stop and
   ask.
-- **Add a workload to `benches/coder-routes.rs`; do not add a new target.** A
-  dozen one-workload binaries accumulated in `src/bin/` and were folded into
-  it on 2026-09-05. A new bench earns its place only by measuring something
-  `coder-routes` structurally cannot — see the list in OPTIMIZING.md.
+- **Keep the rest of the machine quiet while one runs**: no builds, tests or
+  other benchmarks, from you or from another session. A second pinned benchmark
+  queues behind the first, and anything else CPU-heavy moves the numbers
+  through memory bandwidth and interrupts. Check `pgrep -x cargo rustc` and the
+  *second* sample of `top -b -n2 -d2`, and coordinate with other sessions
+  (`ListAgents`) before starting a long run.
+- **Add a candidate or an input to an existing group; do not add a target.** A
+  benchmark is `#[scaling::bench(group = "…")]`, a workload is
+  `#[scaling::input(group(…))]` (an `Rc` handle built once per thread — inputs
+  are requested every iteration), an extra column is `#[scaling::metrics]`.
+  Dozens of one-workload binaries accumulated in `src/bin/` and were folded into
+  `benches/` and then cut down; the questions they answered are recorded in
+  OPTIMIZING.md and the binaries are in git history. A new target earns its place
+  only by measuring something no existing group can.
+- **Pin allocator-sensitive workloads** — `benches/support` already does, but a
+  workload whose output is hundreds of kilobytes can read twice as fast or slow
+  depending on glibc's heap history; see OPTIMIZING.md.
 
 ## Architecture
 

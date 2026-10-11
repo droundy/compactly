@@ -14,6 +14,53 @@ Nothing survives untouched. All 12 benches and `comparison/benches/bench.rs`
 use `bench_gen_env`, `bench_scaling_gen`, `Stats` or `Config`'s public fields,
 and none of those exist any more.
 
+## Status (2026-10-11)
+
+Done, on `scaling-0.9-benches`: `bench`, `strategies` and `coders` are on 0.9;
+`atmost` is migrated; `scaling_old`, `benches/common/`, `coder-routes-table.sh`
+and the scaling-fit benchmarks are gone; OPTIMIZING.md's methodology and
+`Ans`-vs-`Range` tables are regenerated from the new suite, and CLAUDE.md says how
+to run and extend it. Not done: the published-vs-HEAD comparison (below), which
+no longer has a stage of its own to wait for.
+
+Where the plan changed, and why:
+
+- **A whole-hearted cut, not a port.** The plan carried every bench across. After
+  looking at what the port produced, the rule became: a bench stays only if it
+  answers a question that is still open and cannot be a candidate or input of
+  another group. Cut, with their answers in OPTIMIZING.md and the code at
+  `0c7bf74`: `ans-phases` (where ANS time goes), `micro-batch` (`decode_bits`
+  against `decode_bit`), `ans-chunk-tracking`, and `bench-arc-str` (frozen
+  encodings for a landed decision, which also needed a corpus that is not in the
+  repository); the 40 scaling-fit benchmarks in `bench` (39 of them ended
+  `(limit)` with `R²=0.000`, which is `scaling` saying the cost is not a power
+  law); the `u16`/`i16`/`i64` families, two byte distributions and the zstd rows
+  in `strategies`; half the `AtMost` ladder in `coders`.
+- **Four targets became three, one with two files.** `coders` is `routes.rs`
+  (the grid) and `overlap.rs` (needs `stream`).
+- **`atmost` is kept** — it is the check that the tuned walk choices stay
+  correct — and was migrated with `production` as the baseline, a candidate that
+  looks up `Walk::production` at run time, so the baseline follows the tuning
+  table instead of duplicating it. Each walk is a candidate for exactly the value
+  counts it is valid for, and asserts as much on its first call.
+- **The precision target is `scaling`'s default 1%**, as decision 4 says, and
+  filters work as decision 5 says, with the shared parser in `benches/support`.
+- **Allocator state turned out to be part of the measurement.** Not in the plan:
+  the same `Ans` decode read +160% to +320% against `Range` depending only on
+  glibc's heap layout, and a cell run alone differed 2× from the same cell in
+  the suite. `benches/support` pins glibc's mmap, trim and top-pad thresholds.
+  This changed three recorded conclusions (OPTIMIZING.md, TODO items 4 and 5).
+- **`comparison` as a dev-dependency has a cost**: it enables `compactly`'s
+  default features, so `cargo test --no-default-features` builds the lib and
+  derive tests with `v1`/`v2` on. That CI job ran no tests before (both targets
+  have none without the features); it only checked they compile feature-less, and
+  no longer does. `cfg_attr`-gating `comparison`'s ~60 `#[compactly(..)]`
+  attributes would restore it; not done.
+
+Still to do: the published-vs-HEAD groups and placement control ("Published-vs-HEAD"
+below); re-running `strategies` after its trim; deciding whether the now-unused
+`Ans::decode_from_forced`, `replay_entropy_decode` and `is_single_chunk` should go.
+
 ## Facts this rests on
 
 Verified on 2026-10-10 rather than assumed:
