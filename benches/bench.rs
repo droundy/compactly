@@ -28,6 +28,19 @@
 //!
 //! A word applies to group names; see `support/mod.rs`. (`cand=` narrows the
 //! candidates but leaves a group's baseline in place.)
+//!
+//! **Two encode groups are slow on purpose**: `mtg tenth edition encode` and
+//! `meteorites by small name encode` take around a second per call, nearly all
+//! of it `Compressible`'s Lz77 match search (a known, deprioritized cost; see
+//! OPTIMIZING.md). A 10 s budget buys them only a handful of samples, so they
+//! come out `(limit)` — and `(untrusted)` below a few — which is `scaling`
+//! saying it cannot pin them down, not a fault in the bench. Give them room
+//! with `--time=60`, or leave them out by naming the groups you want.
+//!
+//! Each encode is of values one at a time, so a small value's size includes the
+//! coder's own start-up and flush: `Ans` writes about 2.7 bytes per value where
+//! `Range` writes one on the `0..10` workload, and that is the per-value
+//! overhead of a stream, not a poor model.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Debug;
