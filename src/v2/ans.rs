@@ -438,26 +438,6 @@ impl Ans {
         AnsDecoder::<R, CHUNKED>::with_first_tag(reader, tag, error)
             .decode_value::<T, crate::Normal>()
     }
-    /// [`Self::decode_from`] with the chunk-boundary tracking forced rather than
-    /// chosen from the first tag, so a benchmark can measure both instantiations
-    /// against the same bytes in the same build. `CHUNKED = false` is the
-    /// single-chunk fast path; `true` is what a multi-chunk stream gets.
-    ///
-    /// Only valid for a **single-chunk** stream. Forcing `false` on a multi-chunk
-    /// one does not stop at the boundary and does not error: with the `ops_left`
-    /// check compiled out, `load_next_chunk` never fires, the exhausted entropy
-    /// buffer simply stops renormalizing, and decode runs to completion emitting
-    /// silently corrupted values. Benchmark support for
-    /// `benches/coders/chunk_tracking.rs`, not part of the stable API.
-    #[doc(hidden)]
-    #[cfg(feature = "benchmarking")]
-    pub fn decode_from_forced<T: super::Encode, R: std::io::Read, const CHUNKED: bool>(
-        mut reader: R,
-    ) -> std::io::Result<T> {
-        let mut error = None;
-        let tag = read_varint_io(&mut reader, &mut error);
-        Self::decode_from_with::<T, _, CHUNKED>(reader, tag, error)
-    }
     /// Decode some encoded bytes.
     pub fn decode<T: super::Encode>(bytes: &[u8]) -> Option<T> {
         // Peek the first frame's tag: an even tag marks the *final* chunk, so the
@@ -549,70 +529,6 @@ impl Ans {
             Decoder::<CHUNKED>::from(bytes),
             n,
         )
-    }
-    /// Whether this encoder is still on its first chunk, i.e. nothing has been
-    /// flushed and `self.0.ops` is a complete record of the value.
-    /// [`Self::replay_entropy_decode`] requires this; benchmarks use it to size
-    /// their input. Benchmark support, not part of the stable API.
-    #[doc(hidden)]
-    #[cfg(feature = "benchmarking")]
-    pub fn is_single_chunk(&self) -> bool {
-        self.0.writer.is_empty()
-    }
-
-    /// Benchmark helper: replay only the entropy-decode steps against
-    /// `encoded`, using this op buffer (from encoding the same value) as an
-    /// oracle for the probabilities and symbol intervals that the adaptive
-    /// contexts would supply. This isolates the rANS state/byte work from the
-    /// model (context adaptation) and value construction; see
-    /// `benches/coders/phases.rs`. Panics if a decoded bit disagrees with
-    /// the recorded one. Returns a checksum so callers can `black_box` it.
-    ///
-    /// Only valid for a **single-chunk** value: once encoding flushes a chunk
-    /// (at [`CHUNK_OPS`] ops) it clears the flushed ops from `self.ops`, so the
-    /// buffer would no longer be a complete oracle. A single-chunk value has
-    /// written nothing to its sink yet, so `self.0.writer` is still empty; we
-    /// assert that, failing loudly rather than measuring a truncated replay.
-    /// Keep the benchmark input under `CHUNK_OPS` ops.
-    #[doc(hidden)]
-    #[cfg(feature = "benchmarking")]
-    pub fn replay_entropy_decode(&self, encoded: &[u8]) -> u32 {
-        assert!(
-            self.0.writer.is_empty(),
-            "replay_entropy_decode requires a single-chunk stream (input exceeded CHUNK_OPS ops)"
-        );
-        let mut decoder = Decoder::<false>::from(encoded);
-        let mut checksum = 0u32;
-        for op in &self.0.ops {
-            match *op {
-                Op::Bit(b, probability) => {
-                    let bit =
-                        decode_step(&mut decoder.state.state, &mut decoder.bytes, probability);
-                    assert_eq!(bit, b);
-                    checksum = checksum.wrapping_add(bit as u32);
-                }
-                Op::Symbol {
-                    start,
-                    width_minus_1,
-                } => {
-                    let mut state = decoder.state.state;
-                    let slot = state & (SymbolRange::M - 1);
-                    state = (width_minus_1 as State + 1) * (state >> SymbolRange::BITS)
-                        + (slot - start as State);
-                    while state < 1 << (State::BITS - 8) {
-                        let Some((&byte, rest)) = decoder.bytes.split_first() else {
-                            break;
-                        };
-                        decoder.bytes = rest;
-                        state = (state << 8) | byte as State;
-                    }
-                    decoder.state.state = state;
-                    checksum = checksum.wrapping_add(slot);
-                }
-                Op::Incompressible => {} // raw bytes bypass the coder
-            }
-        }
-        checksum
     }
     /// Finish encoding and return the completed byte stream.
     #[inline]

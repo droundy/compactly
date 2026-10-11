@@ -35,22 +35,21 @@ the pre-commit hook saw as clean. Reproduce locally with `cargo +nightly fmt
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
 The optional `benchmarking` feature exposes the benchmark-support API — forced
-tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
-forced decoder instantiations (`Ans::decode_from_forced`) and entropy-phase
-replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
-the library makes for itself and some silently produce wrong answers on the
-wrong input, so they are off by default and not covered by semver. Only
-`benches/atmost.rs` still uses them (the forced walks); the other two had
-benches of their own, cut in the October 2026 cleanup (last at `0c7bf74`), and
-are candidates for removal. **`benches/atmost.rs` declares the feature in
-`required-features`**, **and** cargo silently *skips* targets whose
-required-features are off — so a lint or build break in it hides unless the
-feature is on. That is why CI clippies twice — the second pass with
-`--all-features`, which is what reaches every gated target rather than a named
-list that a new one can be left out of — and runs `cargo test --all-features`.
-`src/bin/char-freq.rs`, gated on the optional `csv`/`ureq` dependencies, hid
-that way and collected six clippy warnings nobody saw. Items the lib's own unit
-tests also use are gated
+tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`, and the
+coders' `SPECULATES` flags), which `benches/atmost.rs` uses to check that
+`Walk::production`'s tuned choices stay correct. They bypass the choices the
+library makes for itself and some silently produce wrong answers on the wrong
+input, so they are off by default and not covered by semver. (The forced decoder
+instantiation and the entropy-phase replay that used to sit beside them lost
+their benches in the October 2026 cleanup, last at `0c7bf74`, and were deleted.)
+**`benches/atmost.rs` declares the feature in `required-features`**, **and**
+cargo silently *skips* targets whose required-features are off — so a lint or
+build break in it hides unless the feature is on. That is why CI clippies twice —
+the second pass with `--all-features`, which is what reaches every gated target
+rather than a named list that a new one can be left out of — and runs
+`cargo test --all-features`. `src/bin/char-freq.rs`, gated on the optional
+`csv`/`ureq` dependencies, hid that way and collected six clippy warnings nobody
+saw. Items the lib's own unit tests also use are gated
 `#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
 coverage.
 
