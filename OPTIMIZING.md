@@ -107,10 +107,14 @@ differently, it is a candidate, an input or a metric.
     decode-time allocation are metrics beside the time.
   - `strategies` — which encoding strategy suits which data: every strategy,
     under both coders, on integer and byte vectors of several distributions.
-  - `atmost` — whether the tuned `AtMost<MAX>` walk choices stay correct: every
-    forced walk against what `Walk::production` picks, per coder, direction and
-    value count, on uniform and skewed data. Needs `--features benchmarking`; a
-    full run is about 40 minutes and asks hundreds of questions at once.
+  - the walk shootout — whether the tuned `AtMost<MAX>` walk choices stay
+    correct: every forced walk against what `Walk::production` picks, per coder,
+    direction and value count, on uniform and skewed data. It forces walks the
+    library does not expose, so it is an ignored test inside the crate
+    (`src/v2/atmost/shootout.rs`), not a bench: `SHOOTOUT='ans decode
+    input=skewed' quiet-bench run cargo test --release --lib -- --ignored
+    walk_shootout --nocapture`. A full run is about 40 minutes and asks hundreds
+    of questions at once.
   - `coders` — `Ans` against `Range` on every route either supports
     (`slice`, `from`, `stream`, `stream 2`, `encode`, `encode-to`), across
     workloads. Each route is a group and each workload an input, so it prints
@@ -319,7 +323,7 @@ not incompressible, and not in the earlier table at all.
 
 ### The walk shootout disagrees with `Walk::production` (2026-10-11)
 
-`benches/atmost.rs` asks one question: is any forced tree walk faster than the one
+The walk shootout (`src/v2/atmost/shootout.rs`) asks one question: is any forced tree walk faster than the one
 `Walk::production` picks? On a quiesced machine, one full run (112 tables: both
 coders, both directions, 28 value counts, two distributions) says yes, often —
 and nearly all of it is **decode**.
@@ -384,8 +388,7 @@ What stands out:
 - On uniform values alone another 17 combinations win by 3% or more (mostly
   `CompleteBitwise` and `Uneven` at 31–255 and 4095) and on skewed alone four do;
   neither is a finding by itself. They are in the full output, which
-  `cargo bench --bench atmost --features benchmarking` regenerates in about 40
-  minutes.
+  the walk shootout regenerates in about 40 minutes (see "How to benchmark").
 
 **This is a measurement, not a retune.** `Walk::production` has not been changed.
 The 2026-07-12 shootouts that chose these walks predate `quiet-bench` and
@@ -789,7 +792,9 @@ The `MAX`-based cutoffs picking `complete`/`uneven` layout and
 plain/speculating decode (`SPECULATE_MIN_MAX`, the per-coder speculate flag)
 were baked in from earlier A/B sweeps on this machine and had no way to be
 re-measured off the beaten path. `benches/atmost.rs` (`cargo bench --bench
-atmost`) times every (coder × `MAX` × applicable `Walk`) for decode, and once
+atmost`; since 2026-10-11 it is the ignored test `walk_shootout` in
+`src/v2/atmost/shootout.rs`, on `scaling` 0.9, with its forced-walk methods
+crate-private) times every (coder × `MAX` × applicable `Walk`) for decode, and once
 per *distinct* encode implementation, via `#[doc(hidden)]`
 `Range`/`Ans::{encode,decode}_atmost_batch::<MAX, WHICH_WALK>` methods so each
 forced walk stays branch-free — no runtime `Walk` dispatch anywhere, benchmark

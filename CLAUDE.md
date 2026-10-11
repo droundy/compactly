@@ -34,32 +34,27 @@ the pre-commit hook saw as clean. Reproduce locally with `cargo +nightly fmt
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
-The optional `benchmarking` feature exposes the benchmark-support API — forced
-tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`, and the
-coders' `SPECULATES` flags), which `benches/atmost.rs` uses to check that
-`Walk::production`'s tuned choices stay correct. They bypass the choices the
-library makes for itself and some silently produce wrong answers on the wrong
-input, so they are off by default and not covered by semver. (The forced decoder
-instantiation and the entropy-phase replay that used to sit beside them lost
-their benches in the October 2026 cleanup, last at `0c7bf74`, and were deleted.)
-**`benches/atmost.rs` declares the feature in `required-features`**, **and**
-cargo silently *skips* targets whose required-features are off — so a lint or
-build break in it hides unless the feature is on. That is why CI clippies twice —
-the second pass with `--all-features`, which is what reaches every gated target
-rather than a named list that a new one can be left out of — and runs
-`cargo test --all-features`. `src/bin/char-freq.rs`, gated on the optional
-`csv`/`ureq` dependencies, hid that way and collected six clippy warnings nobody
-saw. Items the lib's own unit tests also use are gated
-`#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
-coverage.
+Cargo silently *skips* a target whose `required-features` are off, so a lint or
+build break in such a target hides unless the feature is on. That is why CI
+clippies twice — the second pass with `--all-features`, which is what reaches
+every gated target rather than a named list that a new one can be left out of —
+and runs `cargo test --all-features`. `src/bin/char-freq.rs`, gated on the
+optional `csv`/`ureq` dependencies, hid that way and collected six clippy
+warnings nobody saw.
 
 Everything that measures the library lives in `benches/`, as a `harness =
-false` target. `src/bin/` holds tools — two code generators and `char-freq` —
-and no benchmarks. Benches see dev-dependencies (which is how they reach
-`scaling` and the `comparison` corpora); `src/bin/` would not. The other
-benches need only `v2` and register what `benchmarking` and `stream` unlock when
-those features are on, so a plain `cargo bench` measures something instead of
-cargo skipping the target.
+false` target, with one exception. `src/bin/` holds tools — two code generators
+and `char-freq` — and no benchmarks. Benches see dev-dependencies (which is how
+they reach `scaling` and the `comparison` corpora); `src/bin/` would not. They
+need only `v2`, and register what `stream` unlocks when it is on, so a plain
+`cargo bench` measures something instead of cargo skipping the target. The
+exception is the walk shootout, `src/v2/atmost/shootout.rs`: it forces tree
+walks the library does not expose, so it is an `#[ignore]`d test inside the
+crate (`cargo test --release --lib -- --ignored walk_shootout`, under
+`quiet-bench run`), which is what lets the forced-walk machinery stay
+crate-private. There is no `benchmarking` feature: the forced decoder
+instantiation and entropy-phase replay it once gated lost their benches in the
+October 2026 cleanup (last at `0c7bf74`) and were deleted.
 
 CI also builds with `--no-default-features` (including a wasm target), so it
 compiles every target without `v1`/`v2`. The usual failure is a new target

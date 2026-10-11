@@ -11,12 +11,6 @@ repository = "https://github.com/droundy/compactly"
 [features]
 
 generate_bit_context = []
-# Exposes the benchmark-support surface (forced tree walks, forced decoder
-# instantiations, entropy-phase replay) that `benches/` drives. Off by
-# default: these bypass the choices the library makes for itself, and some
-# silently produce wrong answers when pointed at the wrong input. Not covered
-# by semver.
-benchmarking = []
 v1 = []
 v2 = []
 # Async decoding from a `Stream` of `Bytes` chunks: `v2::decode_stream` and the
@@ -82,18 +76,13 @@ name = "strategies"
 harness = false
 required-features = ["v2"]
 
-[[bench]]
-name = "atmost"
-harness = false
-required-features = ["v2", "benchmarking"]
-
 [[bin]]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
 # The A/B workbench: `Ans` against `Range` across routes and workloads, and the
 # questions about either coder's internals a workload table cannot ask. It needs
-# only `v2`; what `benchmarking` and `stream` unlock is registered when they are
+# only `v2`; what `stream` unlocks is registered when it is
 # on and absent otherwise, so a plain `cargo bench` measures the route table
 # instead of cargo silently skipping the target. See benches/coders/main.rs.
 

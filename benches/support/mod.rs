@@ -146,15 +146,21 @@ fn steady_allocator() {
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn steady_allocator() {}
 
-/// The [`Config`] this run asks for: the policy above, narrowed by whatever
-/// the command line named. Exits, with the usage, when the arguments make no
-/// sense, and says on stderr — once — if the machine is not quiesced.
+/// The [`Config`] this run asks for, from the command line: the policy above,
+/// narrowed by whatever it named. Exits, with the usage, when the arguments make
+/// no sense, and says on stderr — once — if the machine is not quiesced.
 pub fn config() -> Config {
     if std::env::args().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}");
         std::process::exit(0);
     }
-    let options = match parse(std::env::args().skip(1)) {
+    config_from(std::env::args().skip(1))
+}
+
+/// [`config`] from arguments given some other way — for a benchmark that cannot
+/// own the command line, such as one run as an ignored test, where libtest does.
+pub fn config_from(args: impl IntoIterator<Item = String>) -> Config {
+    let options = match parse(args) {
         Ok(options) => options,
         Err(message) => {
             eprintln!("error: {message}\n\n{USAGE}");

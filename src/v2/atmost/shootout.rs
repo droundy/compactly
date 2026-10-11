@@ -1,10 +1,28 @@
 //! Do the tuned `AtMost<MAX>` tree-walk choices still hold?
 //!
-//! `Walk::production` (in `src/v2/atmost/walks.rs`) picks, for each value count
-//! and each coder, which of six tree-walk implementations to use, from measurements
-//! taken on one machine at one time. This bench re-takes them, so that choice can
-//! be checked against the machine and the code in front of you: **is any forced
-//! walk faster than what the library actually does?**
+//! `Walk::production` (in `walks.rs`) picks, for each value count and each coder,
+//! which of six tree-walk implementations to use, from measurements taken on one
+//! machine at one time. This re-takes them, so that choice can be checked against
+//! the machine and the code in front of you: **is any forced walk faster than what
+//! the library actually does?**
+//!
+//! It lives inside the crate, as an ignored test, so that the forced-walk
+//! machinery (`Walk`, `WALKS`, the coders' `encode_atmost_batch` and
+//! `decode_atmost_batch`) can stay private. Run it, on a reserved CPU:
+//!
+//! ```text
+//! SHOOTOUT='ans decode input=skewed' \
+//!   quiet-bench run cargo test --release --lib -- --ignored walk_shootout --nocapture
+//! ```
+//!
+//! (or build once with `cargo test --release --lib --no-run` and run the
+//! executable under `quiet-bench run`, which keeps cargo off the reserved CPU).
+//! `SHOOTOUT` holds the arguments the benches take — a bare word selects groups,
+//! `group=`, `cand=` and `input=` select the rest, `--quick`, `--accuracy=F` and
+//! `--time=SECONDS` set the precision; see `benches/support/mod.rs`. Empty runs
+//! everything, which is about 40 minutes and asks hundreds of questions at once.
+//! `cargo test` does not run it: it is `#[ignore]`d, and a timed benchmark under
+//! the default test profile would be meaningless anyway.
 //!
 //! Every comparison is one coder, one direction and one value count `MAX`, on one
 //! distribution:
@@ -25,9 +43,9 @@
 //! its plain twin's, so encode has four forced candidates and decode six.
 //!
 //! The groups are `ans encode`, `ans decode`, `range encode` and `range decode`.
-//! Each holds one table per value count and distribution; the type in the
-//! table's heading (`Batch<31>`) is the `MAX`. Two distributions, because a walk's
-//! speed depends on the data:
+//! Each holds one table per value count with a column per distribution; the type
+//! in the table's heading (`Batch<31>`) is the `MAX`. Two distributions, because a
+//! walk's speed depends on the data:
 //!
 //! - `uniform` keeps every context at 50/50 and the walk path
 //!   branch-unpredictable — the best case for the latency-hiding speculating
@@ -42,29 +60,19 @@
 //! so the branch predictor cannot learn one fixed sequence; a batch holds
 //! `max(4 * MAX, 256)` values, enough that the fixed cost of seeding `MAX`
 //! contexts stays a small fraction of the per-value cost. Times are per batch.
-//!
-//! ```text
-//! cargo bench --bench atmost --features benchmarking
-//! cargo bench --bench atmost --features benchmarking -- "ans decode"
-//! cargo bench --bench atmost --features benchmarking -- input=skewed
-//! ```
-//!
-//! This is the family-wise worst case — hundreds of comparisons in one run, so
-//! `scaling` judges each strictly — and a full run takes a while; narrow it by
-//! group and by distribution. It uses the `#[doc(hidden)]`
-//! `encode_atmost_batch`/`decode_atmost_batch` methods on `Range` and `Ans`,
-//! which force a walk by indexing `WALKS` with a const generic, so it needs the
-//! `benchmarking` feature.
 
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use compactly::v2::{Ans, AtMost, Range, Walk, WALKS};
+use super::walks::{Walk, WALKS};
+use super::AtMost;
+use crate::v2::{Ans, Range};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
+#[path = "../../../benches/support/mod.rs"]
 mod support;
 
 /// How the benchmark values are distributed over `0..=MAX`; see the module docs.
@@ -461,6 +469,14 @@ range_encode_candidates!();
 ans_decode_candidates!();
 range_decode_candidates!();
 
-fn main() -> Result<(), scaling::RegistrationError> {
-    support::config().run_and_print()
+/// The shootout, as one ignored test: `scaling` discovers every function above
+/// that is registered in this crate's test binary, measures the ones the
+/// `SHOOTOUT` arguments leave in, and prints.
+#[test]
+#[ignore = "a timed benchmark; see the module docs for how to run it"]
+fn walk_shootout() {
+    let args = std::env::var("SHOOTOUT").unwrap_or_default();
+    support::config_from(args.split_whitespace().map(String::from))
+        .run_and_print()
+        .expect("the registered shootout benchmarks compose");
 }

@@ -39,7 +39,9 @@ Where the plan changed, and why:
 - **Four targets became three, one with two files.** `coders` is `routes.rs`
   (the grid) and `overlap.rs` (needs `stream`).
 - **`atmost` is kept** — it is the check that the tuned walk choices stay
-  correct — and was migrated with `production` as the baseline, a candidate that
+  correct — and then moved into the crate as an ignored test
+  (`src/v2/atmost/shootout.rs`), so the forced-walk API it needed could go
+  private and the `benchmarking` feature could be deleted. It was migrated with `production` as the baseline, a candidate that
   looks up `Walk::production` at run time, so the baseline follows the tuning
   table instead of duplicating it. Each walk is a candidate for exactly the value
   counts it is valid for, and asserts as much on its first call.
