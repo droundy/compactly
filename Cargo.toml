@@ -75,17 +75,7 @@ harness = false
 required-features = ["v2"]
 
 [[bench]]
-name = "integers"
-harness = false
-required-features = ["v2"]
-
-[[bench]]
-name = "signed"
-harness = false
-required-features = ["v2"]
-
-[[bench]]
-name = "bytes"
+name = "strategies"
 harness = false
 required-features = ["v2"]
 
