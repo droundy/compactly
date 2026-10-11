@@ -38,7 +38,7 @@
 use compactly::v2::{Ans, AtMost, Range, Walk, WALKS};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use scaling::Stats;
+use scaling_old::Stats;
 
 mod common;
 

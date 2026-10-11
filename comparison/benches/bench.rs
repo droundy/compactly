@@ -1,6 +1,6 @@
 use bincode::Options;
 use compactly::v2::Ans;
-use scaling::bench;
+use scaling_old::bench;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 

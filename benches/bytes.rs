@@ -1,7 +1,7 @@
 use compactly::v2::{Ans, Range};
 use compactly::{Encoded, Incompressible, Normal, Small, Sorted, Values};
 use rand::{Rng, SeedableRng};
-use scaling::{bench_gen_env, Stats};
+use scaling_old::{bench_gen_env, Stats};
 
 const N: usize = 8192;
 

@@ -24,8 +24,8 @@
 // Every bench compiles its own copy of this module and uses part of it.
 #![allow(dead_code)]
 
-use scaling::Config;
-pub use scaling::Stats;
+use scaling_old::Config;
+pub use scaling_old::Stats;
 use std::time::Duration;
 
 /// The standard error every benchmark here aims for, as a fraction of the
@@ -91,8 +91,8 @@ pub fn warn_unless_quiet() {
     if WARNED.swap(true, Ordering::Relaxed) {
         return;
     }
-    let status = scaling::quiet::status();
-    if !matches!(status, scaling::quiet::Status::Pinned { .. }) {
+    let status = scaling_old::quiet::status();
+    if !matches!(status, scaling_old::quiet::Status::Pinned { .. }) {
         eprintln!("warning: {status}");
         eprintln!("         run under `quiet-bench run …`; see OPTIMIZING.md");
     }

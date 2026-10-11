@@ -40,11 +40,11 @@ uuid = { version = "1.18.1", optional = true }
 [dev-dependencies]
 
 expect-test = "1.5.1"
-# The measurement harness for everything in `benches/`: it times a closure
-# until its standard error is small enough, and says so when it could not.
-# Git rather than plain 0.9.0 until that version is published; drop the `git`
-# key then, here and in comparison/Cargo.toml.
-scaling = { version = "0.9.0", git = "https://github.com/droundy/scaling" }
+# The measurement harness. `scaling_old` is the pre-0.9 API, pinned to the last
+# commit that had it, for the benches not yet moved to `scaling` 0.9 (see
+# plans/scaling-0.9.md). Delete it with the last of them.
+scaling_old = { package = "scaling", git = "https://github.com/droundy/scaling", rev = "b22898bbfe02671c4663dd50eef8ffd93c85f4b1" }
+scaling = "0.9"
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }

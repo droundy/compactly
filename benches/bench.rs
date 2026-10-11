@@ -1,7 +1,7 @@
 use bincode1::{DefaultOptions, Options};
 use compactly::v2::Ans;
 use rand::{Rng, SeedableRng};
-use scaling::{bench_gen_env, bench_scaling_gen};
+use scaling_old::{bench_gen_env, bench_scaling_gen};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
