@@ -27,17 +27,13 @@
 //! so that none of them pays for something the others do not.
 //!
 //! ```text
-//! cargo bench --bench strategies -- "u32 random"        # both directions, one workload
-//! cargo bench --bench strategies -- bytes decode        # every bytes decode
-//! cargo bench --bench strategies -- --quick
+//! cargo bench --bench strategies
 //! ```
 //!
-//! A word applies to group names; see `support/mod.rs`. A full run asks a few
-//! hundred questions at once, so `scaling` judges each more strictly than a
-//! filtered one does.
+//! A full run asks a few hundred questions at once, so `scaling` judges each more
+//! strictly than it would a small one, and takes about a quarter of an hour.
 
 use std::marker::PhantomData;
-use std::rc::Rc;
 
 use bincode::config::standard;
 use compactly::v2::{Ans, Range};
@@ -134,11 +130,11 @@ where
 /// and decodes its own bytes back. A candidate may be tagged `baseline` or
 /// `uninteresting`.
 ///
-/// The corpus and every candidate's bytes are built once per thread, checked to
-/// round-trip, and handed out as `Rc` clones: `scaling` asks for an input on
-/// every iteration, so anything heavier would be most of what is timed. Each
-/// candidate is a module of its own so that its two functions can both be
-/// called `encode` and `decode`.
+/// The corpus and every candidate's bytes are `build_once` inputs: `scaling`
+/// builds each once for its group and lends it to every call, so nothing is
+/// cloned or rebuilt per iteration, and every candidate's bytes are checked to
+/// round-trip when they are built. Each candidate is a module of its own so that
+/// its two functions can both be called `encode` and `decode`.
 macro_rules! survey {
     (
         $module:ident, $enc:literal, $dec:literal, $elem:ty, $data:expr,
@@ -148,36 +144,29 @@ macro_rules! survey {
             use super::*;
 
             type E = $elem;
-            type Corpus = Rc<Vec<E>>;
-            type Bytes = Rc<AllBytes>;
+            type Corpus = Vec<E>;
 
             /// What each candidate wrote for the corpus.
-            struct AllBytes {
+            struct Bytes {
                 $( $cand: Vec<u8>, )+
             }
 
-            thread_local! {
-                static CORPUS: Corpus = Rc::new($data);
-                static BYTES: Bytes = CORPUS.with(|corpus| {
-                    $(
-                        let $cand = <$scheme as Scheme<E>>::encode(corpus);
-                        assert!(
-                            &<$scheme as Scheme<E>>::decode(&$cand) == &**corpus,
-                            "{} did not round-trip on {}", $label, $enc,
-                        );
-                    )+
-                    Rc::new(AllBytes { $( $cand, )+ })
-                });
-            }
-
-            #[scaling::input(group = $enc, name = "values")]
+            #[scaling::input(group = $enc, name = "values", build_once)]
             fn corpus() -> Corpus {
-                CORPUS.with(Rc::clone)
+                $data
             }
 
-            #[scaling::input(group = $dec, name = "bytes")]
+            #[scaling::input(group = $dec, name = "bytes", build_once)]
             fn bytes() -> Bytes {
-                BYTES.with(Rc::clone)
+                let corpus: Corpus = $data;
+                $(
+                    let $cand = <$scheme as Scheme<E>>::encode(&corpus);
+                    assert!(
+                        <$scheme as Scheme<E>>::decode(&$cand) == corpus,
+                        "{} did not round-trip on {}", $label, $enc,
+                    );
+                )+
+                Bytes { $( $cand, )+ }
             }
 
             $(
@@ -584,5 +573,5 @@ bytes!(
 );
 
 fn main() -> Result<(), scaling::RegistrationError> {
-    support::config().run_and_print()
+    support::run()
 }

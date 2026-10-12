@@ -33,7 +33,6 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::{Duration, Instant};
@@ -142,10 +141,9 @@ async fn collect(mut source: Timed) -> Vec<u8> {
 }
 
 /// What was encoded, and how fast each coder's stream should arrive.
-#[derive(Clone)]
 struct Schedule {
-    range: Rc<Vec<u8>>,
-    ans: Rc<Vec<u8>>,
+    range: Vec<u8>,
+    ans: Vec<u8>,
     range_interval: Duration,
     ans_interval: Duration,
 }
@@ -192,20 +190,16 @@ fn schedule() -> Schedule {
         ans_decode / CHUNKS as u32,
     );
     Schedule {
-        range: Rc::new(range),
-        ans: Rc::new(ans),
+        range,
+        ans,
         range_interval: range_decode / CHUNKS as u32,
         ans_interval: ans_decode / CHUNKS as u32,
     }
 }
 
-thread_local! {
-    static SCHEDULE: Schedule = schedule();
-}
-
-#[scaling::input(group("overlap range", "overlap ans"), name = "100k u64")]
+#[scaling::input(group("overlap range", "overlap ans"), name = "100k u64", build_once)]
 fn input() -> Schedule {
-    SCHEDULE.with(Schedule::clone)
+    schedule()
 }
 
 #[scaling::bench(group = "overlap range", name = "collect (arrival + decode)", baseline)]

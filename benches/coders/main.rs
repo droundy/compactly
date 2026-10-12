@@ -6,15 +6,9 @@
 //!   chunk? (needs the `stream` feature)
 //!
 //! Each route is a group and each workload an input to all of them, so a plain
-//! `cargo bench --bench coders` prints the whole grid. Arguments narrow it — see
-//! `support/mod.rs`; a bare word selects groups:
-//!
-//! ```text
-//! cargo bench --bench coders -- slice                    # the slice route, every workload
-//! cargo bench --bench coders -- slice input=strings      # one cell of that grid
-//! cargo bench --bench coders -- encode                   # `encode` and `encode-to`
-//! cargo bench --bench coders --features stream           # adds the stream routes and overlap
-//! ```
+//! `cargo bench --bench coders` prints the whole grid, and `--features stream`
+//! adds the stream routes and `overlap`. A run takes about six minutes. To look at
+//! less, add a `filter_groups` or `filter_inputs` to the [`Config`] in `main`.
 //!
 //! `ipv6.txt` is a local corpus, not part of the repository, read from the
 //! current directory. Its workload is left out, with a note on stderr, when the

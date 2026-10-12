@@ -18,21 +18,15 @@
 //! (a whole `FullSet`) or all of a type's records (every `Card`).
 //!
 //! ```text
-//! cargo bench --bench bench -- usize                    # the usize workloads
-//! cargo bench --bench bench -- meteorites decode        # two words narrow
-//! cargo bench --bench bench -- --quick
+//! cargo bench --bench bench
 //! ```
-//!
-//! A word applies to group names; see `support/mod.rs`. (`cand=` narrows the
-//! candidates but leaves a group's baseline in place.)
 //!
 //! **Two encode groups are slow on purpose**: `mtg tenth edition encode` and
 //! `meteorites by small name encode` take around a second per call, nearly all
 //! of it `Compressible`'s Lz77 match search (a known, deprioritized cost; see
-//! OPTIMIZING.md). A 10 s budget buys them only a handful of samples, so they
-//! come out `(limit)` — and `(untrusted)` below a few — which is `scaling`
-//! saying it cannot pin them down, not a fault in the bench. Give them room
-//! with `--time=60`, or leave them out by naming the groups you want.
+//! OPTIMIZING.md). They are most of this bench's run time. In a quiesced run they
+//! still reach their accuracy goal inside the 10 s budget; on a noisy machine they
+//! are the first to come out `(limit)`.
 //!
 //! Each encode is of values one at a time, so a small value's size includes the
 //! coder's own start-up and flush: `Ans` writes about 2.7 bytes per value where
@@ -42,7 +36,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::rc::Rc;
 
 use bincode1::{DefaultOptions, Options as _};
 use compactly::v2::{Ans, Range};
@@ -176,34 +169,29 @@ fn encode_every_codec<T: Encodable>(values: &[T]) -> Vec<Vec<Vec<u8>>> {
 /// A comparison workload: a corpus, how every codec encodes it and how every
 /// codec decodes its own bytes back.
 ///
-/// The corpus and its encodings are built once per thread and handed out as
-/// `Rc` clones. `scaling` asks for an input on every iteration and clones it
-/// for every candidate, so an input that was not a cheap handle would be most
-/// of what was timed. Nothing here consumes or changes an input: `encode` takes
-/// `&T`, `decode` takes `&[u8]`, and each returns something new.
+/// The corpus and its encodings are `build_once` inputs: `scaling` builds each
+/// once for its group and lends it to every call, so nothing is cloned or
+/// rebuilt per iteration. Nothing here consumes or changes an input: `encode`
+/// takes `&T`, `decode` takes `&[u8]`, and each returns something new.
 macro_rules! workload {
     ($module:ident, $enc:literal, $dec:literal, $ty:ty, $make:expr) => {
         mod $module {
             use super::*;
 
             type T = $ty;
-            type Corpus = Rc<Vec<T>>;
-            type Encoded = Rc<Vec<Vec<Vec<u8>>>>;
+            type Corpus = Vec<T>;
+            type Encoded = Vec<Vec<Vec<u8>>>;
 
-            thread_local! {
-                static CORPUS: Corpus = Rc::new($make);
-                static ENCODED: Encoded =
-                    CORPUS.with(|corpus| Rc::new(encode_every_codec(corpus)));
-            }
-
-            #[scaling::input(group = $enc, name = "corpus")]
+            #[scaling::input(group = $enc, name = "corpus", build_once)]
             fn corpus() -> Corpus {
-                CORPUS.with(Rc::clone)
+                $make
             }
 
-            #[scaling::input(group = $dec, name = "bytes")]
+            /// What every codec wrote for the corpus, each checked to round-trip.
+            #[scaling::input(group = $dec, name = "bytes", build_once)]
             fn encoded() -> Encoded {
-                ENCODED.with(Rc::clone)
+                let corpus: Corpus = $make;
+                encode_every_codec(&corpus)
             }
 
             #[scaling::bench(group = $enc, name = "range", baseline)]
@@ -463,5 +451,5 @@ workload!(
 );
 
 fn main() -> Result<(), scaling::RegistrationError> {
-    support::config().run_and_print()
+    support::run()
 }

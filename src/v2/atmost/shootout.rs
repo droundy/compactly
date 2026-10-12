@@ -6,23 +6,25 @@
 //! the machine and the code in front of you: **is any forced walk faster than what
 //! the library actually does?**
 //!
-//! It lives inside the crate, as an ignored test, so that the forced-walk
-//! machinery (`Walk`, `WALKS`, the coders' `encode_atmost_batch` and
-//! `decode_atmost_batch`) can stay private. Run it, on a reserved CPU:
+//! It lives inside the crate, as ignored tests, so that the forced-walk machinery
+//! (`Walk`, `WALKS`, the coders' `encode_atmost_batch` and `decode_atmost_batch`)
+//! can stay private. There is one test per coder and direction, which is how a
+//! run is narrowed — libtest's name filter does the selecting, and nothing here
+//! parses arguments. On a reserved CPU, one at a time:
 //!
 //! ```text
-//! SHOOTOUT='ans decode input=skewed' \
-//!   quiet-bench run cargo test --release --lib -- --ignored walk_shootout --nocapture
+//! quiet-bench run cargo test --release --lib -- --ignored --test-threads=1 \
+//!     walk_shootout_ans_decode --nocapture
 //! ```
 //!
-//! (or build once with `cargo test --release --lib --no-run` and run the
-//! executable under `quiet-bench run`, which keeps cargo off the reserved CPU).
-//! `SHOOTOUT` holds the arguments the benches take — a bare word selects groups,
-//! `group=`, `cand=` and `input=` select the rest, `--quick`, `--accuracy=F` and
-//! `--time=SECONDS` set the precision; see `benches/support/mod.rs`. Empty runs
-//! everything, which is about 40 minutes and asks hundreds of questions at once.
-//! `cargo test` does not run it: it is `#[ignore]`d, and a timed benchmark under
-//! the default test profile would be meaningless anyway.
+//! `walk_shootout` runs all four (about 40 minutes, and hundreds of questions at
+//! once); the filters `walk_shootout_ans`, `walk_shootout_range`, `_decode` and
+//! `_encode` select pairs (libtest matches substrings). `--test-threads=1` matters: concurrent
+//! timed tests would measure each other. Building once with
+//! `cargo test --release --lib --no-run` and running the executable under
+//! `quiet-bench run` keeps cargo off the reserved CPU. `cargo test` does not run
+//! them: they are `#[ignore]`d, and a timed benchmark under the default test
+//! profile would be meaningless anyway.
 //!
 //! Every comparison is one coder, one direction and one value count `MAX`, on one
 //! distribution:
@@ -469,14 +471,36 @@ range_encode_candidates!();
 ans_decode_candidates!();
 range_decode_candidates!();
 
-/// The shootout, as one ignored test: `scaling` discovers every function above
-/// that is registered in this crate's test binary, measures the ones the
-/// `SHOOTOUT` arguments leave in, and prints.
-#[test]
-#[ignore = "a timed benchmark; see the module docs for how to run it"]
-fn walk_shootout() {
-    let args = std::env::var("SHOOTOUT").unwrap_or_default();
-    support::config_from(args.split_whitespace().map(String::from))
+/// Measure the one group of the shootout `group` names: `scaling` discovers every
+/// function above that is registered in this crate's test binary and this keeps
+/// the ones of that group.
+fn run_group(group: &'static str) {
+    support::config()
+        .filter_groups(move |name| name == group)
         .run_and_print()
         .expect("the registered shootout benchmarks compose");
+}
+
+#[test]
+#[ignore = "a timed benchmark; see the module docs for how to run it"]
+fn walk_shootout_ans_decode() {
+    run_group("ans decode");
+}
+
+#[test]
+#[ignore = "a timed benchmark; see the module docs for how to run it"]
+fn walk_shootout_ans_encode() {
+    run_group("ans encode");
+}
+
+#[test]
+#[ignore = "a timed benchmark; see the module docs for how to run it"]
+fn walk_shootout_range_decode() {
+    run_group("range decode");
+}
+
+#[test]
+#[ignore = "a timed benchmark; see the module docs for how to run it"]
+fn walk_shootout_range_encode() {
+    run_group("range encode");
 }

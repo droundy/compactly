@@ -57,7 +57,6 @@
 
 use std::collections::BTreeSet;
 use std::net::Ipv6Addr;
-use std::rc::Rc;
 
 #[cfg(feature = "stream")]
 use compactly::v2::decode_stream;
@@ -65,9 +64,8 @@ use compactly::v2::{Ans, AtMost, Encode, Range};
 use compactly::{Compressible, Encoded};
 use scaling::Metrics;
 
-/// A value, and what each coder wrote for it. Cloning is a refcount bump, which
-/// is what lets `scaling` ask for an input on every iteration.
-pub trait Case: Clone + 'static {
+/// A value, and what each coder wrote for it.
+pub trait Case: 'static {
     type Value: Encode + PartialEq;
     fn value(&self) -> &Self::Value;
     /// What `Range` wrote.
@@ -80,17 +78,17 @@ pub trait Case: Clone + 'static {
 }
 
 /// Declare a workload: the type that names it, the module that holds its input,
-/// the name `input=` finds it by, its value type and how to build one.
+/// the name it is reported under, its value type and how to build one.
 ///
-/// The value and both encodings are built once per thread and checked to
-/// round-trip.
+/// The input is `build_once`: `scaling` builds it once for each group and lends
+/// it to every call, so a workload is built and encoded once per route, never per
+/// iteration. Both encodings are checked to round-trip when it is built.
 macro_rules! case {
     ($case:ident, $module:ident, $name:literal, $ty:ty, $make:expr) => {
-        #[derive(Clone)]
         pub struct $case {
-            value: Rc<$ty>,
-            range: Rc<Vec<u8>>,
-            ans: Rc<Vec<u8>>,
+            value: $ty,
+            range: Vec<u8>,
+            ans: Vec<u8>,
         }
 
         impl Case for $case {
@@ -112,38 +110,37 @@ macro_rules! case {
         mod $module {
             use super::*;
 
-            thread_local! {
-                static CASE: $case = {
-                    let value: $ty = $make;
-                    let range = Range::encode(&value);
-                    let ans = Ans::encode(&value);
-                    assert!(
-                        Range::decode::<$ty>(&range).unwrap() == value
-                            && Ans::decode::<$ty>(&ans).unwrap() == value,
-                        "{} did not round-trip",
-                        $name
-                    );
-                    $case {
-                        value: Rc::new(value),
-                        range: Rc::new(range),
-                        ans: Rc::new(ans),
-                    }
-                };
+            fn build() -> $case {
+                let value: $ty = $make;
+                let range = Range::encode(&value);
+                let ans = Ans::encode(&value);
+                assert!(
+                    Range::decode::<$ty>(&range).unwrap() == value
+                        && Ans::decode::<$ty>(&ans).unwrap() == value,
+                    "{} did not round-trip",
+                    $name
+                );
+                $case { value, range, ans }
             }
 
             #[cfg(feature = "stream")]
             #[scaling::input(
                                 group("slice", "from", "stream", "stream 2", "encode", "encode-to"),
-                                name = $name
+                                name = $name,
+                                build_once
                             )]
             fn input() -> $case {
-                CASE.with($case::clone)
+                build()
             }
 
             #[cfg(not(feature = "stream"))]
-            #[scaling::input(group("slice", "from", "encode", "encode-to"), name = $name)]
+            #[scaling::input(
+                                group("slice", "from", "encode", "encode-to"),
+                                name = $name,
+                                build_once
+                            )]
             fn input() -> $case {
-                CASE.with($case::clone)
+                build()
             }
         }
     };
