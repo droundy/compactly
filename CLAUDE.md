@@ -50,7 +50,7 @@ need only `v2`, and register what `stream` unlocks when it is on, so a plain
 `cargo bench` measures something instead of cargo skipping the target. The
 exception is the walk shootout, `src/v2/atmost/shootout.rs`: it forces tree
 walks the library does not expose, so it is an `#[ignore]`d test inside the
-crate (`cargo test --release --lib -- --ignored walk_shootout`, under
+crate (`cargo test --release --lib -- --ignored --test-threads=1 walk_shootout`, under
 `quiet-bench run`), which is what lets the forced-walk machinery stay
 crate-private. There is no `benchmarking` feature: the forced decoder
 instantiation and entropy-phase replay it once gated lost their benches in the
@@ -94,8 +94,10 @@ running a benchmark here:
   (`ListAgents`) before starting a long run.
 - **Add a candidate or an input to an existing group; do not add a target.** A
   benchmark is `#[scaling::bench(group = "…")]`, a workload is
-  `#[scaling::input(group(…))]` (an `Rc` handle built once per thread — inputs
-  are requested every iteration), an extra column is `#[scaling::metrics]`.
+  `#[scaling::input(group(…), build_once)]` (built once per group and lent to
+  every call; no `Clone`, no per-iteration rebuild), an extra column is
+  `#[scaling::metrics]`. There is no argument handling in the benches: a bench
+  runs everything registered in it.
   Dozens of one-workload binaries accumulated in `src/bin/` and were folded into
   `benches/` and then cut down; the questions they answered are recorded in
   OPTIMIZING.md and the binaries are in git history. A new target earns its place

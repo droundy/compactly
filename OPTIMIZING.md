@@ -11,8 +11,8 @@ optimize both approaches with a slight focus on `Ans`.
 
 "Faster at decoding" is **12–49% across the workload set** and the rate is a
 wash (≤0.1%) — but *which decode route* changes the answer, and on incompressible
-data (`f64`) it reverses to **+37% through `slice` and +152% through
-`decode_from`**. See
+data (`f64`) it reverses to **+37–42% through `slice` and +150–180% through
+`decode_from`** (the spread is two builds of the same code; see below). See
 [`Ans` against `Range`](#ans-against-range-across-the-workload-set-2026-10-11)
 below, which is the place to start before any decision that turns on which coder
 wins, and `cargo bench --bench coders --features stream` to bring its table up to
@@ -70,37 +70,39 @@ differently, it is a candidate, an input or a metric.
   not trusted (separate builds of the same code differ by about that from code
   placement alone). Asking for 0.1% would cost roughly a hundred times the
   samples and leave many cells `(limit)`; an earlier version of this document
-  asked for it, on the old semantics, where it meant something else.
-  `--quick` asks for 5% for a fast look, `--accuracy=F` for any other, and
-  `--time=SECONDS` sets how long each candidate may take (default 10).
+  asked for it, on the old semantics, where it meant something else. These are
+  `Config::default()`, which every bench uses; they are not options. A candidate
+  gets at most 10 s.
 - **A run is a family.** The correction counts the comparisons the run holds, so
-  a filtered run judges each more leniently than a full one, and a full run is
-  the reference. A verdict near the edge in one is not a contradiction of the
-  other.
+  a run that is narrowed judges each more leniently than a full one, and a full
+  run is the reference. A verdict near the edge in one is not a contradiction of
+  the other.
 - **The benchmarks live in `benches/`, as `harness = false` targets**, each a
-  plain `main` that reads its arguments. Run one:
+  plain `main` that runs everything registered in it. There is **no argument
+  handling**: a bench has no options, and what is measured is chosen by which
+  bench is run. Run one:
 
   ```
-  cargo bench --bench coders -- slice input=strings
+  cargo bench --bench coders --features stream
   ```
 
-  or build once and run the executable under the reservation:
+  or build once and run the executable under the reservation, which keeps cargo
+  itself off the reserved CPU:
 
   ```
   cargo bench --no-run --bench coders --features stream
-  quiet-bench run target/release/deps/coders-<hash> --bench slice input=strings
+  quiet-bench run target/release/deps/coders-<hash> --bench
   ```
 
-  The second keeps cargo itself off the reserved CPU. The bare executable wants
-  `--bench` (cargo passes it to a `harness = false` target; it is ignored).
-- **Arguments are filters** (`benches/support/mod.rs`). A bare word keeps the
-  *groups* whose name contains it, ignoring case; `group=`, `cand=` and
-  `input=` spell out which kind of name a word is matched against; each one
-  narrows the others, including a second word of the same kind. Two things to
-  know: a candidate filter never removes a group's baseline, and an `input=`
-  filter drops every benchmark that stands alone, since its input is named
-  `""`. The three kinds are ANDed and never see one another's names, which is
-  why a bare word means groups and nothing else.
+  (`--bench` is what cargo passes to a `harness = false` target; it is ignored.)
+  Approximate full-run times on this machine: `coders` six minutes, `bench` five,
+  `strategies` a quarter of an hour. To look at less, narrow the `Config` in that
+  bench's `main` — `.filter_groups(|g| g == "slice")`, `.filter_inputs(..)` or
+  `.filter_candidates(..)` — and put it back. Three things to know about the
+  filters: they are ANDed across kinds and never see one another's names; a
+  candidate filter never removes a group's baseline; and an input filter drops
+  every benchmark that stands alone, since its input is named `""`. A run that is
+  narrowed is a smaller family (see above).
 - **What there is** — each target's header says what it measures:
   - `bench` — compactly (`Range` and `Ans`) against bincode and zstd, on the real
     corpora in the `comparison` crate and a few synthetic ones; encoded size and
@@ -110,11 +112,12 @@ differently, it is a candidate, an input or a metric.
   - the walk shootout — whether the tuned `AtMost<MAX>` walk choices stay
     correct: every forced walk against what `Walk::production` picks, per coder,
     direction and value count, on uniform and skewed data. It forces walks the
-    library does not expose, so it is an ignored test inside the crate
-    (`src/v2/atmost/shootout.rs`), not a bench: `SHOOTOUT='ans decode
-    input=skewed' quiet-bench run cargo test --release --lib -- --ignored
-    walk_shootout --nocapture`. A full run is about 40 minutes and asks hundreds
-    of questions at once.
+    library does not expose, so it is a set of ignored tests inside the crate
+    (`src/v2/atmost/shootout.rs`), not a bench, one per coder and direction:
+    `quiet-bench run cargo test --release --lib -- --ignored --test-threads=1
+    walk_shootout --nocapture` runs all four (about 40 minutes, and hundreds of
+    questions at once), and `walk_shootout_ans_decode` and its three siblings run
+    one. libtest's name filter does the narrowing; nothing here parses arguments.
   - `coders` — `Ans` against `Range` on every route either supports
     (`slice`, `from`, `stream`, `stream 2`, `encode`, `encode-to`), across
     workloads. Each route is a group and each workload an input, so it prints
@@ -140,7 +143,9 @@ differently, it is a candidate, an input or a metric.
   inside the whole suite. The `±` was a fraction of a percent on every one of
   those readings. `support::config` therefore sets glibc's mmap, trim and
   top-pad thresholds before anything runs, which made that cell read +140%
-  repeatably. It is a choice of what to measure — the coder, not the page
+  repeatably — for one executable. A second build of the same code, differing
+  only in how a benchmark's input is built, read +180%, so `floats` stays
+  sensitive to placement even pinned (see the route table). It is a choice of what to measure — the coder, not the page
   faults one allocation history happened to charge it — and any new workload
   whose output is hundreds of kilobytes or more is exposed to it.
 - Instruction counts are no longer part of the method. Decode is
@@ -153,9 +158,9 @@ differently, it is a candidate, an input or a metric.
 - **Adding a benchmark.** Declare it, do not write a `main` that loops: a
   candidate is a `#[scaling::bench(group = "…")]` function, a workload is a
   `#[scaling::input(group(…))]` one, an extra column is a
-  `#[scaling::metrics]` one. Make the input a cheap handle (an `Rc` to a value
-  built once per thread), because `scaling` asks for one on every iteration and
-  clones it for every candidate. A new question that fits an existing group is a
+  `#[scaling::metrics]` one. Mark an input that is costly to make `build_once`:
+  `scaling` then builds it once for each group and lends it to every call, with
+  no `Clone` and no per-iteration rebuild. A new question that fits an existing group is a
   new candidate or input there, not a new target. The old one-workload binaries
   (`just-decompress`, `coder-routes`, `ans-phases`, `micro-batch` and the rest)
   were each a special case of that, and are in git history; entries below that
@@ -169,8 +174,8 @@ differently, it is a candidate, an input or a metric.
 the measurement behind it, and the places it does not hold.
 
 **Regenerate with `cargo bench --bench coders --features stream`** under
-`quiet-bench run` — a bit over six minutes for the whole grid. Narrow it by route
-(`-- slice`, `-- encode`) or to one cell (`-- slice input=strings`).
+`quiet-bench run` — a bit over six minutes for the whole grid. To see one route or
+workload, narrow the `Config` in `benches/coders/main.rs` (see How to benchmark).
 
 Each route is a group and each workload an input to every group, so `scaling`
 prints these tables itself: a row per coder, `Range` the baseline, and every
@@ -202,15 +207,24 @@ that bear on the numbers:
 - **Allocator state is now pinned, and three conclusions did not survive it**
   (see "Allocator state" under How to benchmark). Large outputs pay page faults
   depending on glibc's mmap threshold, which moves with the process's heap
-  history. Pinned, `floats` through `from` reads **+152%** where the earlier
-  table had **+326.7%**, and through `stream` **+99%** where it had **+283.3%**:
-  `Ans` still loses by a wide margin on incompressible bytes through the `Read`
-  and `Stream` routes, but by a third to a half of what was recorded. And
-  `floats` **encode reverses**: `Ans` is **+69%** slower, where the earlier table
-  had it **−27.4%** faster. `Range`'s encode of the same data went from 1.391 ms
-  to 0.635 ms while `Ans`'s stayed about 1.0–1.07 ms, so the earlier "win" was
-  `Range` being slow, not `Ans` being fast. TODO items 4 and 5 are corrected
-  below.
+  history. Pinned, `floats` through `from` reads **+152% and +180%** in two
+  builds where the earlier table had **+326.7%**, and through `stream` **+99% and
+  +126%** where it had **+283.3%**: `Ans` still loses by a wide margin on
+  incompressible bytes through the `Read` and `Stream` routes, but by roughly half
+  of what was recorded. And `floats` **encode reverses**: `Ans` is **+39% to +69%**
+  slower, where the earlier table had it **−27.4%** faster. `Range`'s encode of
+  the same data went from 1.391 ms to 0.64–0.71 ms while `Ans`'s stayed about
+  1.0 ms, so the earlier "win" was `Range` being slow, not `Ans` being fast. TODO
+  items 4 and 5 are corrected below.
+- **`floats` is the one workload that is still build-sensitive.** The table below
+  is from the later of two runs of the same code; the earlier differs from it on
+  every `floats` row by 27–30 points (`from` +152% against +180%, `encode` +69%
+  against +39%), and `Range`'s own `floats` time moved by 15%, while the `±` was
+  under 1% in both. Only how the benchmark's input is built changed between
+  them, which moves where the large buffers land. Treat any `floats` figure as
+  good to about ±30 points; of the 89 rows the two runs share, 79 agree to within
+  2 points, and every one that does not is `floats`. The conclusion is stable:
+  `Ans` is slower on it, in every route, by 37% or more.
 - **`strings` is unexplained.** The same 38,115 names now put `Range` at
   16.4 ms where the earlier table had 12.5 ms, and `Ans`'s lead is 5 points
   smaller (−13.8% against −19.6% on `slice`). Every other workload's `Range`
@@ -218,108 +232,108 @@ that bear on the numbers:
 
 New in this table: `u64 small` (2000 values, cache-resident and one chunk, where
 `u64` is 100k and memory-bound) and `u64 seq` (consecutive integers). `u64 seq`
-**encode is +77% slower on `Ans`** — the largest encode gap on anything that is
+**encode is +76% slower on `Ans`** — the largest encode gap on anything that is
 not incompressible, and not in the earlier table at all.
 
 #### Decode
 
 | workload | route | `Range` | `Ans` vs `Range` | size Δ |
 |---|---|---|---|---|
-| `strings` | `slice` | 16.40ms±0.05ms | **-13.8%±0.2%** | +0.0% |
-| `strings` | `from` | 16.44ms±0.04ms | **-11.7%±0.2%** | +0.0% |
-| `strings` | `stream` | 16.41ms±0.04ms | **-13.9%±0.2%** | +0.0% |
-| `strings` | `stream 2` | 16.42ms±0.04ms | **-14.2%±0.2%** | +0.0% |
-| `enums` | `slice` | 3.156ms±0.002ms | **-22.57%±0.09%** | +0.1% |
-| `enums` | `from` | 3.213ms±0.007ms | **-23.68%±0.04%** | +0.1% |
-| `enums` | `stream` | 3.199ms±0.002ms | **-23.28%±0.05%** | +0.1% |
-| `enums` | `stream 2` | 3.199ms±0.003ms | **-23.57%±0.10%** | +0.1% |
-| `enums17` | `slice` | 9.275ms±0.009ms | **-25.36%±0.08%** | +0.0% |
-| `enums17` | `from` | 9.296ms±0.009ms | **-23.54%±0.09%** | +0.0% |
-| `enums17` | `stream` | 9.278ms±0.009ms | **-25.31%±0.06%** | +0.0% |
-| `enums17` | `stream 2` | 9.298ms±0.008ms | **-25.37%±0.04%** | +0.0% |
-| `floats` | `slice` | 326.7µs±0.6µs | **+36.92%±0.16%** | +0.0% |
-| `floats` | `from` | 441.4µs±0.4µs | **+152.3%±0.6%** | +0.0% |
-| `floats` | `stream` | 857.0µs±1.3µs | **+98.9%±0.5%** | +0.0% |
-| `floats` | `stream 2` | 837.0µs±2.0µs | **+102.7%±0.5%** | +0.0% |
-| `compressible` | `slice` | 109.40ms±0.05ms | **-25.56%±0.05%** | +0.1% |
-| `compressible` | `from` | 109.85ms±0.11ms | **-20.50%±0.04%** | +0.1% |
-| `compressible` | `stream` | 123.88ms±0.07ms | **-9.43%±0.04%** | +0.1% |
-| `compressible` | `stream 2` | 124.86ms±0.07ms | **-10.42%±0.03%** | +0.1% |
-| `records` | `slice` | 77.03ms±0.09ms | **-24.34%±0.07%** | +0.0% |
-| `records` | `from` | 78.45ms±0.08ms | **-22.17%±0.10%** | +0.0% |
-| `records` | `stream` | 82.6ms±0.2ms | **-16.74%±0.11%** | +0.0% |
-| `records` | `stream 2` | 83.2ms±0.3ms | **-17.11%±0.15%** | +0.0% |
-| `records wide` | `slice` | 111.25ms±0.13ms | **-23.63%±0.10%** | +0.0% |
-| `records wide` | `from` | 116.16ms±0.18ms | **-20.98%±0.09%** | +0.0% |
-| `records wide` | `stream` | 119.84ms±0.10ms | **-15.07%±0.17%** | +0.0% |
-| `records wide` | `stream 2` | 120.96ms±0.20ms | **-16.06%±0.10%** | +0.0% |
-| `u64` | `slice` | 20.476ms±0.017ms | **-21.82%±0.08%** | +0.0% |
-| `u64` | `from` | 22.29ms±0.03ms | **-18.05%±0.11%** | +0.0% |
-| `u64` | `stream` | 20.684ms±0.008ms | **-16.23%±0.13%** | +0.0% |
-| `u64` | `stream 2` | 20.574ms±0.017ms | **-15.37%±0.10%** | +0.0% |
-| `u64 seq` | `slice` | 11.476ms±0.009ms | **-49.13%±0.10%** | +0.1% |
-| `u64 seq` | `from` | 12.07ms±0.02ms | **-42.64%±0.14%** | +0.1% |
-| `u64 seq` | `stream` | 11.535ms±0.015ms | **-49.14%±0.10%** | +0.1% |
-| `u64 seq` | `stream 2` | 11.524ms±0.015ms | **-49.12%±0.09%** | +0.1% |
-| `u64 small` | `slice` | 372.9µs±0.4µs | **-41.40%±0.14%** | -0.0% |
-| `u64 small` | `from` | 411.2µs±0.5µs | **-45.20%±0.11%** | -0.0% |
-| `u64 small` | `stream` | 381.2µs±0.2µs | **-40.03%±0.13%** | -0.0% |
-| `u64 small` | `stream 2` | 375.9µs±0.3µs | **-40.50%±0.14%** | -0.0% |
-| `atmost3` | `slice` | 1.880ms±0.003ms | **-29.60%±0.13%** | +0.0% |
-| `atmost3` | `from` | 1.8582ms±0.0017ms | **-29.62%±0.12%** | +0.0% |
-| `atmost3` | `stream` | 1.8942ms±0.0020ms | **-29.74%±0.11%** | +0.0% |
-| `atmost3` | `stream 2` | 1.886ms±0.002ms | **-29.57%±0.14%** | +0.0% |
-| `atmost8` | `slice` | 2.600ms±0.004ms | **-27.89%±0.12%** | +0.0% |
-| `atmost8` | `from` | 2.655ms±0.005ms | **-26.18%±0.13%** | +0.0% |
-| `atmost8` | `stream` | 2.600ms±0.004ms | **-27.19%±0.11%** | +0.0% |
-| `atmost8` | `stream 2` | 2.598ms±0.005ms | **-27.47%±0.12%** | +0.0% |
-| `atmost16` | `slice` | 3.436ms±0.004ms | **-25.27%±0.11%** | +0.0% |
-| `atmost16` | `from` | 3.421ms±0.003ms | **-23.37%±0.11%** | +0.0% |
-| `atmost16` | `stream` | 3.437ms±0.008ms | **-25.04%±0.12%** | +0.0% |
-| `atmost16` | `stream 2` | 3.435ms±0.005ms | **-25.04%±0.11%** | +0.0% |
-| `atmost32` | `slice` | 4.304ms±0.003ms | **-18.15%±0.13%** | +0.0% |
-| `atmost32` | `from` | 4.262ms±0.003ms | **-13.71%±0.11%** | +0.0% |
-| `atmost32` | `stream` | 4.317ms±0.007ms | **-18.02%±0.12%** | +0.0% |
-| `atmost32` | `stream 2` | 4.317ms±0.003ms | **-18.09%±0.07%** | +0.0% |
-| `atmost128` | `slice` | 5.423ms±0.004ms | **-12.75%±0.09%** | +0.0% |
-| `atmost128` | `from` | 5.456ms±0.007ms | **-12.11%±0.12%** | +0.0% |
-| `atmost128` | `stream` | 5.437ms±0.006ms | **-12.46%±0.09%** | +0.0% |
-| `atmost128` | `stream 2` | 5.438ms±0.006ms | **-12.52%±0.11%** | +0.0% |
+| `strings` | `slice` | 16.69ms±0.06ms | **-14.6%±0.2%** | +0.0% |
+| `strings` | `from` | 17.04ms±0.06ms | **-12.4%±0.2%** | +0.0% |
+| `strings` | `stream` | 16.77ms±0.07ms | **-14.55%±0.18%** | +0.0% |
+| `strings` | `stream 2` | 16.75ms±0.07ms | **-14.93%±0.20%** | +0.0% |
+| `enums` | `slice` | 3.197ms±0.006ms | **-24.15%±0.16%** | +0.1% |
+| `enums` | `from` | 3.221ms±0.002ms | **-26.38%±0.07%** | +0.1% |
+| `enums` | `stream` | 3.238ms±0.003ms | **-25.19%±0.11%** | +0.1% |
+| `enums` | `stream 2` | 3.238ms±0.004ms | **-25.37%±0.12%** | +0.1% |
+| `enums17` | `slice` | 9.280ms±0.005ms | **-24.44%±0.07%** | +0.0% |
+| `enums17` | `from` | 9.027ms±0.007ms | **-22.86%±0.13%** | +0.0% |
+| `enums17` | `stream` | 9.302ms±0.006ms | **-24.35%±0.09%** | +0.0% |
+| `enums17` | `stream 2` | 9.312ms±0.006ms | **-24.52%±0.07%** | +0.0% |
+| `floats` | `slice` | 274.4µs±0.2µs | **+41.6%±0.2%** | +0.0% |
+| `floats` | `from` | 384.4µs±0.2µs | **+179.8%±0.5%** | +0.0% |
+| `floats` | `stream` | 850.3µs±0.8µs | **+125.7%±0.5%** | +0.0% |
+| `floats` | `stream 2` | 823.1µs±0.6µs | **+131.9%±0.4%** | +0.0% |
+| `compressible` | `slice` | 109.43ms±0.10ms | **-23.91%±0.05%** | +0.1% |
+| `compressible` | `from` | 109.83ms±0.06ms | **-19.78%±0.05%** | +0.1% |
+| `compressible` | `stream` | 125.40ms±0.04ms | **-11.23%±0.02%** | +0.1% |
+| `compressible` | `stream 2` | 126.77ms±0.07ms | **-12.24%±0.05%** | +0.1% |
+| `records` | `slice` | 78.3ms±0.4ms | **-24.81%±0.17%** | +0.0% |
+| `records` | `from` | 76.69ms±0.06ms | **-22.06%±0.08%** | +0.0% |
+| `records` | `stream` | 81.6ms±0.4ms | **-17.96%±0.12%** | +0.0% |
+| `records` | `stream 2` | 82.7ms±0.3ms | **-17.88%±0.12%** | +0.0% |
+| `records wide` | `slice` | 113.1ms±0.2ms | **-24.48%±0.17%** | +0.0% |
+| `records wide` | `from` | 116.7ms±0.2ms | **-20.23%±0.14%** | +0.0% |
+| `records wide` | `stream` | 118.4ms±0.4ms | **-16.12%±0.15%** | +0.0% |
+| `records wide` | `stream 2` | 118.5ms±0.2ms | **-16.39%±0.12%** | +0.0% |
+| `u64` | `slice` | 20.470ms±0.014ms | **-22.49%±0.11%** | +0.0% |
+| `u64` | `from` | 22.61ms±0.03ms | **-19.04%±0.12%** | +0.0% |
+| `u64` | `stream` | 20.71ms±0.02ms | **-16.88%±0.08%** | +0.0% |
+| `u64` | `stream 2` | 20.600ms±0.019ms | **-16.09%±0.10%** | +0.0% |
+| `u64 seq` | `slice` | 11.381ms±0.012ms | **-48.54%±0.11%** | +0.1% |
+| `u64 seq` | `from` | 12.32ms±0.02ms | **-43.79%±0.14%** | +0.1% |
+| `u64 seq` | `stream` | 11.449ms±0.011ms | **-48.57%±0.10%** | +0.1% |
+| `u64 seq` | `stream 2` | 11.48ms±0.02ms | **-48.98%±0.09%** | +0.1% |
+| `u64 small` | `slice` | 373.5µs±0.3µs | **-41.54%±0.10%** | -0.0% |
+| `u64 small` | `from` | 420.0µs±0.6µs | **-46.38%±0.11%** | -0.0% |
+| `u64 small` | `stream` | 380.0µs±0.3µs | **-40.49%±0.14%** | -0.0% |
+| `u64 small` | `stream 2` | 375.9µs±0.4µs | **-41.86%±0.13%** | -0.0% |
+| `atmost3` | `slice` | 1.848ms±0.002ms | **-27.65%±0.16%** | +0.0% |
+| `atmost3` | `from` | 1.871ms±0.003ms | **-26.89%±0.16%** | +0.0% |
+| `atmost3` | `stream` | 1.8738ms±0.0011ms | **-28.48%±0.16%** | +0.0% |
+| `atmost3` | `stream 2` | 1.8680ms±0.0016ms | **-28.68%±0.15%** | +0.0% |
+| `atmost8` | `slice` | 2.617ms±0.003ms | **-28.72%±0.13%** | +0.0% |
+| `atmost8` | `from` | 2.677ms±0.004ms | **-29.67%±0.12%** | +0.0% |
+| `atmost8` | `stream` | 2.617ms±0.002ms | **-27.94%±0.08%** | +0.0% |
+| `atmost8` | `stream 2` | 2.609ms±0.003ms | **-27.91%±0.15%** | +0.0% |
+| `atmost16` | `slice` | 3.465ms±0.004ms | **-26.25%±0.10%** | +0.0% |
+| `atmost16` | `from` | 3.472ms±0.002ms | **-24.51%±0.11%** | +0.0% |
+| `atmost16` | `stream` | 3.481ms±0.004ms | **-26.36%±0.10%** | +0.0% |
+| `atmost16` | `stream 2` | 3.474ms±0.006ms | **-26.50%±0.12%** | +0.0% |
+| `atmost32` | `slice` | 4.2865ms±0.0013ms | **-17.61%±0.12%** | +0.0% |
+| `atmost32` | `from` | 4.256ms±0.003ms | **-13.61%±0.15%** | +0.0% |
+| `atmost32` | `stream` | 4.294ms±0.005ms | **-17.69%±0.12%** | +0.0% |
+| `atmost32` | `stream 2` | 4.295ms±0.006ms | **-17.86%±0.05%** | +0.0% |
+| `atmost128` | `slice` | 5.452ms±0.003ms | **-13.27%±0.11%** | +0.0% |
+| `atmost128` | `from` | 5.464ms±0.005ms | **-11.88%±0.04%** | +0.0% |
+| `atmost128` | `stream` | 5.477ms±0.006ms | **-13.32%±0.11%** | +0.0% |
+| `atmost128` | `stream 2` | 5.475ms±0.004ms | **-13.34%±0.08%** | +0.0% |
 
 #### Encode
 
 | workload | route | `Range` | `Ans` vs `Range` | size Δ |
 |---|---|---|---|---|
-| `strings` | `encode` | 11.97ms±0.05ms | **+4.43%±0.18%** | +0.0% |
-| `strings` | `encode-to` | 11.77ms±0.06ms | **+2.58%±0.16%** | +0.0% |
-| `enums` | `encode` | 2.0321ms±0.0018ms | **+30.08%±0.10%** | +0.1% |
-| `enums` | `encode-to` | 1.9985ms±0.0018ms | **+30.6%±0.2%** | +0.1% |
-| `enums17` | `encode` | 3.835ms±0.003ms | **+1.98%±0.06%** | +0.0% |
-| `enums17` | `encode-to` | 3.7882ms±0.0020ms | **+3.52%±0.13%** | +0.0% |
-| `floats` | `encode` | 635µs±2µs | **+69.0%±0.3%** | +0.0% |
-| `floats` | `encode-to` | 632µs±2µs | **+69.4%±0.3%** | +0.0% |
-| `compressible` | `encode` | 381.2ms±0.6ms | **-1.71%±0.09%** | +0.1% |
-| `compressible` | `encode-to` | 379.8ms±0.5ms | **-1.27%±0.03%** | +0.1% |
-| `records` | `encode` | 46.92ms±0.07ms | **-6.10%±0.10%** | +0.0% |
-| `records` | `encode-to` | 47.30ms±0.05ms | **-6.63%±0.10%** | +0.0% |
-| `records wide` | `encode` | 75.22ms±0.08ms | **-9.92%±0.05%** | +0.0% |
-| `records wide` | `encode-to` | 74.97ms±0.04ms | **-8.99%±0.08%** | +0.0% |
-| `u64` | `encode` | 19.497ms±0.019ms | **-16.22%±0.07%** | +0.0% |
-| `u64` | `encode-to` | 18.700ms±0.014ms | **-13.04%±0.07%** | +0.0% |
-| `u64 seq` | `encode` | 6.322ms±0.010ms | **+76.8%±0.2%** | +0.1% |
-| `u64 seq` | `encode-to` | 6.939ms±0.010ms | **+61.0%±0.2%** | +0.1% |
-| `u64 small` | `encode` | 327.1µs±0.5µs | **-7.86%±0.13%** | -0.0% |
-| `u64 small` | `encode-to` | 327.6µs±0.8µs | **-10.0%±0.2%** | -0.0% |
-| `atmost3` | `encode` | 1.3526ms±0.0017ms | **+6.17%±0.17%** | +0.0% |
-| `atmost3` | `encode-to` | 1.3271ms±0.0013ms | **+7.2%±0.2%** | +0.0% |
-| `atmost8` | `encode` | 1.1090ms±0.0006ms | **+3.71%±0.13%** | +0.0% |
-| `atmost8` | `encode-to` | 1.0665ms±0.0013ms | **+9.84%±0.18%** | +0.0% |
-| `atmost16` | `encode` | 1.2760ms±0.0016ms | **+1.35%±0.05%** | +0.0% |
-| `atmost16` | `encode-to` | 1.2126ms±0.0015ms | **+7.68%±0.09%** | +0.0% |
-| `atmost32` | `encode` | 1.5314ms±0.0013ms | **-4.15%±0.14%** | +0.0% |
-| `atmost32` | `encode-to` | 1.5024ms±0.0014ms | **-1.63%±0.12%** | +0.0% |
-| `atmost128` | `encode` | 1.9770ms±0.0012ms | **-7.70%±0.14%** | +0.0% |
-| `atmost128` | `encode-to` | 1.923ms±0.003ms | **-3.59%±0.14%** | +0.0% |
+| `strings` | `encode` | 11.455ms±0.013ms | **+4.8%±0.3%** | +0.0% |
+| `strings` | `encode-to` | 12.055ms±0.014ms | (< 1.0%) | +0.0% |
+| `enums` | `encode` | 2.012ms±0.003ms | **+31.82%±0.06%** | +0.1% |
+| `enums` | `encode-to` | 1.980ms±0.003ms | **+30.58%±0.17%** | +0.1% |
+| `enums17` | `encode` | 3.774ms±0.004ms | **+3.61%±0.12%** | +0.0% |
+| `enums17` | `encode-to` | 3.779ms±0.002ms | **+3.68%±0.10%** | +0.0% |
+| `floats` | `encode` | 706.0µs±1.4µs | **+39.0%±0.3%** | +0.0% |
+| `floats` | `encode-to` | 690.2µs±1.5µs | **+40.6%±0.3%** | +0.0% |
+| `compressible` | `encode` | 376.50ms±0.13ms | **-1.68%±0.07%** | +0.1% |
+| `compressible` | `encode-to` | 377.2ms±0.8ms | **-1.45%±0.06%** | +0.1% |
+| `records` | `encode` | 46.57ms±0.02ms | **-5.89%±0.17%** | +0.0% |
+| `records` | `encode-to` | 47.28ms±0.08ms | **-7.60%±0.11%** | +0.0% |
+| `records wide` | `encode` | 75.51ms±0.04ms | **-9.85%±0.12%** | +0.0% |
+| `records wide` | `encode-to` | 75.38ms±0.09ms | **-10.19%±0.11%** | +0.0% |
+| `u64` | `encode` | 19.58ms±0.04ms | **-17.20%±0.13%** | +0.0% |
+| `u64` | `encode-to` | 18.582ms±0.017ms | **-13.02%±0.13%** | +0.0% |
+| `u64 seq` | `encode` | 6.329ms±0.005ms | **+75.7%±0.2%** | +0.1% |
+| `u64 seq` | `encode-to` | 6.847ms±0.015ms | **+62.3%±0.2%** | +0.1% |
+| `u64 small` | `encode` | 328.6µs±0.8µs | **-8.9%±0.2%** | -0.0% |
+| `u64 small` | `encode-to` | 327.2µs±0.8µs | **-8.6%±0.2%** | -0.0% |
+| `atmost3` | `encode` | 1.3633ms±0.0011ms | **+3.97%±0.18%** | +0.0% |
+| `atmost3` | `encode-to` | 1.295ms±0.002ms | **+8.1%±0.2%** | +0.0% |
+| `atmost8` | `encode` | 1.1067ms±0.0003ms | **+4.51%±0.09%** | +0.0% |
+| `atmost8` | `encode-to` | 1.0696ms±0.0010ms | **+9.55%±0.13%** | +0.0% |
+| `atmost16` | `encode` | 1.2824ms±0.0013ms | **+1.13%±0.15%** | +0.0% |
+| `atmost16` | `encode-to` | 1.2182ms±0.0012ms | **+6.29%±0.14%** | +0.0% |
+| `atmost32` | `encode` | 1.5298ms±0.0006ms | **-4.83%±0.07%** | +0.0% |
+| `atmost32` | `encode-to` | 1.4997ms±0.0014ms | **-2.21%±0.14%** | +0.0% |
+| `atmost128` | `encode` | 1.960ms±0.002ms | **-7.57%±0.10%** | +0.0% |
+| `atmost128` | `encode-to` | 1.9146ms±0.0015ms | **-3.98%±0.07%** | +0.0% |
 
 ### The walk shootout disagrees with `Walk::production` (2026-10-11)
 
@@ -792,7 +806,7 @@ The `MAX`-based cutoffs picking `complete`/`uneven` layout and
 plain/speculating decode (`SPECULATE_MIN_MAX`, the per-coder speculate flag)
 were baked in from earlier A/B sweeps on this machine and had no way to be
 re-measured off the beaten path. `benches/atmost.rs` (`cargo bench --bench
-atmost`; since 2026-10-11 it is the ignored test `walk_shootout` in
+atmost`; since 2026-10-11 it is the ignored tests `walk_shootout_*` in
 `src/v2/atmost/shootout.rs`, on `scaling` 0.9, with its forced-walk methods
 crate-private) times every (coder × `MAX` × applicable `Walk`) for decode, and once
 per *distinct* encode implementation, via `#[doc(hidden)]`
@@ -1638,18 +1652,19 @@ encode.
    `entropy`/`incompressible`/`rest` as offsets. Sized at ~5% cycles / ~19%
    instructions on entropy-coded workloads, but the route table at the top
    of this document says the ceiling is far higher on incompressible data:
-   `f64` through `decode_from` is **+152%** against `Range` (where `slice`
-   is +37%), charged per *incompressible* byte rather than per byte overall.
+   `f64` through `decode_from` is **+150–180%** against `Range` (where `slice`
+   is +37–42%), charged per *incompressible* byte rather than per byte overall.
    (The 2026-09-05 table said **+326.7%**; that was measured before the
    benchmarks pinned glibc's allocator thresholds, and the same cell read
    anywhere from +160% to +320% depending only on heap layout — see "Allocator
-   state" under How to benchmark. +152% is the repeatable figure.)
+   state" under How to benchmark. Pinned it is +150–180%: it moves by about 30
+   points between builds even so, but not back toward +326%.)
 
 5. **`Ans`'s incompressible-byte path is slower than `Range`'s, in both
    directions** — and this is *not* the plumbing above, since it shows on
-   `slice`, which does none of that buffering: decode `slice` **+37%**.
+   `slice`, which does none of that buffering: decode `slice` **+37–42%**.
    Nothing recorded predicts it; the first step is a profile (`perf record` on
-   `coders -- slice input=floats` against the `range` arm), not a patch.
+   the `slice` route's `floats` cell against the `range` arm), not a patch.
    - **The encode half is open again, and a 2026-09-05 "closure" of it was an
      artifact.** It read "slower in both directions" on a 2026-08-28
      measurement of encode **+52.1%** cycles / **+37.7%** instructions. The
@@ -1657,22 +1672,22 @@ encode.
      wide margin, and this item attributed that to the ANS chunk-alignment work
      in [#54](https://github.com/droundy/compactly/pull/54). It was not:
      measured with the allocator pinned (2026-10-11), `Ans` encode is
-     **+69%** slower on `floats`, on both encode routes. `Ans`'s own time
-     barely moved (1.010 ms then, 1.07 ms now) — `Range`'s fell from 1.391 ms to
-     0.635 ms, so the earlier table was `Range` paying page faults on its
+     **+39% to +69%** slower on `floats` (two builds), on both encode routes.
+     `Ans`'s own time barely moved (1.010 ms then, 0.98–1.07 ms now) —
+     `Range`'s fell from 1.391 ms to 0.64–0.71 ms, so the earlier table was `Range` paying page faults on its
      growing output buffer, not `Ans` being fast. That `Range` is the one
      affected, and why, was not isolated here; the conclusion that matters is
      that the gap is real and the same sign as in 2026-08-28.
 
-6. **`Ans` encode is time-bound, not work-bound** — `enums` costs **+30.1%
+6. **`Ans` encode is time-bound, not work-bound** — `enums` costs **+31.8%
    on 6.9% *fewer* instructions** than `Range` (the instruction counts are
    from the 2026-08-28 `perf` pass; the times are current, 2026-10-11), and
-   `strings` holds the same shape at **+4.4%**. The claim used to extend to
+   `strings` holds the same shape at **+4.8%**. The claim used to extend to
    `enums17` and the whole `AtMost` ladder; on the current table it no longer
-   does — `enums17` is +2.0% and the ladder crosses over, from +6.2% at
-   `atmost3` to **−7.7%** at `atmost128`. What *is* new on this table is
-   **`u64 seq` (consecutive integers) at +77%** on `encode` (+61% on
-   `encode-to`) and **`floats` at +69%** (item 5): the two extremes of
+   does — `enums17` is +3.6% and the ladder crosses over, from +4.0% at
+   `atmost3` to **−7.6%** at `atmost128`. What *is* new on this table is
+   **`u64 seq` (consecutive integers) at +76%** on `encode` (+62% on
+   `encode-to`) and **`floats` at +39–69%** (item 5): the two extremes of
    compressibility, the most compressible input and an incompressible one.
    `Ans` executing less and taking longer is an IPC problem, pointing
    at the two-pass structure (record ops, then encode backwards) rather than

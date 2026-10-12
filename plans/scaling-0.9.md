@@ -45,8 +45,16 @@ Where the plan changed, and why:
   looks up `Walk::production` at run time, so the baseline follows the tuning
   table instead of duplicating it. Each walk is a candidate for exactly the value
   counts it is valid for, and asserts as much on its first call.
-- **The precision target is `scaling`'s default 1%**, as decision 4 says, and
-  filters work as decision 5 says, with the shared parser in `benches/support`.
+- **The precision target is `scaling`'s default 1%**, as decision 4 says. Decision
+  5 (arguments become filters, with a shared parser in `benches/support`) was built
+  and then removed: the benches have no argument handling at all, and
+  `Config::default()` is the whole policy. To look at less, narrow the `Config`
+  in a bench's `main`. The shootout, which needed narrowing most, is four ignored
+  tests whose names do it.
+- **Inputs are `build_once`.** The local `scaling` gained `build_once` inputs, built
+  once per group and lent by reference, which replaced the `thread_local` plus `Rc`
+  memoization decision 6 describes. `scaling` is pinned by git revision until a
+  release has it.
 - **Allocator state turned out to be part of the measurement.** Not in the plan:
   the same `Ans` decode read +160% to +320% against `Range` depending only on
   glibc's heap layout, and a cell run alone differed 2× from the same cell in
