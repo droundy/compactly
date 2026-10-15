@@ -11,12 +11,6 @@ repository = "https://github.com/droundy/compactly"
 [features]
 
 generate_bit_context = []
-# Exposes the benchmark-support surface (forced tree walks, forced decoder
-# instantiations, entropy-phase replay) that `benches/` and `src/bin/` drive.
-# Off by default: these bypass the choices the library makes for itself, and
-# some silently produce wrong answers when pointed at the wrong input. Not
-# covered by semver.
-benchmarking = []
 v1 = []
 v2 = []
 # Async decoding from a `Stream` of `Bytes` chunks: `v2::decode_stream` and the
@@ -40,7 +34,15 @@ uuid = { version = "1.18.1", optional = true }
 [dev-dependencies]
 
 expect-test = "1.5.1"
-scaling = "0.1.3"
+# The measurement harness for everything in `benches/`: functions register
+# themselves, and `scaling` samples, tests for differences and prints.
+# By git revision until the release after 0.9.1: the benches use `build_once`
+# inputs, which the published 0.9.1 lacks. Replace with `scaling = "0.9"` (or
+# whichever release has it) and delete the `git` and `rev` keys then.
+scaling = { version = "0.9.1", git = "https://github.com/droundy/scaling", rev = "75261b0ae8583602c95b58313d07fd66edca016e" }
+# The real-world corpora `benches/bench.rs` measures. It depends on this crate,
+# which cargo allows for a dev-dependency.
+comparison = { path = "comparison" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -51,6 +53,11 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 zstd = "0.13.2"
 rapidhash = "1.4.0"
 bitcode = "0.6.9"
+
+# For `benches/support`, which fixes glibc's allocator thresholds so a benchmark
+# does not depend on the heap history of the process that runs it.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dev-dependencies]
+libc = "0.2"
 
 [profile.bench]
 debug = true
@@ -65,102 +72,25 @@ members = [
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["v1", "v2"]
-
-[[bench]]
-name = "integers"
-harness = false
 required-features = ["v2"]
 
 [[bench]]
-name = "signed"
+name = "strategies"
 harness = false
-required-features = ["v2"]
-
-[[bench]]
-name = "bytes"
-harness = false
-required-features = ["v2"]
-
-[[bench]]
-name = "atmost"
-harness = false
-required-features = ["v2", "benchmarking"]
-
-# These binaries use the v2 API, so they cannot build without it.
-[[bin]]
-name = "just-compress"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress"
-required-features = ["v2"]
-
-[[bin]]
-name = "range-decode-collapse"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-floats"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-net"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-strings"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-compress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-enums"
-required-features = ["v2"]
-
-[[bin]]
-name = "just-decompress-uless"
-required-features = ["v2"]
-
-[[bin]]
-name = "micro-batch"
 required-features = ["v2"]
 
 [[bin]]
 name = "char-freq"
 required-features = ["csv", "ureq"]
 
-[[bin]]
-name = "ans-decode-phases"
-required-features = ["v2", "benchmarking"]
+# The A/B workbench: `Ans` against `Range` across routes and workloads, and the
+# questions about either coder's internals a workload table cannot ask. It needs
+# only `v2`; what `stream` unlocks is registered when it is
+# on and absent otherwise, so a plain `cargo bench` measures the route table
+# instead of cargo silently skipping the target. See benches/coders/main.rs.
 
-[[bin]]
-name = "ans-encode-phases"
+[[bench]]
+name = "coders"
+path = "benches/coders/main.rs"
+harness = false
 required-features = ["v2"]
-
-
-[[bin]]
-name = "just-decompress-compressible"
-required-features = ["v2"]
-
-[[bin]]
-name = "async-decode-cost"
-required-features = ["v2", "stream"]
-
-[[bin]]
-name = "coder-routes"
-required-features = ["v2", "stream"]
-
-[[bin]]
-name = "async-decode-overlap"
-required-features = ["v2", "stream"]
-
-[[bin]]
-name = "just-decompress-stream"
-required-features = ["v2", "benchmarking"]

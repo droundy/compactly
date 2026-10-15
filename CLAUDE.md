@@ -34,30 +34,33 @@ the pre-commit hook saw as clean. Reproduce locally with `cargo +nightly fmt
 
 Features `v1` and `v2` are both on by default. The optional `generate_bit_context` feature enables tools for regenerating the pre-computed `bit_context.rs` files.
 
-The optional `benchmarking` feature exposes the benchmark-support API — forced
-tree walks (`Walk`, `WALKS`, `encode_atmost_batch`/`decode_atmost_batch`),
-forced decoder instantiations (`Ans::decode_from_forced`), and entropy-phase
-replay (`replay_entropy_decode`, `is_single_chunk`). These bypass the choices
-the library makes for itself and some silently produce wrong answers on the
-wrong input, so they are off by default and not covered by semver. Anything
-that calls them (`benches/atmost.rs`, `src/bin/ans-decode-phases.rs`,
-`src/bin/just-decompress-stream.rs`) needs `benchmarking` in its
-`required-features`, **and** cargo silently *skips* targets whose
-required-features are off — so a lint or build break in them hides unless the
-feature is on. That is why CI clippies twice — the second pass with
-`--all-features`, which is what reaches every gated target rather than a named
-list that a new one can be left out of — and runs `cargo test --all-features`.
-`src/bin/char-freq.rs`, gated on the optional `csv`/`ureq` dependencies, hid
-that way and collected six clippy warnings nobody saw. Items the lib's own unit
-tests also use are gated
-`#[cfg(any(test, feature = "benchmarking"))]` so plain `cargo test` keeps its
-coverage.
+Cargo silently *skips* a target whose `required-features` are off, so a lint or
+build break in such a target hides unless the feature is on. That is why CI
+clippies twice — the second pass with `--all-features`, which is what reaches
+every gated target rather than a named list that a new one can be left out of —
+and runs `cargo test --all-features`. `src/bin/char-freq.rs`, gated on the
+optional `csv`/`ureq` dependencies, hid that way and collected six clippy
+warnings nobody saw.
+
+Everything that measures the library lives in `benches/`, as a `harness =
+false` target, with one exception. `src/bin/` holds tools — two code generators
+and `char-freq` — and no benchmarks. Benches see dev-dependencies (which is how
+they reach `scaling` and the `comparison` corpora); `src/bin/` would not. They
+need only `v2`, and register what `stream` unlocks when it is on, so a plain
+`cargo bench` measures something instead of cargo skipping the target. The
+exception is the walk shootout, `src/v2/atmost/shootout.rs`: it forces tree
+walks the library does not expose, so it is an `#[ignore]`d test inside the
+crate (`cargo test --release --lib -- --ignored --test-threads=1 walk_shootout`, under
+`quiet-bench run`), which is what lets the forced-walk machinery stay
+crate-private. There is no `benchmarking` feature: the forced decoder
+instantiation and entropy-phase replay it once gated lost their benches in the
+October 2026 cleanup (last at `0c7bf74`) and were deleted.
 
 CI also builds with `--no-default-features` (including a wasm target), so it
-compiles every target without `v1`/`v2`. The usual failure is a new `src/bin/`
-binary that uses `compactly::v2` without a matching
-`required-features = ["v2"]` entry under `[[bin]]` in Cargo.toml — add that
-entry whenever you add a binary. The pre-commit hook runs
+compiles every target without `v1`/`v2`. The usual failure is a new target
+that uses `compactly::v2` without a matching `required-features = ["v2"]`
+entry under `[[bin]]`/`[[bench]]` in Cargo.toml — add that entry whenever you
+add one. The pre-commit hook runs
 `cargo check --no-default-features` to catch this before CI does.
 
 ## Performance work
@@ -66,6 +69,42 @@ entry whenever you add a binary. The pre-commit hook runs
 without harming the compression rate: how to benchmark reliably on this (noisy)
 machine, empirical results, dead ends to avoid, and a prioritized TODO list.
 Update it as that work progresses.
+
+All timing goes through the [`scaling`](https://github.com/droundy/scaling)
+crate (0.9): a benchmark is a registered function, `scaling` samples it until a
+1% difference would be significant (this project does not trust smaller
+changes), tests whether candidates really differ, and prints the result. There
+is no hand-built table and no script that assembles one. Things to know when
+running a benchmark here:
+
+- **Run benchmarks outside the command sandbox** (`dangerouslyDisableSandbox`).
+  The sandbox intercepts the process, and pinning to the reserved CPU is
+  exactly the kind of thing it restricts — a benchmark that cannot pin itself
+  measures the machine's other work as well as its own. Building and linting
+  are fine inside it; only the measurement runs need to be outside.
+- **Run them under `quiet-bench run …`**, and never run `quiet-bench reserve`
+  or `restore` yourself — those need sudo and are the human's to do.
+  `quiet-bench run true` exits 0 iff a CPU is reserved; if it fails, stop and
+  ask.
+- **Keep the rest of the machine quiet while one runs**: no builds, tests or
+  other benchmarks, from you or from another session. A second pinned benchmark
+  queues behind the first, and anything else CPU-heavy moves the numbers
+  through memory bandwidth and interrupts. Check `pgrep -x cargo rustc` and the
+  *second* sample of `top -b -n2 -d2`, and coordinate with other sessions
+  (`ListAgents`) before starting a long run.
+- **Add a candidate or an input to an existing group; do not add a target.** A
+  benchmark is `#[scaling::bench(group = "…")]`, a workload is
+  `#[scaling::input(group(…), build_once)]` (built once per group and lent to
+  every call; no `Clone`, no per-iteration rebuild), an extra column is
+  `#[scaling::metrics]`. There is no argument handling in the benches: a bench
+  runs everything registered in it.
+  Dozens of one-workload binaries accumulated in `src/bin/` and were folded into
+  `benches/` and then cut down; the questions they answered are recorded in
+  OPTIMIZING.md and the binaries are in git history. A new target earns its place
+  only by measuring something no existing group can.
+- **Pin allocator-sensitive workloads** — `benches/support` already does, but a
+  workload whose output is hundreds of kilobytes can read twice as fast or slow
+  depending on glibc's heap history; see OPTIMIZING.md.
 
 ## Architecture
 
