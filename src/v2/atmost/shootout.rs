@@ -64,9 +64,16 @@
 //! never sees a sequence twice, which is what production decoding of new data
 //! looks like. Building a batch (drawing it and encoding it with every walk) is
 //! not timed but comes out of each candidate's 10 s; `scaling` marks a cell
-//! `(limit)` if that leaves it short of its accuracy goal. A batch holds `max(4 * MAX, 256)` values, enough that the
-//! fixed cost of seeding `MAX` contexts stays a small fraction of the per-value
-//! cost. Times are per batch.
+//! `(limit)` if that leaves it short of its accuracy goal. A batch holds
+//! `max(4 * MAX, 256)` values, enough that the fixed cost of seeding `MAX`
+//! contexts stays a small fraction of the per-value cost. Times are per batch.
+//!
+//! **Why not a shared input.** Two cheaper designs were measured against this one
+//! (2026-10-17, see OPTIMIZING.md): a single `build_once` batch made `production`
+//! up to 4x faster on uniform data and flipped verdicts, because the predictor
+//! memorizes the one batch; a rotating pool of 16 batches was partly memorized
+//! too at small `MAX`, and its verdicts moved between two builds of the same code
+//! (up to 131 points), where this design's did not move at all.
 
 use super::walks::{Walk, WALKS};
 use super::AtMost;
