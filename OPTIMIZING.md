@@ -1904,14 +1904,31 @@ encode.
     counts 15, 31 and 63 (5–24%) and at 48, and a bitwise walk at `MAX` 2
     (`UnevenBitwise`) and 3 (`CompleteBitwise`); for **`Ans` only**, the bitwise
     walks at large `MAX` (`UnevenBitwise` at 700, 2048 and 3000 by 13–37%,
-    `CompleteBitwise` at 4095). **Encode needs nothing**: no forced walk beats
-    production for either coder on both distributions. It is probably the largest
-    decode win on this list that needs no new design — a table in `walks.rs`, not
-    an algorithm. Before changing it, confirm in the `strings`, `enums` and
-    `records` route rows that a tight-loop win survives a real workload, and keep
-    in mind that `Walk::production` serves both directions (`encode_with` maps a
-    decode walk to its encode twin), so a decode change must leave encode where it
-    is. Numbered last so existing references to items above stay valid; by
+    `CompleteBitwise` at 4095).
+
+    **A decode walk can only read what its encode twin wrote**, so every one of
+    these moves the encoder too (to `Walk::encode_with` of the new walk), and the
+    fresh-batch encode groups price that:
+
+    - `UnevenSpeculating` at 15/31/48/63 → encode with `Uneven`: **0–3%** slower
+      on `Ans`, about even on `Range`. Close to a free decode win of 5–24%, and
+      the obvious first change.
+    - `UnevenBitwise` at 2 → encode +4–11% (`Ans`), −5 to +3% (`Range`).
+    - `CompleteBitwise` at 3 → encode **+48–54%** (`Ans`), **+23–98%**
+      (`Range`).
+    - `UnevenBitwise` at 700–3000 (`Ans`) → encode **+29–86%**.
+    - `CompleteBitwise` at 4095 (`Ans`) → encode **+188–210%**.
+
+    So only the speculating changes are clear wins; the bitwise ones trade a
+    decode gain for a larger encode loss, which is a decision about how much
+    decode matters, not a measurement. (On their own, the encode groups show no
+    forced walk beating production for either coder: production's encode choices
+    are right for encode.) It is probably the largest decode win on this list
+    that needs no new design — a table in `walks.rs`, not an algorithm. Before
+    changing it, confirm in the `strings`, `enums` and `records` route rows that
+    a tight-loop win survives a real workload. `v2` is not frozen, so the
+    bitstream change itself is no obstacle.
+    Numbered last so existing references to items above stay valid; by
     priority it belongs near the top.
 
 ## New strategy ideas (compression rate, often also decode speed)
