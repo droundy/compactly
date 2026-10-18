@@ -469,7 +469,11 @@ range_decode_candidates!();
 /// function above that is registered in this crate's test binary and this keeps
 /// the ones of that group.
 fn run_group(group: &'static str) {
+    // 30 s per candidate, not the default 10: building a new batch for every
+    // call comes out of the budget, and at large value counts 10 s leaves too
+    // few samples.
     support::config()
+        .with_max_time(std::time::Duration::from_secs(30))
         .filter_groups(move |name| name == group)
         .run_and_print()
         .expect("the registered shootout benchmarks compose");
