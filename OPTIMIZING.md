@@ -342,12 +342,12 @@ not incompressible, and not in the earlier table at all.
 
 ### The walk shootout disagrees with `Walk::production` (2026-10-11)
 
-> **Partly superseded (2026-10-17).** This run gave the shootout a rotating pool
-> of 16 batches, which the branch predictor turns out to partly memorize at small
-> `MAX` (see "Shootout inputs" below). The `ans decode` findings are re-measured
-> there with a new batch every call, and that table replaces the `ans decode`
-> rows here. The `range` and `encode` rows have not been re-measured; read them
-> as likely at `MAX` ≥ 127 and provisional below it.
+> **Superseded (2026-10-17).** This run gave the shootout a rotating pool of 16
+> batches, which the branch predictor turns out to partly memorize at small `MAX`
+> (see "Shootout inputs" below). All four groups were re-measured there with a
+> new batch every call, and those tables replace this one. Kept as the record of
+> what the pool reported: its `range decode` wins for `Uneven` at `MAX` 4, 5, 8
+> and 9 and its `range encode` row did not survive.
 
 The walk shootout (`src/v2/atmost/shootout.rs`) asks one question: is any forced tree walk faster than the one
 `Walk::production` picks? On a quiesced machine, one full run (112 tables: both
@@ -482,6 +482,34 @@ unaligned run agrees to within 2 points on every row): forced walks beat
 The pool and `build_once` find 10 or 11 of the others too (depending on the
 build); `UnevenBitwise` at 2, `CompleteBitwise` at 3 and `UnevenSpeculating` at
 700 are found only with fresh batches.
+
+The other three groups, with fresh batches on the aligned build (2026-10-17; each
+under two minutes pinned, nothing `(limit)`, and the forced twin of production
+reading "no difference" in every table, bound ≤1.0%):
+
+- **`range decode`** — six places on both distributions:
+
+  | `MAX` | walk | skewed | uniform |
+  |---|---|---|---|
+  | 2 | `UnevenBitwise` | **−12.8%** | **−18.2%** |
+  | 3 | `CompleteBitwise` | **−5.9%** | **−24.8%** |
+  | 15 | `UnevenSpeculating` | **−19.0%** | **−7.0%** |
+  | 31 | `UnevenSpeculating` | **−16.9%** | **−7.8%** |
+  | 48 | `UnevenSpeculating` | **−18.7%** | **−12.8%** |
+  | 63 | `UnevenSpeculating` | **−23.6%** | **−10.0%** |
+
+  The same shape as `ans decode` at small and mid `MAX` — the split tree
+  speculates better than production's heap tree at 15/31/63, and a bitwise walk
+  wins at 2 and 3 — but **none at large `MAX`**: `Range` has no counterpart to
+  `Ans`'s `UnevenBitwise` wins at 700–3000. Fifteen more win on uniform values
+  only, mostly `CompleteBitwise` and `Uneven` at 7–255 and `Complete` at 4095
+  (by 5–16%); the pooled run's `Uneven` wins at `MAX` 4, 5, 8 and 9 are gone.
+- **`ans encode`** — production holds everywhere: no forced walk is faster on
+  either distribution.
+- **`range encode`** — production holds on both distributions everywhere. On one
+  distribution only: `Uneven` at `MAX`=1 on uniform values (**−29.1%**) and
+  `UnevenBitwise` at `MAX`=2 on skewed (−5.2%). The pooled run's `MAX`=7 row did
+  not survive.
 
 ### Dead ends that should not be retried without new evidence
 
@@ -1871,17 +1899,20 @@ encode.
 16. **Re-tune `Walk::production` for decode** — the walk shootout, with a new
     batch every call (see
     [Shootout inputs](#shootout-inputs-a-new-batch-every-call-not-a-shared-one-2026-10-17)),
-    finds 14 places where a forced walk beats production for `Ans` decode on both
-    distributions, stable across two builds: `UnevenSpeculating` at the
-    power-of-two-minus-one counts 15, 31 and 63 (5–19%), the bitwise walks at large
-    `MAX` (`UnevenBitwise` at 700, 2048 and 3000 by 13–37%, `CompleteBitwise` at
-    4095), and three small counts (2, 3, 48). It is probably the largest decode win
-    on this list that needs no new design — a table in `walks.rs`, not an algorithm.
-    Before changing it: run the `range decode` and both `encode` groups with fresh
-    batches too (only `ans decode` has been), and confirm in the `strings`, `enums`
-    and `records` route rows that a tight-loop win survives a real workload.
-    Numbered last so existing references to items above stay valid; by priority it
-    belongs near the top.
+    finds forced walks that beat production on both distributions, stable across
+    builds: for **both coders**, `UnevenSpeculating` at the power-of-two-minus-one
+    counts 15, 31 and 63 (5–24%) and at 48, and a bitwise walk at `MAX` 2
+    (`UnevenBitwise`) and 3 (`CompleteBitwise`); for **`Ans` only**, the bitwise
+    walks at large `MAX` (`UnevenBitwise` at 700, 2048 and 3000 by 13–37%,
+    `CompleteBitwise` at 4095). **Encode needs nothing**: no forced walk beats
+    production for either coder on both distributions. It is probably the largest
+    decode win on this list that needs no new design — a table in `walks.rs`, not
+    an algorithm. Before changing it, confirm in the `strings`, `enums` and
+    `records` route rows that a tight-loop win survives a real workload, and keep
+    in mind that `Walk::production` serves both directions (`encode_with` maps a
+    decode walk to its encode twin), so a decode change must leave encode where it
+    is. Numbered last so existing references to items above stay valid; by
+    priority it belongs near the top.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
