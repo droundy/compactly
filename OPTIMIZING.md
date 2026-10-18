@@ -160,7 +160,12 @@ differently, it is a candidate, an input or a metric.
   `#[scaling::input(group(…))]` one, an extra column is a
   `#[scaling::metrics]` one. Mark an input that is costly to make `build_once`:
   `scaling` then builds it once for each group and lends it to every call, with
-  no `Clone` and no per-iteration rebuild. A new question that fits an existing group is a
+  no `Clone` and no per-iteration rebuild — **unless what is measured is
+  branchy and data-dependent**. Then one fixed input lets the branch predictor
+  learn it, and the benchmark measures memorized data: the walk shootout read up
+  to 4x faster that way and changed which walks won (see "Shootout inputs"
+  below). Give such a benchmark a new input every call, by having its
+  candidates take `&mut`. A new question that fits an existing group is a
   new candidate or input there, not a new target. The old one-workload binaries
   (`just-decompress`, `coder-routes`, `ans-phases`, `micro-batch` and the rest)
   were each a special case of that, and are in git history; entries below that
@@ -337,6 +342,13 @@ not incompressible, and not in the earlier table at all.
 
 ### The walk shootout disagrees with `Walk::production` (2026-10-11)
 
+> **Partly superseded (2026-10-17).** This run gave the shootout a rotating pool
+> of 16 batches, which the branch predictor turns out to partly memorize at small
+> `MAX` (see "Shootout inputs" below). The `ans decode` findings are re-measured
+> there with a new batch every call, and that table replaces the `ans decode`
+> rows here. The `range` and `encode` rows have not been re-measured; read them
+> as likely at `MAX` ≥ 127 and provisional below it.
+
 The walk shootout (`src/v2/atmost/shootout.rs`) asks one question: is any forced tree walk faster than the one
 `Walk::production` picks? On a quiesced machine, one full run (112 tables: both
 coders, both directions, 28 value counts, two distributions) says yes, often —
@@ -413,6 +425,63 @@ it moves, in more than one run, and check the result in a real workload (the
 tight loop. One independent, unpinned smoke run did reproduce the single value it
 covered (`Ans` decode at `MAX` 15, `UnevenSpeculating`: −17.2% against −16.5%
 here).
+
+### Shootout inputs: a new batch every call, not a shared one (2026-10-17)
+
+How the walk shootout hands out its values decides what it measures, because
+decoding an `AtMost` is a tree walk whose branches follow the data. Three
+designs, each run on the `ans decode` group on a quiesced machine, both with and
+without `-align-all-functions=6`:
+
+- **`build_once`** — one batch, built once and reused for every call;
+- **pooled** — 16 batches handed out in rotation (the design until now);
+- **fresh** — a new batch every call, from a seed no other batch used
+  (candidates take `&mut`, which makes `scaling` generate an input per call).
+
+| | fresh vs pooled | fresh vs `build_once` | verdicts unchanged across the two builds |
+|---|---|---|---|
+| agreement on "beats `production` by ≥3%", 222 cells | 202–204 | 192–193 | fresh **222/222**, `build_once` 221/222, pooled 216/222 |
+
+- **`build_once` measures memorized data.** On uniform values `production` reads
+  2–4x faster than fresh from `MAX` 5 to 512 (5.8 against 23.5 µs at `MAX`=64),
+  and its winners are inflated (`UnevenBitwise` at `MAX`=48: −58% against −12%).
+- **The pool is memorized too at small `MAX`.** It matches fresh within 2–5%
+  from `MAX`=127 up, but reads 1.3–2.6x faster on uniform from 2 to 64, and it
+  is unstable: rebuilding with the alignment flag moved its `production` times by
+  0.5–1.23x and swung single verdicts by up to 131 points (`UnevenSpeculating`
+  at `MAX`=9: −11% in one build, +86% in the other).
+- **Fresh is stable.** The same rebuild moved its `production` times by at most
+  2% and no verdict at all (largest shift 6.9 points). It is also cheapest to
+  run: it converges without reaching its time limit, about 90 s for this group
+  against 17 minutes for pooled, whose cells mostly ran out the 10 s.
+- One caveat: a fresh batch is also *cold*. At `MAX`=1, where there is no path to
+  learn, fresh is 6% slower than pooled, which bounds how much of its small-`MAX`
+  slowdown is cold data rather than unlearned data.
+
+So the shootout now uses fresh batches. Its `ans decode` result, aligned (the
+unaligned run agrees to within 2 points on every row): forced walks beat
+`production` on **both** distributions in 14 places —
+
+| `MAX` | walk | skewed | uniform |
+|---|---|---|---|
+| 2 | `UnevenBitwise` | **−18.5%** | **−18.0%** |
+| 3 | `CompleteBitwise` | **−9.2%** | **−31.8%** |
+| 15 | `UnevenSpeculating` | **−12.5%** | **−4.7%** |
+| 31 | `UnevenSpeculating` | **−12.0%** | **−7.0%** |
+| 48 | `UnevenBitwise` | **−32.6%** | **−11.6%** |
+| 48 | `UnevenSpeculating` | **−13.6%** | **−11.4%** |
+| 63 | `UnevenSpeculating` | **−19.4%** | **−9.7%** |
+| 700 | `UnevenBitwise` | **−27.1%** | **−13.2%** |
+| 700 | `UnevenSpeculating` | **−4.6%** | **−13.7%** |
+| 2048 | `UnevenBitwise` | **−27.9%** | **−13.1%** |
+| 2048 | `UnevenSpeculating` | **−4.5%** | **−14.2%** |
+| 3000 | `UnevenBitwise` | **−24.8%** | **−37.1%** |
+| 3000 | `UnevenSpeculating` | **−5.6%** | **−13.7%** |
+| 4095 | `CompleteBitwise` | **−7.1%** | **−34.7%** |
+
+The pool and `build_once` find 10 or 11 of the others too (depending on the
+build); `UnevenBitwise` at 2, `CompleteBitwise` at 3 and `UnevenSpeculating` at
+700 are found only with fresh batches.
 
 ### Dead ends that should not be retried without new evidence
 
@@ -1799,17 +1868,20 @@ encode.
       width. The only way to get both the size win and the speed win is the
       `Small<usize>` redesign above, not a type swap.
 
-16. **Re-tune `Walk::production` for decode** — the 2026-10-11 walk shootout (see
-    [the section above](#the-walk-shootout-disagrees-with-walkproduction-2026-10-11))
-    found 23 decode combinations where a forced walk beats production on both
-    distributions, by 12–30% on skewed data at the power-of-two-minus-one counts
-    (`UnevenSpeculating`) and 24–29% for `Ans` at `MAX` 700–3000
-    (`UnevenBitwise`). It is probably the largest decode win on this list that needs
-    no new design — a table in `walks.rs`, not an algorithm — and it is *not*
-    done: re-measure each `MAX` it would move in more than one run, and confirm in
-    the `strings`/`enums`/`records` route rows that a tight-loop win survives a real
-    workload. Numbered last so existing references to items above stay valid; by
-    priority it belongs near the top.
+16. **Re-tune `Walk::production` for decode** — the walk shootout, with a new
+    batch every call (see
+    [Shootout inputs](#shootout-inputs-a-new-batch-every-call-not-a-shared-one-2026-10-17)),
+    finds 14 places where a forced walk beats production for `Ans` decode on both
+    distributions, stable across two builds: `UnevenSpeculating` at the
+    power-of-two-minus-one counts 15, 31 and 63 (5–19%), the bitwise walks at large
+    `MAX` (`UnevenBitwise` at 700, 2048 and 3000 by 13–37%, `CompleteBitwise` at
+    4095), and three small counts (2, 3, 48). It is probably the largest decode win
+    on this list that needs no new design — a table in `walks.rs`, not an algorithm.
+    Before changing it: run the `range decode` and both `encode` groups with fresh
+    batches too (only `ans decode` has been), and confirm in the `strings`, `enums`
+    and `records` route rows that a tight-loop win survives a real workload.
+    Numbered last so existing references to items above stay valid; by priority it
+    belongs near the top.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
