@@ -458,7 +458,9 @@ without `-align-all-functions=6`:
   learn, fresh is 6% slower than pooled, which bounds how much of its small-`MAX`
   slowdown is cold data rather than unlearned data.
 
-So the shootout now uses fresh batches. Its `ans decode` result, aligned (the
+So the shootout now uses fresh batches. **Its verdicts did not survive a real
+workload** (see TODO 16): treat what follows as what a forced walk does in the
+shootout's loop, not as a prediction of production speed. Its `ans decode` result, aligned (the
 unaligned run agrees to within 2 points on every row): forced walks beat
 `production` on **both** distributions in 14 places —
 
@@ -1896,40 +1898,47 @@ encode.
       width. The only way to get both the size win and the speed win is the
       `Small<usize>` redesign above, not a type swap.
 
-16. **Re-tune `Walk::production` for decode** — the walk shootout, with a new
-    batch every call (see
-    [Shootout inputs](#shootout-inputs-a-new-batch-every-call-not-a-shared-one-2026-10-17)),
-    finds forced walks that beat production on both distributions, stable across
-    builds: for **both coders**, `UnevenSpeculating` at the power-of-two-minus-one
-    counts 15, 31 and 63 (5–24%) and at 48, and a bitwise walk at `MAX` 2
-    (`UnevenBitwise`) and 3 (`CompleteBitwise`); for **`Ans` only**, the bitwise
-    walks at large `MAX` (`UnevenBitwise` at 700, 2048 and 3000 by 13–37%,
-    `CompleteBitwise` at 4095).
+16. **Find out why the walk shootout's wins do not survive real workloads**
+    — a `Walk::production` retune built on them made real decoding much slower.
 
-    **A decode walk can only read what its encode twin wrote**, so every one of
-    these moves the encoder too (to `Walk::encode_with` of the new walk), and the
-    fresh-batch encode groups price that:
+    The shootout (see
+    [Shootout inputs](#shootout-inputs-a-new-batch-every-call-not-a-shared-one-2026-10-17))
+    found forced walks beating production for decode, stable across builds and
+    input designs: for both coders `UnevenSpeculating` at the power-of-two-minus-one
+    counts 15, 31 and 63 (5–24%), and for `Ans` the bitwise walks at large `MAX`.
+    The encode groups priced the speculating change's encode side at 0–3%. So on
+    2026-10-18 `Walk::production` was retuned to take `UnevenSpeculating` at value
+    counts 16, 32 and 64 for both coders, and to speculate for `Ans` from
+    `MAX` 700 (branch `walk-retune-regressed`). Real encoded sizes did not move
+    (at most one byte across 13 corpora).
 
-    - `UnevenSpeculating` at 15/31/48/63 → encode with `Uneven`: **0–3%** slower
-      on `Ans`, about even on `Range`. Close to a free decode win of 5–24%, and
-      the obvious first change.
-    - `UnevenBitwise` at 2 → encode +4–11% (`Ans`), −5 to +3% (`Range`).
-    - `CompleteBitwise` at 3 → encode **+48–54%** (`Ans`), **+23–98%**
-      (`Range`).
-    - `UnevenBitwise` at 700–3000 (`Ans`) → encode **+29–86%**.
-    - `CompleteBitwise` at 4095 (`Ans`) → encode **+188–210%**.
+    **The route table rejected it** (`coders`, pinned, same machine, before and
+    after back to back):
 
-    So only the speculating changes are clear wins; the bitwise ones trade a
-    decode gain for a larger encode loss, which is a decision about how much
-    decode matters, not a measurement. (On their own, the encode groups show no
-    forced walk beating production for either coder: production's encode choices
-    are right for encode.) It is probably the largest decode win on this list
-    that needs no new design — a table in `walks.rs`, not an algorithm. Before
-    changing it, confirm in the `strings`, `enums` and `records` route rows that
-    a tight-loop win survives a real workload. `v2` is not frozen, so the
-    bitstream change itself is no obstacle.
-    Numbered last so existing references to items above stay valid; by
-    priority it belongs near the top.
+    | workload | `Range` decode | `Ans` decode | encode (`Range` / `Ans`) |
+    |---|---|---|---|
+    | `atmost16` — `AtMost<15>` itself | +4.6% | **+25%** | **+53% / +44%** |
+    | `strings` | **+18%** | **+29%** | +28% / +26% |
+    | `records` | +11% | **+30%** | +49% / +46% |
+    | `u64` | +8% | +12% | +8% / +6% |
+    | `enums`, `enums17` (trees not changed) | ±2% | ±2% | ±2% |
+
+    So the shootout's verdicts are not predictions of production speed, even at
+    the very `MAX` it measures: `atmost16` decodes `AtMost<15>` values through the
+    same walks, and the walk that won there by 12% in the shootout lost by 25%.
+    The difference is not the inputs (fresh, pooled and `build_once` all agreed on
+    15/31/63). It is how the walk is reached: the shootout calls a forced walk
+    through `encode_atmost_batch`/`decode_atmost_batch` on a bare
+    `AtMostContext`, while production reaches it through the dispatch layer, inside
+    real `Encode` impls whose contexts are seeded, and with `Walk::production`
+    folded to a constant at the call site. Candidates to check first: whether the
+    retuned `production` still folds to a constant (a `const fn` that stops
+    folding would put a runtime branch in every walk, which fits the encode side
+    slowing by 50% for a walk the shootout priced at 0–3%), and inlining across
+    the dispatch layer. **Until the shootout and the route table agree, a walk
+    change needs the route table, not the shootout, to justify it.** The bitwise
+    changes the shootout suggested were never tried: they cost 23–210% on encode
+    even by its own measure.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
