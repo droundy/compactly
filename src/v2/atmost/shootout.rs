@@ -63,8 +63,8 @@
 //! batch is drawn from a seed no other batch has used. So the branch predictor
 //! never sees a sequence twice, which is what production decoding of new data
 //! looks like. Building a batch (drawing it and encoding it with every walk) is
-//! not timed but comes out of each candidate's 10 s, so large value counts get
-//! fewer samples. A batch holds `max(4 * MAX, 256)` values, enough that the
+//! not timed but comes out of each candidate's 10 s; `scaling` marks a cell
+//! `(limit)` if that leaves it short of its accuracy goal. A batch holds `max(4 * MAX, 256)` values, enough that the
 //! fixed cost of seeding `MAX` contexts stays a small fraction of the per-value
 //! cost. Times are per batch.
 
@@ -469,11 +469,7 @@ range_decode_candidates!();
 /// function above that is registered in this crate's test binary and this keeps
 /// the ones of that group.
 fn run_group(group: &'static str) {
-    // 30 s per candidate, not the default 10: building a new batch for every
-    // call comes out of the budget, and at large value counts 10 s leaves too
-    // few samples.
     support::config()
-        .with_max_time(std::time::Duration::from_secs(30))
         .filter_groups(move |name| name == group)
         .run_and_print()
         .expect("the registered shootout benchmarks compose");
