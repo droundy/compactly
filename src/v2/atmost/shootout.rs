@@ -58,19 +58,23 @@
 //!   length buckets, enum discriminants) looks like this, so a finding is only
 //!   trustworthy if it holds here.
 //!
-//! Each input is a pool of 16 batches of fresh random values, handed out in turn,
-//! so the branch predictor cannot learn one fixed sequence; a batch holds
-//! `max(4 * MAX, 256)` values, enough that the fixed cost of seeding `MAX`
-//! contexts stays a small fraction of the per-value cost. Times are per batch.
-
-use std::any::Any;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+//! Every call gets a batch of values nobody has measured before: candidates take
+//! `&mut`, which makes `scaling` generate a new input for each call, and each
+//! batch is drawn from a seed no other batch has used. So the branch predictor
+//! never sees a sequence twice, which is what production decoding of new data
+//! looks like. Building a batch (drawing it and encoding it with every walk) is
+//! not timed but comes out of each candidate's 10 s, so large value counts get
+//! fewer samples. A batch holds `max(4 * MAX, 256)` values, enough that the
+//! fixed cost of seeding `MAX` contexts stays a small fraction of the per-value
+//! cost. Times are per batch.
 
 use super::walks::{Walk, WALKS};
 use super::AtMost;
 use crate::v2::{Ans, Range};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -106,10 +110,6 @@ const fn n_values(max: usize) -> usize {
     }
 }
 
-/// Batches in a pool: enough that a run does not see the same sequence twice in
-/// a row, few enough to build instantly.
-const POOL: usize = 16;
-
 /// Which index of [`WALKS`] encodes the same bitstream as `WALKS[walk]`: a
 /// speculating walk shares its plain twin's encode, so those bytes are the ones
 /// it decodes.
@@ -124,15 +124,16 @@ const fn class(walk: usize) -> usize {
 /// One batch of values, and what each coder wrote for it with each distinct
 /// encode implementation, indexed by [`WALKS`] (empty where that walk does not
 /// apply or is another's twin).
+#[derive(Clone)]
 struct Prepared<const MAX: usize> {
     values: Vec<AtMost<MAX>>,
     ans: [Vec<u8>; 6],
     range: [Vec<u8>; 6],
 }
 
-/// A pool of batches for one `MAX`, as a cheap-to-clone handle.
+/// One batch for one `MAX` and distribution.
 #[derive(Clone)]
-struct Batch<const MAX: usize>(Rc<Prepared<MAX>>);
+struct Batch<const MAX: usize>(Prepared<MAX>);
 
 macro_rules! by_walk {
     ($idx:expr, $call:ident::<$max:ident>($($arg:expr),*)) => {
@@ -162,7 +163,7 @@ fn range_decode<const MAX: usize, const W: usize>(bytes: &[u8], n: usize) -> usi
 }
 
 impl<const MAX: usize> Prepared<MAX> {
-    fn new(dist: Dist, seed: u64) -> Self {
+    fn new(dist: Dist, seed: u64, check: bool) -> Self {
         let mut rng = SmallRng::seed_from_u64(seed);
         let values: Vec<AtMost<MAX>> = (0..n_values(MAX))
             .map(|_| dist.sample::<MAX>(&mut rng))
@@ -174,7 +175,12 @@ impl<const MAX: usize> Prepared<MAX> {
                 ans[idx] = by_walk!(idx, ans_encode::<MAX>(&values));
                 range[idx] = by_walk!(idx, range_encode::<MAX>(&values));
                 // A forced walk that does not round-trip would make every
-                // number below meaningless, so say so before measuring.
+                // number below meaningless, so say so before measuring. Once
+                // per value count and distribution: a new batch is built for
+                // every call, and checking each would double what that costs.
+                if !check {
+                    continue;
+                }
                 for (name, bytes, decoded) in [
                     (
                         "ans",
@@ -198,34 +204,22 @@ impl<const MAX: usize> Prepared<MAX> {
     }
 }
 
-/// A pool of batches, type-erased because a `thread_local` cannot be generic,
-/// and how many of them have been handed out.
-type Pool = (Vec<Rc<dyn Any>>, usize);
+/// How many batches have been built, all value counts and distributions
+/// together: a different seed for each, so that no two calls see the same
+/// values.
+static BUILT: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
-    /// `(MAX, distribution)` → its pool.
-    static POOLS: RefCell<HashMap<(usize, Dist), Pool>> = RefCell::new(HashMap::new());
+    /// The `(MAX, distribution)`s whose batches have been checked to round-trip.
+    static CHECKED: RefCell<HashSet<(usize, Dist)>> = RefCell::new(HashSet::new());
 }
 
 impl<const MAX: usize> Batch<MAX> {
-    fn pooled(dist: Dist) -> Self {
-        POOLS.with(|pools| {
-            let mut pools = pools.borrow_mut();
-            let (batches, next) = pools.entry((MAX, dist)).or_insert_with(|| {
-                let seed = 0xC0FFEE ^ MAX as u64 ^ ((dist as u64) << 32);
-                let batches = (0..POOL as u64)
-                    .map(|i| Rc::new(Prepared::<MAX>::new(dist, seed ^ (i << 40))) as Rc<dyn Any>)
-                    .collect();
-                (batches, 0)
-            });
-            let batch = batches[*next % POOL].clone();
-            *next += 1;
-            Batch(
-                batch
-                    .downcast::<Prepared<MAX>>()
-                    .expect("a pool holds one MAX"),
-            )
-        })
+    fn build(dist: Dist) -> Self {
+        let n = BUILT.fetch_add(1, Ordering::Relaxed);
+        let seed = (0xC0FFEE ^ MAX as u64 ^ ((dist as u64) << 32)).wrapping_add(n << 40);
+        let check = CHECKED.with(|c| c.borrow_mut().insert((MAX, dist)));
+        Batch(Prepared::<MAX>::new(dist, seed, check))
     }
 
     fn values(&self) -> &[AtMost<MAX>] {
@@ -236,7 +230,7 @@ impl<const MAX: usize> Batch<MAX> {
 /// Everything a candidate needs of a batch, generic over `MAX` so that one
 /// function serves every value count it is registered for.
 trait Sweep: Clone + 'static {
-    fn pooled(dist: Dist) -> Self;
+    fn build(dist: Dist) -> Self;
 
     /// Encode, forcing `WALKS[W]`.
     fn ans_encode<const W: usize>(&self) -> Vec<u8>;
@@ -262,8 +256,8 @@ fn index_of(walk: Walk) -> usize {
 }
 
 impl<const MAX: usize> Sweep for Batch<MAX> {
-    fn pooled(dist: Dist) -> Self {
-        Batch::<MAX>::pooled(dist)
+    fn build(dist: Dist) -> Self {
+        Batch::<MAX>::build(dist)
     }
 
     fn ans_encode<const W: usize>(&self) -> Vec<u8> {
@@ -367,7 +361,7 @@ macro_rules! inputs {
             types($($($ty),+)?)
         )]
         fn uniform<T: Sweep>() -> T {
-            T::pooled(Dist::Uniform)
+            T::build(Dist::Uniform)
         }
 
         #[scaling::input(
@@ -376,7 +370,7 @@ macro_rules! inputs {
             types($($($ty),+)?)
         )]
         fn skewed<T: Sweep>() -> T {
-            T::pooled(Dist::Skewed)
+            T::build(Dist::Skewed)
         }
     };
 }
@@ -392,7 +386,7 @@ macro_rules! candidate {
         $t:ident => $body:expr ; $($ty:ty),+
     ) => {
         #[scaling::bench(group = $group, name = $label $(, $flag)?, types($($ty),+))]
-        fn $f<T: Sweep>($t: &T) -> $ret {
+        fn $f<T: Sweep>($t: &mut T) -> $ret {
             $body
         }
     };
