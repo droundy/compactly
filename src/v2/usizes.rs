@@ -253,7 +253,16 @@ impl Encode<Sorted> for usize {
             if not_sorted {
                 Small::decode(reader, &mut ctx.value)?
             } else {
-                previous + <usize as Encode<Small>>::decode(reader, &mut ctx.difference)?
+                // Checked, as for the fixed-width types in `ints.rs`: a
+                // difference past `usize::MAX` is corrupt input.
+                previous
+                    .checked_add(<usize as Encode<Small>>::decode(
+                        reader,
+                        &mut ctx.difference,
+                    )?)
+                    .ok_or_else(|| {
+                        std::io::Error::other("corrupt stream: Sorted difference overflows")
+                    })?
             }
         } else {
             Small::decode(reader, &mut ctx.value)?
@@ -275,7 +284,12 @@ impl Encode<Sorted> for usize {
                 <usize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
             } else {
                 previous
-                    + <usize as Encode<Small>>::decode_async(reader, &mut ctx.difference).await?
+                    .checked_add(
+                        <usize as Encode<Small>>::decode_async(reader, &mut ctx.difference).await?,
+                    )
+                    .ok_or_else(|| {
+                        std::io::Error::other("corrupt stream: Sorted difference overflows")
+                    })?
             }
         } else {
             <usize as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
@@ -283,6 +297,27 @@ impl Encode<Sorted> for usize {
         ctx.previous = Some(out);
         Ok(out)
     }
+}
+
+/// `usize`'s twin of `sorted_decode_rejects_an_overflowing_difference` in
+/// `ints.rs`: `usize::MAX` plus a coded difference of 1 is corrupt input, and
+/// decode must reject it rather than panic.
+#[test]
+fn sorted_decode_rejects_an_overflowing_difference() {
+    use crate::Encoded;
+    super::assert_rejected::<[Encoded<usize, Sorted>; 2]>(
+        |writer| {
+            let parts = (
+                Encoded::<usize, Small>::new(usize::MAX),
+                false,
+                Encoded::<usize, Small>::new(1),
+            );
+            Normal::encode(&parts, writer, &mut Default::default())
+        },
+        "usize",
+    );
+    let sorted = [usize::MAX - 1, usize::MAX].map(Encoded::<usize, Sorted>::new);
+    assert_eq!(super::decode(&super::encode(&sorted)), Some(sorted));
 }
 
 #[test]

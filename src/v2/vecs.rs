@@ -306,7 +306,13 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
         // that won `Sorted<String>` decode 6-8% (see OPTIMIZING.md).
         if !ctx.previous.is_empty() {
             let shared_prefix: usize = Small::decode(reader, &mut ctx.shared_prefix)?;
-            debug_assert!(shared_prefix <= ctx.previous.len());
+            // The encoder never shares more than the previous value holds, so
+            // a longer prefix is corrupt input: reject it, not assert on it.
+            if shared_prefix > ctx.previous.len() {
+                return Err(std::io::Error::other(
+                    "corrupt stream: Sorted prefix outruns the previous value",
+                ));
+            }
             ctx.previous.truncate(shared_prefix);
         }
         ctx.previous.reserve(super::capacity_for::<T>(len));
@@ -359,7 +365,11 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
         if !ctx.previous.is_empty() {
             let shared_prefix: usize =
                 <usize as Encode<Small>>::decode_async(reader, &mut ctx.shared_prefix).await?;
-            debug_assert!(shared_prefix <= ctx.previous.len());
+            if shared_prefix > ctx.previous.len() {
+                return Err(std::io::Error::other(
+                    "corrupt stream: Sorted prefix outruns the previous value",
+                ));
+            }
             ctx.previous.truncate(shared_prefix);
         }
         ctx.previous.reserve(super::capacity_for::<T>(len));
@@ -371,6 +381,31 @@ impl<T: Encode + Clone + Eq> Encode<Sorted> for Vec<T> {
         decode_elements::<_, T, Normal, _>(reader, value, len, previous).await?;
         Ok(previous.clone())
     }
+}
+
+/// A value claiming to share more elements with its predecessor than the
+/// predecessor has cannot come from the encoder, so decode must reject it. It
+/// used to trip a `debug_assert!` instead — a panic on corrupt input in every
+/// debug build.
+#[test]
+fn sorted_decode_rejects_a_prefix_longer_than_the_previous_value() {
+    use crate::Encoded;
+    super::assert_rejected::<[Encoded<Vec<u64>, Sorted>; 2]>(
+        |writer| {
+            // Coded against the decoder's own context, whose `len` adapts
+            // across values: first `[7]`, then a value sharing five elements
+            // with it.
+            let mut ctx = SortedContext::<u64>::default();
+            Small::encode(&1_usize, writer, &mut ctx.len);
+            Normal::encode(&7_u64, writer, &mut ctx.value);
+            Small::encode(&0_usize, writer, &mut ctx.len);
+            Small::encode(&5_usize, writer, &mut ctx.shared_prefix);
+        },
+        "a prefix of five after a value of one",
+    );
+    // Sharing the whole of the previous value is legal.
+    let sorted = [vec![7_u64], vec![7, 8]].map(Encoded::<_, Sorted>::new);
+    assert_eq!(super::decode(&super::encode(&sorted)), Some(sorted));
 }
 
 /// Largest incompressible run coded in one call, so a corrupt length cannot

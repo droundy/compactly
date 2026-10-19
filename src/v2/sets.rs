@@ -134,13 +134,18 @@ impl Encode<super::Small> for BTreeSet<u64> {
         // `Values<S> for BTreeSet` below.
         let mut values = Vec::with_capacity(super::capacity_for::<u64>(len));
         if len > 0 {
-            let mut prev = Small::decode(reader, &mut ctx.first)?;
+            let mut prev: u64 = Small::decode(reader, &mut ctx.first)?;
             values.push(prev);
             let mut sentinel = Sentinel::new();
             for _ in 1..len {
                 sentinel.decode(reader)?;
                 let diff: u64 = Small::decode(reader, &mut ctx.diff)?;
-                prev += diff;
+                // Checked: the encoder only codes the gap between two `u64`s,
+                // so a sum past `u64::MAX` is corrupt input, and an unchecked
+                // `+` panics in debug.
+                prev = prev.checked_add(diff).ok_or_else(|| {
+                    std::io::Error::other("corrupt stream: set difference overflows")
+                })?;
                 values.push(prev);
             }
         }
@@ -168,11 +173,38 @@ impl Encode<super::Small> for BTreeSet<u64> {
             decode_elements::<_, u64, Small, _>(reader, &mut ctx.diff, len - 1, &mut values)
                 .await?;
             for i in 1..values.len() {
-                values[i] += values[i - 1];
+                values[i] = values[i].checked_add(values[i - 1]).ok_or_else(|| {
+                    std::io::Error::other("corrupt stream: set difference overflows")
+                })?;
             }
         }
         Ok(values.into_iter().collect())
     }
+}
+
+/// A gap that carries the running total past `u64::MAX` cannot come from the
+/// encoder, which only codes the gap between two `u64`s, so decode must reject
+/// it rather than panic ("attempt to add with overflow", in debug builds).
+///
+/// The context is a length and two fresh `Small<u64>` contexts, so this tuple
+/// codes exactly the stream a two-element set would.
+#[test]
+fn small_btreeset_decode_rejects_an_overflowing_difference() {
+    use crate::Encoded;
+    super::assert_rejected::<Encoded<BTreeSet<u64>, Small>>(
+        |writer| {
+            let parts = (
+                2_usize,
+                Encoded::<u64, Small>::new(u64::MAX),
+                Encoded::<u64, Small>::new(1),
+            );
+            Normal::encode(&parts, writer, &mut Default::default())
+        },
+        "Small<BTreeSet<u64>>",
+    );
+    // A gap that lands exactly on `u64::MAX` is legal.
+    let set = Encoded::<_, Small>::new(BTreeSet::from([1, u64::MAX]));
+    assert_eq!(super::decode(&super::encode(&set)), Some(set));
 }
 
 impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
