@@ -340,6 +340,13 @@ impl Lz77 {
     /// string. The encoder never produces one, and indexing with one would
     /// panic, in release builds too, so each is an error here — checked once,
     /// for both decoders.
+    ///
+    /// `always`: this is not generic, so otherwise it is compiled once, in this
+    /// crate, and called once per chunk by the generic decoders, which are
+    /// compiled in the caller's crate. Plain `#[inline]` still left the call in
+    /// place, measured +1.8% on `coders`' `compressible` decode; inlined, there
+    /// is no detectable difference.
+    #[inline(always)]
     fn apply_chunk(&mut self, chunk: &Chunk, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
         out.extend_from_slice(&chunk.literal);
         let length = chunk.length as usize;
