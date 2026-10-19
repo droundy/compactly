@@ -444,9 +444,9 @@ fn floats() {
         f32::MAX,
         f32::MIN,
         f32::MIN_POSITIVE,
-        std::f32::NAN,
-        std::f32::INFINITY,
-        std::f32::NEG_INFINITY,
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
     ]
     .into_iter()
     .map(F32::new)
@@ -460,12 +460,12 @@ fn floats() {
         f64::MAX,
         f64::MIN,
         f64::MIN_POSITIVE,
-        std::f64::NAN,
-        std::f64::INFINITY,
-        std::f64::NEG_INFINITY,
-        std::f64::NAN,
-        std::f64::INFINITY,
-        std::f64::NEG_INFINITY,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
     ]
     .into_iter()
     .map(F64::new)
