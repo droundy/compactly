@@ -35,49 +35,27 @@ impl<K: Encode<SK>, V: Encode<SV>, SK, SV> Clone for MapContext<K, V, SK, SV> {
 
 impl<K: Encode + Hash + Eq, V: Encode> Encode for HashMap<K, V> {
     type Context = MapContext<K, V, Normal, Normal>;
+    #[inline]
     fn encode<E: super::EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
-        Normal::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for (k, v) in value {
-            sentinel.encode(writer);
-            Normal::encode(k, writer, &mut ctx.entry.0);
-            Normal::encode(v, writer, &mut ctx.entry.1);
-        }
+        Mapping::<Normal, Normal>::encode(value, writer, ctx)
     }
+    #[inline]
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Self, std::io::Error> {
-        let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
-        let mut map = Self::with_capacity(super::capacity_for::<(K, V)>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode(reader)?;
-            map.insert(
-                Encode::decode(reader, &mut ctx.entry.0)?,
-                Encode::decode(reader, &mut ctx.entry.1)?,
-            );
-        }
-        Ok(map)
+        Mapping::<Normal, Normal>::decode(reader, ctx)
     }
 
     /// Length-driven: an arbitrary number of entries.
     const MAX_BYTES: usize = usize::MAX;
 
-    async fn decode_awaiting<D: super::AsyncEntropyDecoder>(
+    #[inline]
+    fn decode_awaiting<D: super::AsyncEntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
-    ) -> Result<HashMap<K, V>, std::io::Error> {
-        let len = <usize as Encode>::decode_async(reader, &mut ctx.len).await?;
-        let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
-        decode_elements::<_, (K, V), Mapping<Normal, Normal>, _>(
-            reader,
-            &mut ctx.entry,
-            len,
-            &mut map,
-        )
-        .await?;
-        Ok(map)
+    ) -> impl std::future::Future<Output = Result<HashMap<K, V>, std::io::Error>> {
+        <HashMap<K, V> as Encode<Mapping<Normal, Normal>>>::decode_awaiting(reader, ctx)
     }
 }
 
