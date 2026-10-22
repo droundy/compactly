@@ -308,27 +308,8 @@ impl Lz77 {
         let mut sentinel = Sentinel::new();
         for _ in 0..count {
             sentinel.decode(reader)?;
-            let chunk @ Chunk {
-                length,
-                back,
-                offset,
-                ..
-            } = <Chunk as Encode>::decode(reader, self)?;
-            out.extend_from_slice(&chunk.literal);
-            if length == 0 {
-                // Nothing to do here.
-            } else if back == 0 {
-                // We are repeating our own string.  In this case offset
-                // counts *backwards* and must be >= 1 so we shift it.
-                let offset = out.len() - 1 - offset;
-                out.reserve(super::capacity_for::<u8>(length as usize));
-                for i in offset..offset + length as usize {
-                    out.push(out[i]);
-                }
-            } else {
-                self.shift_chunk(&chunk);
-                out.extend_from_slice(&self.old[0][offset..offset + length as usize]);
-            }
+            let chunk = <Chunk as Encode>::decode(reader, self)?;
+            self.apply_chunk(&chunk, &mut out)?;
         }
         self.push_old_decode(out.clone());
         Ok(out)
@@ -343,30 +324,65 @@ impl Lz77 {
         let mut sentinel = Sentinel::new();
         for _ in 0..count {
             sentinel.decode_async(reader).await?;
-            let chunk @ Chunk {
-                length,
-                back,
-                offset,
-                ..
-            } = <Chunk as Encode>::decode_async(reader, self).await?;
-            out.extend_from_slice(&chunk.literal);
-            if length == 0 {
-                // Nothing to do here.
-            } else if back == 0 {
-                // We are repeating our own string.  In this case offset
-                // counts *backwards* and must be >= 1 so we shift it.
-                let offset = out.len() - 1 - offset;
-                out.reserve(super::capacity_for::<u8>(length as usize));
-                for i in offset..offset + length as usize {
-                    out.push(out[i]);
-                }
-            } else {
-                self.shift_chunk(&chunk);
-                out.extend_from_slice(&self.old[0][offset..offset + length as usize]);
-            }
+            let chunk = <Chunk as Encode>::decode_async(reader, self).await?;
+            self.apply_chunk(&chunk, &mut out)?;
         }
         self.push_old_decode(out.clone());
         Ok(out)
+    }
+
+    /// Append what one decoded `chunk` stands for to `out`: its literal, then
+    /// its match, copied from earlier in `out` or from a string in `old`.
+    ///
+    /// The chunk came off the wire, so a corrupt stream can name a match that
+    /// does not exist: an `offset` reaching back before the start of `out`, a
+    /// `back` past the strings in `old`, or a span running off the end of that
+    /// string. The encoder never produces one, and indexing with one would
+    /// panic, in release builds too, so each is an error here — checked once,
+    /// for both decoders.
+    ///
+    /// `always`: this is not generic, so otherwise it is compiled once, in this
+    /// crate, and called once per chunk by the generic decoders, which are
+    /// compiled in the caller's crate. Plain `#[inline]` still left the call in
+    /// place, measured +1.8% on `coders`' `compressible` decode; inlined, there
+    /// is no detectable difference.
+    #[inline(always)]
+    fn apply_chunk(&mut self, chunk: &Chunk, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
+        out.extend_from_slice(&chunk.literal);
+        let length = chunk.length as usize;
+        if length == 0 {
+            // Nothing to do here.
+        } else if chunk.back == 0 {
+            // We are repeating our own string.  In this case offset
+            // counts *backwards* and must be >= 1 so we shift it.
+            let start = chunk
+                .offset
+                .checked_add(1)
+                .and_then(|distance| out.len().checked_sub(distance))
+                .ok_or_else(|| {
+                    std::io::Error::other("corrupt stream: Lz77 match starts before its string")
+                })?;
+            out.reserve(super::capacity_for::<u8>(length));
+            for i in start..start + length {
+                out.push(out[i]);
+            }
+        } else {
+            if chunk.back as usize > self.old.len() {
+                return Err(std::io::Error::other(
+                    "corrupt stream: Lz77 match names a string not yet decoded",
+                ));
+            }
+            self.shift_chunk(chunk);
+            let matched = chunk
+                .offset
+                .checked_add(length)
+                .and_then(|end| self.old[0].get(chunk.offset..end))
+                .ok_or_else(|| {
+                    std::io::Error::other("corrupt stream: Lz77 match runs past its string")
+                })?;
+            out.extend_from_slice(matched);
+        }
+        Ok(())
     }
 }
 
@@ -409,6 +425,64 @@ fn eager() {
             back: 0,
             offset: 4,
         },]
+    );
+}
+
+/// Every way a corrupt chunk can name a match that does not exist must be
+/// rejected rather than indexed with: each of these used to panic, and the
+/// ones that index `old` in release builds as well as debug. The boundary next
+/// to each is legal and must still decode, so no check is off by one.
+#[test]
+fn decode_rejects_matches_that_do_not_exist() {
+    use super::{assert_rejected, Range};
+    use crate::Encoded;
+    fn chunk(literal: &[u8], length: u8, back: u8, offset: usize) -> Chunk {
+        Chunk {
+            literal: literal.into(),
+            length,
+            back,
+            offset,
+        }
+    }
+    /// Code each value's chunks against the decoder's own context.
+    fn code(values: &[&[Chunk]], writer: &mut Range) {
+        let mut ctx = Lz77::default();
+        for chunks in values {
+            Normal::encode(&chunks.len(), writer, &mut ctx.count);
+            for c in *chunks {
+                Normal::encode(c, writer, &mut ctx);
+            }
+        }
+    }
+    fn decode<T: Encode>(values: &[&[Chunk]]) -> Option<T> {
+        let mut writer = Range::default();
+        code(values, &mut writer);
+        super::decode(&writer.into_vec())
+    }
+    type One = Encoded<Vec<u8>, Compressible>;
+    type Two = [Encoded<Vec<u8>, Compressible>; 2];
+
+    // A repeat of the value's own bytes: `offset` counts back from the last
+    // byte, so from "ab" an offset of 1 starts at the beginning and 2 is before
+    // it, as is any offset at all with nothing decoded yet.
+    let decoded = decode::<One>(&[&[chunk(b"ab", 3, 0, 1)]]);
+    assert_eq!(decoded.map(Encoded::value), Some(b"ababa".to_vec()));
+    assert_rejected::<One>(|w| code(&[&[chunk(b"ab", 3, 0, 2)]], w), "before the start");
+    assert_rejected::<One>(|w| code(&[&[chunk(b"", 3, 0, 0)]], w), "repeat of nothing");
+
+    // A match in an earlier value: there is none before the first.
+    assert_rejected::<One>(|w| code(&[&[chunk(b"", 3, 1, 0)]], w), "no earlier value");
+
+    // A match in an earlier value must lie inside it.
+    let earlier: &[Chunk] = &[chunk(b"abc", 0, 0, 0)];
+    let decoded = decode::<Two>(&[earlier, &[chunk(b"", 2, 1, 1)]]);
+    assert_eq!(
+        decoded.map(|[a, b]| [a.value(), b.value()]),
+        Some([b"abc".to_vec(), b"bc".to_vec()])
+    );
+    assert_rejected::<Two>(
+        |w| code(&[earlier, &[chunk(b"", 3, 1, 1)]], w),
+        "past the end of an earlier value",
     );
 }
 

@@ -49,7 +49,19 @@ macro_rules! impl_uint {
                         if not_sorted {
                             Small::decode(reader, &mut ctx.value)?
                         } else {
-                            previous + <$t as Encode<Small>>::decode(reader, &mut ctx.difference)?
+                            // Checked: the encoder only codes a difference that
+                            // lands on its value, so one past `MAX` is corrupt
+                            // input, and an unchecked `+` panics in debug.
+                            previous
+                                .checked_add(<$t as Encode<Small>>::decode(
+                                    reader,
+                                    &mut ctx.difference,
+                                )?)
+                                .ok_or_else(|| {
+                                    std::io::Error::other(
+                                        "corrupt stream: Sorted difference overflows",
+                                    )
+                                })?
                         }
                     } else {
                         Small::decode(reader, &mut ctx.value)?
@@ -74,8 +86,18 @@ macro_rules! impl_uint {
                             <$t as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
                         } else {
                             previous
-                                + <$t as Encode<Small>>::decode_async(reader, &mut ctx.difference)
-                                    .await?
+                                .checked_add(
+                                    <$t as Encode<Small>>::decode_async(
+                                        reader,
+                                        &mut ctx.difference,
+                                    )
+                                    .await?,
+                                )
+                                .ok_or_else(|| {
+                                    std::io::Error::other(
+                                        "corrupt stream: Sorted difference overflows",
+                                    )
+                                })?
                         }
                     } else {
                         <$t as Encode<Small>>::decode_async(reader, &mut ctx.value).await?
@@ -118,6 +140,58 @@ impl_uint!(u128, u128_mod, 128);
 impl_uint!(u64, u64_mod, 64);
 impl_uint!(u32, u32_mod, 32);
 impl_uint!(u16, u16_mod, 16);
+
+/// A `Sorted` difference that carries a value past `MAX` cannot come from the
+/// encoder, which only codes the gap up to a value it was handed, so decode
+/// must reject it. It used to panic ("attempt to add with overflow") in debug
+/// builds — reachable from a handful of bytes through the default `BTreeSet`
+/// and `BTreeMap` encodings, whose keys are `Sorted`.
+///
+/// No private context is needed to build the stream: after a first `Small`
+/// value, a `Sorted` decoder reads a flag and a `Small` difference, each from
+/// a fresh context, which is exactly what these tuples code.
+#[test]
+fn sorted_decode_rejects_an_overflowing_difference() {
+    use crate::Encoded;
+    use std::collections::BTreeSet;
+    macro_rules! check {
+        ($t:ty) => {{
+            let max = <$t>::MAX;
+            super::assert_rejected::<[Encoded<$t, Sorted>; 2]>(
+                |writer| {
+                    let parts = (
+                        Encoded::<$t, Small>::new(max),
+                        false,
+                        Encoded::<$t, Small>::new(1),
+                    );
+                    Normal::encode(&parts, writer, &mut Default::default())
+                },
+                stringify!($t),
+            );
+            // A difference that lands exactly on `MAX` is legal.
+            let sorted = [max - 1, max].map(Encoded::<$t, Sorted>::new);
+            assert_eq!(super::decode(&super::encode(&sorted)), Some(sorted));
+        }};
+    }
+    check!(u16);
+    check!(u32);
+    check!(u64);
+    check!(u128);
+
+    // The same stream behind a length, as the default `BTreeSet<u64>` codes it.
+    super::assert_rejected::<BTreeSet<u64>>(
+        |writer| {
+            let parts = (
+                2_usize,
+                Encoded::<u64, Small>::new(u64::MAX),
+                false,
+                Encoded::<u64, Small>::new(1),
+            );
+            Normal::encode(&parts, writer, &mut Default::default())
+        },
+        "BTreeSet<u64>",
+    );
+}
 
 // The default integer `Encode` is variable-length (`Small`'s hierarchical
 // bit-length algorithm under a uniform-value prior), so a fresh context

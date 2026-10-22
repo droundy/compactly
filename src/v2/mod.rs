@@ -1037,6 +1037,37 @@ macro_rules! assert_millibits {
 #[cfg(test)]
 pub(crate) use assert_millibits;
 
+/// Asserts that decoding a `T` from what `code` writes is rejected with an
+/// error, not decoded and not a panic — for a stream no encoder produces,
+/// built by hand to reach one of a codec's corrupt-input checks.
+///
+/// With `stream` on, decodes it a second time on the async path, which is a
+/// separate implementation of every codec. That takes more than chunking: an
+/// input that has *completely* arrived is handed to the sync decoder, so the
+/// crafted part is followed by a coded tail the decode never reaches, and
+/// delivered a byte at a time, so it is still arriving when the decode fails.
+#[cfg(test)]
+pub(crate) fn assert_rejected<T: Encode>(code: impl Fn(&mut Range), what: &str) {
+    let mut writer = Range::default();
+    code(&mut writer);
+    assert!(decode::<T>(&writer.into_vec()).is_none(), "{what}");
+    #[cfg(feature = "stream")]
+    {
+        type Tail = crate::Encoded<Vec<u8>, crate::Incompressible>;
+        let mut writer = Range::default();
+        code(&mut writer);
+        Normal::encode(
+            &Tail::new(vec![0; 64]),
+            &mut writer,
+            &mut Default::default(),
+        );
+        let streamed = futures_executor::block_on(Range::decode_stream::<(T, Tail), _, _>(
+            stream::tests::Chunks::new(&writer.into_vec(), 1),
+        ));
+        assert!(streamed.is_err(), "{what}, from a stream");
+    }
+}
+
 /// Round-trips randomly interleaved context-driven bits and whole-tree byte
 /// symbols through a real coder: bits (total 256) and tree symbols
 /// (total 2^16) share one state and stream, and encode and decode must adapt
