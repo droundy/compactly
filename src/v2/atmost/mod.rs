@@ -1,4 +1,6 @@
 pub(crate) mod geometric;
+#[cfg(test)]
+mod shootout;
 pub(crate) mod walks;
 
 use super::bit_context::BitContext;

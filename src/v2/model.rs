@@ -35,8 +35,8 @@ pub(crate) trait SymbolDecoder: EntropyDecoder {
     /// resolves pays off depends on how much latency the coder's own symbol
     /// step can hide, so the choice is a measured per-coder policy, not a
     /// per-type one (see the walk inventory in `atmost::walks`). A
-    /// power-of-two value count always speculates regardless of this flag —
-    /// its heap layout makes speculation nearly free.
+    /// power-of-two value count always speculates regardless of this flag, and
+    /// so does any value count past the depth where the walk stops unrolling.
     const SPECULATES: bool;
 
     /// One whole-symbol decode step: peek the coder state's current slot in
