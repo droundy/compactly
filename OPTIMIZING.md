@@ -96,7 +96,7 @@ differently, it is a candidate, an input or a metric.
 
   (`--bench` is what cargo passes to a `harness = false` target; it is ignored.)
   Approximate full-run times on this machine: `coders` six minutes, `bench` five,
-  `strategies` a quarter of an hour. To look at less, narrow the `Config` in that
+  `strategies` a quarter of an hour, `versions` three minutes. To look at less, narrow the `Config` in that
   bench's `main` — `.filter_groups(|g| g == "slice")`, `.filter_inputs(..)` or
   `.filter_candidates(..)` — and put it back. Three things to know about the
   filters: they are ANDed across kinds and never see one another's names; a
@@ -1936,6 +1936,19 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **This checkout against the published 0.2.0 (2026-10-25, `versions`)** — pinned,
+  same data, with the control (`head range again`, the same function twice) agreeing
+  with `head range` to 0.1 points everywhere, so these gaps are not code placement.
+  `Range` encode is within +2.6% … −2.9% of the release on every corpus
+  (`books` +0.7%, `meteorites` +2.6%, `single meteorites` +2.0%, `suicide` −2.9%,
+  `single cards` no difference) and decode within −3.8% … +1.5% (`meteorites`
+  −3.8%, `single meteorites` −2.3%, `suicide` −2.4%, `books` +1.5%, `single cards`
+  no difference). Each corpus's `Ans` sits within 3.8 points of the release's
+  `Ans`, measured against the release's `Range` (`suicide` is the widest: decode
+  −33.9% against −30.5%, encode +10.4% against +14.2%). Nothing here is a
+  regression, and encoded sizes agree within 0.4%. The whole-set `mtg tenth
+  edition` encode (1.7 s a call) is left out: it never converged inside the 10 s
+  limit, and `single cards` covers the same type.
 - **Walk retune from the fresh-batch shootout, and the `const` that made it work
   (2026-10-25)** — `Walk::production` takes the split tree speculating
   (`UnevenSpeculating`) at power-of-two value counts 16, 32 and 64 for both coders,

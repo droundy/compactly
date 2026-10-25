@@ -43,6 +43,8 @@ scaling = { version = "0.9.1", git = "https://github.com/droundy/scaling", rev =
 # The real-world corpora `benches/bench.rs` measures. It depends on this crate,
 # which cargo allows for a dev-dependency.
 comparison = { path = "comparison" }
+# The same corpora derived against the published compactly, for `benches/versions.rs`.
+comparison_published = { package = "comparison-published", path = "comparison-published" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -66,11 +68,17 @@ debug = true
 
 members = [
     "compactly-derive",
-    "comparison"
+    "comparison",
+    "comparison-published",
 ]
 
 [[bench]]
 name = "bench"
+harness = false
+required-features = ["v2"]
+
+[[bench]]
+name = "versions"
 harness = false
 required-features = ["v2"]
 

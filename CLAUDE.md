@@ -108,11 +108,12 @@ running a benchmark here:
 
 ## Architecture
 
-This is a Rust serialization library that encodes data using **adaptive entropy coding** — significantly more compact than formats like bincode. There are three crates in the workspace:
+This is a Rust serialization library that encodes data using **adaptive entropy coding** — significantly more compact than formats like bincode. There are four crates in the workspace:
 
 - **`compactly`** — the main library ([src/](src/))
 - **`compactly-derive`** — proc-macro crate providing `#[derive(Encode)]` ([compactly-derive/](compactly-derive/))
 - **`comparison`** — benchmarks comparing compactly against other crates ([comparison/](comparison/))
+- **`comparison-published`** — the same corpora, derived against the last *published* compactly instead of this checkout ([comparison-published/](comparison-published/)); `benches/versions.rs` encodes the data with both and compares them. It has no code of its own: it includes `comparison`'s source by `#[path]`, so what `comparison` does must compile against the release too. Bump its `=` pin when a new version is published.
 
 ### Format versions
 

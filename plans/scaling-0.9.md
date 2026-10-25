@@ -20,8 +20,10 @@ Done, on `scaling-0.9-benches`: `bench`, `strategies` and `coders` are on 0.9;
 `atmost` is migrated; `scaling_old`, `benches/common/`, `coder-routes-table.sh`
 and the scaling-fit benchmarks are gone; OPTIMIZING.md's methodology and
 `Ans`-vs-`Range` tables are regenerated from the new suite, and CLAUDE.md says how
-to run and extend it. Not done: the published-vs-HEAD comparison (below), which
-no longer has a stage of its own to wait for.
+to run and extend it. The published-vs-HEAD comparison is `benches/versions.rs` on the
+`comparison-published` twin (2026-10-25): per corpus an encode and a decode group
+with the published `Range` as baseline, and a `head range again` control that is
+the same function as `head range`, whose gap is code placement alone.
 
 Where the plan changed, and why:
 
