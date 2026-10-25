@@ -61,6 +61,24 @@ fn zero_size() {
     assert_bits!([Tuple; 1024], expect!["v1: 0 bits, v2: 0 bits"]);
 }
 
+/// An enum with no variants used to make the derive panic ("attempt to subtract
+/// with overflow", computing the largest discriminant). It has no values, so it
+/// can only appear behind a type that can avoid it, like `Option`.
+#[test]
+fn enum_with_no_variants() {
+    #[derive(Debug, PartialEq, Eq, compactly::v2::Encode)]
+    pub enum Never {}
+
+    let none: Option<Never> = None;
+    assert_eq!(
+        compactly::v2::decode(&compactly::v2::encode(&none)),
+        Some(none)
+    );
+    // A stream claiming there is a value is corrupt, not decoded.
+    let claims_some = compactly::v2::encode(&Some(0u8));
+    assert_eq!(compactly::v2::decode::<Option<Never>>(&claims_some), None);
+}
+
 #[test]
 fn derive_strategy_for_newtype() {
     use compactly::{v1, v2, Compressible, Mapping, Small, Sorted};
