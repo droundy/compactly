@@ -291,10 +291,14 @@ fn encode_miss<P: StrPtr, E: super::EntropyCoder>(
 
     let middle = &value[prefix_len..value.len() - suffix_len];
     Small::encode(&middle.chars().count(), writer, &mut ctx.middle_len);
+    // The run's length comes off the wire on decode, so it needs the marker that
+    // bounds the work a corrupt stream can ask for, like every other
+    // length-driven loop. The marker also declares the split point the
+    // enclosing string owes a chunking coder: the string is unbounded, and a
+    // `char` is not open yet.
+    let mut sentinel = Sentinel::new();
     for c in middle.chars() {
-        // This loop carries no `Sentinel` to declare it, so declare it here:
-        // the enclosing string is unbounded, and a `char` is not open yet.
-        writer.split_point();
+        sentinel.encode(writer);
         Normal::encode(&c, writer, &mut ctx.chars);
     }
 }
@@ -338,7 +342,9 @@ fn decode_generic<P: StrPtr, D: super::EntropyDecoder>(
     };
 
     let middle_len: usize = Small::decode(reader, &mut ctx.middle_len)?;
+    let mut sentinel = Sentinel::new();
     for _ in 0..middle_len {
+        sentinel.decode(reader)?;
         out.push(char::decode(reader, &mut ctx.chars)?);
     }
 
@@ -403,9 +409,7 @@ async fn decode_generic_async<P: StrPtr, D: super::AsyncEntropyDecoder>(
 
     let middle_len: usize =
         <usize as Encode<Small>>::decode_async(reader, &mut ctx.middle_len).await?;
-    for _ in 0..middle_len {
-        out.push(<char as Encode>::decode_async(reader, &mut ctx.chars).await?);
-    }
+    decode_elements::<_, char, Normal, _>(reader, &mut ctx.chars, middle_len, &mut out).await?;
 
     if let Some(idx) = suffix_idx {
         let entry = ctx
@@ -706,6 +710,57 @@ fn arc_str_corrupted_input_does_not_panic() {
             corrupted[byte] ^= 1 << bit;
             let _ = super::decode::<Vec<Arc<str>>>(&corrupted);
         }
+    }
+}
+
+/// The literal run of a dictionary miss is as long as the stream says it is, so
+/// like every other length-driven loop it must be bounded by the periodic marker
+/// (see [`sentinel`](super::sentinel)). Without one, a dozen bytes claiming a run
+/// of 2^40 characters kept the decoder looping — zero padding decodes as valid
+/// characters indefinitely — until the `String` it was growing asked for more
+/// memory than there was and the process aborted. Found by decoding random bytes
+/// as `Vec<Arc<str>>`.
+#[test]
+fn dictionary_decode_rejects_a_literal_run_that_outruns_the_data() {
+    use super::assert_rejected;
+    use crate::Encoded;
+
+    /// A miss with no prefix or suffix match that claims `claimed` literal
+    /// characters and supplies only `supplied` of them, coded against the
+    /// decoder's own context.
+    fn claim<P>(claimed: usize, supplied: usize, writer: &mut super::Range) {
+        let mut ctx = DictContext::<P>::default();
+        Normal::encode(&false, writer, &mut ctx.is_cached);
+        encode_match_len(0, writer, &mut ctx.prefix_len);
+        encode_match_len(0, writer, &mut ctx.suffix_len);
+        Small::encode(&claimed, writer, &mut ctx.middle_len);
+        for _ in 0..supplied {
+            Normal::encode(&'a', writer, &mut ctx.chars);
+        }
+    }
+
+    // Absurd for the dozen bytes that carry it, but small enough that a decoder
+    // without the check still finishes (with a megabyte of NULs) instead of
+    // hanging the suite.
+    const CLAIMED: usize = 1 << 20;
+    // Where the real characters end, the decoder reads whatever the coder's last
+    // bytes happen to spell, and for some lengths that is an invalid `char`,
+    // which rejects the stream whether or not the run is bounded. Others read on
+    // as valid characters, and those are the bug — so try them all.
+    for supplied in 0..64 {
+        assert_rejected::<Arc<str>>(
+            |w| claim::<Arc<str>>(CLAIMED, supplied, w),
+            &format!("Arc<str>, {supplied} of the characters supplied"),
+        );
+        assert_rejected::<Rc<str>>(
+            |w| claim::<Rc<str>>(CLAIMED, supplied, w),
+            &format!("Rc<str>, {supplied} of the characters supplied"),
+        );
+        // `String` shares the `Rc<str>` dictionary, so its stream is the same.
+        assert_rejected::<Encoded<String, LowCardinality>>(
+            |w| claim::<Rc<str>>(CLAIMED, supplied, w),
+            &format!("String, {supplied} of the characters supplied"),
+        );
     }
 }
 
