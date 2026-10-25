@@ -67,7 +67,7 @@ pub(crate) fn encode_symbol_or_bitwise<C: SymbolCoder, const MAX: usize>(
     value: AtMost<MAX>,
 ) {
     let value = usize::from(value);
-    if let Some(walk) = Walk::production::<MAX>(false) {
+    if let Some(walk) = const { Walk::production::<MAX>(false) } {
         encode_atmost_walk(walk, coder, ctx, value);
     }
     // MAX == 0: nothing to code, the one possible value carries no information.
@@ -82,7 +82,7 @@ pub(crate) fn decode_symbol_or_bitwise<D: SymbolDecoder, const MAX: usize>(
     reader: &mut D,
     ctx: &mut AtMostContext<MAX>,
 ) -> AtMost<MAX> {
-    let value = match Walk::production::<MAX>(D::SPECULATES) {
+    let value = match const { Walk::production::<MAX>(D::SPECULATES) } {
         Some(walk) => decode_atmost_walk(walk, reader, ctx),
         None => 0,
     };
@@ -100,7 +100,7 @@ pub(crate) async fn decode_symbol_or_bitwise_async<D: AsyncSymbolDecoder, const 
     reader: &mut D,
     ctx: &mut AtMostContext<MAX>,
 ) -> AtMost<MAX> {
-    let value = match Walk::production::<MAX>(D::SPECULATES) {
+    let value = match const { Walk::production::<MAX>(D::SPECULATES) } {
         Some(walk) => decode_atmost_walk_async(walk, reader, ctx).await,
         None => 0,
     };
@@ -262,9 +262,16 @@ impl Walk {
     /// `None` means `MAX == 0`: the single possible value carries no
     /// information, so nothing is coded.
     ///
-    /// `inline(always)`: called with const-evaluable arguments from the
-    /// `inline(always)` dispatch layer, so it must fold to a single constant
-    /// at every call site — see the module doc's cutoff note.
+    /// Callers evaluate this in a `const { … }` block, so the walk is a
+    /// constant whatever the optimizer does. Without it the call is only
+    /// folded if LLVM happens to inline and evaluate [`speculation_pays`] and
+    /// its `tree_depth` loop, and when it did not, those ran as real function
+    /// calls on every element (2026-10-25: 40% of the cycles of encoding
+    /// `AtMost<15>`, which made a walk retune that won in the shootout look
+    /// 50% slower in production; see OPTIMIZING.md TODO 16).
+    ///
+    /// `inline(always)` all the same, so the match on the result in the
+    /// callers has nothing left to dispatch on.
     #[inline(always)]
     #[doc(hidden)]
     pub const fn production<const MAX: usize>(speculate: bool) -> Option<Walk> {
