@@ -436,7 +436,9 @@ without `-align-all-functions=6`:
 - **`build_once`** — one batch, built once and reused for every call;
 - **pooled** — 16 batches handed out in rotation (the design until now);
 - **fresh** — a new batch every call, from a seed no other batch used
-  (candidates take `&mut`, which makes `scaling` generate an input per call).
+  (an input declared neither `reusable` nor `build_once` is generated afresh for
+  every call and cloned for each candidate of a round, which is `scaling`'s
+  default; until its input-reuse change this took candidates that take `&mut`).
 
 | | fresh vs pooled | fresh vs `build_once` | verdicts unchanged across the two builds |
 |---|---|---|---|

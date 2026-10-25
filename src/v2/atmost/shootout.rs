@@ -58,11 +58,11 @@
 //!   length buckets, enum discriminants) looks like this, so a finding is only
 //!   trustworthy if it holds here.
 //!
-//! Every call gets a batch of values nobody has measured before: candidates take
-//! `&mut`, which makes `scaling` generate a new input for each call, and each
-//! batch is drawn from a seed no other batch has used. So the branch predictor
-//! never sees a sequence twice, which is what production decoding of new data
-//! looks like. Building a batch (drawing it and encoding it with every walk) is
+//! Every call gets a batch of values nobody has measured before: an input that is
+//! neither `reusable` nor `build_once` is generated afresh for each call (and
+//! cloned, so the candidates of a round see the same batches), and each batch is
+//! drawn from a seed no other batch has used. So the branch predictor never sees
+//! a sequence twice, which is what production decoding of new data looks like. Building a batch (drawing it and encoding it with every walk) is
 //! not timed but comes out of each candidate's 10 s; `scaling` marks a cell
 //! `(limit)` if that leaves it short of its accuracy goal. A batch holds
 //! `max(4 * MAX, 256)` values, enough that the fixed cost of seeding `MAX`
@@ -393,7 +393,7 @@ macro_rules! candidate {
         $t:ident => $body:expr ; $($ty:ty),+
     ) => {
         #[scaling::bench(group = $group, name = $label $(, $flag)?, types($($ty),+))]
-        fn $f<T: Sweep>($t: &mut T) -> $ret {
+        fn $f<T: Sweep>($t: &T) -> $ret {
             $body
         }
     };

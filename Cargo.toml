@@ -37,9 +37,11 @@ expect-test = "1.5.1"
 # The measurement harness for everything in `benches/`: functions register
 # themselves, and `scaling` samples, tests for differences and prints.
 # By git revision until the release after 0.9.1: the benches use `build_once`
-# inputs, which the published 0.9.1 lacks. Replace with `scaling = "0.9"` (or
-# whichever release has it) and delete the `git` and `rev` keys then.
-scaling = { version = "0.9.1", git = "https://github.com/droundy/scaling", rev = "75261b0ae8583602c95b58313d07fd66edca016e" }
+# inputs, and the walk shootout relies on a fresh input per call being the
+# default, neither of which the published 0.9.1 has. Replace with
+# `scaling = "0.9"` (or whichever release has them) and delete the `git` and
+# `rev` keys then.
+scaling = { version = "0.9.1", git = "https://github.com/droundy/scaling", rev = "1ec26e6354acce336da109df33cf8821f53de8f6" }
 # The real-world corpora `benches/bench.rs` measures. It depends on this crate,
 # which cargo allows for a dev-dependency.
 comparison = { path = "comparison" }
