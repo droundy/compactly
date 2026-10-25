@@ -353,7 +353,8 @@ case!(Ipv6, ipv6_input, "ipv6", Vec<Ipv6Addr>, ipv6s());
 
 // The ladder is monomorphized, so `MAX` is a literal here. Five rungs are enough
 // to see the prefetch crossover (`Ans` loses at the bottom and wins at the top);
-// `benches/atmost.rs` sweeps every value count the production walk is chosen for.
+// the walk shootout (`src/v2/atmost/shootout.rs`) sweeps every value count the
+// production walk is chosen for.
 case!(
     AtMost3,
     atmost3_input,

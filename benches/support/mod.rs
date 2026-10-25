@@ -40,10 +40,17 @@ use scaling::Config;
 fn steady_allocator() {
     // SAFETY: `mallopt` only sets allocator tunables, and this runs before any
     // benchmark has allocated anything large.
-    unsafe {
-        libc::mallopt(libc::M_MMAP_THRESHOLD, 32 << 20);
-        libc::mallopt(libc::M_TRIM_THRESHOLD, i32::MAX);
-        libc::mallopt(libc::M_TOP_PAD, 64 << 20);
+    let set = unsafe {
+        [
+            libc::mallopt(libc::M_MMAP_THRESHOLD, 32 << 20),
+            libc::mallopt(libc::M_TRIM_THRESHOLD, i32::MAX),
+            libc::mallopt(libc::M_TOP_PAD, 64 << 20),
+        ]
+    };
+    // `mallopt` returns 0 when it refuses a setting (a limit differs between
+    // glibc versions), and then the numbers below are for a different allocator.
+    if set.contains(&0) {
+        eprintln!("warning: glibc refused an allocator setting; see `steady_allocator`");
     }
 }
 
