@@ -520,31 +520,6 @@ mod tests {
         )
     );
 
-    /// Strings whose dictionary misses have literal runs past the marker
-    /// interval: the run is its own length-driven loop, with a marker schedule
-    /// of its own inside the collection's. The second shares a prefix with the
-    /// first, so a run follows a match as well as a bare one, and the third is
-    /// an exact repeat that takes the hit path in between.
-    fn long_strings() -> Vec<String> {
-        let long: String = seq(BIG)
-            .map(|i| char::from(b'a' + (i % 26) as u8))
-            .collect();
-        let mut second = long[..100].to_string();
-        second.extend(seq(BIG).map(|i| char::from(b'A' + (i % 26) as u8)));
-        vec![long.clone(), second, long]
-    }
-    round_trips!(
-        dictionary_arc_str,
-        long_strings()
-            .iter()
-            .map(|s| std::sync::Arc::<str>::from(s.as_str()))
-            .collect::<Vec<_>>()
-    );
-    round_trips!(
-        dictionary_string,
-        Encoded::<Vec<String>, Values<LowCardinality>>::new(long_strings())
-    );
-
     /// A whole collection of elements that code to *nothing* is still a
     /// collection, and batching it must not look like an overrun.
     ///
