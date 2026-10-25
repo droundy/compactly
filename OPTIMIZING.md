@@ -458,9 +458,10 @@ without `-align-all-functions=6`:
   learn, fresh is 6% slower than pooled, which bounds how much of its small-`MAX`
   slowdown is cold data rather than unlearned data.
 
-So the shootout now uses fresh batches. **Its verdicts did not survive a real
-workload** (see TODO 16): treat what follows as what a forced walk does in the
-shootout's loop, not as a prediction of production speed. Its `ans decode` result, aligned (the
+So the shootout now uses fresh batches. A retune built on its verdicts looked
+like a disaster in production, until the cause turned out to be `Walk::production`
+failing to fold to a constant, not the shootout (see "Landed so far", 2026-10-25),
+and the retune then held up in the route table. Its `ans decode` result, aligned (the
 unaligned run agrees to within 2 points on every row): forced walks beat
 `production` on **both** distributions in 14 places —
 
@@ -1898,48 +1899,6 @@ encode.
       width. The only way to get both the size win and the speed win is the
       `Small<usize>` redesign above, not a type swap.
 
-16. **Find out why the walk shootout's wins do not survive real workloads**
-    — a `Walk::production` retune built on them made real decoding much slower.
-
-    The shootout (see
-    [Shootout inputs](#shootout-inputs-a-new-batch-every-call-not-a-shared-one-2026-10-17))
-    found forced walks beating production for decode, stable across builds and
-    input designs: for both coders `UnevenSpeculating` at the power-of-two-minus-one
-    counts 15, 31 and 63 (5–24%), and for `Ans` the bitwise walks at large `MAX`.
-    The encode groups priced the speculating change's encode side at 0–3%. So on
-    2026-10-18 `Walk::production` was retuned to take `UnevenSpeculating` at value
-    counts 16, 32 and 64 for both coders, and to speculate for `Ans` from
-    `MAX` 700 (branch `walk-retune-regressed`). Real encoded sizes did not move
-    (at most one byte across 13 corpora).
-
-    **The route table rejected it** (`coders`, pinned, same machine, before and
-    after back to back):
-
-    | workload | `Range` decode | `Ans` decode | encode (`Range` / `Ans`) |
-    |---|---|---|---|
-    | `atmost16` — `AtMost<15>` itself | +4.6% | **+25%** | **+53% / +44%** |
-    | `strings` | **+18%** | **+29%** | +28% / +26% |
-    | `records` | +11% | **+30%** | +49% / +46% |
-    | `u64` | +8% | +12% | +8% / +6% |
-    | `enums`, `enums17` (trees not changed) | ±2% | ±2% | ±2% |
-
-    So the shootout's verdicts are not predictions of production speed, even at
-    the very `MAX` it measures: `atmost16` decodes `AtMost<15>` values through the
-    same walks, and the walk that won there by 12% in the shootout lost by 25%.
-    The difference is not the inputs (fresh, pooled and `build_once` all agreed on
-    15/31/63). It is how the walk is reached: the shootout calls a forced walk
-    through `encode_atmost_batch`/`decode_atmost_batch` on a bare
-    `AtMostContext`, while production reaches it through the dispatch layer, inside
-    real `Encode` impls whose contexts are seeded, and with `Walk::production`
-    folded to a constant at the call site. Candidates to check first: whether the
-    retuned `production` still folds to a constant (a `const fn` that stops
-    folding would put a runtime branch in every walk, which fits the encode side
-    slowing by 50% for a walk the shootout priced at 0–3%), and inlining across
-    the dispatch layer. **Until the shootout and the route table agree, a walk
-    change needs the route table, not the shootout, to justify it.** The bitwise
-    changes the shootout suggested were never tried: they cost 23–210% on encode
-    even by its own measure.
-
 ## New strategy ideas (compression rate, often also decode speed)
 
 These are *new strategy types* (new `Encode<S>` impls), not coder-level speed tweaks, so they
@@ -1977,6 +1936,31 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Walk retune from the fresh-batch shootout, and the `const` that made it work
+  (2026-10-25)** — `Walk::production` takes the split tree speculating
+  (`UnevenSpeculating`) at power-of-two value counts 16, 32 and 64 for both coders,
+  and speculates for `Ans` from `MAX` 700. Real encoded sizes move by at most one
+  byte across 13 corpora. **The first attempt looked 50% slower on encode and
+  25% slower on `Ans` decode** (2026-10-18), and was shelved on the strength of the
+  route table; the shootout's wins did not seem to predict production. The cause was
+  not the shootout. `Walk::production` is a `const fn` called with const arguments
+  from `inline(always)` code, which folds only if LLVM chooses to inline and
+  evaluate it. In the retuned build it did not: `perf record` showed
+  `walks::tree_depth` and `walks::split_speculates_better` as real functions,
+  **39.5% of the cycles** of encoding `Vec<AtMost<15>>`, called for every element.
+  The untuned build had folded by luck. The dispatch sites now write
+  `const { Walk::production::<MAX>(…) }`, which makes the walk a constant
+  whatever the optimizer does. With it, on the pinned route table (`coders`, two
+  runs in opposite orders, before and after the retune):
+  `atmost16` decode **`Range` −11…−12%, `Ans` −4.5…−5%**, `atmost32` **`Range`
+  −9…−11%, `Ans` −8%**, encode within ±2% everywhere, and real workloads
+  (`records`, `strings`, `u64`, `enums`) unchanged within the run-to-run
+  noise of a few percent (`strings` read +5% the first time and −3% the second).
+  `atmost3` `Ans` reads +3…+4% in both runs, which this retune does not touch:
+  placement. **The lesson for the shootout: it forces a walk by a const generic,
+  so it never saw a `production` that failed to fold. A walk-selection change needs
+  the route table too, and a `perf record` of one hot loop shows at a glance when a
+  `const fn` is running at run time.**
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
   `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so

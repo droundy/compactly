@@ -294,7 +294,7 @@ impl Walk {
     /// its `tree_depth` loop, and when it did not, those ran as real function
     /// calls on every element (2026-10-25: 40% of the cycles of encoding
     /// `AtMost<15>`, which made a walk retune that won in the shootout look
-    /// 50% slower in production; see OPTIMIZING.md TODO 16).
+    /// 50% slower in production; see "Landed so far" in OPTIMIZING.md).
     ///
     /// `inline(always)` all the same, so the match on the result in the
     /// callers has nothing left to dispatch on.
