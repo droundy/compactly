@@ -39,9 +39,9 @@
 //! | [`Walk`] variant | Used by | Schedule | Why (measured) |
 //! |------|---------|----------|----------------|
 //! | [`Walk::Complete`] ([`complete::for_value`] / [`complete::from_slot`]) | shootout only | plain | measures the heap-speculation assumption below against a real baseline |
-//! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
-//! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode; `Range` outside the [`speculation_pays`] window | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
-//! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode inside the [`speculation_pays`] window | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions — while the unrolled walk stays shallow ([`SPECULATE_MAX_DEPTH`]) or the tree is too deep to unroll at all ([`SPECULATE_HUGE_MIN_MAX`]) |
+//! | [`Walk::CompleteSpeculating`] ([`complete::for_value`] / [`complete::from_slot_speculating`]) | `Ans` *and* `Range` decode, power-of-two value count other than 16, 32 and 64 | speculating | heap indexing makes child indexes independent of the bit, so speculation is nearly free; ~8–11% on `u8`-heavy string decode |
+//! | [`Walk::Uneven`] ([`uneven::for_value`] / [`uneven::from_slot`]) | `Ans` decode below [`SPECULATE_HUGE_MIN_MAX`]; `Range` outside the [`speculation_pays`] window | plain | `Ans`'s lean symbol step leaves speculative work exposed: +4…+22% slower at *every* value count |
+//! | [`Walk::UnevenSpeculating`] ([`uneven::for_value`] / [`uneven::from_slot_speculating`]) | `Range` decode inside the [`speculation_pays`] window; `Ans` decode from [`SPECULATE_HUGE_MIN_MAX`]; both coders at power-of-two value counts 16, 32 and 64 ([`SPLIT_SPECULATES_MIN_DEPTH`]) | speculating | `Range`'s u64-division latency shadow absorbs the ~2x instructions — while the unrolled walk stays shallow ([`SPECULATE_MAX_DEPTH`]) or the tree is too deep to unroll at all ([`SPECULATE_HUGE_MIN_MAX`]) |
 //! | [`Walk::CompleteBitwise`] / [`Walk::UnevenBitwise`] ([`complete`]/[`uneven`] `encode_bitwise`/`decode_bitwise`) | the default `encode_atmost`/`decode_atmost`; symbol coders when the value count exceeds `M`, or is 2 (`MAX = 1`, where the symbol step is pure overhead over a single bit step) | one coder step per bit | the historical per-bit code |
 
 use super::super::bit_context::BitContext;
@@ -209,13 +209,38 @@ const SPECULATE_HUGE_MIN_MAX: usize = 700;
 /// [`Walk::CompleteSpeculating`], whose heap layout makes speculation nearly
 /// free). Only `Range` asks: its symbol step carries a u64 division whose
 /// latency shadow absorbs the speculation's ~2x instruction count; `Ans`'s
-/// lean symbol step leaves that work exposed and measures *slower at every
-/// value count* (+4…+22%), so it always takes the plain walk. The window's
-/// three bounds are each measured — see their docs and the walk-shootout
-/// entries in OPTIMIZING.md.
+/// lean symbol step leaves that work exposed and measures slower inside the
+/// shallow part of the window (+1…+9% at value counts 5–34). Past
+/// [`SPECULATE_HUGE_MIN_MAX`] [`Walk::production`] speculates for both coders
+/// whatever this says, because there `Ans` gains too (5–14%, 2026-10-17). The
+/// window's three bounds are each measured — see their docs and the
+/// walk-shootout entries in OPTIMIZING.md.
 const fn speculation_pays(max: usize) -> bool {
     max >= SPECULATE_MIN_MAX
         && (tree_depth(max + 1) <= SPECULATE_MAX_DEPTH || max >= SPECULATE_HUGE_MIN_MAX)
+}
+
+/// The shallowest power-of-two [`tree_depth`] at which [`Walk::production`]
+/// speculates on the split tree ([`Walk::UnevenSpeculating`]) rather than the
+/// heap tree ([`Walk::CompleteSpeculating`]); the deepest is
+/// [`SPECULATE_MAX_DEPTH`], past which the unrolled speculating walk loses (see
+/// there).
+///
+/// Measured by the 2026-10-17 walk shootout with a new batch of values for every
+/// call, on a quiesced machine and stable across two builds: at value counts 16,
+/// 32 and 64 (depths 4–6) the split tree decodes 5–24% faster for **both**
+/// coders on both distributions, while at 4 and 8 it is mixed and from 128 up it
+/// is 26–93% slower. Its encode twin, [`Walk::Uneven`], costs 0–3% against
+/// [`Walk::Complete`]. The earlier measurement that put every power-of-two count
+/// on the heap tree used a pool of reused inputs, which the branch predictor
+/// partly memorizes at small value counts (see OPTIMIZING.md).
+const SPLIT_SPECULATES_MIN_DEPTH: u32 = 4;
+
+/// Whether a power-of-two value count `max + 1` decodes faster on the split tree
+/// than on the heap tree; see [`SPLIT_SPECULATES_MIN_DEPTH`].
+const fn split_speculates_better(max: usize) -> bool {
+    let depth = tree_depth(max + 1);
+    depth >= SPLIT_SPECULATES_MIN_DEPTH && depth <= SPECULATE_MAX_DEPTH
 }
 
 /// Every concrete tree-walk implementation, named for the shootout benchmark
@@ -233,8 +258,9 @@ pub enum Walk {
     Complete,
     /// [`complete::for_value`] / [`complete::from_slot_speculating`]: heap
     /// tree, decode fetches both children before the bit resolves. What
-    /// [`Walk::production`] picks for every power-of-two value count, on
-    /// both coders.
+    /// [`Walk::production`] picks for a power-of-two value count, on both
+    /// coders, outside the depths where [`Walk::UnevenSpeculating`] wins (see
+    /// `SPLIT_SPECULATES_MIN_DEPTH`).
     CompleteSpeculating,
     /// [`uneven::for_value`] / [`uneven::from_slot`]: split-ordered tree,
     /// plain decode.
@@ -292,10 +318,18 @@ impl Walk {
                 Walk::UnevenBitwise
             })
         } else if (MAX + 1).is_power_of_two() {
-            // Heap-layout speculation is nearly free, so both coders always
-            // take it (see `CompleteSpeculating`'s docs).
-            Some(Walk::CompleteSpeculating)
-        } else if speculate && speculation_pays(MAX) {
+            // Both coders speculate on a power-of-two count. On the heap tree
+            // speculation is nearly free (see `CompleteSpeculating`'s docs),
+            // except at the depths `split_speculates_better` names, where the
+            // split tree speculates better still.
+            Some(if split_speculates_better(MAX) {
+                Walk::UnevenSpeculating
+            } else {
+                Walk::CompleteSpeculating
+            })
+        } else if (speculate && speculation_pays(MAX)) || MAX >= SPECULATE_HUGE_MIN_MAX {
+            // Past `SPECULATE_HUGE_MIN_MAX` the walk no longer unrolls, and
+            // speculating pays for every coder, not only for one that asks.
             Some(Walk::UnevenSpeculating)
         } else {
             Some(Walk::Uneven)
@@ -1311,9 +1345,42 @@ mod tests {
         assert_eq!(Walk::production::<512>(true), Some(Walk::Uneven));
         assert_eq!(Walk::production::<700>(true), Some(Walk::UnevenSpeculating));
         // A coder that doesn't ask to speculate (Ans) stays plain across
-        // the whole window.
+        // the shallow window, and speculates where the tree no longer unrolls.
         assert_eq!(Walk::production::<33>(false), Some(Walk::Uneven));
-        assert_eq!(Walk::production::<700>(false), Some(Walk::Uneven));
+        assert_eq!(Walk::production::<512>(false), Some(Walk::Uneven));
+        assert_eq!(
+            Walk::production::<700>(false),
+            Some(Walk::UnevenSpeculating)
+        );
+    }
+
+    /// Power-of-two value counts take the heap tree except at depths 4–6
+    /// (value counts 16, 32, 64), where the split tree speculates better —
+    /// for both coders, so `speculate` must not matter.
+    #[test]
+    fn power_of_two_split_window() {
+        for speculate in [false, true] {
+            assert_eq!(
+                Walk::production::<7>(speculate),
+                Some(Walk::CompleteSpeculating)
+            );
+            assert_eq!(
+                Walk::production::<15>(speculate),
+                Some(Walk::UnevenSpeculating)
+            );
+            assert_eq!(
+                Walk::production::<31>(speculate),
+                Some(Walk::UnevenSpeculating)
+            );
+            assert_eq!(
+                Walk::production::<63>(speculate),
+                Some(Walk::UnevenSpeculating)
+            );
+            assert_eq!(
+                Walk::production::<127>(speculate),
+                Some(Walk::CompleteSpeculating)
+            );
+        }
     }
 
     #[test]

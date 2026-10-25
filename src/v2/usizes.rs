@@ -318,14 +318,14 @@ fn size() {
         Encoded::<_, Small>::new(1024_u64 * 1024),
         expect!["27 bits"]
     );
-    assert_millibits!(1024_usize * 1024, expect!["Millibits(30250)"]);
-    assert_millibits!(1024_usize * 1024 * 1024, expect!["Millibits(44590)"]);
+    assert_millibits!(1024_usize * 1024, expect!["Millibits(31030)"]);
+    assert_millibits!(1024_usize * 1024 * 1024, expect!["Millibits(41833)"]);
     assert_millibits!(u32::MAX as usize, expect!["Millibits(38153)"]);
     // Note the code will work for u32, but the following two tests will fail.
-    assert_millibits!(1024_usize * 1024 * 1024 * 1024, expect!["Millibits(50510)"]);
+    assert_millibits!(1024_usize * 1024 * 1024 * 1024, expect!["Millibits(51351)"]);
     assert_millibits!(
         1024_usize * 1024 * 1024 * 1024 * 1024,
-        expect!["Millibits(62514)"]
+        expect!["Millibits(61408)"]
     );
     assert_millibits!([0_usize; 128], expect!["Millibits(15342)"]);
     assert_millibits!([1_usize; 19], expect!["Millibits(12769)"]);
@@ -692,8 +692,8 @@ fn isize_size() {
     assert_millibits!(1_isize, expect!["Millibits(3264)"]);
     assert_millibits!(-1_isize, expect!["Millibits(2256)"]);
     assert_millibits!(137_isize, expect!["Millibits(12286)"]);
-    assert_millibits!(isize::MAX, expect!["Millibits(79226)"]);
-    assert_millibits!(isize::MIN, expect!["Millibits(79226)"]);
+    assert_millibits!(isize::MAX, expect!["Millibits(75830)"]);
+    assert_millibits!(isize::MIN, expect!["Millibits(75830)"]);
 }
 
 #[test]

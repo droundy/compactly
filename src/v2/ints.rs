@@ -151,7 +151,7 @@ fn size_u32() {
     expect!["4"].assert_eq(&estimated_bits!(1_u32));
     expect!["17"].assert_eq(&estimated_bits!(255_u32));
     expect!["17"].assert_eq(&estimated_bits!(256_u32));
-    expect!["28"].assert_eq(&estimated_bits!(1_000_000_u32));
+    expect!["27"].assert_eq(&estimated_bits!(1_000_000_u32));
     expect!["33"].assert_eq(&estimated_bits!(u32::MAX));
     expect!["33"].assert_eq(&estimated_bits!([0_u32; 128]));
     expect!["3139"].assert_eq(&estimated_bits!([u32::MAX; 128]));
@@ -165,16 +165,16 @@ fn size_u32() {
 #[test]
 fn size_u16() {
     use super::estimated_bits;
-    expect!["8"].assert_eq(&estimated_bits!(0_u16));
-    expect!["8"].assert_eq(&estimated_bits!(1_u16));
+    expect!["7"].assert_eq(&estimated_bits!(0_u16));
+    expect!["7"].assert_eq(&estimated_bits!(1_u16));
     expect!["14"].assert_eq(&estimated_bits!(255_u16));
     expect!["14"].assert_eq(&estimated_bits!(256_u16));
     expect!["17"].assert_eq(&estimated_bits!(u16::MAX));
-    expect!["77"].assert_eq(&estimated_bits!([0_u16; 128]));
+    expect!["58"].assert_eq(&estimated_bits!([0_u16; 128]));
     expect!["1095"].assert_eq(&estimated_bits!([u16::MAX; 128]));
-    expect!["14"].assert_eq(&estimated_bits!([1_u16; 2]));
-    expect!["46"].assert_eq(&estimated_bits!([1_u16; 19]));
-    expect!["56"].assert_eq(&estimated_bits!([
+    expect!["11"].assert_eq(&estimated_bits!([1_u16; 2]));
+    expect!["35"].assert_eq(&estimated_bits!([1_u16; 19]));
+    expect!["44"].assert_eq(&estimated_bits!([
         0_u16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     ]));
 }
@@ -776,9 +776,9 @@ fn normal_u32() {
     expect!["16651 mb"].assert_eq(&millibits(&(1u32 << 7)).to_string());
     expect!["16644 mb"].assert_eq(&millibits(&(1u32 << 9)).to_string());
     expect!["18302 mb"].assert_eq(&millibits(&(1u32 << 11)).to_string());
-    expect!["25893 mb"].assert_eq(&millibits(&(1u32 << 16)).to_string());
-    expect!["31552 mb"].assert_eq(&millibits(&(1u32 << 24)).to_string());
-    expect!["33203 mb"].assert_eq(&millibits(&(1u32 << 28)).to_string());
+    expect!["24559 mb"].assert_eq(&millibits(&(1u32 << 16)).to_string());
+    expect!["30121 mb"].assert_eq(&millibits(&(1u32 << 24)).to_string());
+    expect!["33113 mb"].assert_eq(&millibits(&(1u32 << 28)).to_string());
     expect!["32776 mb"].assert_eq(&millibits(&(1u32 << 31)).to_string());
     expect!["32776 mb"].assert_eq(&millibits(&u32::MAX).to_string());
 
@@ -786,8 +786,8 @@ fn normal_u32() {
     expect!["8056 mb"].assert_eq(&millibits(&5_u32).to_string());
     expect!["10028 mb"].assert_eq(&millibits(&100_u32).to_string());
     expect!["18295 mb"].assert_eq(&millibits(&12345_u32).to_string());
-    expect!["27559 mb"].assert_eq(&millibits(&1_000_000_u32).to_string());
-    expect!["33196 mb"].assert_eq(&millibits(&0x5A5A5A5A_u32).to_string());
+    expect!["27341 mb"].assert_eq(&millibits(&1_000_000_u32).to_string());
+    expect!["34105 mb"].assert_eq(&millibits(&0x5A5A5A5A_u32).to_string());
     expect!["32776 mb"].assert_eq(&millibits(&3_000_000_000_u32).to_string());
 }
 
@@ -796,24 +796,24 @@ fn normal_u16() {
     // The goal of the "normal" encoding for integers is to always encode with
     // the same total number of bits.  Adaption can then shift things based on
     // what is actually seen.
-    expect!["8206 mb"].assert_eq(&millibits(&0_u16).to_string());
-    expect!["8212 mb"].assert_eq(&millibits(&1_u16).to_string());
-    expect!["8215 mb"].assert_eq(&millibits(&2_u16).to_string());
-    expect!["8215 mb"].assert_eq(&millibits(&3_u16).to_string());
-    expect!["8212 mb"].assert_eq(&millibits(&4_u16).to_string());
-    expect!["9781 mb"].assert_eq(&millibits(&8_u16).to_string());
-    expect!["9775 mb"].assert_eq(&millibits(&16_u16).to_string());
-    expect!["9777 mb"].assert_eq(&millibits(&(1u16 << 5)).to_string());
-    expect!["13781 mb"].assert_eq(&millibits(&(1u16 << 7)).to_string());
-    expect!["13777 mb"].assert_eq(&millibits(&(1u16 << 9)).to_string());
-    expect!["15715 mb"].assert_eq(&millibits(&(1u16 << 11)).to_string());
+    expect!["6786 mb"].assert_eq(&millibits(&0_u16).to_string());
+    expect!["6786 mb"].assert_eq(&millibits(&1_u16).to_string());
+    expect!["7369 mb"].assert_eq(&millibits(&2_u16).to_string());
+    expect!["7369 mb"].assert_eq(&millibits(&3_u16).to_string());
+    expect!["7362 mb"].assert_eq(&millibits(&4_u16).to_string());
+    expect!["9369 mb"].assert_eq(&millibits(&8_u16).to_string());
+    expect!["9362 mb"].assert_eq(&millibits(&16_u16).to_string());
+    expect!["10362 mb"].assert_eq(&millibits(&(1u16 << 5)).to_string());
+    expect!["14189 mb"].assert_eq(&millibits(&(1u16 << 7)).to_string());
+    expect!["14513 mb"].assert_eq(&millibits(&(1u16 << 9)).to_string());
+    expect!["16731 mb"].assert_eq(&millibits(&(1u16 << 11)).to_string());
     expect!["16383 mb"].assert_eq(&millibits(&(1u16 << 13)).to_string());
     expect!["17034 mb"].assert_eq(&millibits(&(1u16 << 15)).to_string());
     expect!["17034 mb"].assert_eq(&millibits(&u16::MAX).to_string());
 
     // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
-    expect!["8212 mb"].assert_eq(&millibits(&5_u16).to_string());
-    expect!["9769 mb"].assert_eq(&millibits(&100_u16).to_string());
+    expect!["7362 mb"].assert_eq(&millibits(&5_u16).to_string());
+    expect!["10354 mb"].assert_eq(&millibits(&100_u16).to_string());
     expect!["16383 mb"].assert_eq(&millibits(&12345_u16).to_string());
     expect!["16034 mb"].assert_eq(&millibits(&0x5A5A_u16).to_string());
     expect!["17034 mb"].assert_eq(&millibits(&54321_u16).to_string());
@@ -831,19 +831,19 @@ fn normal_u64() {
     expect!["19000 mb"].assert_eq(&millibits(&(1u64 << 7)).to_string());
     expect!["18993 mb"].assert_eq(&millibits(&(1u64 << 9)).to_string());
     expect!["20651 mb"].assert_eq(&millibits(&(1u64 << 11)).to_string());
-    expect!["27242 mb"].assert_eq(&millibits(&(1u64 << 16)).to_string());
-    expect!["32901 mb"].assert_eq(&millibits(&(1u64 << 24)).to_string());
-    expect!["34552 mb"].assert_eq(&millibits(&(1u64 << 28)).to_string());
-    expect!["44269 mb"].assert_eq(&millibits(&(1u64 << 31)).to_string());
-    expect!["51553 mb"].assert_eq(&millibits(&(1u64 << 45)).to_string());
-    expect!["63553 mb"].assert_eq(&millibits(&(1u64 << 57)).to_string());
+    expect!["25908 mb"].assert_eq(&millibits(&(1u64 << 16)).to_string());
+    expect!["31470 mb"].assert_eq(&millibits(&(1u64 << 24)).to_string());
+    expect!["34462 mb"].assert_eq(&millibits(&(1u64 << 28)).to_string());
+    expect!["44195 mb"].assert_eq(&millibits(&(1u64 << 31)).to_string());
+    expect!["51397 mb"].assert_eq(&millibits(&(1u64 << 45)).to_string());
+    expect!["63445 mb"].assert_eq(&millibits(&(1u64 << 57)).to_string());
     expect!["64517 mb"].assert_eq(&millibits(&u64::MAX).to_string());
 
     // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
     expect!["8056 mb"].assert_eq(&millibits(&5_u64).to_string());
     expect!["20644 mb"].assert_eq(&millibits(&12345_u64).to_string());
-    expect!["34553 mb"].assert_eq(&millibits(&1_000_000_000_u64).to_string());
-    expect!["65196 mb"].assert_eq(&millibits(&0x5A5A5A5A5A5A5A5A_u64).to_string());
+    expect!["35462 mb"].assert_eq(&millibits(&1_000_000_000_u64).to_string());
+    expect!["66428 mb"].assert_eq(&millibits(&0x5A5A5A5A5A5A5A5A_u64).to_string());
     expect!["64517 mb"].assert_eq(&millibits(&18_000_000_000_000_000_000_u64).to_string());
 }
 
@@ -860,24 +860,24 @@ fn normal_u128() {
     expect!["19000 mb"].assert_eq(&millibits(&(1u128 << 7)).to_string());
     expect!["18993 mb"].assert_eq(&millibits(&(1u128 << 9)).to_string());
     expect!["20651 mb"].assert_eq(&millibits(&(1u128 << 11)).to_string());
-    expect!["27242 mb"].assert_eq(&millibits(&(1u128 << 16)).to_string());
-    expect!["32901 mb"].assert_eq(&millibits(&(1u128 << 24)).to_string());
-    expect!["45877 mb"].assert_eq(&millibits(&(1u128 << 31)).to_string());
-    expect!["53161 mb"].assert_eq(&millibits(&(1u128 << 45)).to_string());
-    expect!["65161 mb"].assert_eq(&millibits(&(1u128 << 57)).to_string());
-    expect!["78776 mb"].assert_eq(&millibits(&(1u128 << 64)).to_string());
-    expect!["98410 mb"].assert_eq(&millibits(&(1u128 << 90)).to_string());
-    expect!["116063 mb"].assert_eq(&millibits(&(1u128 << 110)).to_string());
+    expect!["25908 mb"].assert_eq(&millibits(&(1u128 << 16)).to_string());
+    expect!["31470 mb"].assert_eq(&millibits(&(1u128 << 24)).to_string());
+    expect!["45803 mb"].assert_eq(&millibits(&(1u128 << 31)).to_string());
+    expect!["53005 mb"].assert_eq(&millibits(&(1u128 << 45)).to_string());
+    expect!["65053 mb"].assert_eq(&millibits(&(1u128 << 57)).to_string());
+    expect!["77689 mb"].assert_eq(&millibits(&(1u128 << 64)).to_string());
+    expect!["96977 mb"].assert_eq(&millibits(&(1u128 << 90)).to_string());
+    expect!["116278 mb"].assert_eq(&millibits(&(1u128 << 110)).to_string());
     expect!["128776 mb"].assert_eq(&millibits(&(1u128 << 127)).to_string());
     expect!["128776 mb"].assert_eq(&millibits(&u128::MAX).to_string());
 
     // Non-power-of-two, mixed-bit-pattern values, spread across magnitudes.
     expect!["8056 mb"].assert_eq(&millibits(&5_u128).to_string());
     expect!["20644 mb"].assert_eq(&millibits(&12345_u128).to_string());
-    expect!["34553 mb"].assert_eq(&millibits(&1_000_000_000_u128).to_string());
-    expect!["129714 mb"]
+    expect!["35462 mb"].assert_eq(&millibits(&1_000_000_000_u128).to_string());
+    expect!["131270 mb"]
         .assert_eq(&millibits(&0x5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A_u128).to_string());
-    expect!["129714 mb"].assert_eq(&millibits(&(u128::MAX / 3)).to_string());
+    expect!["131270 mb"].assert_eq(&millibits(&(u128::MAX / 3)).to_string());
 }
 
 // The default-`Encode` half of `impl_signed!`, for the wide types: a sign
@@ -1316,8 +1316,8 @@ fn signed() {
     expect!["5"].assert_eq(&estimated_bits!(1_i32));
     expect!["5"].assert_eq(&estimated_bits!(-1_i32));
     expect!["18"].assert_eq(&estimated_bits!(137_i32));
-    expect!["33"].assert_eq(&estimated_bits!(i32::MIN));
-    expect!["33"].assert_eq(&estimated_bits!(i32::MAX));
+    expect!["34"].assert_eq(&estimated_bits!(i32::MIN));
+    expect!["34"].assert_eq(&estimated_bits!(i32::MAX));
 
     expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(0_i16)));
     expect!["5"].assert_eq(&estimated_bits!(Encoded::<_, Small>::new(1_i16)));
@@ -1337,13 +1337,13 @@ fn signed() {
     expect!["7"].assert_eq(&estimated_bits!(0_i64));
     expect!["7"].assert_eq(&estimated_bits!(-1_i64));
     expect!["20"].assert_eq(&estimated_bits!(137_i64));
-    expect!["65"].assert_eq(&estimated_bits!(i64::MIN));
-    expect!["65"].assert_eq(&estimated_bits!(i64::MAX));
+    expect!["67"].assert_eq(&estimated_bits!(i64::MIN));
+    expect!["67"].assert_eq(&estimated_bits!(i64::MAX));
 
     expect!["7"].assert_eq(&estimated_bits!(0_i128));
     expect!["7"].assert_eq(&estimated_bits!(-1_i128));
-    expect!["130"].assert_eq(&estimated_bits!(i128::MIN));
-    expect!["130"].assert_eq(&estimated_bits!(i128::MAX));
+    expect!["132"].assert_eq(&estimated_bits!(i128::MIN));
+    expect!["132"].assert_eq(&estimated_bits!(i128::MAX));
 
     assert_millibits!(
         BTreeSet::from([-1i16, 0, 1, 2]),
