@@ -1521,8 +1521,11 @@ source: `Decoder<'a>` has a hand-fused batch `decode_bits` keeping
 `state`/`value`/`bytes` register-resident and indexing via `split_first`, while
 `RangeDecoder<R>` pulls **one byte at a time through `Read`** (`read_one_byte`)
 with error-latch branches and a non-fused loop — `<&[u8] as Read>::read` does not
-optimize down to the fused path. Keep both decoders. (Reproducer, now that `range-decode-collapse` has been folded into
-`coder-routes`: `cargo bench --bench coder-routes -- u64 range slice|from`.)
+optimize down to the fused path. Keep both decoders. (Reproducer: the `u64` row of
+the `coders` bench's `slice` and `from` tables — `Range` is the baseline of both, so
+compare its two times; `range-decode-collapse` and then `coder-routes` were folded
+into it. Narrow the `Config` in `benches/coders/main.rs` with `filter_groups` and
+`filter_inputs` to look at just those.)
 
 ### Async decode: what the machinery costs, and how it was paid down (2026-08-09 to 2026-08-28)
 
