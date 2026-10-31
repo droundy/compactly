@@ -120,12 +120,19 @@ const fn n_values(max: usize) -> usize {
 /// Which index of [`WALKS`] encodes the same bitstream as `WALKS[walk]`: a
 /// speculating walk shares its plain twin's encode, so those bytes are the ones
 /// it decodes.
+///
+/// Derived from [`Walk::encode_with`], which is what production and the encode
+/// candidates use, so the two cannot disagree about which walks share an encode.
 const fn class(walk: usize) -> usize {
-    match walk {
-        1 => 0,
-        3 => 2,
-        other => other,
+    let encode_walk = WALKS[walk].encode_with() as usize;
+    let mut i = 0;
+    while i < WALKS.len() {
+        if WALKS[i] as usize == encode_walk {
+            return i;
+        }
+        i += 1;
     }
+    panic!("every walk's encode twin is in WALKS")
 }
 
 /// One batch of values, and what each coder wrote for it with each distinct
@@ -534,4 +541,24 @@ fn forced_walks_round_trip_their_values() {
     check::<48>();
     check::<127>();
     check::<700>();
+}
+
+/// `class` picks, for each walk, the entry of [`WALKS`] whose encode bytes it
+/// decodes: the entry itself unless it is a speculating walk, whose encode is its
+/// plain twin's. The speculating walks are the ones that differ.
+#[test]
+fn class_is_the_encode_twin() {
+    for (i, walk) in WALKS.iter().enumerate() {
+        assert_eq!(WALKS[class(i)], walk.encode_with(), "{walk:?}");
+        assert_eq!(class(class(i)), class(i), "{walk:?} twin is its own twin");
+    }
+    assert_eq!(
+        WALKS
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| class(i) != i)
+            .count(),
+        2,
+        "only the two speculating walks share another walk's encode"
+    );
 }
