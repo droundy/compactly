@@ -168,6 +168,15 @@ fn ans_decode<const MAX: usize, const W: usize>(bytes: &[u8], n: usize) -> usize
 fn range_decode<const MAX: usize, const W: usize>(bytes: &[u8], n: usize) -> usize {
     Range::decode_atmost_batch::<MAX, W>(bytes, n).len()
 }
+/// The decoded values themselves, for the round-trip check: the timed decodes
+/// above return only a count, which a walk that decoded the wrong values would
+/// still get right.
+fn ans_decoded<const MAX: usize, const W: usize>(bytes: &[u8], n: usize) -> Vec<AtMost<MAX>> {
+    Ans::decode_atmost_batch::<MAX, W>(bytes, n)
+}
+fn range_decoded<const MAX: usize, const W: usize>(bytes: &[u8], n: usize) -> Vec<AtMost<MAX>> {
+    Range::decode_atmost_batch::<MAX, W>(bytes, n)
+}
 
 impl<const MAX: usize> Prepared<MAX> {
     fn new(dist: Dist, seed: u64, check: bool) -> Self {
@@ -192,16 +201,16 @@ impl<const MAX: usize> Prepared<MAX> {
                     (
                         "ans",
                         &ans[idx],
-                        by_walk!(idx, ans_decode::<MAX>(&ans[idx], values.len())),
+                        by_walk!(idx, ans_decoded::<MAX>(&ans[idx], values.len())),
                     ),
                     (
                         "range",
                         &range[idx],
-                        by_walk!(idx, range_decode::<MAX>(&range[idx], values.len())),
+                        by_walk!(idx, range_decoded::<MAX>(&range[idx], values.len())),
                     ),
                 ] {
                     assert!(
-                        !bytes.is_empty() && decoded == values.len(),
+                        !bytes.is_empty() && decoded == values,
                         "{name} {walk:?} did not round-trip at MAX={MAX}"
                     );
                 }
@@ -504,4 +513,25 @@ fn walk_shootout_range_decode() {
 #[ignore = "a timed benchmark; see the module docs for how to run it"]
 fn walk_shootout_range_encode() {
     run_group("range encode");
+}
+
+/// The round-trip check that guards every forced walk, run on a spread of value
+/// counts without timing anything: the shootout itself is ignored, so nothing
+/// else would notice a walk whose decode returned the wrong values.
+#[test]
+fn forced_walks_round_trip_their_values() {
+    fn check<const MAX: usize>() {
+        for dist in [Dist::Uniform, Dist::Skewed] {
+            Prepared::<MAX>::new(dist, 0x5EED ^ MAX as u64, true);
+        }
+    }
+    check::<1>();
+    check::<2>();
+    check::<3>();
+    check::<4>();
+    check::<15>();
+    check::<31>();
+    check::<48>();
+    check::<127>();
+    check::<700>();
 }
