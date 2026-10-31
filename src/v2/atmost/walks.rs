@@ -253,8 +253,9 @@ const fn split_speculates_better(max: usize) -> bool {
 pub enum Walk {
     /// [`complete::for_value`] / [`complete::from_slot`]: heap tree, decode
     /// loads only the child the bit selects. Not used by production (which
-    /// always speculates on the heap tree — see [`Walk::CompleteSpeculating`]);
-    /// included so the shootout can measure that choice against a baseline.
+    /// always speculates at a power-of-two value count — see
+    /// [`Walk::CompleteSpeculating`]); included so the shootout can measure
+    /// that choice against a baseline.
     Complete,
     /// [`complete::for_value`] / [`complete::from_slot_speculating`]: heap
     /// tree, decode fetches both children before the bit resolves. What
@@ -598,8 +599,9 @@ mod complete {
     /// entries are fetched a level ahead of the serial split/compare chain
     /// (their heap indices depend only on `node`, not on the bit), leaving
     /// just a select on the critical path. What [`Walk::production`] uses
-    /// for every power-of-two value count, on both coders — see the module
-    /// doc's walk inventory.
+    /// for a power-of-two value count other than 16, 32 and 64 (where the
+    /// split tree speculates better, see [`SPLIT_SPECULATES_MIN_DEPTH`]), on
+    /// both coders — see the module doc's walk inventory.
     ///
     /// Deliberately NOT `inline(always)`: inside the integer hierarchy's
     /// heavily-inlined `Small::decode`, LLVM outlines the `MAX` = 15/31
