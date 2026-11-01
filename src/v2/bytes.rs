@@ -543,10 +543,21 @@ pub(crate) fn find_first_longest_prefix(
     } else {
         needle.split_at_checked(min_match.max(5))?.0
     };
+    // Almost every offset fails within a few bytes, and calling `memcmp` once per
+    // offset to find that out was most of the cost of encoding. So compare the
+    // first four bytes as a word, which every prefix tried here shares however
+    // long it has grown, and then the last, which is the byte that would make
+    // this the longest match so far and is the likeliest of the rest to differ.
+    let first_word = prefix.first_chunk().map(|word| u32::from_ne_bytes(*word));
     let mut best = None;
     for offset in 0..(haystack.len() + 1).saturating_sub(prefix.len()) {
         let here = &haystack[offset..];
-        if here.starts_with(prefix) {
+        if let (Some(word), Some(here_word)) = (first_word, here.first_chunk()) {
+            if u32::from_ne_bytes(*here_word) != word {
+                continue;
+            }
+        }
+        if here.get(prefix.len() - 1) == prefix.last() && here.starts_with(prefix) {
             let mut length = prefix.len();
             if prefix.len() < needle.len() && here.len() > prefix.len() {
                 length += needle[prefix.len()..]
