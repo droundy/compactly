@@ -56,9 +56,18 @@ macro_rules! impl_float {
             pub struct FloatContext {
                 is_raw: <bool as Encode>::Context,
                 is_int: <bool as Encode>::Context,
-                integer: <i64 as Encode<Small>>::Context,
+                // The rare tier, and over half of this context, which is built
+                // afresh for each record encoded on its own: so built on first use.
+                integer: Option<Box<<i64 as Encode<Small>>::Context>>,
                 mantissa: <i32 as Encode<Small>>::Context,
                 exponent: <i8 as Encode<Small>>::Context,
+            }
+
+            impl FloatContext {
+                #[inline]
+                fn integer(&mut self) -> &mut <i64 as Encode<Small>>::Context {
+                    self.integer.get_or_insert_with(Default::default)
+                }
             }
 
             impl Encode for $t {
@@ -91,7 +100,7 @@ macro_rules! impl_float {
                     if ctx.is_int == BitContext::SATURATED_TRUE {
                         if let Some(iv) = big_int {
                             Normal::encode(&false, writer, &mut ctx.is_raw);
-                            <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
+                            <i64 as Encode<Small>>::encode(&iv, writer, ctx.integer());
                         } else {
                             Normal::encode(&true, writer, &mut ctx.is_raw);
                             writer.encode_incompressible_bytes(&value.to_le_bytes());
@@ -107,7 +116,7 @@ macro_rules! impl_float {
                     let is_int = big_int.is_some();
                     Normal::encode(&is_int, writer, &mut ctx.is_int);
                     if let Some(iv) = big_int {
-                        <i64 as Encode<Small>>::encode(&iv, writer, &mut ctx.integer);
+                        <i64 as Encode<Small>>::encode(&iv, writer, ctx.integer());
                     } else {
                         let (mantissa, power) = decimal.unwrap();
                         <i32 as Encode<Small>>::encode(&mantissa, writer, &mut ctx.mantissa);
@@ -130,7 +139,7 @@ macro_rules! impl_float {
                     let is_int = ctx.is_int == BitContext::SATURATED_TRUE
                         || <bool as Encode>::decode(reader, &mut ctx.is_int)?;
                     if is_int {
-                        let intvalue = <i64 as Encode<Small>>::decode(reader, &mut ctx.integer)?;
+                        let intvalue = <i64 as Encode<Small>>::decode(reader, ctx.integer())?;
                         Ok(intvalue as $t)
                     } else {
                         let mantissa = <i32 as Encode<Small>>::decode(reader, &mut ctx.mantissa)?;
@@ -163,7 +172,7 @@ macro_rules! impl_float {
                         || <bool as Encode>::decode_async(reader, &mut ctx.is_int).await?;
                     if is_int {
                         let intvalue =
-                            <i64 as Encode<Small>>::decode_async(reader, &mut ctx.integer).await?;
+                            <i64 as Encode<Small>>::decode_async(reader, ctx.integer()).await?;
                         Ok(intvalue as $t)
                     } else {
                         let mantissa =
@@ -320,6 +329,24 @@ macro_rules! impl_float {
                     let mut bytes = [0u8; $bits / 8];
                     reader.decode_incompressible_bytes(&mut bytes).await?;
                     Ok($t::from_le_bytes(bytes))
+                }
+            }
+
+            /// Only a whole number too big for a decimal `i32` mantissa reaches
+            /// the integer tier, so nothing else should build its context.
+            #[test]
+            fn integer_tier_is_built_only_when_reached() {
+                fn built(value: $t) -> bool {
+                    let mut writer = super::super::Range::default();
+                    let mut ctx = FloatContext::default();
+                    Normal::encode(&value, &mut writer, &mut ctx);
+                    ctx.integer.is_some()
+                }
+                assert!(!built(1.5));
+                assert!(!built(5_000.0));
+                assert!(!built($t::MAX));
+                if std::mem::size_of::<$t>() == 8 {
+                    assert!(built(12_345_678_901_234.0));
                 }
             }
 
