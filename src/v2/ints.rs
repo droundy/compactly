@@ -380,15 +380,15 @@ macro_rules! impl_compact {
             $($bucket: <AtMost<$max> as Encode>::Context,)*
             /// `partial[lz][i]`: context for bit `i` of the value's partial
             /// top byte, given `lz = $bits - bl` leading zeros. Only
-            /// `(bl - 1) % 8` bits are used per row.
-            partial: [[<bool as Encode>::Context; 8]; $bits],
+            /// `(bl - 1) % 8` bits are used per row, so never an eighth.
+            partial: [[<bool as Encode>::Context; 7]; $bits],
         }
         impl Default for $context {
             fn default() -> Self {
                 Self {
                     blbl: Default::default(),
                     $($bucket: Default::default(),)*
-                    partial: [[Default::default(); 8]; $bits],
+                    partial: [[Default::default(); 7]; $bits],
                 }
             }
         }
@@ -424,7 +424,7 @@ macro_rules! impl_compact {
                     $($bucket: AtMostContext {
                         bits: bl_offset_seeded::<$max>(dist, max_bl),
                     },)*
-                    partial: [[BitContext::True0False0; 8]; $bits],
+                    partial: [[BitContext::True0False0; 7]; $bits],
                 }
             }
         }
@@ -618,8 +618,9 @@ pub struct U16Compact {
     leading_zeros: <AtMost<15> as Encode>::Context,
     lz_is_one: <bool as Encode>::Context,
     /// `partial[lz][i]`: context for bit `i` of the partial top byte, given
-    /// `lz` leading zeros. Only `(15 - lz) % 8` bits are used per row.
-    partial: [[<bool as Encode>::Context; 8]; 16],
+    /// `lz` leading zeros. Only `(15 - lz) % 8` bits are used per row, so
+    /// never an eighth.
+    partial: [[<bool as Encode>::Context; 7]; 16],
 }
 
 impl Encode<Small> for u16 {
@@ -1062,7 +1063,7 @@ macro_rules! impl_signed_default_legacy {
             // The MSB of $unsigned is always 0, so we use $bits-1 leading_zero slots.
             leading_zero: [<bool as Encode>::Context; $bits - 1],
             u8_ctx: <u8 as Encode>::Context,
-            partial: [[<bool as Encode>::Context; 8]; $bits - 1],
+            partial: [[<bool as Encode>::Context; 7]; $bits - 1],
         }
         impl Default for NormalContext {
             fn default() -> Self {
@@ -1070,7 +1071,7 @@ macro_rules! impl_signed_default_legacy {
                     is_negative: Default::default(),
                     leading_zero: [Default::default(); $bits - 1],
                     u8_ctx: Default::default(),
-                    partial: [[Default::default(); 8]; $bits - 1],
+                    partial: [[Default::default(); 7]; $bits - 1],
                 }
             }
         }
