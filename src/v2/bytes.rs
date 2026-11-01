@@ -96,16 +96,8 @@ impl Lz77 {
             self.old.pop_back();
         }
     }
-    fn shift_chunk(&mut self, Chunk { back, .. }: &Chunk) {
-        if *back > 0 {
-            // Whenever we use an old string, we move it to the front of the
-            // queue.  This keeps "useful" strings from falling off the back,
-            // and also makes smaller `back` values more common.
-            let back = *back as usize - 1;
-            if let Some(old) = self.old.remove(back) {
-                self.old.push_front(old);
-            }
-        }
+    fn shift_chunk(&mut self, chunk: &Chunk) {
+        shift_old(&mut self.old, chunk);
     }
     fn eager(&self, mut value: &[u8]) -> Vec<Chunk> {
         assert!(self.old.len() < 255);
@@ -116,17 +108,25 @@ impl Lz77 {
         let mut hash_head = vec![u32::MAX; LZ77_HASH_SIZE];
         let mut hash_next: Vec<u32> = Vec::new();
         let mut out = Vec::new();
-        let mut ctx = self.clone();
-        while let Some(chunk) =
-            ctx.eager_chunk(&mut value, &mut sofar, &mut hash_head, &mut hash_next)
-        {
-            Normal::encode(&chunk, &mut super::Millibits::new(0), &mut ctx);
+        // Using an old string moves it to the front, which the search has to
+        // see as it goes, without disturbing `self.old` until the chunks are
+        // actually coded.
+        let mut old: VecDeque<&[u8]> = self.old.iter().map(Vec::as_slice).collect();
+        while let Some(chunk) = Self::eager_chunk(
+            &mut old,
+            &self.old_filter,
+            &mut value,
+            &mut sofar,
+            &mut hash_head,
+            &mut hash_next,
+        ) {
             out.push(chunk);
         }
         out
     }
     fn eager_chunk(
-        &mut self,
+        old: &mut VecDeque<&[u8]>,
+        old_filter: &OldFilter,
         value: &mut &[u8],
         sofar: &mut Vec<u8>,
         hash_head: &mut [u32],
@@ -182,16 +182,16 @@ impl Lz77 {
             let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
             let mut min_old = sofar_best_len;
             let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
-            let skip_old = prefix.len() >= MIN_MATCH && !self.old_filter.test(lz77_hash(prefix));
+            let skip_old = prefix.len() >= MIN_MATCH && !old_filter.test(lz77_hash(prefix));
             if !skip_old {
-                for (i, old_s) in self.old.iter().enumerate() {
+                for (i, old_s) in old.iter().enumerate() {
                     if old_budget == 0 {
                         break;
                     }
                     let use_s = if old_s.len() > old_budget {
                         &old_s[..old_budget]
                     } else {
-                        old_s.as_slice()
+                        *old_s
                     };
                     old_budget = old_budget.saturating_sub(use_s.len());
                     // When min_old is 0 (no prior match), use min_match=0 to allow
@@ -257,7 +257,7 @@ impl Lz77 {
                     back,
                     offset,
                 };
-                self.shift_chunk(&chunk);
+                shift_old(old, &chunk);
                 return Some(chunk);
             }
 
@@ -383,6 +383,17 @@ impl Lz77 {
             out.extend_from_slice(matched);
         }
         Ok(())
+    }
+}
+
+/// Whenever we use an old string, we move it to the front of the queue. This
+/// keeps "useful" strings from falling off the back, and also makes smaller
+/// `back` values more common.
+fn shift_old<T>(old: &mut VecDeque<T>, Chunk { back, .. }: &Chunk) {
+    if *back > 0 {
+        if let Some(string) = old.remove(*back as usize - 1) {
+            old.push_front(string);
+        }
     }
 }
 
