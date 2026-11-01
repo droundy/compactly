@@ -164,8 +164,9 @@ differently, it is a candidate, an input or a metric.
   branchy and data-dependent**. Then one fixed input lets the branch predictor
   learn it, and the benchmark measures memorized data: the walk shootout read up
   to 4x faster that way and changed which walks won (see "Shootout inputs"
-  below). Give such a benchmark a new input every call, by having its
-  candidates take `&mut`. A new question that fits an existing group is a
+  below). Such a benchmark wants a new input every call, which is `scaling`'s
+  default: declare its input neither `build_once` nor `reusable`, whether its
+  candidates take `&` or `&mut`. A new question that fits an existing group is a
   new candidate or input there, not a new target. The old one-workload binaries
   (`just-decompress`, `coder-routes`, `ans-phases`, `micro-batch` and the rest)
   were each a special case of that, and are in git history; entries below that
