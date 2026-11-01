@@ -45,9 +45,52 @@ impl OldFilter {
     }
 }
 
+/// Which 4-grams one old string holds, as a bitset over [`lz77_hash`], so the
+/// match search can pass over a string that cannot contain what it wants without
+/// reading it. Sized to the string, at about 32 bits per byte, which leaves few
+/// bits set and so few strings read for nothing. Empty on the decode side, which
+/// never searches, and an empty filter rules nothing out.
+#[derive(Default, Clone)]
+struct GramFilter(Box<[u64]>);
+
+impl GramFilter {
+    /// Keeps a long string's filter from growing without limit: past this it
+    /// fills up and rules out less, which only costs a read of that string.
+    const MAX_WORDS: usize = 512;
+
+    fn new(bytes: &[u8]) -> Self {
+        let words = (bytes.len() / 2).clamp(1, Self::MAX_WORDS);
+        let mut filter = GramFilter(vec![0; words.next_power_of_two()].into_boxed_slice());
+        for gram in bytes.windows(4) {
+            let (word, bit) = filter.position(lz77_hash(gram));
+            filter.0[word] |= bit;
+        }
+        filter
+    }
+    #[inline]
+    fn position(&self, h: usize) -> (usize, u64) {
+        ((h >> 6) & (self.0.len() - 1), 1u64 << (h & 63))
+    }
+    #[inline]
+    fn test(&self, h: usize) -> bool {
+        if self.0.is_empty() {
+            return true;
+        }
+        let (word, bit) = self.position(h);
+        self.0[word] & bit != 0
+    }
+}
+
+/// A string kept for later values to match against.
+#[derive(Clone)]
+struct OldString {
+    bytes: Vec<u8>,
+    grams: GramFilter,
+}
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
-    old: VecDeque<Vec<u8>>,
+    old: VecDeque<OldString>,
     /// Bloom-style 4-gram filter over bytes in `old`. Bits are added on push_old and never
     /// removed — evictions cause false positives but never false negatives.
     old_filter: OldFilter,
@@ -80,18 +123,26 @@ struct Chunk {
 
 impl Lz77 {
     fn push_old(&mut self, value: Vec<u8>) {
-        for p in 0..value.len() {
-            if p + 4 <= value.len() {
-                self.old_filter.set(lz77_hash(&value[p..]));
-            }
+        for gram in value.windows(4) {
+            self.old_filter.set(lz77_hash(gram));
         }
-        self.push_old_decode(value);
+        let grams = GramFilter::new(&value);
+        self.keep_old(OldString {
+            bytes: value,
+            grams,
+        });
     }
     /// Decode-side variant of `push_old`: maintains the `old` deque (needed for
-    /// back-references) but skips the `old_filter` upkeep, which is only read by
-    /// the encode-side match scan (`eager`/`eager_chunk`) and never on decode.
+    /// back-references) but skips the filters, which are only read by the
+    /// encode-side match scan (`eager`/`eager_chunk`) and never on decode.
     fn push_old_decode(&mut self, value: Vec<u8>) {
-        self.old.push_front(value);
+        self.keep_old(OldString {
+            bytes: value,
+            grams: GramFilter::default(),
+        });
+    }
+    fn keep_old(&mut self, old: OldString) {
+        self.old.push_front(old);
         while self.old.len() > 254 {
             self.old.pop_back();
         }
@@ -111,7 +162,7 @@ impl Lz77 {
         // Using an old string moves it to the front, which the search has to
         // see as it goes, without disturbing `self.old` until the chunks are
         // actually coded.
-        let mut old: VecDeque<&[u8]> = self.old.iter().map(Vec::as_slice).collect();
+        let mut old: VecDeque<&OldString> = self.old.iter().collect();
         while let Some(chunk) = Self::eager_chunk(
             &mut old,
             &self.old_filter,
@@ -125,7 +176,7 @@ impl Lz77 {
         out
     }
     fn eager_chunk(
-        old: &mut VecDeque<&[u8]>,
+        old: &mut VecDeque<&OldString>,
         old_filter: &OldFilter,
         value: &mut &[u8],
         sofar: &mut Vec<u8>,
@@ -176,24 +227,30 @@ impl Lz77 {
 
             // Linear scan in old strings; must beat best_sofar to be chosen.
             // The old_filter bloom filter lets us skip the entire scan when the
-            // current 4-gram prefix is not present in any old string.
+            // current 4-gram prefix is not present in any old string, and each
+            // string's own filter skips that string. A prefix shorter than
+            // MIN_MATCH can match in fewer than 4 bytes, so neither applies.
             let sofar_best_len = best_sofar.map_or(0, |(_, l)| l);
             let sofar_back_len = sofar.len().min(BACK_WINDOW);
             let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
             let mut min_old = sofar_best_len;
             let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
-            let skip_old = prefix.len() >= MIN_MATCH && !old_filter.test(lz77_hash(prefix));
-            if !skip_old {
+            let gram = (prefix.len() >= MIN_MATCH).then(|| lz77_hash(prefix));
+            if gram.is_none_or(|h| old_filter.test(h)) {
                 for (i, old_s) in old.iter().enumerate() {
                     if old_budget == 0 {
                         break;
                     }
-                    let use_s = if old_s.len() > old_budget {
-                        &old_s[..old_budget]
+                    let bytes = old_s.bytes.as_slice();
+                    let use_s = if bytes.len() > old_budget {
+                        &bytes[..old_budget]
                     } else {
-                        *old_s
+                        bytes
                     };
                     old_budget = old_budget.saturating_sub(use_s.len());
+                    if gram.is_some_and(|h| !old_s.grams.test(h)) {
+                        continue;
+                    }
                     // When min_old is 0 (no prior match), use min_match=0 to allow
                     // matching short sequences (2-4 bytes) verbatim in old strings.
                     let search_min = if min_old == 0 { 0 } else { min_old + 1 };
@@ -376,7 +433,7 @@ impl Lz77 {
             let matched = chunk
                 .offset
                 .checked_add(length)
-                .and_then(|end| self.old[0].get(chunk.offset..end))
+                .and_then(|end| self.old[0].bytes.get(chunk.offset..end))
                 .ok_or_else(|| {
                     std::io::Error::other("corrupt stream: Lz77 match runs past its string")
                 })?;
@@ -394,6 +451,68 @@ fn shift_old<T>(old: &mut VecDeque<T>, Chunk { back, .. }: &Chunk) {
         if let Some(string) = old.remove(*back as usize - 1) {
             old.push_front(string);
         }
+    }
+}
+
+/// A filter that wrongly ruled a string out would silently lose its matches, and
+/// nothing else would notice: the output would still decode, just bigger.
+#[test]
+fn gram_filter_never_rules_out_a_gram_the_string_holds() {
+    let mut x = 0x1234_5678_9abc_def0_u64;
+    let mut byte = move || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (x >> 56) as u8
+    };
+    // Past `MAX_WORDS` at the top, and shorter than one gram at the bottom.
+    for len in [
+        0,
+        1,
+        3,
+        4,
+        5,
+        63,
+        64,
+        65,
+        1000,
+        4 * GramFilter::MAX_WORDS,
+        100_000,
+    ] {
+        let bytes: Vec<u8> = (0..len).map(|_| byte()).collect();
+        let filter = GramFilter::new(&bytes);
+        assert!(filter.0.len() <= GramFilter::MAX_WORDS);
+        for gram in bytes.windows(4) {
+            assert!(filter.test(lz77_hash(gram)), "len {len}");
+        }
+    }
+    // The decode side's empty filter must rule nothing out, not panic.
+    assert!(GramFilter::default().test(lz77_hash(b"abcd")));
+    // And a filter is worth having only if it does rule things out.
+    let filter = GramFilter::new(b"the quick brown fox");
+    assert!(!filter.test(lz77_hash(b"jump")));
+}
+
+/// Every match in an old string must still be found through the filters, so
+/// look for one at every offset: a search that skipped a string it should have
+/// read would lose some of them, for whichever 4-grams it got wrong.
+#[test]
+fn old_strings_are_matched_through_the_filters() {
+    let wanted: &[u8] = b"the quick brown fox jumps over one lazy dog, then naps";
+    let mut ctx = Lz77::default();
+    ctx.push_old(b"nothing to see in this one".to_vec());
+    ctx.push_old(wanted.to_vec());
+    ctx.push_old(b"and nothing in this one either".to_vec());
+    for offset in 0..wanted.len() - MIN_MATCH {
+        let length = (wanted.len() - offset).min(12);
+        assert_eq!(
+            ctx.eager(&wanted[offset..offset + length]),
+            vec![Chunk {
+                literal: Box::new([]),
+                length: length as u8,
+                back: 2,
+                offset,
+            }],
+            "offset {offset}"
+        );
     }
 }
 
