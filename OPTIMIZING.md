@@ -1670,6 +1670,19 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`Small<usize>`'s top bucket is built on first use (2026-11-01)** — 1,152 of
+  its 1,280 bytes were the `Small<u64>` context behind values ≥ 64, which most
+  lengths never reach, and it sits behind the length of every `Vec` and `String`
+  and six times over in each `Arc<str>` dictionary. Boxed and built by the first
+  value to reach it, the context is 136 bytes; `String`'s goes 3.3 → 2.2 KB,
+  `Arc<str>`'s 7.9 → 3.3 KB, a `Card`'s 575 → 315 KB. Worth it for anything
+  encoded a value at a time: `single cards` decode **−23.9%**, encode **−14.0%**,
+  `single meteorites` decode **−6.7%**, encode −4.3%, `suicide rates` encode
+  **−11.8%**, decode −5.1%. A collection with a length ≥ 64 allocates the bucket
+  once, about 1 KB of peak memory. Of 220 `strategies` cells three moved by 2.5% or
+  more: two faster, and one slower, `usize` repeated constant `sml/ans` at +5.0%, on
+  the value 1, which cannot reach the bucket. `Small<usize>` on large values, the
+  case that takes the new pointer, did not move.
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
   `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so

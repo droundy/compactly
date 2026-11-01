@@ -66,8 +66,18 @@ pub struct SmallContext {
     b3: <AtMost<7> as Encode>::Context,
     b4: <AtMost<15> as Encode>::Context,
     b5: <AtMost<31> as Encode>::Context,
-    // Values >= 64 are delegated to Small<u64>.
-    large: <u64 as Encode<Small>>::Context,
+    // Values >= 64 are delegated to Small<u64>, whose context is ten times the
+    // size of the rest of this one. This context sits behind the length of every
+    // `Vec` and `String`, most of which never reach it, and a context is built
+    // afresh for each value encoded on its own, so it is built on first use.
+    large: Option<Box<<u64 as Encode<Small>>::Context>>,
+}
+
+impl SmallContext {
+    #[inline]
+    fn large(&mut self) -> &mut <u64 as Encode<Small>>::Context {
+        self.large.get_or_insert_with(Default::default)
+    }
 }
 
 impl Encode<Small> for usize {
@@ -100,7 +110,7 @@ impl Encode<Small> for usize {
             }
             _ => {
                 Normal::encode(&bucket(7), writer, &mut ctx.small_nonzero);
-                Small::encode(&(*value as u64 - 64), writer, &mut ctx.large);
+                Small::encode(&(*value as u64 - 64), writer, ctx.large());
             }
         }
     }
@@ -119,7 +129,7 @@ impl Encode<Small> for usize {
             5 => Ok(usize::from(AtMost::<15>::decode(reader, &mut ctx.b4)?) + 16),
             6 => Ok(usize::from(AtMost::<31>::decode(reader, &mut ctx.b5)?) + 32),
             7 => {
-                let v: u64 = Small::decode(reader, &mut ctx.large)?;
+                let v: u64 = Small::decode(reader, ctx.large())?;
                 add_bucket_bias(v)
             }
             _ => unreachable!(),
@@ -156,7 +166,7 @@ impl Encode<Small> for usize {
                 usize::from(<AtMost<31> as Encode>::decode_async(reader, &mut ctx.b5).await?) + 32,
             ),
             7 => {
-                let v: u64 = <u64 as Encode<Small>>::decode_async(reader, &mut ctx.large).await?;
+                let v: u64 = <u64 as Encode<Small>>::decode_async(reader, ctx.large()).await?;
                 add_bucket_bias(v)
             }
             _ => unreachable!(),
@@ -403,12 +413,33 @@ fn small_usize_decode_rejects_overflowing_magnitude() {
     // Bucket 7 means "the rest is a `Small<u64>`, plus 64" — the only arm that
     // can overflow, and the only one whose payload is not width-limited.
     Normal::encode(&AtMost::<7>::new(7), &mut writer, &mut ctx.small_nonzero);
-    Small::encode(&u64::MAX, &mut writer, &mut ctx.large);
+    Small::encode(&u64::MAX, &mut writer, ctx.large());
     assert_eq!(
         super::decode::<Encoded<usize, Small>>(&writer.into_vec()),
         None,
         "a magnitude past usize::MAX - 64 must be rejected, not wrapped"
     );
+}
+
+/// The top bucket's context is built by the first value that reaches it, and the
+/// rest of the context is small enough to be worth building for every value.
+#[test]
+fn the_top_bucket_is_built_only_when_reached() {
+    fn large_was_built(value: usize) -> bool {
+        let mut writer = super::Range::default();
+        let mut ctx = SmallContext::default();
+        Small::encode(&value, &mut writer, &mut ctx);
+        ctx.large.is_some()
+    }
+    assert!(!large_was_built(0));
+    assert!(!large_was_built(63));
+    assert!(large_was_built(64));
+    assert!(std::mem::size_of::<SmallContext>() < 200);
+
+    // Both sides must take the same path past the boundary.
+    use crate::Encoded;
+    let values = [3_usize, 63, 64, 65, 3, 1 << 40].map(Encoded::<_, Small>::new);
+    assert_eq!(super::decode(&super::encode(&values)), Some(values));
 }
 
 #[test]
