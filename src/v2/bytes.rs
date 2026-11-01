@@ -1,6 +1,7 @@
 use super::sentinel::Sentinel;
 use super::{Encode, Strategy};
 use crate::{Compressible, Normal, Small, Values};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 // mod buffer;
@@ -88,6 +89,54 @@ struct OldString {
     grams: GramFilter,
 }
 
+/// Hash chains over the value being searched: `head[h]` is the most recent
+/// position whose first 4 bytes hash to `h`, and `next` links each position to
+/// the previous one with the same hash, forming a chain newest→oldest.
+///
+/// The 256 KiB table is far bigger than most values, and filling it for each one
+/// was most of the cost of encoding short strings. So there is one per thread
+/// (see [`CHAINS`]), never cleared: positions are stored numbered from `base`,
+/// which moves past each value, and an entry below `base` is left over from an
+/// earlier one, which is to say empty.
+#[derive(Default)]
+struct Chains {
+    head: Vec<u32>,
+    next: Vec<u32>,
+    base: u32,
+}
+
+impl Chains {
+    /// Get ready for a new value of `len` bytes.
+    fn start(&mut self, len: usize) {
+        self.head.resize(LZ77_HASH_SIZE, 0);
+        // Past the previous value's last position, and so never 0, which is
+        // what an entry that has never been set holds.
+        let base = self.base as usize + self.next.len() + 1;
+        self.next.clear();
+        if base.saturating_add(len) < u32::MAX as usize {
+            self.base = base as u32;
+        } else {
+            self.head.fill(0);
+            self.base = 1;
+        }
+    }
+
+    /// Record that the 4 bytes at `position` hash to `h`.
+    #[inline]
+    fn insert(&mut self, h: usize, position: usize) {
+        self.next[position] = self.head[h];
+        self.head[h] = position as u32 + self.base;
+    }
+}
+
+thread_local! {
+    /// Per thread rather than per [`Lz77`] because there can be many of those:
+    /// one for each `Compressible` field of a type, each encoding a value or
+    /// two. Giving each its own table touches megabytes of cold memory per
+    /// record, where sharing one keeps it in cache.
+    static CHAINS: RefCell<Chains> = RefCell::default();
+}
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
     old: VecDeque<OldString>,
@@ -150,27 +199,21 @@ impl Lz77 {
     fn shift_chunk(&mut self, chunk: &Chunk) {
         shift_old(&mut self.old, chunk);
     }
-    fn eager(&self, mut value: &[u8]) -> Vec<Chunk> {
+    fn eager(&self, value: &[u8]) -> Vec<Chunk> {
+        CHAINS.with_borrow_mut(|chains| self.eager_with(value, chains))
+    }
+    fn eager_with(&self, mut value: &[u8], chains: &mut Chains) -> Vec<Chunk> {
         assert!(self.old.len() < 255);
         let mut sofar: Vec<u8> = Vec::new();
-        // Hash chain for fast sofar matching. hash_head[h] is the most recent position
-        // in sofar whose first 4 bytes hash to h. hash_next[p] links to the previous
-        // position with the same hash, forming a chain newest→oldest.
-        let mut hash_head = vec![u32::MAX; LZ77_HASH_SIZE];
-        let mut hash_next: Vec<u32> = Vec::new();
+        chains.start(value.len());
         let mut out = Vec::new();
         // Using an old string moves it to the front, which the search has to
         // see as it goes, without disturbing `self.old` until the chunks are
         // actually coded.
         let mut old: VecDeque<&OldString> = self.old.iter().collect();
-        while let Some(chunk) = Self::eager_chunk(
-            &mut old,
-            &self.old_filter,
-            &mut value,
-            &mut sofar,
-            &mut hash_head,
-            &mut hash_next,
-        ) {
+        while let Some(chunk) =
+            Self::eager_chunk(&mut old, &self.old_filter, &mut value, &mut sofar, chains)
+        {
             out.push(chunk);
         }
         out
@@ -180,8 +223,7 @@ impl Lz77 {
         old_filter: &OldFilter,
         value: &mut &[u8],
         sofar: &mut Vec<u8>,
-        hash_head: &mut [u32],
-        hash_next: &mut Vec<u32>,
+        chains: &mut Chains,
     ) -> Option<Chunk> {
         const BACK_WINDOW: usize = 64 * 1024;
         let mut literal = Vec::with_capacity(value.len());
@@ -196,11 +238,12 @@ impl Lz77 {
             let mut best_sofar: Option<(usize, usize)> = None; // (sofar position, length)
             if prefix.len() >= MIN_MATCH {
                 let h = lz77_hash(prefix);
-                let min_valid = sofar.len().saturating_sub(BACK_WINDOW);
-                let mut candidate = hash_head[h] as usize;
+                let base = chains.base as usize;
+                let min_valid = base + sofar.len().saturating_sub(BACK_WINDOW);
+                let mut numbered = chains.head[h] as usize;
                 let mut chain = 0;
-                while candidate != u32::MAX as usize && candidate >= min_valid && chain < MAX_CHAIN
-                {
+                while numbered >= min_valid && chain < MAX_CHAIN {
+                    let candidate = numbered - base;
                     let cand = &sofar[candidate..];
                     if cand.len() >= MIN_MATCH
                         && cand[0] == prefix[0]
@@ -220,7 +263,7 @@ impl Lz77 {
                             }
                         }
                     }
-                    candidate = hash_next.get(candidate).copied().unwrap_or(u32::MAX) as usize;
+                    numbered = chains.next[candidate] as usize;
                     chain += 1;
                 }
             }
@@ -292,7 +335,7 @@ impl Lz77 {
                 *value = &value[length..];
                 let new_start = sofar.len();
                 sofar.extend_from_slice(&prefix[..length]);
-                hash_next.resize(sofar.len(), u32::MAX);
+                chains.next.resize(sofar.len(), 0);
                 // Insert all positions that now have MIN_MATCH bytes for the first time.
                 // This includes "seam" positions (new_start-(MIN_MATCH-1)..new_start-1)
                 // that span old sofar bytes and new match bytes, plus positions within
@@ -302,10 +345,7 @@ impl Lz77 {
                 for p in first_insert..=last_insert {
                     // Hash needs 4 bytes; skip if near end (e.g. short match < 4 bytes).
                     if p + 4 <= sofar.len() {
-                        let h = lz77_hash(&sofar[p..]);
-                        let old = hash_head[h];
-                        hash_head[h] = p as u32;
-                        hash_next[p] = old;
+                        chains.insert(lz77_hash(&sofar[p..]), p);
                     }
                 }
                 let chunk = Chunk {
@@ -322,13 +362,10 @@ impl Lz77 {
             let (&first, rest) = value.split_first()?;
             literal.push(first);
             sofar.push(first);
-            hash_next.push(u32::MAX);
+            chains.next.push(0);
             if sofar.len() >= MIN_MATCH {
                 let insert_pos = sofar.len() - MIN_MATCH;
-                let h = lz77_hash(&sofar[insert_pos..]);
-                let old = hash_head[h];
-                hash_head[h] = insert_pos as u32;
-                hash_next[insert_pos] = old;
+                chains.insert(lz77_hash(&sofar[insert_pos..]), insert_pos);
             }
             *value = rest;
         }
@@ -450,6 +487,30 @@ fn shift_old<T>(old: &mut VecDeque<T>, Chunk { back, .. }: &Chunk) {
     if *back > 0 {
         if let Some(string) = old.remove(*back as usize - 1) {
             old.push_front(string);
+        }
+    }
+}
+
+/// What one value leaves in the chains must not change what the next finds: a
+/// stale entry read as a position would either match bytes of the wrong value or
+/// cut a chain short. So the chunks must be what fresh chains give, including
+/// when the numbering runs out and starts again.
+#[test]
+fn chains_kept_between_values_do_not_change_the_chunks() {
+    let values: [&[u8]; 4] = [
+        b"abcdefgh abcdefgh abcdefgh",
+        b"abcdefgh xyzxyzxyz",
+        b"",
+        b"xyzxyzxyz abcdefgh abcdefgh",
+    ];
+    let mut ctx = Lz77::default();
+    let mut kept = Chains::default();
+    for start in [0, u32::MAX - 40] {
+        kept.base = start;
+        for value in values {
+            let fresh = ctx.eager_with(value, &mut Chains::default());
+            assert_eq!(ctx.eager_with(value, &mut kept), fresh, "{value:?}");
+            ctx.push_old(value.to_vec());
         }
     }
 }
