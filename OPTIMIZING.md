@@ -1670,6 +1670,38 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`Compressible` (Lz77) encode: 2–10× faster, byte for byte the same output
+  (2026-11-01)** — the worst outlier in the whole suite: `mtg tenth edition` took
+  1.91 s to encode what it decodes in 31 ms. `perf` put 87% of that in the linear
+  scan of old strings, 63% in `memcmp` alone, one call per offset. Four changes,
+  none of which alters which match is chosen:
+  - search over borrowed strings, instead of deep-cloning the context per value
+    and coding every chunk into a throwaway `Millibits` to adapt contexts nothing
+    read;
+  - compare the first four bytes as a word and then the byte that would lengthen
+    the match, before `starts_with`;
+  - give each old string a 4-gram filter of its own (about 32 bits per byte), so
+    the scan skips strings that cannot hold the match, where `old_filter` only
+    says whether a gram is anywhere in a history it never forgets;
+  - keep one set of hash chains per thread and never clear it, numbering positions
+    from a base that moves past each value.
+
+  **Holding the chains in the context was worse, and only the full suite showed
+  it:** it made `single cards` **+20.6%**, because a type has one `Lz77` per
+  `Compressible` field, so each record touched 5 MB of cold memory where the old
+  code kept reusing one freed block still in cache. That is why they are per thread.
+
+  | workload | before | after | |
+  |---|---|---|---|
+  | `mtg tenth edition` encode | 1.912 s | 196 ms | **−89.7%** |
+  | `meteorites by small name` encode | 1.760 s | 340 ms | **−80.7%** |
+  | `single cards` encode | 230 ms | 112 ms | **−51.5%** |
+  | `coders` `compressible` encode | 389 ms | 307 ms | **−21%** |
+  | `books` encode | 141 ms | 112 ms | **−20.7%** |
+
+  Measured pinned, back to back. Every other workload is within noise, decode
+  included. Output checked byte-identical by hash on 11 corpora with both coders.
+  What is left is still the scan of strings the filters let through.
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
   `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so
