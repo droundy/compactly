@@ -289,16 +289,16 @@ Lossless data compression is used in many applications. For example, it is used 
 Lossless compression is used in cases where it is important that the original and the decompressed data be identical, or where deviations from the original data would be unfavourable. Common examples are executable programs, text documents, and source code. Some image file formats, like PNG or GIF, use only lossless compression, while others like TIFF and MNG may use either lossless or lossy methods. Lossless audio formats are most often used for archiving or production purposes, while smaller lossy audio files are typically used on portable players and in other cases where storage space is limited or exact replication of the audio is unnecessary. ";
 
 impl Encode<Compressible> for String {
-    type Context = super::bytes::Lz77;
+    type Context = super::bytes::LazyLz77;
     fn encode<E: super::EntropyCoder>(value: &String, writer: &mut E, ctx: &mut Self::Context) {
-        ctx.encode(value.as_bytes(), writer)
+        ctx.get().encode(value.as_bytes(), writer)
     }
 
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let bytes = ctx.decode(reader)?;
+        let bytes = ctx.get().decode(reader)?;
         String::from_utf8(bytes).map_err(std::io::Error::other)
     }
 
@@ -309,7 +309,7 @@ impl Encode<Compressible> for String {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<String, std::io::Error> {
-        let bytes = ctx.decode_async(reader).await?;
+        let bytes = ctx.get().decode_async(reader).await?;
         String::from_utf8(bytes).map_err(std::io::Error::other)
     }
 }

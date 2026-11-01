@@ -1670,6 +1670,17 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`Compressible` contexts are built when first used (2026-11-01)** — one record
+  at a time is the shape of most per-message use, and it builds the whole context
+  for every call: a `Card`'s is **575 KB**, and `memmove`/`memset` of it was **46%**
+  of decoding one. An `Lz77` is 6.3 KB plus an 8 KiB filter on the heap, one for
+  each of a `Card`'s 32 `Compressible` fields, most of them `None`, and decode
+  never reads the filter. Now a field costs a word until it holds a value, and the
+  filter is allocated by the first write to it, which only encode makes. `single
+  cards` decode **−31%** (111 → 77 ms), encode **−17.7%** (230 → 190 ms), or −30%
+  on the search of the entry below; peak decode memory −7%; a `Card`'s context
+  373 KB. Bytes unchanged. What is left of the 373 KB is mostly `Arc<str>` (7.9 KB
+  a field, of which 5 KB is `Small<usize>` contexts), which a first value does use.
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
   `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so
