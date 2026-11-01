@@ -3,8 +3,6 @@ use super::{Encode, Strategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
-// mod buffer;
-
 #[cfg(test)]
 use super::millibits;
 #[cfg(test)]
@@ -486,38 +484,6 @@ fn decode_rejects_matches_that_do_not_exist() {
     );
 }
 
-/// Returns offset and length of the longest prefix of the needle prefering a later one
-#[cfg(test)]
-pub(crate) fn find_longest_latest_prefix(haystack: &[u8], needle: &[u8]) -> Option<(usize, usize)> {
-    const MIN_MATCH: usize = 5;
-    let mut prefix = if needle.len() > 1 && needle.len() < MIN_MATCH {
-        needle
-    } else {
-        needle.split_at_checked(MIN_MATCH)?.0
-    };
-    let mut best = None;
-    for offset in (0..(haystack.len() + 1).saturating_sub(prefix.len())).rev() {
-        let here = &haystack[offset..];
-        if here.starts_with(prefix) {
-            let mut length = prefix.len();
-            if prefix.len() < needle.len() && here.len() > prefix.len() {
-                length += needle[prefix.len()..]
-                    .iter()
-                    .zip(&haystack[offset + prefix.len()..])
-                    .take_while(|(c1, c2)| c1 == c2)
-                    .count();
-            }
-            best = Some((offset, length));
-            if length == needle.len() {
-                // We already found the whole needle!
-                return best;
-            }
-            prefix = &needle[..length + 1];
-        }
-    }
-    best
-}
-
 /// Returns offset and length of the longest prefix of the needle prefering one at the beginning
 pub(crate) fn find_first_longest_prefix(
     haystack: &[u8],
@@ -553,22 +519,6 @@ pub(crate) fn find_first_longest_prefix(
         }
     }
     best
-}
-
-#[test]
-fn test_longest_prefix() {
-    assert_eq!(
-        find_longest_latest_prefix(b"hello world hello David", b"hello"),
-        Some((12, 5))
-    );
-    assert_eq!(
-        find_longest_latest_prefix(b"hello world hello David", b"hello Roundy"),
-        Some((12, 6))
-    );
-    assert_eq!(
-        find_longest_latest_prefix(b"hello world hello David hell is hellish", b"hello Roundy"),
-        Some((12, 6))
-    );
 }
 
 #[cfg(test)]

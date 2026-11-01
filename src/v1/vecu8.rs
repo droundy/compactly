@@ -2,8 +2,6 @@ use super::{Encode, EncodingStrategy};
 use crate::{Compressible, Normal, Small, Values};
 use std::collections::VecDeque;
 
-// mod buffer;
-
 #[cfg(test)]
 use expect_test::expect;
 
