@@ -20,7 +20,7 @@ date.
 
 ## How to benchmark on this machine
 
-Every measurement in this project goes through the [`scaling`] crate (0.9). A
+Every measurement in this project goes through the [`scaling`] crate (0.10). A
 benchmark is a function that says what it is where it is written, a `main` of
 one call runs them all, and `scaling` does the sampling, the statistics and the
 printing. There is no hand-built table, no iteration count, no `perf stat`, no

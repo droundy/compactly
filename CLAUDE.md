@@ -71,7 +71,7 @@ machine, empirical results, dead ends to avoid, and a prioritized TODO list.
 Update it as that work progresses.
 
 All timing goes through the [`scaling`](https://github.com/droundy/scaling)
-crate (0.9): a benchmark is a registered function, `scaling` samples it until a
+crate (0.10): a benchmark is a registered function, `scaling` samples it until a
 1% difference would be significant (this project does not trust smaller
 changes), tests whether candidates really differ, and prints the result. There
 is no hand-built table and no script that assembles one. Things to know when
