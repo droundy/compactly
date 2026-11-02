@@ -70,6 +70,9 @@ fn strategy_or_normal(strategy: Option<&EncodingStrategy>) -> proc_macro2::Token
 /// too, now that `MAX_BYTES`/`decode_awaiting` are required members rather
 /// than a separate trait a type could decline.
 pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
+    if s.variants().is_empty() {
+        return derive_uninhabited(s);
+    }
     let mut bound_names = BTreeSet::new();
     bound_names.insert(Ident::new("discriminant", Span::call_site()));
     s.binding_name(|field, i| {
@@ -470,6 +473,48 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     })
 }
 
+/// An enum with no variants has no values, so there is nothing to code: `encode`
+/// is unreachable, and no stream can hold one, so `decode` always fails. The
+/// general derive cannot express this — its discriminant is an `AtMost` of the
+/// number of variants less one — and `Option<Never>`, or an enum of your own with
+/// a variant that holds one, are ordinary reasons to want the impl to exist.
+fn derive_uninhabited(s: synstructure::Structure) -> proc_macro2::TokenStream {
+    assert!(
+        EncodingStrategy::parse_attrs(&s.ast().attrs).is_empty(),
+        "Cannot derive strategy for an enum"
+    );
+    s.gen_impl(quote! {
+        extern crate compactly;
+        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder};
+        use compactly::Normal;
+
+        gen impl Encode<Normal> for @Self {
+            type Context = ();
+            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+                match *value {}
+            }
+            fn decode<D: EntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> Result<Self, std::io::Error> {
+                Err(std::io::Error::other("an enum with no variants has no values to decode"))
+            }
+
+            /// Never coded.
+            const MAX_BYTES: usize = 0;
+
+            fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
+                reader: &mut D,
+                ctx: &mut Self::Context,
+            ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                async move {
+                    Err(std::io::Error::other("an enum with no variants has no values to decode"))
+                }
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 fn pretty(tokens: proc_macro2::TokenStream) -> String {
     if let Ok(syntax_tree) = syn::parse2::<syn::File>(tokens.clone()) {
@@ -562,6 +607,17 @@ fn low_cardinality_string_warns() {
             && output.contains("fn LowCardinalityString_1()"),
         "expected indexed warning fns:\n{output}"
     );
+}
+
+#[test]
+#[should_panic(expected = "Cannot derive strategy for an enum")]
+fn strategy_on_an_enum_with_no_variants_is_rejected() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        #[compactly(Small)]
+        pub enum Never {}
+    };
+    let s = synstructure::Structure::new(&di);
+    let _ = derive_compactly(s);
 }
 
 #[test]
