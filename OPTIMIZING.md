@@ -1673,7 +1673,7 @@ decodes, so a good hit rate is both smaller and faster.
 - **`Small<usize>`'s top bucket is built on first use (2026-11-01)** — 1,152 of
   its 1,280 bytes were the `Small<u64>` context behind values ≥ 64, which most
   lengths never reach, and it sits behind the length of every `Vec` and `String`
-  and six times over in each `Arc<str>` dictionary. Boxed and built by the first
+  and four times over in each `Arc<str>` dictionary. Boxed and built by the first
   value to reach it, the context is 136 bytes; `String`'s goes 3.3 → 2.2 KB,
   `Arc<str>`'s 7.9 → 3.3 KB, a `Card`'s 575 → 315 KB. Worth it for anything
   encoded a value at a time: `single cards` decode **−23.9%**, encode **−14.0%**,

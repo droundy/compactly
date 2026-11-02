@@ -66,7 +66,7 @@ pub struct SmallContext {
     b3: <AtMost<7> as Encode>::Context,
     b4: <AtMost<15> as Encode>::Context,
     b5: <AtMost<31> as Encode>::Context,
-    // Values >= 64 are delegated to Small<u64>, whose context is ten times the
+    // Values >= 64 are delegated to Small<u64>, whose context is nine times the
     // size of the rest of this one. This context sits behind the length of every
     // `Vec` and `String`, most of which never reach it, and a context is built
     // afresh for each value encoded on its own, so it is built on first use.
@@ -74,6 +74,8 @@ pub struct SmallContext {
 }
 
 impl SmallContext {
+    /// Built by the first value to need it and kept from then on, since what it
+    /// has learned is what makes the next large value cheaper.
     #[inline]
     fn large(&mut self) -> &mut <u64 as Encode<Small>>::Context {
         self.large.get_or_insert_with(Default::default)
@@ -440,6 +442,17 @@ fn the_top_bucket_is_built_only_when_reached() {
     use crate::Encoded;
     let values = [3_usize, 63, 64, 65, 3, 1 << 40].map(Encoded::<_, Small>::new);
     assert_eq!(super::decode(&super::encode(&values)), Some(values));
+}
+
+/// Rebuilding the bucket for each value would still round-trip, on both sides
+/// alike, so only the size can show that it is kept.
+#[test]
+fn the_top_bucket_keeps_what_it_learned() {
+    use crate::Encoded;
+    let value = || Encoded::<_, Small>::new(1000_usize);
+    let once = millibits(&value()).as_millibits();
+    let repeated: Vec<_> = (0..1000).map(|_| value()).collect();
+    assert!(millibits(&repeated).as_millibits() < 1000 * once / 2);
 }
 
 #[test]
