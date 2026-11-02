@@ -168,12 +168,11 @@ one rule:
 > An impl whose `MAX_BYTES` is `usize::MAX` must call this between the parts it
 > encodes. A **bounded** impl must not.
 
-Three call sites cover the entire type surface:
+Two call sites cover the entire type surface:
 
 | site | covers |
 |---|---|
-| `Sentinel::encode` (`sentinel.rs:154`) | every length-driven loop — `Vec`, `BTreeMap`/`BTreeSet` and the hash variants, `Sorted`, `LowCardinality`, `String`, `Compressible`, `Arc<str>` |
-| `low_cardinality.rs:297` | the `encode_miss` char loop, which carries no `Sentinel` |
+| `Sentinel::encode` (`sentinel.rs:154`) | every length-driven loop — `Vec`, `BTreeMap`/`BTreeSet` and the hash variants, `Sorted`, `LowCardinality`, `String`, `Compressible`, `Arc<str>` (including the char loop in `encode_miss`) |
 | `vecs.rs:414` | `Vec<u8>` under `Incompressible`, one call per `INCOMPRESSIBLE_PIECE` |
 
 and `every_unbounded_type_offers_split_points` asserts the coverage is complete
