@@ -774,7 +774,10 @@ fn test_first_longest_prefix() {
     // Past an offset that differs only in the last byte, or only between that
     // and the first four.
     assert_eq!(find(b"abcdX_abcde", b"abcde", 0), Some((6, 5)));
-    assert_eq!(find(b"abcdef_abcdXfg_abcdefg", b"abcdefgh", 0), Some((15, 7)));
+    assert_eq!(
+        find(b"abcdef_abcdXfg_abcdefg", b"abcdefgh", 0),
+        Some((15, 7))
+    );
     assert_eq!(find(b"abXde", b"abcde", 0), None);
     // A prefix of 2 to 4 bytes, the last two too short to compare as a word,
     // and at the very end of the haystack, too short to have a word to compare.
