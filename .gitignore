@@ -2,8 +2,6 @@
 /data/
 Cargo.lock
 flamegraph.svg
-new.txt
-old.txt
 perf.data
 perf.data.old
 .claude/
