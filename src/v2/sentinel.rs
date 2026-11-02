@@ -524,7 +524,7 @@ mod tests {
     /// interval: the run is its own length-driven loop, with a marker schedule
     /// of its own inside the collection's. The second shares a prefix with the
     /// first, so a run follows a match as well as a bare one, and the third is
-    /// an exact repeat that takes the hit path in between.
+    /// an exact repeat, which takes the hit path.
     fn long_strings() -> Vec<String> {
         let long: String = seq(BIG)
             .map(|i| char::from(b'a' + (i % 26) as u8))
