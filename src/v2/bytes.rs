@@ -23,8 +23,8 @@ fn lz77_hash(bytes: &[u8]) -> usize {
 /// Bitset filter over 4-grams present in old strings (LZ77_HASH_SIZE bits = 8 KiB).
 /// Bits are set when strings are added to `old` and never cleared, so the filter may
 /// have false positives from evicted strings but never false negatives from live ones.
-/// Cloning costs 8 KiB, which is far cheaper than scanning 25 KiB of old strings
-/// per chunk at O(MAX_CHAIN) depth.
+/// Those 8 KiB are far cheaper than scanning 25 KiB of old strings per chunk at
+/// O(MAX_CHAIN) depth.
 ///
 /// Allocated when the first bit is set, so a decoder, which never reads it, never
 /// pays for it.

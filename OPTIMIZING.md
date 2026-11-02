@@ -1677,9 +1677,9 @@ decodes, so a good hit rate is both smaller and faster.
   each of a `Card`'s 32 `Compressible` fields, most of them `None`, and decode
   never reads the filter. Now a field costs a word until it holds a value, and the
   filter is allocated by the first write to it, which only encode makes. `single
-  cards` decode **−31%** (111 → 77 ms), encode **−17.7%** (230 → 190 ms), or −30%
-  on the search of the entry below; peak decode memory −7%; a `Card`'s context
-  373 KB. Bytes unchanged. What is left of the 373 KB is mostly `Arc<str>` (7.9 KB
+  cards` decode **−31%** (111.5 → 76.9 ms), encode **−17.7%** (230.3 → 189.6 ms),
+  or −30% with the faster Lz77 search as well (2.10 → 1.46 s for 20 passes); peak
+  decode memory −7%; a `Card`'s context 373 KB. Bytes unchanged. What is left of the 373 KB is mostly `Arc<str>` (7.9 KB
   a field, of which 5 KB is `Small<usize>` contexts), which a first value does use.
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
