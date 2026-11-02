@@ -610,8 +610,8 @@ mod complete {
     /// u64 decode cycles) — and that is the *faster* arrangement. Forcing
     /// full fusion (measured 2026-07-19 via a raised inline threshold) made
     /// the `u64` workload (then `coder-routes u64`, now an input of the
-    /// `coders` bench) reproducibly ~1.1% slower; see the TODO #9 entry in
-    /// OPTIMIZING.md.
+    /// `coders` bench) reproducibly ~1.1% slower; see the register-residency
+    /// item in OPTIMIZING.md's TODO list.
     #[inline]
     pub(super) fn from_slot_speculating<const MAX: usize>(
         contexts: &mut [BitContext; MAX],
