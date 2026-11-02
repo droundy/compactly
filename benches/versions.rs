@@ -25,7 +25,10 @@
 //! and the gap between the two is how far *code placement alone* moves a number
 //! here. A gap from `head` no larger than that is not evidence of anything.
 //! (`.cargo/config.toml` aligns functions so it is small, but about 8% of the
-//! effect survives.)
+//! effect survives.) It stays inside one crate, though, and a gap *between* crates
+//! can be wider: identical source compiled as `head` and as `main` reads about 7%
+//! apart on `suicide` encode. Only a build of one commit as both says how much of a
+//! row that is (OPTIMIZING.md, "What two copies of the same code read").
 //!
 //! **Check which `main` you are measuring.** `Cargo.lock` is not committed, so CI
 //! always builds the current `main`, but a local lockfile stays on the commit it

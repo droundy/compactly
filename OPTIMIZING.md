@@ -95,15 +95,20 @@ differently, it is a candidate, an input or a metric.
   ```
 
   (`--bench` is what cargo passes to a `harness = false` target; it is ignored.)
-  Approximate full-run times on this machine: `coders` six minutes, `bench` five,
-  `strategies` a quarter of an hour, `versions` three minutes. To look at less, narrow the `Config` in that
+  Approximate full-run times on this machine: `coders` ten minutes, `bench` twelve,
+  `strategies` 35, `versions` two. To look at less, narrow the `Config` in that
   bench's `main` — `.filter_groups(|g| g == "slice")`, `.filter_inputs(..)` or
   `.filter_candidates(..)` — and put it back. Three things to know about the
   filters: they are ANDed across kinds and never see one another's names; a
   candidate filter never removes a group's baseline; and an input filter drops
   every benchmark that stands alone, since its input is named `""`. A run that is
   narrowed is a smaller family (see above).
-- **What there is** — each target's header says what it measures:
+- **What there is** — each target's header says what it measures. All but the
+  shootout and `overlap` hold this checkout and the tip of `main` in one binary,
+  with `main`'s `Range` as the baseline, so what a branch changed is a row's ratio
+  to its `main` row:
+  - `versions` — this checkout against `main` and the last release, on the real
+    corpora.
   - `bench` — compactly (`Range` and `Ans`) against bincode and zstd, on the real
     corpora in the `comparison` crate and a few synthetic ones; encoded size and
     decode-time allocation are metrics beside the time.
@@ -115,7 +120,7 @@ differently, it is a candidate, an input or a metric.
     library does not expose, so it is a set of ignored tests inside the crate
     (`src/v2/atmost/shootout.rs`), not a bench, one per coder and direction:
     `quiet-bench run cargo test --release --lib -- --ignored --test-threads=1
-    walk_shootout --nocapture` runs all four (about 40 minutes, and hundreds of
+    walk_shootout --nocapture` runs all four (about five minutes, and hundreds of
     questions at once), and `walk_shootout_ans_decode` and its three siblings run
     one. libtest's name filter does the narrowing; nothing here parses arguments.
   - `coders` — `Ans` against `Range` on every route either supports
@@ -126,8 +131,10 @@ differently, it is a candidate, an input or a metric.
     actually overlaps the wait for the next chunk.
 - **What the `±` does not cover.** It is the sampling error *within one
   process*: it cannot see code layout, or anything else that differs between
-  separate builds. Comparing two arms of the same binary (every group above) the
-  `±` is the whole story. Comparing **across commits or builds** the floor is
+  separately compiled code. Comparing one compiled function with itself, the `±` is
+  the whole story. **A `main` row is not that:** it is the same source compiled again
+  in another crate, and identical source read up to 18% apart that way (see "What
+  two copies of the same code read"). Comparing **across commits or builds** the floor is
   about **±1% of binary-layout noise**, and more for code dominated by
   library/runtime functions: the `strings` workload spends >50% in
   `BTreeMap::insert` and `memcmp`, and those identical functions were measured
@@ -168,8 +175,9 @@ differently, it is a candidate, an input or a metric.
   and "Fresh data by default" below). `build_once` builds an input once for each
   group and lends it to every call, with no `Clone`: it is for a real corpus or a
   deterministic sequence, which have only one value to offer, and for an input
-  whose build is part of the design, like `overlap`'s calibrated schedule. A new
-  question that fits an existing group is a
+  whose build is part of the design, like `overlap`'s calibrated schedule. A
+  candidate that exercises the library gets a `main` row beside it (CLAUDE.md says
+  how). A new question that fits an existing group is a
   new candidate or input there, not a new target. The old one-workload binaries
   (`just-decompress`, `coder-routes`, `ans-phases`, `micro-batch` and the rest)
   were each a special case of that, and are in git history; entries below that
@@ -183,13 +191,14 @@ differently, it is a candidate, an input or a metric.
 the measurement behind it, and the places it does not hold.
 
 **Regenerate with `cargo bench --bench coders --features stream`** under
-`quiet-bench run` — a bit over six minutes for the whole grid. To see one route or
+`quiet-bench run` — about ten minutes for the whole grid. To see one route or
 workload, narrow the `Config` in `benches/coders/main.rs` (see How to benchmark).
 
 Each route is a group and each workload an input to every group, so `scaling`
-prints these tables itself: a row per coder, `Range` the baseline, and every
-`Ans` cell a *difference* from it with the error bar of the paired measurement.
-The routes put the same value through every path either coder supports: decoding
+prints these tables itself. When the tables below were made it printed a row per
+coder, `Range` the baseline, and every `Ans` cell a *difference* from it with the
+error bar of the paired measurement. `main range` is the baseline now, so `Ans`
+against `Range` is the gap between the `ans` and `range` rows. The routes put the same value through every path either coder supports: decoding
 by `slice` (the borrowing decoder), `from` (`decode_from` over a `&[u8]` used as a
 `Read`), `stream` (`decode_stream` over a 64-chunk source) and `stream 2` (the
 same in two pieces, which defeats `Range`'s look-ahead and forces the async path);
@@ -197,8 +206,8 @@ encoding by `encode` (to a fresh `Vec`) and `encode-to` (`encode_to` into a fres
 `Vec` used as a `Write`). **There is no async encode for either coder**, which is
 why the encode table has two routes where the decode table has four — worth
 keeping in view, because it means "async" here is decode only. Both arms of a
-comparison are the same binary measured in the same rounds, so binary-layout noise
-cancels and the `±` is the whole uncertainty.
+comparison are the same binary measured in the same rounds, so what the machine was
+doing cancels. Code placement does not (see "What two copies of the same code read").
 
 Times are per call, which is per whole value; `±` is one standard error. The size
 Δ is how much longer or shorter `Ans`'s output was than `Range`'s.
@@ -427,7 +436,7 @@ What stands out:
 - On uniform values alone another 17 combinations win by 3% or more (mostly
   `CompleteBitwise` and `Uneven` at 31–255 and 4095) and on skewed alone four do;
   neither is a finding by itself. They are in the full output, which
-  the walk shootout regenerates in about 40 minutes (see "How to benchmark").
+  the walk shootout regenerates in about five minutes (see "How to benchmark").
 
 **This is a measurement, not a retune.** `Walk::production` has not been changed.
 The 2026-07-12 shootouts that chose these walks predate `quiet-bench` and
@@ -580,6 +589,55 @@ call), and `overlap` (the input is a schedule calibrated by timing a decode). Th
 cost was small: the whole grid took 3 minutes and `strategies` 17.5, with no
 `(limit)` cell. `size` in `strategies` is now one draw's, and moves by up to about
 1% between runs.
+
+### What two copies of the same code read (2026-11-02)
+
+With this checkout and `main` in one binary, a build can hold the same commit twice,
+which says what the pairing is worth. That control ran pinned on every bench, with
+four more builds that each added one optimization (#66 to #69) to one copy, so a row
+a change cannot reach is another look at identical code.
+
+**Pairing does what it is for.** `main range` is the same code in all five builds,
+and its time moved by up to +14% between them (`meteorite names` decode, and +11% on
+`0..10` encode), while the rows paired with it stayed within 1.5 points. Runs of
+separate builds cannot be compared on rows like these. Paired ones can.
+
+**The same source in two crates is not the same code.** Every row below is identical
+source, this copy against the other:
+
+| bench | rows | over 1% apart | widest |
+|---|---:|---:|---:|
+| `versions` | 20 | 3 | +7.2% |
+| `bench` | 64 | 19 | +4.5%, −3.9% |
+| `coders` | 180 | 12 | +2.5%, −2.1% |
+| `strategies` | 352 | 29 | +18.4% |
+
+- **Some gaps stay and some do not.** `i32 sorted` `srt/ans` decode reads +18.4% to
+  +19.0% in all five builds, and `suicide` `Range` encode in `versions` +5.5% to
+  +8.9%. `Vec<u8>` `raw/ans` decode reads anywhere from +0.5% to +23%. So one control
+  cannot be subtracted row by row: on rows a change cannot reach, subtracting it is no
+  tighter than not. Either way those rows typically spread by 0.1 to 0.3 points in
+  `coders` and `strategies`, and by 0.3 to 1.9 in `bench` and `versions`.
+- **`head range again` does not see this.** It is one function twice inside one
+  crate, so on `suicide` encode it reads +7.5% beside `head range`'s +7.2%, both of
+  them that far from `main`'s identical code. "These gaps are not code placement" in
+  the `versions` entries under "Landed so far" claimed more than that control can
+  show, and the `published` rows have the same problem.
+- **`from` `floats` is not cured by pairing.** `Range` reads +12.7% in a build whose
+  change does not touch floats.
+
+**How to read a row, then.** Take its ratio to its `main` row, and count it as moved
+when `Range` and `Ans` move the same way by at least 2.5%, beyond the control. By that
+rule the four changes gave one consistent list, and `bench` and `versions`, which are
+separate binaries, agreed on each within about 3 points. A move on one coder is
+unresolved, not dismissed: `u32` repeated constant `srt/rng` decode read +33.9% under
+#69 with `srt/ans` still. Small `bench` workloads (`usize`, `0..10`, `suicide rates`)
+swing by 5% on both coders even so, and need more than that rule.
+
+On `main` itself, with a current lockfile, every `main` row is a control. On a branch,
+give `comparison-main` a `git = "file:///…"` dependency on a local branch of the same
+commit. It has to be `git`, since two `path` packages of one name and version collide
+in the lockfile.
 
 ### Dead ends that should not be retried without new evidence
 
@@ -1976,7 +2034,8 @@ encode.
     2026-10-25 entry in "Landed so far", which had every corpus's `Ans` within 3.8
     points of the release; the control only measures placement of `head`'s code,
     so check another build first in case the release's `Ans` is the one that landed
-    well.
+    well. Identical source reads up to 18% apart between two crates (see "What two
+    copies of the same code read"), so a same-commit control comes before any bisect.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
@@ -2015,6 +2074,12 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Every bench measures against `main` (2026-11-02)** — `bench`, `coders` and
+  `strategies` now hold this checkout and the tip of `main` in one binary, as
+  `versions` does, with `main`'s `Range` as the baseline. A type a bench derives
+  `Encode` for moved to `comparison/src/shapes.rs`, since the derive binds to its
+  crate's own `compactly`. A same-commit control showed what that does and does not
+  settle: see "What two copies of the same code read".
 - **`versions` measures against `main` too (2026-11-01)** — `main range` is now the
   baseline, with `head`, `main` and `published` candidates interleaved in one group,
   so what a branch changed is a paired difference and how it stands against the

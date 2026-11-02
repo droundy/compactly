@@ -17,7 +17,7 @@
 //!     walk_shootout_ans_decode --nocapture
 //! ```
 //!
-//! `walk_shootout` runs all four (about 40 minutes, and hundreds of questions at
+//! `walk_shootout` runs all four (about five minutes, and hundreds of questions at
 //! once); the filters `walk_shootout_ans`, `walk_shootout_range`, `_decode` and
 //! `_encode` select pairs (libtest matches substrings). `--test-threads=1` matters: concurrent
 //! timed tests would measure each other. Building once with
