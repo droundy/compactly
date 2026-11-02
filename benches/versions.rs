@@ -1,31 +1,42 @@
-//! This checkout's compactly against the last published one, on the same data.
+//! This checkout's compactly against the last published one and against the tip
+//! of `main`, on the same data.
 //!
 //! Every workload is two comparisons:
 //!
 //! - `<workload> encode` — each candidate turns the corpus into bytes.
 //! - `<workload> decode` — each candidate turns *its own* bytes back into values.
 //!
-//! `published range` is the baseline of both: the released compactly, encoding
-//! the released compactly's copy of the corpus. `head range` and `head ans` are
-//! this checkout's, `published ans` the released `Ans`. `scaling` pairs every
-//! call, so "how much faster than the release" has a real error bar.
+//! `main range` is the baseline of both: the tip of `main`, encoding `main`'s copy
+//! of the corpus. `head range` and `head ans` are this checkout's, `main ans` is
+//! `main`'s `Ans`, and `published range` and `published ans` are the last release's.
+//! `scaling` pairs every call with the baseline, so "what did this branch change"
+//! and "how far has `main` come from the release" each have a real error bar. How a
+//! branch stands against the release is the difference of those two rows, and on
+//! `main` itself, where `head` is the baseline, the `published` rows say it directly.
 //!
-//! Two copies of one corpus type, each derived against its own compactly, come
-//! from the `comparison` crate and its twin `comparison-published`; see the
-//! comment in the latter's `Cargo.toml`. Both read the same source files, so the
-//! data is the same, and what differs is the library that encodes it.
+//! Copies of one corpus type, each derived against its own compactly, come from the
+//! `comparison` crate and its twins `comparison-published` and `comparison-main`;
+//! see the comment in `comparison-published`'s `Cargo.toml`. All three read the same
+//! source files, so the data is the same, and what differs is the library that
+//! encodes it.
 //!
 //! **`head range again` is a control, not a result.** It is the same function as
 //! `head range`, a second time; compiled twice it lands at different addresses,
 //! and the gap between the two is how far *code placement alone* moves a number
-//! here. A published-versus-head gap no larger than that is not evidence of
-//! anything. (`.cargo/config.toml` aligns functions so it is small, but about
-//! 8% of the effect survives.)
+//! here. A gap from `head` no larger than that is not evidence of anything.
+//! (`.cargo/config.toml` aligns functions so it is small, but about 8% of the
+//! effect survives.)
+//!
+//! **Check which `main` you are measuring.** `Cargo.lock` is not committed, so CI
+//! always builds the current `main`, but a local lockfile stays on the commit it
+//! first resolved, however far `main` has moved. Refresh it first.
 //!
 //! ```text
+//! cargo update -p 'https://github.com/droundy/compactly#compactly'
 //! cargo bench --bench versions
 //! ```
 
+use comparison_main::compactly as main_compactly;
 use comparison_published::compactly as published_compactly;
 
 mod support;
@@ -41,8 +52,8 @@ static ALLOC: scaling::Allocator = scaling::Allocator::new();
 macro_rules! side {
     ($side:ident, $corpora:ident, $compactly:ident) => {
         mod $side {
-            // `published_compactly` is the only thing this brings in, and only the
-            // published side uses it.
+            // The renamed compactlys are the only thing this brings in, and only
+            // their own sides use them.
             #[allow(unused_imports)]
             use super::*;
             use $compactly::v2::{Ans, Encode, Range};
@@ -84,11 +95,13 @@ macro_rules! side {
 
 side!(head, comparison, compactly);
 side!(published, comparison_published, published_compactly);
+side!(on_main, comparison_main, main_compactly);
 
-/// Both sides' corpora for one workload.
-struct Corpora<H, P> {
+/// Every side's corpora for one workload.
+struct Corpora<H, P, M> {
     head: Vec<H>,
     published: Vec<P>,
+    main: Vec<M>,
 }
 
 /// Every side's bytes for one workload, each side's from its own encoders.
@@ -97,78 +110,112 @@ struct Bytes {
     head_ans: Vec<Vec<u8>>,
     published_range: Vec<Vec<u8>>,
     published_ans: Vec<Vec<u8>>,
+    main_range: Vec<Vec<u8>>,
+    main_ans: Vec<Vec<u8>>,
 }
 
-/// A published-versus-head workload, as an encode group and a decode group.
+/// One workload, as an encode group and a decode group.
 ///
-/// The corpora and their bytes are `build_once` inputs: nothing in a candidate
-/// consumes or changes them. The bytes are checked to round-trip on both sides
-/// before anything is timed, since a codec that does not decode what it wrote has
-/// nothing to measure.
+/// The corpora and their bytes are `build_once` inputs: they are real corpora, of
+/// which there is only one, and nothing in a candidate consumes or changes them.
+/// The bytes are checked to round-trip on every side before anything is timed,
+/// since a codec that does not decode what it wrote has nothing to measure.
 macro_rules! versions {
-    ($module:ident, $enc:literal, $dec:literal, $head:ty, $published:ty, $make:ident) => {
+    (
+        $module:ident, $enc:literal, $dec:literal,
+        $head:ty, $published:ty, $main:ty, $make:ident
+    ) => {
         mod $module {
             use super::*;
 
-            type Pair = Corpora<$head, $published>;
+            type Sides = Corpora<$head, $published, $main>;
 
-            fn corpora() -> Pair {
+            fn corpora() -> Sides {
                 Corpora {
                     head: head::$make(),
                     published: published::$make(),
+                    main: on_main::$make(),
                 }
             }
 
             #[scaling::input(group = $enc, name = "corpus", build_once)]
-            fn corpus() -> Pair {
+            fn corpus() -> Sides {
                 corpora()
             }
 
             #[scaling::input(group = $dec, name = "bytes", build_once)]
             fn encoded() -> Bytes {
-                let Corpora { head, published } = corpora();
+                let Corpora {
+                    head,
+                    published,
+                    main,
+                } = corpora();
                 let bytes = Bytes {
                     head_range: head::encode_range(&head),
                     head_ans: head::encode_ans(&head),
                     published_range: published::encode_range(&published),
                     published_ans: published::encode_ans(&published),
+                    main_range: on_main::encode_range(&main),
+                    main_ans: on_main::encode_ans(&main),
                 };
                 assert!(
                     head::decode_range::<$head>(&bytes.head_range) == head
                         && head::decode_ans::<$head>(&bytes.head_ans) == head
                         && published::decode_range::<$published>(&bytes.published_range)
                             == published
-                        && published::decode_ans::<$published>(&bytes.published_ans) == published,
+                        && published::decode_ans::<$published>(&bytes.published_ans) == published
+                        && on_main::decode_range::<$main>(&bytes.main_range) == main
+                        && on_main::decode_ans::<$main>(&bytes.main_ans) == main,
                     "{} did not round-trip",
                     $enc
                 );
                 bytes
             }
 
-            #[scaling::bench(group = $enc, name = "published range", baseline)]
-            fn encode_published_range(c: &Pair) -> Vec<Vec<u8>> {
+            #[scaling::bench(group = $enc, name = "published range")]
+            fn encode_published_range(c: &Sides) -> Vec<Vec<u8>> {
                 published::encode_range(&c.published)
             }
+            #[scaling::bench(group = $enc, name = "published ans")]
+            fn encode_published_ans(c: &Sides) -> Vec<Vec<u8>> {
+                published::encode_ans(&c.published)
+            }
+            #[scaling::bench(group = $enc, name = "main range", baseline)]
+            fn encode_main_range(c: &Sides) -> Vec<Vec<u8>> {
+                on_main::encode_range(&c.main)
+            }
+            #[scaling::bench(group = $enc, name = "main ans")]
+            fn encode_main_ans(c: &Sides) -> Vec<Vec<u8>> {
+                on_main::encode_ans(&c.main)
+            }
             #[scaling::bench(group = $enc, name = "head range")]
-            fn encode_head_range(c: &Pair) -> Vec<Vec<u8>> {
+            fn encode_head_range(c: &Sides) -> Vec<Vec<u8>> {
                 head::encode_range(&c.head)
             }
             #[scaling::bench(group = $enc, name = "head range again")]
-            fn encode_head_range_again(c: &Pair) -> Vec<Vec<u8>> {
+            fn encode_head_range_again(c: &Sides) -> Vec<Vec<u8>> {
                 head::encode_range(&c.head)
             }
-            #[scaling::bench(group = $enc, name = "published ans")]
-            fn encode_published_ans(c: &Pair) -> Vec<Vec<u8>> {
-                published::encode_ans(&c.published)
-            }
             #[scaling::bench(group = $enc, name = "head ans")]
-            fn encode_head_ans(c: &Pair) -> Vec<Vec<u8>> {
+            fn encode_head_ans(c: &Sides) -> Vec<Vec<u8>> {
                 head::encode_ans(&c.head)
             }
 
-            #[scaling::bench(group = $dec, name = "published range", baseline)]
+            #[scaling::bench(group = $dec, name = "published range")]
             fn decode_published_range(b: &Bytes) -> Vec<$published> {
                 published::decode_range(&b.published_range)
+            }
+            #[scaling::bench(group = $dec, name = "published ans")]
+            fn decode_published_ans(b: &Bytes) -> Vec<$published> {
+                published::decode_ans(&b.published_ans)
+            }
+            #[scaling::bench(group = $dec, name = "main range", baseline)]
+            fn decode_main_range(b: &Bytes) -> Vec<$main> {
+                on_main::decode_range(&b.main_range)
+            }
+            #[scaling::bench(group = $dec, name = "main ans")]
+            fn decode_main_ans(b: &Bytes) -> Vec<$main> {
+                on_main::decode_ans(&b.main_ans)
             }
             #[scaling::bench(group = $dec, name = "head range")]
             fn decode_head_range(b: &Bytes) -> Vec<$head> {
@@ -177,10 +224,6 @@ macro_rules! versions {
             #[scaling::bench(group = $dec, name = "head range again")]
             fn decode_head_range_again(b: &Bytes) -> Vec<$head> {
                 head::decode_range(&b.head_range)
-            }
-            #[scaling::bench(group = $dec, name = "published ans")]
-            fn decode_published_ans(b: &Bytes) -> Vec<$published> {
-                published::decode_ans(&b.published_ans)
             }
             #[scaling::bench(group = $dec, name = "head ans")]
             fn decode_head_ans(b: &Bytes) -> Vec<$head> {
@@ -202,6 +245,7 @@ versions!(
     "single cards decode",
     comparison::Card,
     comparison_published::Card,
+    comparison_main::Card,
     single_cards
 );
 versions!(
@@ -210,6 +254,7 @@ versions!(
     "single meteorites decode",
     comparison::meteorites::MeteoriteData,
     comparison_published::meteorites::MeteoriteData,
+    comparison_main::meteorites::MeteoriteData,
     single_meteorites
 );
 versions!(
@@ -218,6 +263,7 @@ versions!(
     "meteorites decode",
     Vec<comparison::meteorites::MeteoriteData>,
     Vec<comparison_published::meteorites::MeteoriteData>,
+    Vec<comparison_main::meteorites::MeteoriteData>,
     meteorites
 );
 versions!(
@@ -226,6 +272,7 @@ versions!(
     "suicide decode",
     std::collections::HashMap<comparison::suicide::SuicideFactors, u16>,
     std::collections::HashMap<comparison_published::suicide::SuicideFactors, u16>,
+    std::collections::HashMap<comparison_main::suicide::SuicideFactors, u16>,
     suicide_map
 );
 versions!(
@@ -234,6 +281,7 @@ versions!(
     "books decode",
     comparison::books::Book,
     comparison_published::books::Book,
+    comparison_main::books::Book,
     books
 );
 

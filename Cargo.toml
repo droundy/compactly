@@ -42,6 +42,8 @@ scaling = "0.10"
 comparison = { path = "comparison" }
 # The same corpora derived against the published compactly, for `benches/versions.rs`.
 comparison_published = { package = "comparison-published", path = "comparison-published" }
+# The same corpora derived against the tip of `main`, for the same bench.
+comparison_main = { package = "comparison-main", path = "comparison-main" }
 futures-executor = "0.3"
 stats_alloc = "0.1.10"
 rand = { version = "0.8.5", features = ["small_rng"] }
@@ -67,6 +69,7 @@ members = [
     "compactly-derive",
     "comparison",
     "comparison-published",
+    "comparison-main",
 ]
 
 [[bench]]

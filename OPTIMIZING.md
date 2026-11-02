@@ -1965,6 +1965,15 @@ encode.
       `usize`: a ≤64 KiB offset uses the same bit-length depth at either
       width. The only way to get both the size win and the speed win is the
       `Small<usize>` redesign above, not a type swap.
+16. **Find why `Ans` decodes meteorites slower than the release** — `versions`
+    (2026-11-01, two runs of one build) reads `Ans` decode **+10% on `meteorites`
+    and +3.8% on `single meteorites` for `main` against the published 0.2.0**, with
+    `Range` on the same corpora within 1%. So it is `Ans`-specific and it is on
+    `main`, not from a branch. Nothing has been bisected. It disagrees with the
+    2026-10-25 entry in "Landed so far", which had every corpus's `Ans` within 3.8
+    points of the release; the control only measures placement of `head`'s code,
+    so check another build first in case the release's `Ans` is the one that landed
+    well.
 
 ## New strategy ideas (compression rate, often also decode speed)
 
@@ -2003,6 +2012,16 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **`versions` measures against `main` too (2026-11-01)** — `main range` is now the
+  baseline, with `head`, `main` and `published` candidates interleaved in one group,
+  so what a branch changed is a paired difference and how it stands against the
+  release is the difference of two rows. The control agreed with `head range` to
+  under 0.6 points in two runs. Against `main` at `4ade24c`, this branch's `Range`
+  decode is −2.2% on `books`, −5.4% on `meteorites`, −3.1% on `single meteorites`
+  and −1.0% on `suicide`; `Range` encode is +1.5…+2.4% on `meteorites` and −6.8% on
+  `suicide`; `Ans` is within 1.3% everywhere but `suicide` decode (−3.3%). The
+  branch lacked `main`'s corrupt-input checks when this ran, so some of that may be
+  `main`'s and not the branch's. This corrects the next entry: see TODO 16.
 - **This checkout against the published 0.2.0 (2026-10-25, `versions`)** — pinned,
   same data, with the control (`head range again`, the same function twice) agreeing
   with `head range` to 0.1 points everywhere, so these gaps are not code placement.
@@ -2012,8 +2031,9 @@ decodes, so a good hit rate is both smaller and faster.
   −3.8%, `single meteorites` −2.3%, `suicide` −2.4%, `books` +1.5%, `single cards`
   no difference). Each corpus's `Ans` sits within 3.8 points of the release's
   `Ans`, measured against the release's `Range` (`suicide` is the widest: decode
-  −33.9% against −30.5%, encode +10.4% against +14.2%). Nothing here is a
-  regression, and encoded sizes agree within 0.4%. The whole-set `mtg tenth
+  −33.9% against −30.5%, encode +10.4% against +14.2%). This run read no
+  regression, but a later one does on `Ans` decode (TODO 16). Encoded sizes agree
+  within 0.4%. The whole-set `mtg tenth
   edition` encode (1.7 s a call) is left out: it never converged inside the 10 s
   limit, and `single cards` covers the same type.
 - **Walk retune from the fresh-batch shootout, and the `const` that made it work
