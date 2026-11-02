@@ -1670,21 +1670,23 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
-- **`Compressible` (Lz77) encode: 2–10× faster, byte for byte the same output
-  (2026-11-01)** — the worst outlier in the whole suite: `mtg tenth edition` took
-  1.91 s to encode what it decodes in 31 ms. `perf` put 87% of that in the linear
-  scan of old strings, 63% in `memcmp` alone, one call per offset. Four changes,
-  none of which alters which match is chosen:
+- **`Compressible` (Lz77) encode: up to 10× faster on its worst outliers, byte for
+  byte the same output (2026-11-01)** — the worst outlier in the whole suite: `mtg
+  tenth edition` took 1.91 s to encode what it decodes in 31 ms. `perf` put 87% of
+  that in the linear scan of old strings, 63% in `memcmp` alone, one call per
+  offset. Four changes, none of which alters which match is chosen:
   - search over borrowed strings, instead of deep-cloning the context per value
     and coding every chunk into a throwaway `Millibits` to adapt contexts nothing
     read;
   - compare the first four bytes as a word and then the byte that would lengthen
     the match, before `starts_with`;
-  - give each old string a 4-gram filter of its own (about 32 bits per byte), so
-    the scan skips strings that cannot hold the match, where `old_filter` only
-    says whether a gram is anywhere in a history it never forgets;
-  - keep one set of hash chains per thread and never clear it, numbering positions
-    from a base that moves past each value.
+  - give each old string a 4-gram filter of its own (about 32 bits per byte, up
+    to 4 KiB), so the scan skips strings that cannot hold the match, where
+    `old_filter` only says whether a gram is anywhere in a history it never
+    forgets;
+  - keep one set of hash chains per thread, numbering positions from a base that
+    moves past each value so that it need not be cleared. A value over 1 MiB gets
+    chains of its own, so that a thread does not keep their memory for good.
 
   **Holding the chains in the context was worse, and only the full suite showed
   it:** it made `single cards` **+20.6%**, because a type has one `Lz77` per

@@ -13,6 +13,7 @@ use expect_test::expect;
 
 const MIN_MATCH: usize = 5;
 const MAX_CHAIN: usize = 256;
+const BACK_WINDOW: usize = 64 * 1024;
 const LZ77_HASH_SIZE: usize = 1 << 16; // 65536 buckets
 
 #[inline]
@@ -48,9 +49,10 @@ impl OldFilter {
 
 /// Which 4-grams one old string holds, as a bitset over [`lz77_hash`], so the
 /// match search can pass over a string that cannot contain what it wants without
-/// reading it. Sized to the string, at about 32 bits per byte, which leaves few
-/// bits set and so few strings read for nothing. Empty on the decode side, which
-/// never searches, and an empty filter rules nothing out.
+/// reading it. Sized to the string, at about 32 bits per byte up to
+/// [`Self::MAX_WORDS`], which leaves few bits set and so few strings read for
+/// nothing. Empty on the decode side, which never searches, and an empty filter
+/// rules nothing out.
 #[derive(Default, Clone)]
 struct GramFilter(Box<[u64]>);
 
@@ -95,9 +97,9 @@ struct OldString {
 ///
 /// The 256 KiB table is far bigger than most values, and filling it for each one
 /// was most of the cost of encoding short strings. So there is one per thread
-/// (see [`CHAINS`]), never cleared: positions are stored numbered from `base`,
-/// which moves past each value, and an entry below `base` is left over from an
-/// earlier one, which is to say empty.
+/// (see [`CHAINS`]), cleared only when the numbering runs out: positions are
+/// stored numbered from `base`, which moves past each value, so an entry below
+/// `base` is left over from an earlier one and ends its chain.
 #[derive(Default)]
 struct Chains {
     head: Vec<u32>,
@@ -106,6 +108,12 @@ struct Chains {
 }
 
 impl Chains {
+    /// The longest value to use [`CHAINS`]. `next` takes four bytes for each byte
+    /// of the value, and a thread would hold on to that for as long as it lives,
+    /// so a longer value gets chains of its own that go when it is done. Those
+    /// cost a fresh table, which is nothing beside searching a megabyte.
+    const MAX_SHARED_LEN: usize = 1 << 20;
+
     /// Get ready for a new value of `len` bytes.
     fn start(&mut self, len: usize) {
         self.head.resize(LZ77_HASH_SIZE, 0);
@@ -196,10 +204,10 @@ impl Lz77 {
             self.old.pop_back();
         }
     }
-    fn shift_chunk(&mut self, chunk: &Chunk) {
-        shift_old(&mut self.old, chunk);
-    }
     fn eager(&self, value: &[u8]) -> Vec<Chunk> {
+        if value.len() > Chains::MAX_SHARED_LEN {
+            return self.eager_with(value, &mut Chains::default());
+        }
         CHAINS.with_borrow_mut(|chains| self.eager_with(value, chains))
     }
     fn eager_with(&self, mut value: &[u8], chains: &mut Chains) -> Vec<Chunk> {
@@ -225,7 +233,6 @@ impl Lz77 {
         sofar: &mut Vec<u8>,
         chains: &mut Chains,
     ) -> Option<Chunk> {
-        const BACK_WINDOW: usize = 64 * 1024;
         let mut literal = Vec::with_capacity(value.len());
         while !value.is_empty() {
             let prefix = if value.len() > u8::MAX as usize {
@@ -388,7 +395,7 @@ impl Lz77 {
         for chunk in chunks {
             sentinel.encode(writer);
             Normal::encode(&chunk, writer, self);
-            self.shift_chunk(&chunk);
+            shift_old(&mut self.old, &chunk);
         }
         self.push_old(value.to_vec());
     }
@@ -466,7 +473,7 @@ impl Lz77 {
                     "corrupt stream: Lz77 match names a string not yet decoded",
                 ));
             }
-            self.shift_chunk(chunk);
+            shift_old(&mut self.old, chunk);
             let matched = chunk
                 .offset
                 .checked_add(length)
@@ -513,6 +520,39 @@ fn chains_kept_between_values_do_not_change_the_chunks() {
             ctx.push_old(value.to_vec());
         }
     }
+}
+
+/// The chains outlive the value they were built for, so a long one must not leave
+/// the thread holding memory for the rest of its life.
+#[test]
+fn a_long_value_leaves_nothing_in_the_shared_chains() {
+    let capacity = || CHAINS.with_borrow(|chains| chains.next.capacity());
+    let before = capacity();
+    let long = vec![0; Chains::MAX_SHARED_LEN + 1];
+    let chunks = Lz77::default().eager(&long);
+    let coded: usize = chunks
+        .iter()
+        .map(|chunk| chunk.literal.len() + chunk.length as usize)
+        .sum();
+    assert_eq!(coded, long.len());
+    assert_eq!(capacity(), before);
+}
+
+/// A string its filter passes over still spends its part of the search's budget,
+/// as it did when every string was read. Skipping it for free would reach strings
+/// further back, and so change the output, with nothing else to notice: it would
+/// still decode.
+#[test]
+fn a_filtered_string_still_spends_the_search_budget() {
+    let wanted: &[u8] = b"the quick brown fox";
+    let chunks_past = |filler: usize| {
+        let mut ctx = Lz77::default();
+        ctx.push_old(wanted.to_vec());
+        ctx.push_old(vec![b'.'; filler]);
+        ctx.eager(wanted)
+    };
+    assert_eq!(chunks_past(100)[0].back, 2);
+    assert!(chunks_past(BACK_WINDOW).iter().all(|c| c.back == 0));
 }
 
 /// A filter that wrongly ruled a string out would silently lose its matches, and
@@ -755,6 +795,32 @@ pub(crate) fn find_first_longest_prefix(
         }
     }
     best
+}
+
+/// Nothing here is about speed, but the shortcuts in the search are where a
+/// match would get lost, and losing one only makes the output bigger.
+#[test]
+fn test_first_longest_prefix() {
+    let find = find_first_longest_prefix;
+    // The earliest of equals, and a longer one over an earlier one.
+    assert_eq!(find(b"abcde_abcde", b"abcde", 0), Some((0, 5)));
+    assert_eq!(find(b"abcde_abcdefg", b"abcdefgh", 0), Some((6, 7)));
+    // Past an offset that differs only in the last byte, or only between that
+    // and the first four.
+    assert_eq!(find(b"abcdX_abcde", b"abcde", 0), Some((6, 5)));
+    assert_eq!(find(b"abcdef_abcdXfg_abcdefg", b"abcdefgh", 0), Some((15, 7)));
+    assert_eq!(find(b"abXde", b"abcde", 0), None);
+    // A prefix of 2 to 4 bytes, the last two too short to compare as a word,
+    // and at the very end of the haystack, too short to have a word to compare.
+    assert_eq!(find(b"xxabcd", b"abcd", 0), Some((2, 4)));
+    assert_eq!(find(b"abXabc_", b"abc", 0), Some((3, 3)));
+    assert_eq!(find(b"xxabc", b"abc", 0), Some((2, 3)));
+    assert_eq!(find(b"xxab", b"ab", 0), Some((2, 2)));
+    assert_eq!(find(b"xxab", b"abc", 0), None);
+    assert_eq!(find(b"a", b"a", 0), None);
+    // A minimum holds the search to matches beating what it already has.
+    assert_eq!(find(b"abcdexabcdefg", b"abcdefg", 6), Some((6, 7)));
+    assert_eq!(find(b"abcdex", b"abcdefg", 6), None);
 }
 
 #[test]
