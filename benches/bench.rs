@@ -8,10 +8,12 @@
 //! - `<workload> decode` — each codec turns *its own* bytes back into values.
 //!   The `alloc` columns are what that cost in memory.
 //!
-//! `Range` is the baseline of both. `Ans` is the other candidate anyone asked
-//! about, so it is the only one counted when `scaling` decides how many
-//! comparisons it is correcting for; bincode and zstd are `uninteresting`,
-//! which means they are shown as a size against `Range` without a verdict.
+//! `main range` is the baseline of both: the tip of `main`'s `Range`, so `range`
+//! and `ans` say what this checkout changed and `main ans` where `Ans` stood before
+//! it (see `benches/versions.rs` for which `main` that is). Those are the candidates
+//! anyone asked about, so they are the only ones counted when `scaling` decides how
+//! many comparisons it is correcting for; bincode and zstd are `uninteresting`,
+//! which means they are shown as a size against the baseline without a verdict.
 //!
 //! A time is for the *whole corpus*, not for one value: the synthetic corpora
 //! are a thousand-odd values each, and the real ones are a single large value
@@ -39,11 +41,12 @@ use std::marker::PhantomData;
 
 use bincode1::{DefaultOptions, Options as _};
 use compactly::v2::{Ans, Range};
+use comparison_main::compactly as main_compactly;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use scaling::Metrics;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 mod support;
 
@@ -166,107 +169,72 @@ fn encode_every_codec<T: Encodable>(values: &[T]) -> Vec<Vec<Vec<u8>>> {
     ]
 }
 
-/// A comparison workload: a corpus, how every codec encodes it and how every
-/// codec decodes its own bytes back.
+/// What a decode returned, on either side, so that one `memory` metric takes both.
+/// The values are handed back rather than dropped, so a free is not timed.
+enum Decoded<H, M> {
+    Head(#[allow(dead_code)] Vec<H>),
+    Main(#[allow(dead_code)] Vec<M>),
+}
+
+/// One copy of compactly: the corpora derived against it, and every value the
+/// workloads are built from, which is everything here that names a corpus type.
 ///
-/// The corpus and its encodings are `build_once` inputs: `scaling` builds each
-/// once for its group and lends it to every call, so nothing is cloned or
-/// rebuilt per iteration. Nothing here consumes or changes an input: `encode`
-/// takes `&T`, `decode` takes `&[u8]`, and each returns something new.
-macro_rules! workload {
-    ($module:ident, $enc:literal, $dec:literal, $ty:ty, $make:expr) => {
-        mod $module {
+/// A macro, not a generic, because each copy's corpus types are different types.
+macro_rules! side {
+    ($side:ident, $compactly:ident, $corpora:ident) => {
+        #[allow(dead_code)]
+        mod $side {
+            // The renamed compactly and corpora come from here, and only their own
+            // side uses them.
+            #[allow(unused_imports)]
             use super::*;
+            use $compactly::v2::{Ans, Encode, Range};
+            pub use $corpora as comparison;
+            pub use $corpora::meteorites::{self, MeteoriteData};
+            pub use $corpora::shapes::MetNames;
+            pub use $corpora::suicide::SuicideFactors;
 
-            type T = $ty;
-            type Corpus = Vec<T>;
-            type Encoded = Vec<Vec<Vec<u8>>>;
-
-            #[scaling::input(group = $enc, name = "corpus", build_once)]
-            fn corpus() -> Corpus {
-                $make
+            pub fn encode_range<T: Encode>(values: &[T]) -> Vec<Vec<u8>> {
+                values.iter().map(|v| Range::encode(v)).collect()
             }
-
-            /// What every codec wrote for the corpus, each checked to round-trip.
-            #[scaling::input(group = $dec, name = "bytes", build_once)]
-            fn encoded() -> Encoded {
-                let corpus: Corpus = $make;
-                encode_every_codec(&corpus)
+            pub fn encode_ans<T: Encode>(values: &[T]) -> Vec<Vec<u8>> {
+                values.iter().map(|v| Ans::encode(v)).collect()
             }
-
-            #[scaling::bench(group = $enc, name = "range", baseline)]
-            fn encode_range(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<RangeCodec, T>(c)
+            pub fn decode_range<T: Encode>(bytes: &[Vec<u8>]) -> Vec<T> {
+                bytes.iter().map(|b| Range::decode(b).unwrap()).collect()
             }
-            #[scaling::bench(group = $enc, name = "ans")]
-            fn encode_ans(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<AnsCodec, T>(c)
-            }
-            #[scaling::bench(group = $enc, name = "bincode", uninteresting)]
-            fn encode_bincode(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<Bincode, T>(c)
-            }
-            #[scaling::bench(group = $enc, name = "bincode fixint", uninteresting)]
-            fn encode_bincode_fixint(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<BincodeFixint, T>(c)
-            }
-            #[scaling::bench(group = $enc, name = "zstd3", uninteresting)]
-            fn encode_zstd3(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<Zstd3, T>(c)
-            }
-            #[scaling::bench(group = $enc, name = "zstd9", uninteresting)]
-            fn encode_zstd9(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<Zstd9, T>(c)
-            }
-            #[scaling::bench(group = $enc, name = "zstd3 fixint", uninteresting)]
-            fn encode_zstd3_fixint(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<Zstd3Fixint, T>(c)
+            pub fn decode_ans<T: Encode>(bytes: &[Vec<u8>]) -> Vec<T> {
+                bytes.iter().map(|b| Ans::decode(b).unwrap()).collect()
             }
 
-            #[scaling::bench(group = $dec, name = "range", baseline)]
-            fn decode_range(e: &Encoded) -> Vec<T> {
-                decode_all::<RangeCodec, T>(&e[slot::RANGE])
-            }
-            #[scaling::bench(group = $dec, name = "ans")]
-            fn decode_ans(e: &Encoded) -> Vec<T> {
-                decode_all::<AnsCodec, T>(&e[slot::ANS])
-            }
-            #[scaling::bench(group = $dec, name = "bincode", uninteresting)]
-            fn decode_bincode(e: &Encoded) -> Vec<T> {
-                decode_all::<Bincode, T>(&e[slot::BINCODE])
-            }
-            #[scaling::bench(group = $dec, name = "bincode fixint", uninteresting)]
-            fn decode_bincode_fixint(e: &Encoded) -> Vec<T> {
-                decode_all::<BincodeFixint, T>(&e[slot::BINCODE_FIXINT])
-            }
-            #[scaling::bench(group = $dec, name = "zstd3", uninteresting)]
-            fn decode_zstd3(e: &Encoded) -> Vec<T> {
-                decode_all::<Zstd3, T>(&e[slot::ZSTD3])
-            }
-            #[scaling::bench(group = $dec, name = "zstd9", uninteresting)]
-            fn decode_zstd9(e: &Encoded) -> Vec<T> {
-                decode_all::<Zstd9, T>(&e[slot::ZSTD9])
-            }
-            #[scaling::bench(group = $dec, name = "zstd3 fixint", uninteresting)]
-            fn decode_zstd3_fixint(e: &Encoded) -> Vec<T> {
-                decode_all::<Zstd3Fixint, T>(&e[slot::ZSTD3_FIXINT])
+            pub fn one<T>(value: T) -> Vec<T> {
+                vec![value]
             }
 
-            /// Total bytes written, for the whole corpus.
-            #[scaling::metrics(group = $enc)]
-            fn size(out: Vec<Vec<u8>>) -> Metrics {
-                Metrics::new().bytes("size", out.iter().map(Vec::len).sum::<usize>())
+            pub fn suicide_factors() -> Vec<SuicideFactors> {
+                comparison::suicides_per_million().keys().cloned().collect()
             }
 
-            /// What decoding asked of the allocator: the most it held at once,
-            /// and how many times it asked.
-            #[scaling::metrics(group = $dec, allocation)]
-            fn memory(_out: Vec<T>) -> Metrics {
-                Metrics::new().peak_allocated_bytes().allocation_count()
+            pub fn suicide_rates() -> Vec<u16> {
+                comparison::suicides_per_million()
+                    .values()
+                    .copied()
+                    .collect()
+            }
+
+            pub fn individual_suicides() -> Vec<(SuicideFactors, u16)> {
+                comparison::suicides_per_million().into_iter().collect()
+            }
+
+            pub fn meteorite_names() -> BTreeSet<String> {
+                meteorites::meteorite_names().into_keys().collect()
             }
         }
     };
 }
+
+side!(head, compactly, comparison);
+side!(on_main, main_compactly, comparison_main);
 
 // ---- synthetic values, from one seed ----
 
@@ -298,6 +266,176 @@ fn long_vecs() -> Vec<Vec<usize>> {
         .collect()
 }
 
+/// A comparison workload: a corpus, how every codec encodes it and how every
+/// codec decodes its own bytes back.
+///
+/// `$ty` and `$make` are read twice, once in each copy of compactly's scope, so a
+/// workload is written once and each copy gets its own derived types. `main range`
+/// is the baseline, and the other crates run against this checkout's types.
+///
+/// The corpus and its encodings are `build_once` inputs: `scaling` builds each
+/// once for its group and lends it to every call, so nothing is cloned or
+/// rebuilt per iteration. Nothing here consumes or changes an input: `encode`
+/// takes `&T`, `decode` takes `&[u8]`, and each returns something new.
+macro_rules! workload {
+    ($module:ident, $enc:literal, $dec:literal, $ty:ty, $make:expr) => {
+        mod $module {
+            use super::*;
+
+            mod this_checkout {
+                #[allow(unused_imports)]
+                use crate::{head::*, *};
+
+                pub type T = $ty;
+                pub fn make() -> Vec<T> {
+                    $make
+                }
+            }
+
+            mod tip_of_main {
+                #[allow(unused_imports)]
+                use crate::{on_main::*, *};
+
+                pub type T = $ty;
+                pub fn make() -> Vec<T> {
+                    $make
+                }
+            }
+
+            type T = this_checkout::T;
+            type M = tip_of_main::T;
+            type Out = Decoded<T, M>;
+
+            struct Corpus {
+                head: Vec<T>,
+                main: Vec<M>,
+            }
+
+            /// What every codec wrote for the corpus, each checked to round-trip.
+            struct Bytes {
+                head: Vec<Vec<Vec<u8>>>,
+                main_range: Vec<Vec<u8>>,
+                main_ans: Vec<Vec<u8>>,
+            }
+
+            #[scaling::input(group = $enc, name = "corpus", build_once)]
+            fn corpus() -> Corpus {
+                Corpus {
+                    head: this_checkout::make(),
+                    main: tip_of_main::make(),
+                }
+            }
+
+            #[scaling::input(group = $dec, name = "bytes", build_once)]
+            fn encoded() -> Bytes {
+                let head = this_checkout::make();
+                let main = tip_of_main::make();
+                let bytes = Bytes {
+                    head: encode_every_codec(&head),
+                    main_range: on_main::encode_range(&main),
+                    main_ans: on_main::encode_ans(&main),
+                };
+                assert!(
+                    on_main::decode_range::<M>(&bytes.main_range) == main
+                        && on_main::decode_ans::<M>(&bytes.main_ans) == main,
+                    "main did not round-trip on {}",
+                    $enc
+                );
+                bytes
+            }
+
+            #[scaling::bench(group = $enc, name = "main range", baseline)]
+            fn encode_main_range(c: &Corpus) -> Vec<Vec<u8>> {
+                on_main::encode_range(&c.main)
+            }
+            #[scaling::bench(group = $enc, name = "main ans")]
+            fn encode_main_ans(c: &Corpus) -> Vec<Vec<u8>> {
+                on_main::encode_ans(&c.main)
+            }
+            #[scaling::bench(group = $enc, name = "range")]
+            fn encode_range(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<RangeCodec, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "ans")]
+            fn encode_ans(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<AnsCodec, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "bincode", uninteresting)]
+            fn encode_bincode(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<Bincode, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "bincode fixint", uninteresting)]
+            fn encode_bincode_fixint(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<BincodeFixint, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "zstd3", uninteresting)]
+            fn encode_zstd3(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<Zstd3, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "zstd9", uninteresting)]
+            fn encode_zstd9(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<Zstd9, T>(&c.head)
+            }
+            #[scaling::bench(group = $enc, name = "zstd3 fixint", uninteresting)]
+            fn encode_zstd3_fixint(c: &Corpus) -> Vec<Vec<u8>> {
+                encode_all::<Zstd3Fixint, T>(&c.head)
+            }
+
+            #[scaling::bench(group = $dec, name = "main range", baseline)]
+            fn decode_main_range(b: &Bytes) -> Out {
+                Decoded::Main(on_main::decode_range(&b.main_range))
+            }
+            #[scaling::bench(group = $dec, name = "main ans")]
+            fn decode_main_ans(b: &Bytes) -> Out {
+                Decoded::Main(on_main::decode_ans(&b.main_ans))
+            }
+            #[scaling::bench(group = $dec, name = "range")]
+            fn decode_range(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<RangeCodec, T>(&b.head[slot::RANGE]))
+            }
+            #[scaling::bench(group = $dec, name = "ans")]
+            fn decode_ans(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<AnsCodec, T>(&b.head[slot::ANS]))
+            }
+            #[scaling::bench(group = $dec, name = "bincode", uninteresting)]
+            fn decode_bincode(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<Bincode, T>(&b.head[slot::BINCODE]))
+            }
+            #[scaling::bench(group = $dec, name = "bincode fixint", uninteresting)]
+            fn decode_bincode_fixint(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<BincodeFixint, T>(
+                    &b.head[slot::BINCODE_FIXINT],
+                ))
+            }
+            #[scaling::bench(group = $dec, name = "zstd3", uninteresting)]
+            fn decode_zstd3(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<Zstd3, T>(&b.head[slot::ZSTD3]))
+            }
+            #[scaling::bench(group = $dec, name = "zstd9", uninteresting)]
+            fn decode_zstd9(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<Zstd9, T>(&b.head[slot::ZSTD9]))
+            }
+            #[scaling::bench(group = $dec, name = "zstd3 fixint", uninteresting)]
+            fn decode_zstd3_fixint(b: &Bytes) -> Out {
+                Decoded::Head(decode_all::<Zstd3Fixint, T>(&b.head[slot::ZSTD3_FIXINT]))
+            }
+
+            /// Total bytes written, for the whole corpus.
+            #[scaling::metrics(group = $enc)]
+            fn size(out: Vec<Vec<u8>>) -> Metrics {
+                Metrics::new().bytes("size", out.iter().map(Vec::len).sum::<usize>())
+            }
+
+            /// What decoding asked of the allocator: the most it held at once,
+            /// and how many times it asked.
+            #[scaling::metrics(group = $dec, allocation)]
+            fn memory(_out: Out) -> Metrics {
+                Metrics::new().peak_allocated_bytes().allocation_count()
+            }
+        }
+    };
+}
+
 workload!(
     usize_values,
     "usize encode",
@@ -326,42 +464,6 @@ workload!(
     Vec<usize>,
     long_vecs()
 );
-
-// ---- the `comparison` corpora ----
-
-use comparison::meteorites::{self, MeteoriteData};
-use comparison::suicide::SuicideFactors;
-
-/// A map whose values are mapped with a strategy of their own, which is not
-/// something `BTreeMap<String, _>` alone says.
-#[derive(Debug, PartialEq, Serialize, Deserialize, compactly::v2::Encode)]
-struct MetNames {
-    #[compactly(Mapping<Compressible, Normal>)]
-    mets: BTreeMap<String, MeteoriteData>,
-}
-
-fn one<T>(value: T) -> Vec<T> {
-    vec![value]
-}
-
-fn suicide_factors() -> Vec<SuicideFactors> {
-    comparison::suicides_per_million().keys().cloned().collect()
-}
-
-fn suicide_rates() -> Vec<u16> {
-    comparison::suicides_per_million()
-        .values()
-        .copied()
-        .collect()
-}
-
-fn individual_suicides() -> Vec<(SuicideFactors, u16)> {
-    comparison::suicides_per_million().into_iter().collect()
-}
-
-fn meteorite_names() -> BTreeSet<String> {
-    meteorites::meteorite_names().into_keys().collect()
-}
 
 workload!(
     books,

@@ -6,9 +6,10 @@
 //!   chunk? (needs the `stream` feature)
 //!
 //! Each route is a group and each workload an input to all of them, so a plain
-//! `cargo bench --bench coders` prints the whole grid, and `--features stream`
-//! adds the stream routes and `overlap`. A run takes about six minutes. To look at
-//! less, add a `filter_groups` or `filter_inputs` to the [`Config`] in `main`.
+//! `cargo bench --bench coders` prints the whole grid against `main`, and `--features
+//! stream` adds the stream routes and `overlap`, which is inside one build and has no
+//! `main` rows. To look at less, add a `filter_groups` or `filter_inputs` to the
+//! [`Config`] in `main`.
 //!
 //! `ipv6.txt` is a local corpus, not part of the repository, read from the
 //! current directory. Its workload is left out, with a note on stderr, when the

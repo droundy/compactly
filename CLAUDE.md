@@ -104,6 +104,16 @@ running a benchmark here:
   (OPTIMIZING.md, "Fresh data by default"). `build_once` (built once per group and
   lent to every call; no `Clone`) is for a real corpus or a deterministic
   sequence, which have only one value to offer.
+- **Measure against `main`.** `bench`, `coders`, `strategies` and `versions` hold
+  two copies of the library in one binary, this checkout and the tip of `main`, and
+  `main`'s `Range` is each group's baseline: `scaling` pairs the calls, which two
+  separate runs cannot do. A new candidate that exercises the library gets a `main`
+  row too. The derive binds to its crate's own `compactly`, so a type a bench derives
+  `Encode` for belongs in `comparison/src/shapes.rs`, where each twin derives it
+  against its own copy. A workload's type and data are read once in each copy's
+  scope, and `support::same_seeds` hands both copies the same new data. The
+  exceptions are the walk shootout and `overlap`, which ask questions inside one
+  build.
 - **Keep the benches few.** Dozens of one-workload binaries accumulated in
   `src/bin/` and were folded into `benches/` and then cut down; the questions they
   answered are recorded in OPTIMIZING.md and the binaries are in git history. A new

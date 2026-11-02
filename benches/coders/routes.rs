@@ -11,7 +11,10 @@
 //!
 //! Each route is a group, and each workload an input to every group, so the
 //! library prints the table this crate used to assemble with a shell script:
-//! a row per coder, a column per workload, `Range` the baseline.
+//! a row per coder, a column per workload. Each coder runs twice, on this checkout
+//! and as `main …` on the tip of `main` (see `benches/versions.rs` for which `main`
+//! that is), and `main range` is the baseline, so a branch sees what it changed.
+//! `ans` against `Range` on one copy is then the gap between its two rows.
 //!
 //! Decoding:
 //!
@@ -40,7 +43,7 @@
 //! Every workload runs identical harness code — a comparison across routes or
 //! coders is only worth anything if nothing but the route or coder differs. A
 //! time is for one whole call, which is one whole value: use the workload's
-//! element count (in OPTIMIZING.md, or `Case::elements`) to get a per-element
+//! element count (in OPTIMIZING.md, or `Case::head_elements`) to get a per-element
 //! cost.
 //!
 //! The workloads: `u64` and `u64 seq` (random and consecutive, 100k), `u64
@@ -60,25 +63,130 @@ use std::net::Ipv6Addr;
 
 #[cfg(feature = "stream")]
 use compactly::v2::decode_stream;
-use compactly::v2::{Ans, AtMost, Encode, Range};
-use compactly::{Compressible, Encoded};
+use compactly::v2::{Ans, Range};
+use comparison_main::compactly as main_compactly;
 use scaling::Metrics;
 
-/// A value, and what each coder wrote for it.
+/// A value, and what each coder of one copy of compactly wrote for it.
+#[derive(Clone)]
+pub struct Written<V> {
+    value: V,
+    range: Vec<u8>,
+    ans: Vec<u8>,
+}
+
+/// One copy of compactly: its `Encode`, and the values that have to be built from
+/// its types. A macro, not a generic, because each copy's `Encode` is a different
+/// trait and each copy's derived types are different types.
+macro_rules! side {
+    ($side:ident, $compactly:ident, $corpora:ident) => {
+        pub mod $side {
+            // The renamed compactly and corpora come from here, and the generators
+            // from the data below.
+            #[allow(unused_imports)]
+            use super::*;
+            pub use $compactly::v2::{Ans, AtMost, Encode, Range};
+            pub use $compactly::{Compressible, Encoded};
+            pub use $corpora::shapes::{Record, SeventeenOptions, ThreeOptions, WideRecord};
+
+            pub fn write<V: Encode>(value: V) -> Written<V> {
+                let range = Range::encode(&value);
+                let ans = Ans::encode(&value);
+                Written { value, range, ans }
+            }
+
+            pub fn round_trips<V: Encode + PartialEq>(w: &Written<V>) -> bool {
+                Range::decode::<V>(&w.range).unwrap() == w.value
+                    && Ans::decode::<V>(&w.ans).unwrap() == w.value
+            }
+
+            pub fn records() -> (Vec<Record>, Vec<WideRecord>) {
+                let mut rng = seeded_lcg(0x243f_6a88_85a3_08d3);
+                let mut narrow = Vec::new();
+                let mut wide = Vec::new();
+                for name in meteorite_names() {
+                    let (id, r) = (rng(), rng());
+                    narrow.push(Record {
+                        id,
+                        count: r as u32,
+                        name: name.clone(),
+                        active: r & 1 == 0,
+                    });
+                    wide.push(WideRecord {
+                        id,
+                        count: r as u32,
+                        a: rng(),
+                        b: rng(),
+                        c: rng() as u32,
+                        d: rng() as u16,
+                        name,
+                        active: r & 1 == 0,
+                    });
+                }
+                (narrow, wide)
+            }
+
+            /// 20% A, 20% B, 60% C — the skew the `btreeset<vec![ThreeOptions; 15]>`
+            /// case in `benches/bench.rs` uses.
+            pub fn three() -> Vec<ThreeOptions> {
+                let mut rng = lcg();
+                (0..100_000)
+                    .map(|_| match (rng() >> 33) % 10 {
+                        0 | 1 => ThreeOptions::A,
+                        2 | 3 => ThreeOptions::B,
+                        _ => ThreeOptions::C,
+                    })
+                    .collect()
+            }
+
+            pub fn seventeen() -> Vec<SeventeenOptions> {
+                use SeventeenOptions::*;
+                const VARIANTS: [SeventeenOptions; 17] =
+                    [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q];
+                let mut rng = lcg();
+                (0..100_000)
+                    .map(|_| VARIANTS[((rng() >> 33) % 17) as usize])
+                    .collect()
+            }
+
+            pub fn atmost<const MAX: usize>() -> Vec<AtMost<MAX>> {
+                let mut rng = lcg();
+                (0..50_000)
+                    .map(|_| AtMost::<MAX>::new(((rng() >> 33) as usize) % (MAX + 1)))
+                    .collect()
+            }
+
+            /// The meteorite CSV, as bytes for `Compressible`'s Lz77 to chew on.
+            pub fn csv() -> Encoded<Vec<u8>, Compressible> {
+                Encoded::new(
+                    include_str!("../../comparison/src/meteorites.csv")
+                        .as_bytes()
+                        .to_vec(),
+                )
+            }
+        }
+    };
+}
+
+side!(head, compactly, comparison);
+side!(on_main, main_compactly, comparison_main);
+
+/// A workload, on both copies of compactly.
 pub trait Case: 'static {
-    type Value: Encode + PartialEq;
-    fn value(&self) -> &Self::Value;
-    /// What `Range` wrote.
-    fn range(&self) -> &[u8];
-    /// What `Ans` wrote.
-    fn ans(&self) -> &[u8];
+    type Head: head::Encode + PartialEq;
+    type Main: on_main::Encode + PartialEq;
+    fn head(&self) -> &Written<Self::Head>;
+    fn main(&self) -> &Written<Self::Main>;
     /// How many elements a decode produces. Every route folds it over the
     /// decoded value, so a decode cannot be optimized away.
-    fn elements(value: &Self::Value) -> usize;
+    fn head_elements(value: &Self::Head) -> usize;
+    fn main_elements(value: &Self::Main) -> usize;
 }
 
 /// Declare a workload: the type that names it, the module that holds its input,
-/// the name it is reported under, its value type and how to build one.
+/// the name it is reported under, its value type and how to build one. `$ty` and
+/// `$make` are read twice, in each copy of compactly's scope, and both copies get
+/// the same data.
 ///
 /// `scaling` builds the input anew for every call, and clones it so that both
 /// coders of a round see the same data, so `$make` should draw new data each time:
@@ -88,46 +196,45 @@ pub trait Case: 'static {
 /// once per route. The first value built is checked to round-trip on both coders.
 macro_rules! case {
     ($case:ident, $module:ident, $name:literal, $ty:ty, $make:expr $(, $mode:ident)?) => {
-        #[derive(Clone)]
-        pub struct $case {
-            value: $ty,
-            range: Vec<u8>,
-            ans: Vec<u8>,
-        }
-
-        impl Case for $case {
-            type Value = $ty;
-            fn value(&self) -> &$ty {
-                &self.value
-            }
-            fn range(&self) -> &[u8] {
-                &self.range
-            }
-            fn ans(&self) -> &[u8] {
-                &self.ans
-            }
-            fn elements(value: &$ty) -> usize {
-                value.len()
-            }
-        }
-
         mod $module {
             use super::*;
 
+            pub mod this_checkout {
+                #[allow(unused_imports)]
+                use crate::routes::{head::*, *};
+
+                pub type V = $ty;
+                pub fn make() -> V {
+                    $make
+                }
+            }
+
+            pub mod tip_of_main {
+                #[allow(unused_imports)]
+                use crate::routes::{on_main::*, *};
+
+                pub type V = $ty;
+                pub fn make() -> V {
+                    $make
+                }
+            }
+
             fn build() -> $case {
                 static CHECKED: std::sync::Once = std::sync::Once::new();
-                let value: $ty = $make;
-                let range = Range::encode(&value);
-                let ans = Ans::encode(&value);
+                let (head_value, main_value) =
+                    crate::support::same_seeds(this_checkout::make, tip_of_main::make);
+                let case = $case {
+                    head: head::write(head_value),
+                    main: on_main::write(main_value),
+                };
                 CHECKED.call_once(|| {
                     assert!(
-                        Range::decode::<$ty>(&range).unwrap() == value
-                            && Ans::decode::<$ty>(&ans).unwrap() == value,
+                        head::round_trips(&case.head) && on_main::round_trips(&case.main),
                         "{} did not round-trip",
                         $name
                     );
                 });
-                $case { value, range, ans }
+                case
             }
 
             #[cfg(feature = "stream")]
@@ -148,6 +255,29 @@ macro_rules! case {
                             )]
             fn input() -> $case {
                 build()
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct $case {
+            head: Written<$module::this_checkout::V>,
+            main: Written<$module::tip_of_main::V>,
+        }
+
+        impl Case for $case {
+            type Head = $module::this_checkout::V;
+            type Main = $module::tip_of_main::V;
+            fn head(&self) -> &Written<Self::Head> {
+                &self.head
+            }
+            fn main(&self) -> &Written<Self::Main> {
+                &self.main
+            }
+            fn head_elements(value: &Self::Head) -> usize {
+                value.len()
+            }
+            fn main_elements(value: &Self::Main) -> usize {
+                value.len()
             }
         }
     };
@@ -197,91 +327,6 @@ fn meteorite_names() -> BTreeSet<String> {
         .collect()
 }
 
-/// A record shaped the way streamed data usually is: a short string beside a
-/// couple of integers — the shape callers actually stream.
-#[derive(Debug, Clone, PartialEq, compactly::v2::Encode)]
-pub struct Record {
-    id: u64,
-    count: u32,
-    name: String,
-    active: bool,
-}
-
-/// The same record with the integer side widened, which holds the number of
-/// string characters fixed while adding non-string work around them.
-#[derive(Debug, Clone, PartialEq, compactly::v2::Encode)]
-pub struct WideRecord {
-    id: u64,
-    count: u32,
-    a: u64,
-    b: u64,
-    c: u32,
-    d: u16,
-    name: String,
-    active: bool,
-}
-
-fn records() -> (Vec<Record>, Vec<WideRecord>) {
-    let mut rng = seeded_lcg(0x243f_6a88_85a3_08d3);
-    let mut narrow = Vec::new();
-    let mut wide = Vec::new();
-    for name in meteorite_names() {
-        let (id, r) = (rng(), rng());
-        narrow.push(Record {
-            id,
-            count: r as u32,
-            name: name.clone(),
-            active: r & 1 == 0,
-        });
-        wide.push(WideRecord {
-            id,
-            count: r as u32,
-            a: rng(),
-            b: rng(),
-            c: rng() as u32,
-            d: rng() as u16,
-            name,
-            active: r & 1 == 0,
-        });
-    }
-    (narrow, wide)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, compactly::v2::Encode)]
-pub enum ThreeOptions {
-    A,
-    B,
-    C,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, compactly::v2::Encode)]
-#[rustfmt::skip]
-pub enum SeventeenOptions {
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q,
-}
-
-/// 20% A, 20% B, 60% C — the skew the `btreeset<vec![ThreeOptions; 15]>` case
-/// in `benches/bench.rs` uses.
-fn three() -> Vec<ThreeOptions> {
-    let mut rng = lcg();
-    (0..100_000)
-        .map(|_| match (rng() >> 33) % 10 {
-            0 | 1 => ThreeOptions::A,
-            2 | 3 => ThreeOptions::B,
-            _ => ThreeOptions::C,
-        })
-        .collect()
-}
-
-fn seventeen() -> Vec<SeventeenOptions> {
-    use SeventeenOptions::*;
-    const VARIANTS: [SeventeenOptions; 17] = [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q];
-    let mut rng = lcg();
-    (0..100_000)
-        .map(|_| VARIANTS[((rng() >> 33) % 17) as usize])
-        .collect()
-}
-
 /// Non-integer `f64`s, so decode takes the raw-bits path rather than the
 /// integer fast path.
 fn floats() -> Vec<f64> {
@@ -297,22 +342,6 @@ fn floats() -> Vec<f64> {
             f64::from_bits(bits)
         })
         .collect()
-}
-
-fn atmost<const MAX: usize>() -> Vec<AtMost<MAX>> {
-    let mut rng = lcg();
-    (0..50_000)
-        .map(|_| AtMost::<MAX>::new(((rng() >> 33) as usize) % (MAX + 1)))
-        .collect()
-}
-
-/// The meteorite CSV, as bytes for `Compressible`'s Lz77 to chew on.
-fn csv() -> Encoded<Vec<u8>, Compressible> {
-    Encoded::new(
-        include_str!("../../comparison/src/meteorites.csv")
-            .as_bytes()
-            .to_vec(),
-    )
 }
 
 // ---------- the workloads ----------
@@ -480,77 +509,157 @@ mod source {
 
 macro_rules! routes {
     ($($case:ident),+ $(,)?) => {
-        #[scaling::bench(group = "slice", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "slice", name = "main range", baseline, types($($case),+))]
+        fn slice_main_range<C: Case>(c: &C) -> usize {
+            C::main_elements(&main_compactly::v2::decode::<C::Main>(&c.main().range).unwrap())
+        }
+        #[scaling::bench(group = "slice", name = "main ans", types($($case),+))]
+        fn slice_main_ans<C: Case>(c: &C) -> usize {
+            C::main_elements(&on_main::Ans::decode::<C::Main>(&c.main().ans).unwrap())
+        }
+        #[scaling::bench(group = "slice", name = "range", types($($case),+))]
         fn slice_range<C: Case>(c: &C) -> usize {
-            C::elements(&compactly::v2::decode::<C::Value>(c.range()).unwrap())
+            C::head_elements(&compactly::v2::decode::<C::Head>(&c.head().range).unwrap())
         }
         #[scaling::bench(group = "slice", name = "ans", types($($case),+))]
         fn slice_ans<C: Case>(c: &C) -> usize {
-            C::elements(&Ans::decode::<C::Value>(c.ans()).unwrap())
+            C::head_elements(&Ans::decode::<C::Head>(&c.head().ans).unwrap())
         }
 
-        #[scaling::bench(group = "from", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "from", name = "main range", baseline, types($($case),+))]
+        fn from_main_range<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &on_main::Range::decode_from::<C::Main, _>(c.main().range.as_slice()).unwrap(),
+            )
+        }
+        #[scaling::bench(group = "from", name = "main ans", types($($case),+))]
+        fn from_main_ans<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &on_main::Ans::decode_from::<C::Main, _>(c.main().ans.as_slice()).unwrap(),
+            )
+        }
+        #[scaling::bench(group = "from", name = "range", types($($case),+))]
         fn from_range<C: Case>(c: &C) -> usize {
-            C::elements(&Range::decode_from::<C::Value, _>(c.range()).unwrap())
+            C::head_elements(&Range::decode_from::<C::Head, _>(c.head().range.as_slice()).unwrap())
         }
         #[scaling::bench(group = "from", name = "ans", types($($case),+))]
         fn from_ans<C: Case>(c: &C) -> usize {
-            C::elements(&Ans::decode_from::<C::Value, _>(c.ans()).unwrap())
+            C::head_elements(&Ans::decode_from::<C::Head, _>(c.head().ans.as_slice()).unwrap())
         }
 
         #[cfg(feature = "stream")]
-        #[scaling::bench(group = "stream", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "stream", name = "main range", baseline, types($($case),+))]
+        fn stream_main_range<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &source::block_on(main_compactly::v2::decode_stream::<C::Main, _, _>(
+                    source::Chunks::new(&c.main().range, 64),
+                ))
+                .unwrap(),
+            )
+        }
+        #[cfg(feature = "stream")]
+        #[scaling::bench(group = "stream", name = "main ans", types($($case),+))]
+        fn stream_main_ans<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &source::block_on(on_main::Ans::decode_stream::<C::Main, _, _>(
+                    source::Chunks::new(&c.main().ans, 64),
+                ))
+                .unwrap(),
+            )
+        }
+        #[cfg(feature = "stream")]
+        #[scaling::bench(group = "stream", name = "range", types($($case),+))]
         fn stream_range<C: Case>(c: &C) -> usize {
-            C::elements(
-                &source::block_on(decode_stream::<C::Value, _, _>(source::Chunks::new(c.range(), 64)))
+            C::head_elements(
+                &source::block_on(decode_stream::<C::Head, _, _>(source::Chunks::new(&c.head().range, 64)))
                     .unwrap(),
             )
         }
         #[cfg(feature = "stream")]
         #[scaling::bench(group = "stream", name = "ans", types($($case),+))]
         fn stream_ans<C: Case>(c: &C) -> usize {
-            C::elements(
-                &source::block_on(Ans::decode_stream::<C::Value, _, _>(source::Chunks::new(c.ans(), 64)))
+            C::head_elements(
+                &source::block_on(Ans::decode_stream::<C::Head, _, _>(source::Chunks::new(&c.head().ans, 64)))
                     .unwrap(),
             )
         }
 
         #[cfg(feature = "stream")]
-        #[scaling::bench(group = "stream 2", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "stream 2", name = "main range", baseline, types($($case),+))]
+        fn stream_2_main_range<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &source::block_on(main_compactly::v2::decode_stream::<C::Main, _, _>(
+                    source::Chunks::new(&c.main().range, 2),
+                ))
+                .unwrap(),
+            )
+        }
+        #[cfg(feature = "stream")]
+        #[scaling::bench(group = "stream 2", name = "main ans", types($($case),+))]
+        fn stream_2_main_ans<C: Case>(c: &C) -> usize {
+            C::main_elements(
+                &source::block_on(on_main::Ans::decode_stream::<C::Main, _, _>(
+                    source::Chunks::new(&c.main().ans, 2),
+                ))
+                .unwrap(),
+            )
+        }
+        #[cfg(feature = "stream")]
+        #[scaling::bench(group = "stream 2", name = "range", types($($case),+))]
         fn stream_2_range<C: Case>(c: &C) -> usize {
-            C::elements(
-                &source::block_on(decode_stream::<C::Value, _, _>(source::Chunks::new(c.range(), 2)))
+            C::head_elements(
+                &source::block_on(decode_stream::<C::Head, _, _>(source::Chunks::new(&c.head().range, 2)))
                     .unwrap(),
             )
         }
         #[cfg(feature = "stream")]
         #[scaling::bench(group = "stream 2", name = "ans", types($($case),+))]
         fn stream_2_ans<C: Case>(c: &C) -> usize {
-            C::elements(
-                &source::block_on(Ans::decode_stream::<C::Value, _, _>(source::Chunks::new(c.ans(), 2)))
+            C::head_elements(
+                &source::block_on(Ans::decode_stream::<C::Head, _, _>(source::Chunks::new(&c.head().ans, 2)))
                     .unwrap(),
             )
         }
 
-        #[scaling::bench(group = "encode", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "encode", name = "main range", baseline, types($($case),+))]
+        fn encode_main_range<C: Case>(c: &C) -> Vec<u8> {
+            main_compactly::v2::encode(&c.main().value)
+        }
+        #[scaling::bench(group = "encode", name = "main ans", types($($case),+))]
+        fn encode_main_ans<C: Case>(c: &C) -> Vec<u8> {
+            on_main::Ans::encode(&c.main().value)
+        }
+        #[scaling::bench(group = "encode", name = "range", types($($case),+))]
         fn encode_range<C: Case>(c: &C) -> Vec<u8> {
-            compactly::v2::encode(c.value())
+            compactly::v2::encode(&c.head().value)
         }
         #[scaling::bench(group = "encode", name = "ans", types($($case),+))]
         fn encode_ans<C: Case>(c: &C) -> Vec<u8> {
-            Ans::encode(c.value())
+            Ans::encode(&c.head().value)
         }
 
-        #[scaling::bench(group = "encode-to", name = "range", baseline, types($($case),+))]
+        #[scaling::bench(group = "encode-to", name = "main range", baseline, types($($case),+))]
+        fn encode_to_main_range<C: Case>(c: &C) -> Vec<u8> {
+            let mut sink = Vec::new();
+            main_compactly::v2::encode_to(&c.main().value, &mut sink).unwrap();
+            sink
+        }
+        #[scaling::bench(group = "encode-to", name = "main ans", types($($case),+))]
+        fn encode_to_main_ans<C: Case>(c: &C) -> Vec<u8> {
+            let mut sink = Vec::new();
+            on_main::Ans::encode_to(&c.main().value, &mut sink).unwrap();
+            sink
+        }
+        #[scaling::bench(group = "encode-to", name = "range", types($($case),+))]
         fn encode_to_range<C: Case>(c: &C) -> Vec<u8> {
             let mut sink = Vec::new();
-            compactly::v2::encode_to(c.value(), &mut sink).unwrap();
+            compactly::v2::encode_to(&c.head().value, &mut sink).unwrap();
             sink
         }
         #[scaling::bench(group = "encode-to", name = "ans", types($($case),+))]
         fn encode_to_ans<C: Case>(c: &C) -> Vec<u8> {
             let mut sink = Vec::new();
-            Ans::encode_to(c.value(), &mut sink).unwrap();
+            Ans::encode_to(&c.head().value, &mut sink).unwrap();
             sink
         }
     };

@@ -28,9 +28,20 @@ use scaling::Config;
 /// predictor learns (see "Fresh data by default" in OPTIMIZING.md). The counter is
 /// scrambled so that neighbouring seeds do not give related sequences.
 pub fn new_seed() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+    NEXT_SEED
+        .fetch_add(1, Ordering::Relaxed)
         .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+static NEXT_SEED: AtomicU64 = AtomicU64::new(1);
+
+/// Build one value for each side of a comparison, each seeing the same seeds, so
+/// that this checkout and `main` are handed the same data even when it is new.
+pub fn same_seeds<A, B>(a: impl FnOnce() -> A, b: impl FnOnce() -> B) -> (A, B) {
+    let start = NEXT_SEED.load(Ordering::Relaxed);
+    let a = a();
+    NEXT_SEED.store(start, Ordering::Relaxed);
+    (a, b())
 }
 
 /// Make the allocator behave the same wherever a benchmark runs.

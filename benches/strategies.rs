@@ -4,9 +4,14 @@
 //! comparisons over it, `<workload> encode` and `<workload> decode`. The
 //! candidates are compactly's strategies under both coders (`…/rng` is `Range`,
 //! `…/ans` is `Ans`, so a strategy's two coders sit side by side) and, for
-//! reference, bincode and bitcode. The baseline is `norm/rng`: the default
-//! strategy on the default coder, which is what a caller who chose nothing gets,
-//! so every other cell reads as "what choosing this instead would have done".
+//! reference, bincode and bitcode. Each strategy is measured twice, on this checkout
+//! and as `main …` on the tip of `main` (see `benches/versions.rs` for which `main`
+//! that is), so a branch sees what it changed.
+//!
+//! The baseline is `main norm/rng`: the default strategy on the default coder, which
+//! is what a caller who chose nothing gets. A `main …` row reads as "what choosing
+//! this instead does today", and the gap between a row and its `main …` as what this
+//! checkout changed about it.
 //!
 //! compactly's strategies are the candidates the survey is about, so each is
 //! counted when `scaling` corrects for how many questions it was asked. The
@@ -36,14 +41,13 @@
 //! cargo bench --bench strategies
 //! ```
 //!
-//! A full run asks a few hundred questions at once, so `scaling` judges each more
-//! strictly than it would a small one, and takes about a quarter of an hour.
+//! A full run asks several hundred questions at once, so `scaling` judges each more
+//! strictly than it would a small one, and takes a while.
 
 use std::marker::PhantomData;
 
 use bincode::config::standard;
-use compactly::v2::{Ans, Range};
-use compactly::{Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values};
+use comparison_main::compactly as main_compactly;
 use rand::distributions::{Distribution, Standard};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -55,52 +59,72 @@ const N: usize = 8192;
 
 // ---------- the codecs ----------
 
-/// A coder, as far as this survey needs to tell `Range` from `Ans`.
-trait Coder {
-    fn encode<T: compactly::v2::Encode>(value: &T) -> Vec<u8>;
-    fn decode<T: compactly::v2::Encode>(bytes: &[u8]) -> T;
-}
-
-struct RangeCoder;
-impl Coder for RangeCoder {
-    fn encode<T: compactly::v2::Encode>(value: &T) -> Vec<u8> {
-        Range::encode(value)
-    }
-    fn decode<T: compactly::v2::Encode>(bytes: &[u8]) -> T {
-        Range::decode(bytes).unwrap()
-    }
-}
-
-struct AnsCoder;
-impl Coder for AnsCoder {
-    fn encode<T: compactly::v2::Encode>(value: &T) -> Vec<u8> {
-        Ans::encode(value)
-    }
-    fn decode<T: compactly::v2::Encode>(bytes: &[u8]) -> T {
-        Ans::decode(bytes).unwrap()
-    }
-}
-
 /// A way of turning a vector of `E` into bytes and back.
 trait Scheme<E> {
     fn encode(data: &[E]) -> Vec<u8>;
     fn decode(bytes: &[u8]) -> Vec<E>;
 }
 
-/// A `Vec<E>` encoded by coder `C` under strategy `S`.
-struct Via<C, S>(PhantomData<(C, S)>);
+/// One copy of compactly, as far as this survey needs to tell one from another.
+///
+/// A macro, not a generic, because each copy's `Encode` is a different trait.
+macro_rules! side {
+    ($side:ident, $compactly:ident) => {
+        mod $side {
+            // The renamed compactly is the only thing this needs that is not `Scheme`.
+            #[allow(unused_imports)]
+            use super::*;
+            use $compactly::v2::{Ans, Encode, Range};
+            pub use $compactly::{
+                Encoded, Incompressible, LowCardinality, Normal, Small, Sorted, Values,
+            };
 
-impl<E: Clone, C: Coder, S> Scheme<E> for Via<C, S>
-where
-    Encoded<Vec<E>, S>: compactly::v2::Encode,
-{
-    fn encode(data: &[E]) -> Vec<u8> {
-        C::encode(&Encoded::<Vec<E>, S>::from(data.to_vec()))
-    }
-    fn decode(bytes: &[u8]) -> Vec<E> {
-        C::decode::<Encoded<Vec<E>, S>>(bytes).value()
-    }
+            /// A coder, as far as this survey needs to tell `Range` from `Ans`.
+            pub trait Coder {
+                fn encode<T: Encode>(value: &T) -> Vec<u8>;
+                fn decode<T: Encode>(bytes: &[u8]) -> T;
+            }
+
+            pub struct RangeCoder;
+            impl Coder for RangeCoder {
+                fn encode<T: Encode>(value: &T) -> Vec<u8> {
+                    Range::encode(value)
+                }
+                fn decode<T: Encode>(bytes: &[u8]) -> T {
+                    Range::decode(bytes).unwrap()
+                }
+            }
+
+            pub struct AnsCoder;
+            impl Coder for AnsCoder {
+                fn encode<T: Encode>(value: &T) -> Vec<u8> {
+                    Ans::encode(value)
+                }
+                fn decode<T: Encode>(bytes: &[u8]) -> T {
+                    Ans::decode(bytes).unwrap()
+                }
+            }
+
+            /// A `Vec<E>` encoded by coder `C` under strategy `S`.
+            pub struct Via<C, S>(PhantomData<(C, S)>);
+
+            impl<E: Clone, C: Coder, S> Scheme<E> for Via<C, S>
+            where
+                Encoded<Vec<E>, S>: Encode,
+            {
+                fn encode(data: &[E]) -> Vec<u8> {
+                    C::encode(&Encoded::<Vec<E>, S>::from(data.to_vec()))
+                }
+                fn decode(bytes: &[u8]) -> Vec<E> {
+                    C::decode::<Encoded<Vec<E>, S>>(bytes).value()
+                }
+            }
+        }
+    };
 }
+
+side!(head, compactly);
+side!(on_main, main_compactly);
 
 struct Bincode;
 impl<E: Clone> Scheme<E> for Bincode
@@ -132,19 +156,21 @@ where
 
 // ---------- the comparison ----------
 
-/// One workload: a corpus, and for every candidate listed how it encodes it
-/// and decodes its own bytes back. A candidate may be tagged `baseline` or
-/// `uninteresting`.
+/// One workload: a corpus, and for every candidate listed how it encodes it and
+/// decodes its own bytes back. A `coded` candidate is registered for both copies of
+/// compactly, under its two labels, and its `$scheme` is read once in each copy's
+/// scope; `other` is everything that is not compactly, once. A flag on a `coded`
+/// candidate goes to its `main` row, which is what makes `main` the baseline.
 ///
 /// The corpus and every candidate's bytes are `scaling`'s default kind of input:
 /// built anew for every call, and cloned so that the candidates of a round see the
 /// same data. The first bytes built are checked to round-trip for every candidate.
-/// Each candidate is a module of its own so that its two functions can both be
-/// called `encode` and `decode`.
+/// Each candidate is a module of its own so that its functions can share names.
 macro_rules! survey {
     (
         $module:ident, $enc:literal, $dec:literal, $elem:ty, $data:expr,
-        $( ($cand:ident, $label:literal, $scheme:ty $(, $flag:ident)?) ),+ $(,)?
+        coded: [ $( ($cand:ident, $label:literal, $main_label:literal, $scheme:ty $(, $flag:ident)?) ),+ $(,)? ],
+        other: [ $( ($other:ident, $other_label:literal, $other_scheme:ty, $other_flag:ident) ),* $(,)? ] $(,)?
     ) => {
         mod $module {
             use super::*;
@@ -152,10 +178,18 @@ macro_rules! survey {
             type E = $elem;
             type Corpus = Vec<E>;
 
+            /// What one copy of compactly wrote for the corpus.
+            #[derive(Clone)]
+            struct Written {
+                $( $cand: Vec<u8>, )+
+            }
+
             /// What each candidate wrote for the corpus.
             #[derive(Clone)]
             struct Bytes {
-                $( $cand: Vec<u8>, )+
+                head: Written,
+                main: Written,
+                $( $other: Vec<u8>, )*
             }
 
             #[scaling::input(group = $enc, name = "values")]
@@ -167,33 +201,76 @@ macro_rules! survey {
             fn bytes() -> Bytes {
                 static CHECKED: std::sync::Once = std::sync::Once::new();
                 let corpus: Corpus = $data;
-                $( let $cand = <$scheme as Scheme<E>>::encode(&corpus); )+
+                let head = Written {
+                    $( $cand: { use head::*; <$scheme as Scheme<E>>::encode(&corpus) }, )+
+                };
+                let main = Written {
+                    $( $cand: { use on_main::*; <$scheme as Scheme<E>>::encode(&corpus) }, )+
+                };
+                $( let $other = <$other_scheme as Scheme<E>>::encode(&corpus); )*
                 CHECKED.call_once(|| {
                     $(
                         assert!(
-                            <$scheme as Scheme<E>>::decode(&$cand) == corpus,
+                            { use head::*; <$scheme as Scheme<E>>::decode(&head.$cand) == corpus }
+                                && { use on_main::*; <$scheme as Scheme<E>>::decode(&main.$cand) == corpus },
                             "{} did not round-trip on {}", $label, $enc,
                         );
                     )+
+                    $(
+                        assert!(
+                            <$other_scheme as Scheme<E>>::decode(&$other) == corpus,
+                            "{} did not round-trip on {}", $other_label, $enc,
+                        );
+                    )*
                 });
-                Bytes { $( $cand, )+ }
+                Bytes { head, main, $( $other, )* }
             }
 
             $(
                 mod $cand {
                     use super::*;
 
-                    #[scaling::bench(group = $enc, name = $label $(, $flag)?)]
+                    #[scaling::bench(group = $enc, name = $label)]
                     pub fn encode(c: &Corpus) -> Vec<u8> {
+                        use head::*;
                         <$scheme as Scheme<E>>::encode(c)
                     }
 
-                    #[scaling::bench(group = $dec, name = $label $(, $flag)?)]
+                    #[scaling::bench(group = $dec, name = $label)]
                     pub fn decode(b: &Bytes) -> Vec<E> {
-                        <$scheme as Scheme<E>>::decode(&b.$cand)
+                        use head::*;
+                        <$scheme as Scheme<E>>::decode(&b.head.$cand)
+                    }
+
+                    #[scaling::bench(group = $enc, name = $main_label $(, $flag)?)]
+                    pub fn encode_main(c: &Corpus) -> Vec<u8> {
+                        use on_main::*;
+                        <$scheme as Scheme<E>>::encode(c)
+                    }
+
+                    #[scaling::bench(group = $dec, name = $main_label $(, $flag)?)]
+                    pub fn decode_main(b: &Bytes) -> Vec<E> {
+                        use on_main::*;
+                        <$scheme as Scheme<E>>::decode(&b.main.$cand)
                     }
                 }
             )+
+
+            $(
+                mod $other {
+                    use super::*;
+
+                    #[scaling::bench(group = $enc, name = $other_label, $other_flag)]
+                    pub fn encode(c: &Corpus) -> Vec<u8> {
+                        <$other_scheme as Scheme<E>>::encode(c)
+                    }
+
+                    #[scaling::bench(group = $dec, name = $other_label, $other_flag)]
+                    pub fn decode(b: &Bytes) -> Vec<E> {
+                        <$other_scheme as Scheme<E>>::decode(&b.$other)
+                    }
+                }
+            )*
 
             #[scaling::metrics(group = $enc)]
             fn size(out: Vec<u8>) -> Metrics {
@@ -208,18 +285,22 @@ macro_rules! unsigned {
     ($module:ident, $enc:literal, $dec:literal, $ty:ty, $data:expr) => {
         survey!(
             $module, $enc, $dec, $ty, $data,
-            (rng_norm, "norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
-            (ans_norm, "norm/ans", Via<AnsCoder, Values<Normal>>),
-            (rng_small, "sml/rng", Via<RangeCoder, Values<Small>>),
-            (ans_small, "sml/ans", Via<AnsCoder, Values<Small>>),
-            (rng_sorted, "srt/rng", Via<RangeCoder, Values<Sorted>>),
-            (ans_sorted, "srt/ans", Via<AnsCoder, Values<Sorted>>),
-            (rng_low, "low/rng", Via<RangeCoder, LowCardinality>),
-            (ans_low, "low/ans", Via<AnsCoder, LowCardinality>),
-            (rng_inc, "inc/rng", Via<RangeCoder, Values<Incompressible>>),
-            (ans_inc, "inc/ans", Via<AnsCoder, Values<Incompressible>>),
-            (bincode, "bincode", Bincode, uninteresting),
-            (bitcode, "bitcode", Bitcode, uninteresting),
+            coded: [
+                (rng_norm, "norm/rng", "main norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
+                (ans_norm, "norm/ans", "main norm/ans", Via<AnsCoder, Values<Normal>>),
+                (rng_small, "sml/rng", "main sml/rng", Via<RangeCoder, Values<Small>>),
+                (ans_small, "sml/ans", "main sml/ans", Via<AnsCoder, Values<Small>>),
+                (rng_sorted, "srt/rng", "main srt/rng", Via<RangeCoder, Values<Sorted>>),
+                (ans_sorted, "srt/ans", "main srt/ans", Via<AnsCoder, Values<Sorted>>),
+                (rng_low, "low/rng", "main low/rng", Via<RangeCoder, LowCardinality>),
+                (ans_low, "low/ans", "main low/ans", Via<AnsCoder, LowCardinality>),
+                (rng_inc, "inc/rng", "main inc/rng", Via<RangeCoder, Values<Incompressible>>),
+                (ans_inc, "inc/ans", "main inc/ans", Via<AnsCoder, Values<Incompressible>>),
+            ],
+            other: [
+                (bincode, "bincode", Bincode, uninteresting),
+                (bitcode, "bitcode", Bitcode, uninteresting),
+            ],
         );
     };
 }
@@ -230,14 +311,18 @@ macro_rules! sizes {
     ($module:ident, $enc:literal, $dec:literal, $data:expr) => {
         survey!(
             $module, $enc, $dec, usize, $data,
-            (rng_norm, "norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
-            (ans_norm, "norm/ans", Via<AnsCoder, Values<Normal>>),
-            (rng_small, "sml/rng", Via<RangeCoder, Values<Small>>),
-            (ans_small, "sml/ans", Via<AnsCoder, Values<Small>>),
-            (rng_sorted, "srt/rng", Via<RangeCoder, Values<Sorted>>),
-            (ans_sorted, "srt/ans", Via<AnsCoder, Values<Sorted>>),
-            (bincode, "bincode", Bincode, uninteresting),
-            (bitcode, "bitcode", Bitcode, uninteresting),
+            coded: [
+                (rng_norm, "norm/rng", "main norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
+                (ans_norm, "norm/ans", "main norm/ans", Via<AnsCoder, Values<Normal>>),
+                (rng_small, "sml/rng", "main sml/rng", Via<RangeCoder, Values<Small>>),
+                (ans_small, "sml/ans", "main sml/ans", Via<AnsCoder, Values<Small>>),
+                (rng_sorted, "srt/rng", "main srt/rng", Via<RangeCoder, Values<Sorted>>),
+                (ans_sorted, "srt/ans", "main srt/ans", Via<AnsCoder, Values<Sorted>>),
+            ],
+            other: [
+                (bincode, "bincode", Bincode, uninteresting),
+                (bitcode, "bitcode", Bitcode, uninteresting),
+            ],
         );
     };
 }
@@ -246,14 +331,18 @@ macro_rules! signed {
     ($module:ident, $enc:literal, $dec:literal, $ty:ty, $data:expr) => {
         survey!(
             $module, $enc, $dec, $ty, $data,
-            (rng_norm, "norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
-            (ans_norm, "norm/ans", Via<AnsCoder, Values<Normal>>),
-            (rng_small, "sml/rng", Via<RangeCoder, Values<Small>>),
-            (ans_small, "sml/ans", Via<AnsCoder, Values<Small>>),
-            (rng_sorted, "srt/rng", Via<RangeCoder, Values<Sorted>>),
-            (ans_sorted, "srt/ans", Via<AnsCoder, Values<Sorted>>),
-            (bincode, "bincode", Bincode, uninteresting),
-            (bitcode, "bitcode", Bitcode, uninteresting),
+            coded: [
+                (rng_norm, "norm/rng", "main norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
+                (ans_norm, "norm/ans", "main norm/ans", Via<AnsCoder, Values<Normal>>),
+                (rng_small, "sml/rng", "main sml/rng", Via<RangeCoder, Values<Small>>),
+                (ans_small, "sml/ans", "main sml/ans", Via<AnsCoder, Values<Small>>),
+                (rng_sorted, "srt/rng", "main srt/rng", Via<RangeCoder, Values<Sorted>>),
+                (ans_sorted, "srt/ans", "main srt/ans", Via<AnsCoder, Values<Sorted>>),
+            ],
+            other: [
+                (bincode, "bincode", Bincode, uninteresting),
+                (bitcode, "bitcode", Bitcode, uninteresting),
+            ],
         );
     };
 }
@@ -262,18 +351,22 @@ macro_rules! bytes {
     ($module:ident, $enc:literal, $dec:literal, $data:expr) => {
         survey!(
             $module, $enc, $dec, u8, $data,
-            (rng_norm, "norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
-            (ans_norm, "norm/ans", Via<AnsCoder, Values<Normal>>),
-            (rng_small, "sml/rng", Via<RangeCoder, Values<Small>>),
-            (ans_small, "sml/ans", Via<AnsCoder, Values<Small>>),
-            (rng_sorted, "srt/rng", Via<RangeCoder, Values<Sorted>>),
-            (ans_sorted, "srt/ans", Via<AnsCoder, Values<Sorted>>),
-            (rng_inc, "inc/rng", Via<RangeCoder, Values<Incompressible>>),
-            (ans_inc, "inc/ans", Via<AnsCoder, Values<Incompressible>>),
-            // The whole slice stored raw, with no per-byte entropy coding.
-            (rng_raw, "raw/rng", Via<RangeCoder, Incompressible>),
-            (ans_raw, "raw/ans", Via<AnsCoder, Incompressible>),
-            (bitcode, "bitcode", Bitcode, uninteresting),
+            coded: [
+                (rng_norm, "norm/rng", "main norm/rng", Via<RangeCoder, Values<Normal>>, baseline),
+                (ans_norm, "norm/ans", "main norm/ans", Via<AnsCoder, Values<Normal>>),
+                (rng_small, "sml/rng", "main sml/rng", Via<RangeCoder, Values<Small>>),
+                (ans_small, "sml/ans", "main sml/ans", Via<AnsCoder, Values<Small>>),
+                (rng_sorted, "srt/rng", "main srt/rng", Via<RangeCoder, Values<Sorted>>),
+                (ans_sorted, "srt/ans", "main srt/ans", Via<AnsCoder, Values<Sorted>>),
+                (rng_inc, "inc/rng", "main inc/rng", Via<RangeCoder, Values<Incompressible>>),
+                (ans_inc, "inc/ans", "main inc/ans", Via<AnsCoder, Values<Incompressible>>),
+                // The whole slice stored raw, with no per-byte entropy coding.
+                (rng_raw, "raw/rng", "main raw/rng", Via<RangeCoder, Incompressible>),
+                (ans_raw, "raw/ans", "main raw/ans", Via<AnsCoder, Incompressible>),
+            ],
+            other: [
+                (bitcode, "bitcode", Bitcode, uninteresting),
+            ],
         );
     };
 }
