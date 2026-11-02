@@ -56,8 +56,9 @@ macro_rules! impl_float {
             pub struct FloatContext {
                 is_raw: <bool as Encode>::Context,
                 is_int: <bool as Encode>::Context,
-                // The rare tier, and over half of this context, which is built
-                // afresh for each record encoded on its own: so built on first use.
+                // The rare tier, but over half of this context, and a context is
+                // built afresh for each value encoded on its own. So it is left
+                // out until a value reaches it.
                 integer: Option<Box<<i64 as Encode<Small>>::Context>>,
                 mantissa: <i32 as Encode<Small>>::Context,
                 exponent: <i8 as Encode<Small>>::Context,
@@ -345,9 +346,8 @@ macro_rules! impl_float {
                 assert!(!built(1.5));
                 assert!(!built(5_000.0));
                 assert!(!built($t::MAX));
-                if std::mem::size_of::<$t>() == 8 {
-                    assert!(built(12_345_678_901_234.0));
-                }
+                // Exact in both widths, and past `i32::MAX`.
+                assert!(built(2_147_483_648.0));
             }
 
             #[test]
