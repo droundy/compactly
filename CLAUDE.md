@@ -94,14 +94,20 @@ running a benchmark here:
   (`ListAgents`) before starting a long run.
 - **Add a candidate or an input to an existing group; do not add a target.** A
   benchmark is `#[scaling::bench(group = "…")]`, a workload is
-  `#[scaling::input(group(…), build_once)]` (built once per group and lent to
-  every call; no `Clone`, no per-iteration rebuild), an extra column is
-  `#[scaling::metrics]`. There is no argument handling in the benches: a bench
-  runs everything registered in it.
-  Dozens of one-workload binaries accumulated in `src/bin/` and were folded into
-  `benches/` and then cut down; the questions they answered are recorded in
-  OPTIMIZING.md and the binaries are in git history. A new target earns its place
-  only by measuring something no existing group can.
+  `#[scaling::input(group(…))]`, an extra column is `#[scaling::metrics]`. There
+  is no argument handling in the benches: a bench runs everything registered in
+  it.
+- **Give a synthetic workload new data on every call.** `scaling` builds a plain
+  `#[scaling::input]` for every call, but a fixed seed would only make the same
+  data again, so seed its generator from `support::new_seed()`. One fixed value
+  is something a branch predictor learns, and it changes verdicts, not just times
+  (OPTIMIZING.md, "Fresh data by default"). `build_once` (built once per group and
+  lent to every call; no `Clone`) is for a real corpus or a deterministic
+  sequence, which have only one value to offer.
+- **Keep the benches few.** Dozens of one-workload binaries accumulated in
+  `src/bin/` and were folded into `benches/` and then cut down; the questions they
+  answered are recorded in OPTIMIZING.md and the binaries are in git history. A new
+  target earns its place only by measuring something no existing group can.
 - **Pin allocator-sensitive workloads** — `benches/support` already does, but a
   workload whose output is hundreds of kilobytes can read twice as fast or slow
   depending on glibc's heap history; see OPTIMIZING.md.

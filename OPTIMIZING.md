@@ -158,15 +158,18 @@ differently, it is a candidate, an input or a metric.
 - **Adding a benchmark.** Declare it, do not write a `main` that loops: a
   candidate is a `#[scaling::bench(group = "…")]` function, a workload is a
   `#[scaling::input(group(…))]` one, an extra column is a
-  `#[scaling::metrics]` one. Mark an input that is costly to make `build_once`:
-  `scaling` then builds it once for each group and lends it to every call, with
-  no `Clone` and no per-iteration rebuild — **unless what is measured is
-  branchy and data-dependent**. Then one fixed input lets the branch predictor
-  learn it, and the benchmark measures memorized data: the walk shootout read up
-  to 4x faster that way and changed which walks won (see "Shootout inputs"
-  below). Such a benchmark wants a new input every call, which is `scaling`'s
-  default: declare its input neither `build_once` nor `reusable`, whether its
-  candidates take `&` or `&mut`. A new question that fits an existing group is a
+  `#[scaling::metrics]` one. **A synthetic workload gets new data on every call.**
+  That is `scaling`'s default (declare the input neither `build_once` nor
+  `reusable`, whether its candidates take `&` or `&mut`), as long as the generator
+  takes its seed from `support::new_seed()`: with a fixed seed it only rebuilds the
+  same data. One fixed input lets the branch predictor learn it, and the benchmark
+  measures memorized data: the walk shootout read up to 4x faster that way, and
+  a fixed vector of 8192 bytes changes which strategy wins (see "Shootout inputs"
+  and "Fresh data by default" below). `build_once` builds an input once for each
+  group and lends it to every call, with no `Clone`: it is for a real corpus or a
+  deterministic sequence, which have only one value to offer, and for an input
+  whose build is part of the design, like `overlap`'s calibrated schedule. A new
+  question that fits an existing group is a
   new candidate or input there, not a new target. The old one-workload binaries
   (`just-decompress`, `coder-routes`, `ans-phases`, `micro-batch` and the rest)
   were each a special case of that, and are in git history; entries below that
@@ -240,6 +243,15 @@ New in this table: `u64 small` (2000 values, cache-resident and one chunk, where
 `u64` is 100k and memory-bound) and `u64 seq` (consecutive integers). `u64 seq`
 **encode is +76% slower on `Ans`** — the largest encode gap on anything that is
 not incompressible, and not in the earlier table at all.
+
+**These tables are older than the code and the inputs (2026-11-01).** They are
+kept as the record of that run; regenerate them before quoting a number. The bench
+now gives its random workloads new data on every call, which moved `u64 small`
+furthest: `slice` reads **−26.7%**, not −41.5%, `from` −35.0% and `encode` −13.2%
+(see "Fresh data by default"). Not all the difference is that. `enums17` `slice`
+now reads −7.0% against −24.4% here because `Range` went from 9.28 ms to 7.43 ms,
+and new data slows a run down rather than speeding it up, so that is a change in
+the code since this table, which nobody has traced.
 
 #### Decode
 
@@ -516,6 +528,58 @@ reading "no difference" in every table, bound ≤1.0%):
   distribution only: `Uneven` at `MAX`=1 on uniform values (**−29.1%**) and
   `UnevenBitwise` at `MAX`=2 on skewed (−5.2%). The pooled run's `MAX`=7 row did
   not survive.
+
+### Fresh data by default (2026-11-01)
+
+`scaling`'s docs warn against `build_once` for a function whose speed depends on
+the input being new, and the shootout above had shown it for `AtMost`. Whether it
+reached the other benches was measured with three inputs side by side in one
+binary, on a reserved CPU, every bench run twice (the median change in any
+difference between the two runs was 0.19 points, the largest 0.7):
+
+- **`build_once`** — one value, handed to every call;
+- **`same`** — `scaling`'s default, rebuilt for every call from the *same* seed.
+  The data is identical, so a gap from `build_once` is the timing loop: a cloned
+  input and shorter timed stretches;
+- **`fresh`** — the default again, with a new seed for every call. A gap from
+  `same` is the data being new.
+
+| group, candidate against its baseline | `build_once` | `same` | `fresh` |
+|---|---|---|---|
+| `u64 small` (2000) `slice`, `ans` | −42.4 / −42.5% | −36.2 / −37.2% | **−26.5 / −26.8%** |
+| `u64 small` `encode`, `ans` | −7.8 / −8.3% | −9.9 / −10.1% | −13.5 / −13.5% |
+| `u64` (100k) `slice`, `ans` | −21.7 / −21.6% | −21.7 / −22.0% | −21.7 / −21.9% |
+| `atmost16` (50k) `slice`, `ans` | −24.2 / −24.3% | −24.4 / −24.4% | −23.9 / −23.6% |
+| `Vec<u8> sparse 0..16 encode` (8192), `sml/rng` | −5.3 / −5.2% | −5.0 / −4.9% | **+6.2 / +6.4%** |
+| `Vec<u8> sparse 0..16 encode`, `sml/ans` | +2.5 / +2.2% | +2.3 / +1.4% | +14.3 / +14.3% |
+| `Vec<u8> sparse 0..16 decode`, `sml/ans` | −39.7 / −39.9% | −32.2 / −32.5% | −32.5 / −32.2% |
+| `u64 skewed small decode`, `norm/ans` | −27.1 / −27.0% | −22.9 / −22.5% | −22.7 / −22.9% |
+
+- **A fixed value changes verdicts.** `Small` on sparse bytes under `Range` reads as
+  a win on one vector and a loss on new ones, in both runs, and that gap is all
+  `same` to `fresh`: the predictor had the vector memorized. It is the question
+  `strategies` exists to answer.
+- **The timing loop matters too.** `sparse` decode moves between `build_once` and
+  `same`, and not at all from there to `fresh`. Rebuilding is enough for that one.
+- **`Ans` loses more than `Range`.** On `u64 small` decode `Ans` goes 212 → 238 →
+  297 µs and `Range` 368 → 374 → 405 µs, so `Ans`'s lead there was overstated by 16
+  points. Over the `strategies` workloads the baseline itself reads 1–8% slower on
+  new data.
+- **Large inputs do not care**, `u64` at 100k and `atmost16` at 50k agreeing across
+  all three. So the `atmost16` gain from the walk retune in "Landed so far" stands.
+  Cache and predictor cannot be told apart here: nothing was counted with `perf`.
+
+All of it is one build, so it does not say what code placement does to these rows.
+
+So `strategies` and the random workloads of `coders` (`u64`, `u64 small`, `enums`,
+`enums17`, `floats`, `atmost*`) now draw from `support::new_seed()` and are built
+for every call. Staying `build_once`: `bench` and `versions` (real corpora, of which
+there is one), `strings`, `compressible`, `ipv6`, `u64 seq`, `records` and
+`records wide` in `coders` (one dataset, or real names that would be re-parsed per
+call), and `overlap` (the input is a schedule calibrated by timing a decode). The
+cost was small: the whole grid took 3 minutes and `strategies` 17.5, with no
+`(limit)` cell. `size` in `strategies` is now one draw's, and moves by up to about
+1% between runs.
 
 ### Dead ends that should not be retried without new evidence
 

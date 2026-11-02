@@ -1,5 +1,5 @@
 //! What the benches share: the `scaling` configuration, a warning when the
-//! machine is not quiesced, and a pinned allocator.
+//! machine is not quiesced, a pinned allocator, and seeds for new data.
 //!
 //! This is a module, not a crate, because every `benches/*.rs` is its own
 //! crate root; and it is a directory rather than `benches/support.rs` so cargo
@@ -18,7 +18,20 @@
 
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use scaling::Config;
+
+/// A seed nothing else in this process has used, for an input that draws new data
+/// each time it is built. `scaling` builds such an input for every call, but a
+/// generator with a fixed seed would only make the same data again, which a branch
+/// predictor learns (see "Fresh data by default" in OPTIMIZING.md). The counter is
+/// scrambled so that neighbouring seeds do not give related sequences.
+pub fn new_seed() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
 
 /// Make the allocator behave the same wherever a benchmark runs.
 ///

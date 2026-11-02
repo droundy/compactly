@@ -80,11 +80,15 @@ pub trait Case: 'static {
 /// Declare a workload: the type that names it, the module that holds its input,
 /// the name it is reported under, its value type and how to build one.
 ///
-/// The input is `build_once`: `scaling` builds it once for each group and lends
-/// it to every call, so a workload is built and encoded once per route, never per
-/// iteration. Both encodings are checked to round-trip when it is built.
+/// `scaling` builds the input anew for every call, and clones it so that both
+/// coders of a round see the same data, so `$make` should draw new data each time:
+/// one fixed value is something a branch predictor learns (see "Fresh data by
+/// default" in OPTIMIZING.md). A workload that has only one value to offer, a real
+/// corpus or a deterministic sequence, says `build_once` after `$make`, and is built
+/// once per route. The first value built is checked to round-trip on both coders.
 macro_rules! case {
-    ($case:ident, $module:ident, $name:literal, $ty:ty, $make:expr) => {
+    ($case:ident, $module:ident, $name:literal, $ty:ty, $make:expr $(, $mode:ident)?) => {
+        #[derive(Clone)]
         pub struct $case {
             value: $ty,
             range: Vec<u8>,
@@ -111,23 +115,26 @@ macro_rules! case {
             use super::*;
 
             fn build() -> $case {
+                static CHECKED: std::sync::Once = std::sync::Once::new();
                 let value: $ty = $make;
                 let range = Range::encode(&value);
                 let ans = Ans::encode(&value);
-                assert!(
-                    Range::decode::<$ty>(&range).unwrap() == value
-                        && Ans::decode::<$ty>(&ans).unwrap() == value,
-                    "{} did not round-trip",
-                    $name
-                );
+                CHECKED.call_once(|| {
+                    assert!(
+                        Range::decode::<$ty>(&range).unwrap() == value
+                            && Ans::decode::<$ty>(&ans).unwrap() == value,
+                        "{} did not round-trip",
+                        $name
+                    );
+                });
                 $case { value, range, ans }
             }
 
             #[cfg(feature = "stream")]
             #[scaling::input(
                                 group("slice", "from", "stream", "stream 2", "encode", "encode-to"),
-                                name = $name,
-                                build_once
+                                name = $name
+                                $(, $mode)?
                             )]
             fn input() -> $case {
                 build()
@@ -136,8 +143,8 @@ macro_rules! case {
             #[cfg(not(feature = "stream"))]
             #[scaling::input(
                                 group("slice", "from", "encode", "encode-to"),
-                                name = $name,
-                                build_once
+                                name = $name
+                                $(, $mode)?
                             )]
             fn input() -> $case {
                 build()
@@ -148,8 +155,9 @@ macro_rules! case {
 
 // ---------- data ----------
 
+/// A generator from a seed nothing else has used, so that each value built is new.
 fn lcg() -> impl FnMut() -> u64 {
-    seeded_lcg(0x123456789abcdef0)
+    seeded_lcg(crate::support::new_seed())
 }
 
 fn seeded_lcg(seed: u64) -> impl FnMut() -> u64 {
@@ -317,13 +325,21 @@ case!(
     Vec<u64>,
     u64s(2_000)
 );
-case!(U64Seq, u64_seq_input, "u64 seq", Vec<u64>, u64_seq(100_000));
+case!(
+    U64Seq,
+    u64_seq_input,
+    "u64 seq",
+    Vec<u64>,
+    u64_seq(100_000),
+    build_once
+);
 case!(
     Strings,
     strings_input,
     "strings",
     BTreeSet<String>,
-    meteorite_names()
+    meteorite_names(),
+    build_once
 );
 case!(Enums, enums_input, "enums", Vec<ThreeOptions>, three());
 case!(
@@ -339,17 +355,26 @@ case!(
     compressible_input,
     "compressible",
     Encoded<Vec<u8>, Compressible>,
-    csv()
+    csv(),
+    build_once
 );
-case!(Records, records_input, "records", Vec<Record>, records().0);
+case!(
+    Records,
+    records_input,
+    "records",
+    Vec<Record>,
+    records().0,
+    build_once
+);
 case!(
     RecordsWide,
     records_wide_input,
     "records wide",
     Vec<WideRecord>,
-    records().1
+    records().1,
+    build_once
 );
-case!(Ipv6, ipv6_input, "ipv6", Vec<Ipv6Addr>, ipv6s());
+case!(Ipv6, ipv6_input, "ipv6", Vec<Ipv6Addr>, ipv6s(), build_once);
 
 // The ladder is monomorphized, so `MAX` is a literal here. Five rungs are enough
 // to see the prefetch crossover (`Ans` loses at the bottom and wins at the top);

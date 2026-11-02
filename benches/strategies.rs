@@ -22,6 +22,12 @@
 //! The `size` column is the length of what each candidate wrote. A time is for
 //! the whole vector: one encode or one decode.
 //!
+//! Every call gets data nobody has measured before, drawn from a seed no other
+//! vector has used. One fixed vector is something a branch predictor learns, and
+//! it changes which strategy wins: `sml/rng` encoding sparse bytes reads −5% on
+//! one vector and +6% on new ones (see "Fresh data by default" in OPTIMIZING.md).
+//! So `size` is a single draw's, and moves by up to about 1% between runs.
+//!
 //! Every candidate is handed its own copy of the data to encode, because
 //! compactly's `Encoded` wrapper takes ownership. The foreign codecs copy too,
 //! so that none of them pays for something the others do not.
@@ -130,11 +136,11 @@ where
 /// and decodes its own bytes back. A candidate may be tagged `baseline` or
 /// `uninteresting`.
 ///
-/// The corpus and every candidate's bytes are `build_once` inputs: `scaling`
-/// builds each once for its group and lends it to every call, so nothing is
-/// cloned or rebuilt per iteration, and every candidate's bytes are checked to
-/// round-trip when they are built. Each candidate is a module of its own so that
-/// its two functions can both be called `encode` and `decode`.
+/// The corpus and every candidate's bytes are `scaling`'s default kind of input:
+/// built anew for every call, and cloned so that the candidates of a round see the
+/// same data. The first bytes built are checked to round-trip for every candidate.
+/// Each candidate is a module of its own so that its two functions can both be
+/// called `encode` and `decode`.
 macro_rules! survey {
     (
         $module:ident, $enc:literal, $dec:literal, $elem:ty, $data:expr,
@@ -147,25 +153,29 @@ macro_rules! survey {
             type Corpus = Vec<E>;
 
             /// What each candidate wrote for the corpus.
+            #[derive(Clone)]
             struct Bytes {
                 $( $cand: Vec<u8>, )+
             }
 
-            #[scaling::input(group = $enc, name = "values", build_once)]
+            #[scaling::input(group = $enc, name = "values")]
             fn corpus() -> Corpus {
                 $data
             }
 
-            #[scaling::input(group = $dec, name = "bytes", build_once)]
+            #[scaling::input(group = $dec, name = "bytes")]
             fn bytes() -> Bytes {
+                static CHECKED: std::sync::Once = std::sync::Once::new();
                 let corpus: Corpus = $data;
-                $(
-                    let $cand = <$scheme as Scheme<E>>::encode(&corpus);
-                    assert!(
-                        <$scheme as Scheme<E>>::decode(&$cand) == corpus,
-                        "{} did not round-trip on {}", $label, $enc,
-                    );
-                )+
+                $( let $cand = <$scheme as Scheme<E>>::encode(&corpus); )+
+                CHECKED.call_once(|| {
+                    $(
+                        assert!(
+                            <$scheme as Scheme<E>>::decode(&$cand) == corpus,
+                            "{} did not round-trip on {}", $label, $enc,
+                        );
+                    )+
+                });
                 Bytes { $( $cand, )+ }
             }
 
@@ -270,11 +280,11 @@ macro_rules! bytes {
 
 // ---------- data generation ----------
 //
-// Every workload is generated from one fixed seed, so it is the same data on
-// every run and the `size` column means something from one run to the next.
+// Every vector comes from a seed no other has used, so that an input built for a
+// call is data that has not been measured before.
 
 fn rng() -> SmallRng {
-    SmallRng::seed_from_u64(42)
+    SmallRng::seed_from_u64(support::new_seed())
 }
 
 fn sorted<T: Ord>(mut values: Vec<T>) -> Vec<T> {
