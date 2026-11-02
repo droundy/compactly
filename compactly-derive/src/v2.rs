@@ -476,8 +476,8 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 /// An enum with no variants has no values, so there is nothing to code: `encode`
 /// is unreachable, and no stream can hold one, so `decode` always fails. The
 /// general derive cannot express this — its discriminant is an `AtMost` of the
-/// number of variants less one — and `Option<Never>` or a `Result` with an
-/// uninhabited arm are ordinary reasons to want the impl to exist.
+/// number of variants less one — and `Option<Never>`, or an enum of your own with
+/// a variant that holds one, are ordinary reasons to want the impl to exist.
 fn derive_uninhabited(s: synstructure::Structure) -> proc_macro2::TokenStream {
     assert!(
         EncodingStrategy::parse_attrs(&s.ast().attrs).is_empty(),
@@ -607,6 +607,17 @@ fn low_cardinality_string_warns() {
             && output.contains("fn LowCardinalityString_1()"),
         "expected indexed warning fns:\n{output}"
     );
+}
+
+#[test]
+#[should_panic(expected = "Cannot derive strategy for an enum")]
+fn strategy_on_an_enum_with_no_variants_is_rejected() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        #[compactly(Small)]
+        pub enum Never {}
+    };
+    let s = synstructure::Structure::new(&di);
+    let _ = derive_compactly(s);
 }
 
 #[test]
