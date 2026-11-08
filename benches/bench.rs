@@ -40,7 +40,6 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use bincode1::{DefaultOptions, Options as _};
-use compactly::v2::{Ans, Range};
 use comparison_main::compactly as main_compactly;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -64,26 +63,6 @@ impl<T: compactly::v2::Encode + Serialize + DeserializeOwned + PartialEq + Debug
 trait Codec {
     fn encode<T: Encodable>(value: &T) -> Vec<u8>;
     fn decode<T: Encodable>(bytes: &[u8]) -> T;
-}
-
-struct RangeCodec;
-impl Codec for RangeCodec {
-    fn encode<T: Encodable>(value: &T) -> Vec<u8> {
-        Range::encode(value)
-    }
-    fn decode<T: Encodable>(bytes: &[u8]) -> T {
-        Range::decode(bytes).unwrap()
-    }
-}
-
-struct AnsCodec;
-impl Codec for AnsCodec {
-    fn encode<T: Encodable>(value: &T) -> Vec<u8> {
-        Ans::encode(value)
-    }
-    fn decode<T: Encodable>(bytes: &[u8]) -> T {
-        Ans::decode(bytes).unwrap()
-    }
 }
 
 /// bincode with variable-length integers.
@@ -149,18 +128,30 @@ fn decode_all<C: Codec, T: Encodable>(bytes: &[Vec<u8>]) -> Vec<T> {
 /// each of them decodes back to what went in, since a benchmark of a codec that
 /// does not round-trip measures nothing.
 fn encode_every_codec<T: Encodable>(values: &[T]) -> Vec<Vec<Vec<u8>>> {
-    fn one<C: Codec, T: Encodable>(values: &[T]) -> Vec<Vec<u8>> {
-        let bytes = encode_all::<C, T>(values);
+    fn checked<T: Encodable>(
+        name: &str,
+        values: &[T],
+        encode: fn(&[T]) -> Vec<Vec<u8>>,
+        decode: fn(&[Vec<u8>]) -> Vec<T>,
+    ) -> Vec<Vec<u8>> {
+        let bytes = encode(values);
         assert!(
-            decode_all::<C, T>(&bytes).as_slice() == values,
-            "{} did not round-trip",
-            std::any::type_name::<C>()
+            decode(&bytes).as_slice() == values,
+            "{name} did not round-trip"
         );
         bytes
     }
+    fn one<C: Codec, T: Encodable>(values: &[T]) -> Vec<Vec<u8>> {
+        checked(
+            std::any::type_name::<C>(),
+            values,
+            encode_all::<C, T>,
+            decode_all::<C, T>,
+        )
+    }
     vec![
-        one::<RangeCodec, T>(values),
-        one::<AnsCodec, T>(values),
+        checked("range", values, head::encode_range, head::decode_range),
+        checked("ans", values, head::encode_ans, head::decode_ans),
         one::<Bincode, T>(values),
         one::<BincodeFixint, T>(values),
         one::<Zstd3, T>(values),
@@ -182,7 +173,6 @@ enum Decoded<H, M> {
 /// A macro, not a generic, because each copy's corpus types are different types.
 macro_rules! side {
     ($side:ident, $compactly:ident, $corpora:ident) => {
-        #[allow(dead_code)]
         mod $side {
             // The renamed compactly and corpora come from here, and only their own
             // side uses them.
@@ -354,11 +344,11 @@ macro_rules! workload {
             }
             #[scaling::bench(group = $enc, name = "range")]
             fn encode_range(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<RangeCodec, T>(&c.head)
+                head::encode_range(&c.head)
             }
             #[scaling::bench(group = $enc, name = "ans")]
             fn encode_ans(c: &Corpus) -> Vec<Vec<u8>> {
-                encode_all::<AnsCodec, T>(&c.head)
+                head::encode_ans(&c.head)
             }
             #[scaling::bench(group = $enc, name = "bincode", uninteresting)]
             fn encode_bincode(c: &Corpus) -> Vec<Vec<u8>> {
@@ -391,11 +381,11 @@ macro_rules! workload {
             }
             #[scaling::bench(group = $dec, name = "range")]
             fn decode_range(b: &Bytes) -> Out {
-                Decoded::Head(decode_all::<RangeCodec, T>(&b.head[slot::RANGE]))
+                Decoded::Head(head::decode_range(&b.head[slot::RANGE]))
             }
             #[scaling::bench(group = $dec, name = "ans")]
             fn decode_ans(b: &Bytes) -> Out {
-                Decoded::Head(decode_all::<AnsCodec, T>(&b.head[slot::ANS]))
+                Decoded::Head(head::decode_ans(&b.head[slot::ANS]))
             }
             #[scaling::bench(group = $dec, name = "bincode", uninteresting)]
             fn decode_bincode(b: &Bytes) -> Out {
