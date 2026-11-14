@@ -313,28 +313,24 @@ impl Range {
     }
     /// Whether `Range`'s decoder asks [`Walk::production`](super::Walk::production)
     /// to speculate on a non-power-of-two value count (see
-    /// [`SymbolDecoder::SPECULATES`]). Benchmark support for
-    /// `benches/atmost.rs`, not part of the stable API.
-    #[doc(hidden)]
-    #[cfg(feature = "benchmarking")]
-    pub const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
+    /// [`SymbolDecoder::SPECULATES`]). Used by the walk shootout
+    /// (`src/v2/atmost/shootout.rs`).
+    #[cfg(test)]
+    pub(crate) const SPECULATES: bool = <Decoder<'static> as SymbolDecoder>::SPECULATES;
     /// Encode `values` using an explicitly forced tree walk, bypassing
     /// [`Walk::production`](super::Walk::production)'s usual choice for
-    /// `MAX`. `WHICH_WALK` indexes [`WALKS`](super::WALKS). Benchmark support
-    /// for `benches/atmost.rs`, not part of the stable API.
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "benchmarking"))]
-    pub fn encode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+    /// `MAX`. `WHICH_WALK` indexes [`WALKS`](walks::WALKS). Used by the unit
+    /// tests and the walk shootout (`src/v2/atmost/shootout.rs`).
+    #[cfg(test)]
+    pub(crate) fn encode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
         values: &[super::AtMost<MAX>],
     ) -> Vec<u8> {
         walks::encode_atmost_batch::<Self, MAX, WHICH_WALK>(Self::default(), values).into_vec()
     }
     /// The decode side of [`Self::encode_atmost_batch`]: decode `n` values
-    /// with the same forced walk. Benchmark support for
-    /// `benches/atmost.rs`, not part of the stable API.
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "benchmarking"))]
-    pub fn decode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
+    /// with the same forced walk.
+    #[cfg(test)]
+    pub(crate) fn decode_atmost_batch<const MAX: usize, const WHICH_WALK: usize>(
         bytes: &[u8],
         n: usize,
     ) -> Vec<super::AtMost<MAX>> {

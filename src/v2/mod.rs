@@ -125,15 +125,6 @@ pub use ans::Ans;
 #[cfg(feature = "stream")]
 pub use arith::AsyncRangeDecoder;
 pub use arith::Range;
-/// Benchmark-support surface for `benches/atmost.rs`; not part of the stable API.
-///
-/// `atmost` is a private module, so gating this re-export is what removes
-/// `Walk`/`WALKS` from the public API — the items themselves stay `pub(crate)`
-/// because production code (`Walk::production`) and the walk unit tests use
-/// them either way.
-#[doc(hidden)]
-#[cfg(feature = "benchmarking")]
-pub use atmost::walks::{Walk, WALKS};
 pub use atmost::AtMost;
 pub use millibits::Millibits;
 

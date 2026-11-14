@@ -1,0 +1,17 @@
+# `comparison`, built against the tip of `main` instead of this checkout, so a
+# bench can say what a branch changed. It is `comparison-published`'s twin, and is
+# a crate of its own for the reason given there.
+#
+# `Cargo.lock` is not committed, so CI always gets the current `main`, but a local
+# lockfile stays on whatever commit it resolved first; see `benches/versions.rs`.
+[package]
+name = "comparison-main"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1.0.217", features = ["derive", "rc"] }
+compactly = { git = "https://github.com/droundy/compactly", branch = "main", features = ["stream"] }
+serde_json = "1.0.138"
+csv = "1.3.1"
