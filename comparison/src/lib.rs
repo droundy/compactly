@@ -1,4 +1,5 @@
 pub mod books;
+pub mod dictionary;
 mod magic;
 pub mod meteorites;
 pub mod suicide;
