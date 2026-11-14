@@ -1,4 +1,4 @@
-use super::sentinel::{decode_elements, Sentinel};
+use super::sentinel::{decode_elements, decode_elements_sync, encode_elements, Sentinel};
 use super::{Encode, EntropyCoder, EntropyDecoder, Strategy};
 use crate::{Incompressible, Normal, Small, Sorted};
 use std::collections::VecDeque;
@@ -62,11 +62,9 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for VecDeque<T> {
     type Context = Context<T, S>;
     fn encode<E: EntropyCoder>(value: &VecDeque<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
-        }
+        encode_elements(value, writer, |w, v| {
+            <T as Encode<S>>::encode(v, w, &mut ctx.values)
+        });
     }
     fn decode<D: EntropyDecoder>(
         reader: &mut D,
@@ -74,11 +72,7 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for VecDeque<T> {
     ) -> Result<VecDeque<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut out = VecDeque::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode(reader)?;
-            out.push_back(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
-        }
+        decode_elements_sync::<_, T, S, _>(reader, &mut ctx.values, n, &mut out)?;
         Ok(out)
     }
 
@@ -207,20 +201,14 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Vec<T> {
     ) -> Result<Vec<T>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode(reader)?;
-            x.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
-        }
+        decode_elements_sync::<_, T, S, _>(reader, &mut ctx.values, n, &mut x)?;
         Ok(x)
     }
     fn encode<E: super::EntropyCoder>(value: &Vec<T>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
-        }
+        encode_elements(value, writer, |w, v| {
+            <T as Encode<S>>::encode(v, w, &mut ctx.values)
+        });
     }
 
     /// Length-driven: an arbitrary number of elements.
@@ -245,20 +233,14 @@ impl<T: Encode<S>, S> Encode<crate::Values<S>> for Box<[T]> {
     ) -> Result<Box<[T]>, std::io::Error> {
         let n = Small::decode(reader, &mut ctx.len)?;
         let mut x = Vec::with_capacity(super::capacity_for::<T>(n));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..n {
-            sentinel.decode(reader)?;
-            x.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
-        }
+        decode_elements_sync::<_, T, S, _>(reader, &mut ctx.values, n, &mut x)?;
         Ok(x.into_boxed_slice())
     }
     fn encode<E: super::EntropyCoder>(value: &Box<[T]>, writer: &mut E, ctx: &mut Self::Context) {
         Small::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
-        }
+        encode_elements(value.iter(), writer, |w, v| {
+            <T as Encode<S>>::encode(v, w, &mut ctx.values)
+        });
     }
 
     /// Length-driven: an arbitrary number of elements.

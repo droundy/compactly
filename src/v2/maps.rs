@@ -1,4 +1,4 @@
-use super::sentinel::{decode_elements, Sentinel};
+use super::sentinel::{decode_elements, decode_elements_sync, encode_elements};
 use super::{Encode, Strategy};
 use crate::{Mapping, Normal, Sorted};
 use std::collections::{BTreeMap, HashMap};
@@ -129,12 +129,10 @@ impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTr
         ctx: &mut Self::Context,
     ) {
         Normal::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for (k, v) in value {
-            sentinel.encode(writer);
-            <K as Encode<SK>>::encode(k, writer, &mut ctx.entry.0);
-            <V as Encode<SV>>::encode(v, writer, &mut ctx.entry.1);
-        }
+        encode_elements(value, writer, |w, (k, v)| {
+            <K as Encode<SK>>::encode(k, w, &mut ctx.entry.0);
+            <V as Encode<SV>>::encode(v, w, &mut ctx.entry.1);
+        });
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -151,14 +149,12 @@ impl<K: Ord + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> for BTr
         // coarse-`Ord` key type, where `collect` keeps every Eq-distinct
         // entry. Not UB, which is all decode promises for corrupt input.
         let mut pairs = Vec::with_capacity(super::capacity_for::<(K, V)>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode(reader)?;
-            pairs.push((
-                <K as Encode<SK>>::decode(reader, &mut ctx.entry.0)?,
-                <V as Encode<SV>>::decode(reader, &mut ctx.entry.1)?,
-            ));
-        }
+        decode_elements_sync::<_, (K, V), Mapping<SK, SV>, _>(
+            reader,
+            &mut ctx.entry,
+            len,
+            &mut pairs,
+        )?;
         Ok(pairs.into_iter().collect())
     }
 
@@ -187,12 +183,10 @@ impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> f
         ctx: &mut Self::Context,
     ) {
         Normal::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for (k, v) in value {
-            sentinel.encode(writer);
-            <K as Encode<SK>>::encode(k, writer, &mut ctx.entry.0);
-            <V as Encode<SV>>::encode(v, writer, &mut ctx.entry.1);
-        }
+        encode_elements(value, writer, |w, (k, v)| {
+            <K as Encode<SK>>::encode(k, w, &mut ctx.entry.0);
+            <V as Encode<SV>>::encode(v, w, &mut ctx.entry.1);
+        });
     }
     #[inline]
     fn decode<D: super::EntropyDecoder>(
@@ -201,14 +195,12 @@ impl<K: Hash + Eq + Encode<SK>, SK, V: Encode<SV>, SV> Encode<Mapping<SK, SV>> f
     ) -> Result<HashMap<K, V>, std::io::Error> {
         let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut map = HashMap::with_capacity(super::capacity_for::<(K, V)>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode(reader)?;
-            map.insert(
-                <K as Encode<SK>>::decode(reader, &mut ctx.entry.0)?,
-                <V as Encode<SV>>::decode(reader, &mut ctx.entry.1)?,
-            );
-        }
+        decode_elements_sync::<_, (K, V), Mapping<SK, SV>, _>(
+            reader,
+            &mut ctx.entry,
+            len,
+            &mut map,
+        )?;
         Ok(map)
     }
 

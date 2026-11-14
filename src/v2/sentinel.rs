@@ -330,6 +330,49 @@ where
     Ok(())
 }
 
+/// Decode `n` elements of a length-driven sequence one at a time, each after its
+/// sentinel. The synchronous twin of [`decode_elements`]: the same framing, with
+/// no batching, because a synchronous decoder never has to wait for input.
+#[inline]
+pub(crate) fn decode_elements_sync<D, T, S, C>(
+    reader: &mut D,
+    ctx: &mut <T as Encode<S>>::Context,
+    n: usize,
+    out: &mut C,
+) -> Result<(), std::io::Error>
+where
+    D: EntropyDecoder,
+    T: Encode<S>,
+    C: ExtendOne<T>,
+{
+    let mut sentinel = Sentinel::new();
+    for _ in 0..n {
+        sentinel.decode(reader)?;
+        out.extend_one_element(<T as Encode<S>>::decode(reader, ctx)?);
+    }
+    Ok(())
+}
+
+/// Encode the elements of a length-driven sequence, each after its sentinel. The
+/// caller codes the length first. `encode_one` codes one element: it is a closure
+/// rather than an `Encode` bound because a map's entries are pairs of references,
+/// and each half is coded with its own strategy.
+#[inline]
+pub(crate) fn encode_elements<E, I>(
+    items: I,
+    writer: &mut E,
+    mut encode_one: impl FnMut(&mut E, I::Item),
+) where
+    E: EntropyCoder,
+    I: IntoIterator,
+{
+    let mut sentinel = Sentinel::new();
+    for item in items {
+        sentinel.encode(writer);
+        encode_one(writer, item);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::v2::{decode, encode};
