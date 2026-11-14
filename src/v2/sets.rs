@@ -1,4 +1,4 @@
-use super::sentinel::{decode_elements, Sentinel};
+use super::sentinel::{decode_elements, decode_elements_sync, encode_elements, Sentinel};
 use crate::{Normal, Small, Sorted, Values};
 
 use super::{Encode, Strategy};
@@ -215,11 +215,9 @@ impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
         ctx: &mut Self::Context,
     ) {
         Normal::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
-        }
+        encode_elements(value, writer, |w, v| {
+            <T as Encode<S>>::encode(v, w, &mut ctx.values)
+        });
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -239,11 +237,7 @@ impl<T: Ord + Encode<S>, S> Encode<Values<S>> for BTreeSet<T> {
         // about corrupt input beyond not being UB, and this isn't; pinned by
         // `btreeset_bulk_build_keeps_ord_equal_dupes` below.
         let mut values = Vec::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode(reader)?;
-            values.push(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
-        }
+        decode_elements_sync::<_, T, S, _>(reader, &mut ctx.values, len, &mut values)?;
         Ok(values.into_iter().collect())
     }
 
@@ -351,11 +345,9 @@ impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     type Context = SetContext<T, S>;
     fn encode<E: super::EntropyCoder>(value: &HashSet<T>, writer: &mut E, ctx: &mut Self::Context) {
         Normal::encode(&value.len(), writer, &mut ctx.len);
-        let mut sentinel = Sentinel::new();
-        for v in value {
-            sentinel.encode(writer);
-            <T as Encode<S>>::encode(v, writer, &mut ctx.values);
-        }
+        encode_elements(value, writer, |w, v| {
+            <T as Encode<S>>::encode(v, w, &mut ctx.values)
+        });
     }
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
@@ -363,11 +355,7 @@ impl<T: Hash + Eq + Encode<S>, S> Encode<Values<S>> for HashSet<T> {
     ) -> Result<HashSet<T>, std::io::Error> {
         let len: usize = <usize as Encode>::decode(reader, &mut ctx.len)?;
         let mut set = HashSet::with_capacity(super::capacity_for::<T>(len));
-        let mut sentinel = Sentinel::new();
-        for _ in 0..len {
-            sentinel.decode(reader)?;
-            set.insert(<T as Encode<S>>::decode(reader, &mut ctx.values)?);
-        }
+        decode_elements_sync::<_, T, S, _>(reader, &mut ctx.values, len, &mut set)?;
         Ok(set)
     }
 
