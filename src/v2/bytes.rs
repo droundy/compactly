@@ -1,6 +1,7 @@
 use super::sentinel::Sentinel;
 use super::{Encode, Strategy};
 use crate::{Compressible, Normal, Small, Values};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ use expect_test::expect;
 
 const MIN_MATCH: usize = 5;
 const MAX_CHAIN: usize = 256;
+const BACK_WINDOW: usize = 64 * 1024;
 const LZ77_HASH_SIZE: usize = 1 << 16; // 65536 buckets
 
 #[inline]
@@ -43,9 +45,107 @@ impl OldFilter {
     }
 }
 
+/// Which 4-grams one old string holds, as a bitset over [`lz77_hash`], so the
+/// match search can pass over a string that cannot contain what it wants without
+/// reading it. Sized to the string, at about 32 bits per byte up to
+/// [`Self::MAX_WORDS`], which leaves few bits set and so few strings read for
+/// nothing. Empty on the decode side, which never searches, and an empty filter
+/// rules nothing out.
+#[derive(Default, Clone)]
+struct GramFilter(Box<[u64]>);
+
+impl GramFilter {
+    /// Keeps a long string's filter from growing without limit: past this it
+    /// fills up and rules out less, which only costs a read of that string.
+    const MAX_WORDS: usize = 512;
+
+    fn new(bytes: &[u8]) -> Self {
+        let words = (bytes.len() / 2).clamp(1, Self::MAX_WORDS);
+        let mut filter = GramFilter(vec![0; words.next_power_of_two()].into_boxed_slice());
+        for gram in bytes.windows(4) {
+            let (word, bit) = filter.position(lz77_hash(gram));
+            filter.0[word] |= bit;
+        }
+        filter
+    }
+    #[inline]
+    fn position(&self, h: usize) -> (usize, u64) {
+        ((h >> 6) & (self.0.len() - 1), 1u64 << (h & 63))
+    }
+    #[inline]
+    fn test(&self, h: usize) -> bool {
+        if self.0.is_empty() {
+            return true;
+        }
+        let (word, bit) = self.position(h);
+        self.0[word] & bit != 0
+    }
+}
+
+/// A string kept for later values to match against.
+#[derive(Clone)]
+struct OldString {
+    bytes: Vec<u8>,
+    grams: GramFilter,
+}
+
+/// Hash chains over the value being searched: `head[h]` is the most recent
+/// position whose first 4 bytes hash to `h`, and `next` links each position to
+/// the previous one with the same hash, forming a chain newest→oldest.
+///
+/// The 256 KiB table is far bigger than most values, and filling it for each one
+/// was most of the cost of encoding short strings. So there is one per thread
+/// (see [`CHAINS`]), cleared only when the numbering runs out: positions are
+/// stored numbered from `base`, which moves past each value, so an entry below
+/// `base` is left over from an earlier one and ends its chain.
+#[derive(Default)]
+struct Chains {
+    head: Vec<u32>,
+    next: Vec<u32>,
+    base: u32,
+}
+
+impl Chains {
+    /// The longest value to use [`CHAINS`]. `next` takes four bytes for each byte
+    /// of the value, and a thread would hold on to that for as long as it lives,
+    /// so a longer value gets chains of its own that go when it is done. Those
+    /// cost a fresh table, which is nothing beside searching a megabyte.
+    const MAX_SHARED_LEN: usize = 1 << 20;
+
+    /// Get ready for a new value of `len` bytes.
+    fn start(&mut self, len: usize) {
+        self.head.resize(LZ77_HASH_SIZE, 0);
+        // Past the previous value's last position, and so never 0, which is
+        // what an entry that has never been set holds.
+        let base = self.base as usize + self.next.len() + 1;
+        self.next.clear();
+        if base.saturating_add(len) < u32::MAX as usize {
+            self.base = base as u32;
+        } else {
+            self.head.fill(0);
+            self.base = 1;
+        }
+    }
+
+    /// Record that the 4 bytes at `position` hash to `h`.
+    #[inline]
+    fn insert(&mut self, h: usize, position: usize) {
+        self.next[position] = self.head[h];
+        self.head[h] = position as u32 + self.base;
+    }
+}
+
+thread_local! {
+    /// Per thread rather than per [`Lz77`] because there can be many of those:
+    /// one for each `Compressible` field of a type, each encoding a value or
+    /// two. Giving each its own table touches megabytes of cold memory per
+    /// record, where sharing one keeps it in cache.
+    static CHAINS: RefCell<Chains> = RefCell::default();
+}
+
 #[derive(Default, Clone)]
 pub struct Lz77 {
-    old: VecDeque<Vec<u8>>,
+    old: VecDeque<OldString>,
     /// Bloom-style 4-gram filter over bytes in `old`. Bits are added on push_old and never
     /// removed — evictions cause false positives but never false negatives.
     old_filter: OldFilter,
@@ -78,59 +178,59 @@ struct Chunk {
 
 impl Lz77 {
     fn push_old(&mut self, value: Vec<u8>) {
-        for p in 0..value.len() {
-            if p + 4 <= value.len() {
-                self.old_filter.set(lz77_hash(&value[p..]));
-            }
+        for gram in value.windows(4) {
+            self.old_filter.set(lz77_hash(gram));
         }
-        self.push_old_decode(value);
+        let grams = GramFilter::new(&value);
+        self.keep_old(OldString {
+            bytes: value,
+            grams,
+        });
     }
     /// Decode-side variant of `push_old`: maintains the `old` deque (needed for
-    /// back-references) but skips the `old_filter` upkeep, which is only read by
-    /// the encode-side match scan (`eager`/`eager_chunk`) and never on decode.
+    /// back-references) but skips the filters, which are only read by the
+    /// encode-side match scan (`eager`/`eager_chunk`) and never on decode.
     fn push_old_decode(&mut self, value: Vec<u8>) {
-        self.old.push_front(value);
+        self.keep_old(OldString {
+            bytes: value,
+            grams: GramFilter::default(),
+        });
+    }
+    fn keep_old(&mut self, old: OldString) {
+        self.old.push_front(old);
         while self.old.len() > 254 {
             self.old.pop_back();
         }
     }
-    fn shift_chunk(&mut self, Chunk { back, .. }: &Chunk) {
-        if *back > 0 {
-            // Whenever we use an old string, we move it to the front of the
-            // queue.  This keeps "useful" strings from falling off the back,
-            // and also makes smaller `back` values more common.
-            let back = *back as usize - 1;
-            if let Some(old) = self.old.remove(back) {
-                self.old.push_front(old);
-            }
+    fn eager(&self, value: &[u8]) -> Vec<Chunk> {
+        if value.len() > Chains::MAX_SHARED_LEN {
+            return self.eager_with(value, &mut Chains::default());
         }
+        CHAINS.with_borrow_mut(|chains| self.eager_with(value, chains))
     }
-    fn eager(&self, mut value: &[u8]) -> Vec<Chunk> {
+    fn eager_with(&self, mut value: &[u8], chains: &mut Chains) -> Vec<Chunk> {
         assert!(self.old.len() < 255);
         let mut sofar: Vec<u8> = Vec::new();
-        // Hash chain for fast sofar matching. hash_head[h] is the most recent position
-        // in sofar whose first 4 bytes hash to h. hash_next[p] links to the previous
-        // position with the same hash, forming a chain newest→oldest.
-        let mut hash_head = vec![u32::MAX; LZ77_HASH_SIZE];
-        let mut hash_next: Vec<u32> = Vec::new();
+        chains.start(value.len());
         let mut out = Vec::new();
-        let mut ctx = self.clone();
+        // Using an old string moves it to the front, which the search has to
+        // see as it goes, without disturbing `self.old` until the chunks are
+        // actually coded.
+        let mut old: VecDeque<&OldString> = self.old.iter().collect();
         while let Some(chunk) =
-            ctx.eager_chunk(&mut value, &mut sofar, &mut hash_head, &mut hash_next)
+            Self::eager_chunk(&mut old, &self.old_filter, &mut value, &mut sofar, chains)
         {
-            Normal::encode(&chunk, &mut super::Millibits::new(0), &mut ctx);
             out.push(chunk);
         }
         out
     }
     fn eager_chunk(
-        &mut self,
+        old: &mut VecDeque<&OldString>,
+        old_filter: &OldFilter,
         value: &mut &[u8],
         sofar: &mut Vec<u8>,
-        hash_head: &mut [u32],
-        hash_next: &mut Vec<u32>,
+        chains: &mut Chains,
     ) -> Option<Chunk> {
-        const BACK_WINDOW: usize = 64 * 1024;
         let mut literal = Vec::with_capacity(value.len());
         while !value.is_empty() {
             let prefix = if value.len() > u8::MAX as usize {
@@ -143,11 +243,12 @@ impl Lz77 {
             let mut best_sofar: Option<(usize, usize)> = None; // (sofar position, length)
             if prefix.len() >= MIN_MATCH {
                 let h = lz77_hash(prefix);
-                let min_valid = sofar.len().saturating_sub(BACK_WINDOW);
-                let mut candidate = hash_head[h] as usize;
+                let base = chains.base as usize;
+                let min_valid = base + sofar.len().saturating_sub(BACK_WINDOW);
+                let mut numbered = chains.head[h] as usize;
                 let mut chain = 0;
-                while candidate != u32::MAX as usize && candidate >= min_valid && chain < MAX_CHAIN
-                {
+                while numbered >= min_valid && chain < MAX_CHAIN {
+                    let candidate = numbered - base;
                     let cand = &sofar[candidate..];
                     if cand.len() >= MIN_MATCH
                         && cand[0] == prefix[0]
@@ -167,31 +268,37 @@ impl Lz77 {
                             }
                         }
                     }
-                    candidate = hash_next.get(candidate).copied().unwrap_or(u32::MAX) as usize;
+                    numbered = chains.next[candidate] as usize;
                     chain += 1;
                 }
             }
 
             // Linear scan in old strings; must beat best_sofar to be chosen.
             // The old_filter bloom filter lets us skip the entire scan when the
-            // current 4-gram prefix is not present in any old string.
+            // current 4-gram prefix is not present in any old string, and each
+            // string's own filter skips that string. A prefix shorter than
+            // MIN_MATCH can match in fewer than 4 bytes, so neither applies.
             let sofar_best_len = best_sofar.map_or(0, |(_, l)| l);
             let sofar_back_len = sofar.len().min(BACK_WINDOW);
             let mut old_budget = BACK_WINDOW.saturating_sub(sofar_back_len);
             let mut min_old = sofar_best_len;
             let mut best_old: Option<(u8, usize, usize)> = None; // (back, offset, length)
-            let skip_old = prefix.len() >= MIN_MATCH && !self.old_filter.test(lz77_hash(prefix));
-            if !skip_old {
-                for (i, old_s) in self.old.iter().enumerate() {
+            let gram = (prefix.len() >= MIN_MATCH).then(|| lz77_hash(prefix));
+            if gram.is_none_or(|h| old_filter.test(h)) {
+                for (i, old_s) in old.iter().enumerate() {
                     if old_budget == 0 {
                         break;
                     }
-                    let use_s = if old_s.len() > old_budget {
-                        &old_s[..old_budget]
+                    let bytes = old_s.bytes.as_slice();
+                    let use_s = if bytes.len() > old_budget {
+                        &bytes[..old_budget]
                     } else {
-                        old_s.as_slice()
+                        bytes
                     };
                     old_budget = old_budget.saturating_sub(use_s.len());
+                    if gram.is_some_and(|h| !old_s.grams.test(h)) {
+                        continue;
+                    }
                     // When min_old is 0 (no prior match), use min_match=0 to allow
                     // matching short sequences (2-4 bytes) verbatim in old strings.
                     let search_min = if min_old == 0 { 0 } else { min_old + 1 };
@@ -233,7 +340,7 @@ impl Lz77 {
                 *value = &value[length..];
                 let new_start = sofar.len();
                 sofar.extend_from_slice(&prefix[..length]);
-                hash_next.resize(sofar.len(), u32::MAX);
+                chains.next.resize(sofar.len(), 0);
                 // Insert all positions that now have MIN_MATCH bytes for the first time.
                 // This includes "seam" positions (new_start-(MIN_MATCH-1)..new_start-1)
                 // that span old sofar bytes and new match bytes, plus positions within
@@ -243,10 +350,7 @@ impl Lz77 {
                 for p in first_insert..=last_insert {
                     // Hash needs 4 bytes; skip if near end (e.g. short match < 4 bytes).
                     if p + 4 <= sofar.len() {
-                        let h = lz77_hash(&sofar[p..]);
-                        let old = hash_head[h];
-                        hash_head[h] = p as u32;
-                        hash_next[p] = old;
+                        chains.insert(lz77_hash(&sofar[p..]), p);
                     }
                 }
                 let chunk = Chunk {
@@ -255,7 +359,7 @@ impl Lz77 {
                     back,
                     offset,
                 };
-                self.shift_chunk(&chunk);
+                shift_old(old, &chunk);
                 return Some(chunk);
             }
 
@@ -263,13 +367,10 @@ impl Lz77 {
             let (&first, rest) = value.split_first()?;
             literal.push(first);
             sofar.push(first);
-            hash_next.push(u32::MAX);
+            chains.next.push(0);
             if sofar.len() >= MIN_MATCH {
                 let insert_pos = sofar.len() - MIN_MATCH;
-                let h = lz77_hash(&sofar[insert_pos..]);
-                let old = hash_head[h];
-                hash_head[h] = insert_pos as u32;
-                hash_next[insert_pos] = old;
+                chains.insert(lz77_hash(&sofar[insert_pos..]), insert_pos);
             }
             *value = rest;
         }
@@ -292,7 +393,7 @@ impl Lz77 {
         for chunk in chunks {
             sentinel.encode(writer);
             Normal::encode(&chunk, writer, self);
-            self.shift_chunk(&chunk);
+            shift_old(&mut self.old, &chunk);
         }
         self.push_old(value.to_vec());
     }
@@ -370,17 +471,147 @@ impl Lz77 {
                     "corrupt stream: Lz77 match names a string not yet decoded",
                 ));
             }
-            self.shift_chunk(chunk);
+            shift_old(&mut self.old, chunk);
             let matched = chunk
                 .offset
                 .checked_add(length)
-                .and_then(|end| self.old[0].get(chunk.offset..end))
+                .and_then(|end| self.old[0].bytes.get(chunk.offset..end))
                 .ok_or_else(|| {
                     std::io::Error::other("corrupt stream: Lz77 match runs past its string")
                 })?;
             out.extend_from_slice(matched);
         }
         Ok(())
+    }
+}
+
+/// Whenever we use an old string, we move it to the front of the queue. This
+/// keeps "useful" strings from falling off the back, and also makes smaller
+/// `back` values more common.
+fn shift_old<T>(old: &mut VecDeque<T>, Chunk { back, .. }: &Chunk) {
+    if *back > 0 {
+        if let Some(string) = old.remove(*back as usize - 1) {
+            old.push_front(string);
+        }
+    }
+}
+
+/// What one value leaves in the chains must not change what the next finds: a
+/// stale entry read as a position would either match bytes of the wrong value or
+/// cut a chain short. So the chunks must be what fresh chains give, including
+/// when the numbering runs out and starts again.
+#[test]
+fn chains_kept_between_values_do_not_change_the_chunks() {
+    let values: [&[u8]; 4] = [
+        b"abcdefgh abcdefgh abcdefgh",
+        b"abcdefgh xyzxyzxyz",
+        b"",
+        b"xyzxyzxyz abcdefgh abcdefgh",
+    ];
+    let mut ctx = Lz77::default();
+    let mut kept = Chains::default();
+    for start in [0, u32::MAX - 40] {
+        kept.base = start;
+        for value in values {
+            let fresh = ctx.eager_with(value, &mut Chains::default());
+            assert_eq!(ctx.eager_with(value, &mut kept), fresh, "{value:?}");
+            ctx.push_old(value.to_vec());
+        }
+    }
+}
+
+/// The chains outlive the value they were built for, so a long one must not leave
+/// the thread holding memory for the rest of its life.
+#[test]
+fn a_long_value_leaves_nothing_in_the_shared_chains() {
+    let capacity = || CHAINS.with_borrow(|chains| chains.next.capacity());
+    let before = capacity();
+    let long = vec![0; Chains::MAX_SHARED_LEN + 1];
+    let chunks = Lz77::default().eager(&long);
+    let coded: usize = chunks
+        .iter()
+        .map(|chunk| chunk.literal.len() + chunk.length as usize)
+        .sum();
+    assert_eq!(coded, long.len());
+    assert_eq!(capacity(), before);
+}
+
+/// A string its filter passes over still spends its part of the search's budget,
+/// as it did when every string was read. Skipping it for free would reach strings
+/// further back, and so change the output, with nothing else to notice: it would
+/// still decode.
+#[test]
+fn a_filtered_string_still_spends_the_search_budget() {
+    let wanted: &[u8] = b"the quick brown fox";
+    let chunks_past = |filler: usize| {
+        let mut ctx = Lz77::default();
+        ctx.push_old(wanted.to_vec());
+        ctx.push_old(vec![b'.'; filler]);
+        ctx.eager(wanted)
+    };
+    assert_eq!(chunks_past(100)[0].back, 2);
+    assert!(chunks_past(BACK_WINDOW).iter().all(|c| c.back == 0));
+}
+
+/// A filter that wrongly ruled a string out would silently lose its matches, and
+/// nothing else would notice: the output would still decode, just bigger.
+#[test]
+fn gram_filter_never_rules_out_a_gram_the_string_holds() {
+    let mut x = 0x1234_5678_9abc_def0_u64;
+    let mut byte = move || {
+        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (x >> 56) as u8
+    };
+    // Past `MAX_WORDS` at the top, and shorter than one gram at the bottom.
+    for len in [
+        0,
+        1,
+        3,
+        4,
+        5,
+        63,
+        64,
+        65,
+        1000,
+        4 * GramFilter::MAX_WORDS,
+        100_000,
+    ] {
+        let bytes: Vec<u8> = (0..len).map(|_| byte()).collect();
+        let filter = GramFilter::new(&bytes);
+        assert!(filter.0.len() <= GramFilter::MAX_WORDS);
+        for gram in bytes.windows(4) {
+            assert!(filter.test(lz77_hash(gram)), "len {len}");
+        }
+    }
+    // The decode side's empty filter must rule nothing out, not panic.
+    assert!(GramFilter::default().test(lz77_hash(b"abcd")));
+    // And a filter is worth having only if it does rule things out.
+    let filter = GramFilter::new(b"the quick brown fox");
+    assert!(!filter.test(lz77_hash(b"jump")));
+}
+
+/// Every match in an old string must still be found through the filters, so
+/// look for one at every offset: a search that skipped a string it should have
+/// read would lose some of them, for whichever 4-grams it got wrong.
+#[test]
+fn old_strings_are_matched_through_the_filters() {
+    let wanted: &[u8] = b"the quick brown fox jumps over one lazy dog, then naps";
+    let mut ctx = Lz77::default();
+    ctx.push_old(b"nothing to see in this one".to_vec());
+    ctx.push_old(wanted.to_vec());
+    ctx.push_old(b"and nothing in this one either".to_vec());
+    for offset in 0..wanted.len() - MIN_MATCH {
+        let length = (wanted.len() - offset).min(12);
+        assert_eq!(
+            ctx.eager(&wanted[offset..offset + length]),
+            vec![Chunk {
+                literal: Box::new([]),
+                length: length as u8,
+                back: 2,
+                offset,
+            }],
+            "offset {offset}"
+        );
     }
 }
 
@@ -498,10 +729,21 @@ pub(crate) fn find_first_longest_prefix(
     } else {
         needle.split_at_checked(min_match.max(5))?.0
     };
+    // Almost every offset fails within a few bytes, and calling `memcmp` once per
+    // offset to find that out was most of the cost of encoding. So compare the
+    // first four bytes as a word, which every prefix tried here shares however
+    // long it has grown, and then the last, which is the byte that would make
+    // this the longest match so far and is the likeliest of the rest to differ.
+    let first_word = prefix.first_chunk().map(|word| u32::from_ne_bytes(*word));
     let mut best = None;
     for offset in 0..(haystack.len() + 1).saturating_sub(prefix.len()) {
         let here = &haystack[offset..];
-        if here.starts_with(prefix) {
+        if let (Some(word), Some(here_word)) = (first_word, here.first_chunk()) {
+            if u32::from_ne_bytes(*here_word) != word {
+                continue;
+            }
+        }
+        if here.get(prefix.len() - 1) == prefix.last() && here.starts_with(prefix) {
             let mut length = prefix.len();
             if prefix.len() < needle.len() && here.len() > prefix.len() {
                 length += needle[prefix.len()..]
@@ -519,6 +761,35 @@ pub(crate) fn find_first_longest_prefix(
         }
     }
     best
+}
+
+/// Nothing here is about speed, but the shortcuts in the search are where a
+/// match would get lost, and losing one only makes the output bigger.
+#[test]
+fn test_first_longest_prefix() {
+    let find = find_first_longest_prefix;
+    // The earliest of equals, and a longer one over an earlier one.
+    assert_eq!(find(b"abcde_abcde", b"abcde", 0), Some((0, 5)));
+    assert_eq!(find(b"abcde_abcdefg", b"abcdefgh", 0), Some((6, 7)));
+    // Past an offset that differs only in the last byte, or only between that
+    // and the first four.
+    assert_eq!(find(b"abcdX_abcde", b"abcde", 0), Some((6, 5)));
+    assert_eq!(
+        find(b"abcdef_abcdXfg_abcdefg", b"abcdefgh", 0),
+        Some((15, 7))
+    );
+    assert_eq!(find(b"abXde", b"abcde", 0), None);
+    // A prefix of 2 to 4 bytes, the last two too short to compare as a word,
+    // and at the very end of the haystack, too short to have a word to compare.
+    assert_eq!(find(b"xxabcd", b"abcd", 0), Some((2, 4)));
+    assert_eq!(find(b"abXabc_", b"abc", 0), Some((3, 3)));
+    assert_eq!(find(b"xxabc", b"abc", 0), Some((2, 3)));
+    assert_eq!(find(b"xxab", b"ab", 0), Some((2, 2)));
+    assert_eq!(find(b"xxab", b"abc", 0), None);
+    assert_eq!(find(b"a", b"a", 0), None);
+    // A minimum holds the search to matches beating what it already has.
+    assert_eq!(find(b"abcdexabcdefg", b"abcdefg", 6), Some((6, 7)));
+    assert_eq!(find(b"abcdex", b"abcdefg", 6), None);
 }
 
 #[cfg(test)]
