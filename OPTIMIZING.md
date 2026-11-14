@@ -1670,6 +1670,17 @@ decodes, so a good hit rate is both smaller and faster.
     only pays off when cardinality is high *but* locality is real.
 
 ## Landed so far
+- **Smaller number contexts (2026-11-01)** — `f64`'s context was 4 KB, over half of
+  it the `Small<i64>` integer tier that only whole numbers too big for an `i32`
+  mantissa reach; it is now built on first use, leaving 1.6 KB. And `partial`'s
+  rows lost an eighth column that could never be read, 11% off every integer's
+  context. `MeteoriteData`'s context goes 21 → 13 KB, and `single meteorites`
+  decode **−7.3%**, encode **−6.3%**, `single cards` decode −4.3%.
+  **The `floats` cell in a full `coders` run is not comparable between builds:**
+  this change read `slice` 279 → 386 µs there, but running only `floats`, the
+  baseline and each half of the change all read 324–332 µs. The same code gives a
+  different number depending on what ran before it in the process, even with the
+  allocator pinned. Filter to `floats` before believing a change in it.
 - **Lz77 offsets: default `usize` instead of `Small<usize>` (2026-07-21)** —
   `Lz77`'s `count`, `offset`, and `self_offset` switched from
   `Small<usize>` to plain `usize`. A back-reference offset is usually ≥ 64, so
