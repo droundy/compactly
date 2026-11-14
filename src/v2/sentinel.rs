@@ -333,7 +333,8 @@ where
 #[cfg(test)]
 mod tests {
     use crate::v2::{decode, encode};
-    use crate::{Compressible, Encoded, LowCardinality, Sorted, Values};
+    use crate::{Compressible, Encoded, LowCardinality, Mapping, Normal, Small, Sorted, Values};
+    use expect_test::expect;
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
     /// Every collection that codes a marker must round-trip *past* the marker
@@ -587,6 +588,52 @@ mod tests {
         assert!(
             decoded.is_none() || decoded.as_ref().unwrap().len() <= v.len(),
             "truncated stream must not expand"
+        );
+    }
+
+    /// The exact bytes of each framed collection, pinned. The round trips above
+    /// show that encode and decode agree with each other; these show that the
+    /// format itself does not move, so the element loops can be restructured
+    /// without changing what any collection codes to.
+    #[test]
+    fn framed_collections_code_to_pinned_bytes() {
+        fn pinned<T>(value: T, expected: expect_test::Expect)
+        where
+            T: crate::v2::Encode + PartialEq + std::fmt::Debug,
+        {
+            let bytes = encode(&value);
+            assert_eq!(decode::<T>(&bytes).as_ref(), Some(&value));
+            expected.assert_eq(&format!("{bytes:?}"));
+        }
+        pinned(Vec::<u8>::new(), expect!["[31]"]);
+        pinned(
+            vec![1_u64, 2, 300],
+            expect!["[80, 59, 186, 123, 0, 0, 0, 0, 0, 0, 0, 44]"],
+        );
+        pinned(
+            Encoded::<_, Values<Small>>::new(vec![1_u64, 2, 300]),
+            expect!["[82, 239, 74, 0, 0, 0, 0, 0, 0, 0, 44]"],
+        );
+        pinned(VecDeque::from([1_u8, 2]), expect!["[64, 17]"]);
+        pinned(Box::<[u8]>::from([7_u8, 8]), expect!["[64, 114, 64]"]);
+        pinned(BTreeSet::from([5_u64, 9]), expect!["[165, 32]"]);
+        pinned(
+            Encoded::<_, Values<Small>>::new(BTreeSet::from([5_u64, 9])),
+            expect!["[165, 52, 103]"],
+        );
+        pinned(HashSet::from([42_u8]), expect!["[116]"]);
+        pinned(
+            BTreeMap::from([(1_u64, 2_u64), (3, 4)]),
+            expect!["[162, 52, 150, 111]"],
+        );
+        pinned(
+            Encoded::<_, Mapping<Small, Small>>::new(BTreeMap::from([(1_u64, 2_u64), (3, 4)])),
+            expect!["[162, 154, 143]"],
+        );
+        pinned(HashMap::from([(9_u8, 9_u8)]), expect!["[109, 19, 174]"]);
+        pinned(
+            Encoded::<_, Values<Mapping<Small, Normal>>>::new(vec![(1_u64, 2_u64), (3, 4)]),
+            expect!["[66, 14, 179, 53]"],
         );
     }
 }
