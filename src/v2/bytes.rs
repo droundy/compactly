@@ -21,25 +21,27 @@ fn lz77_hash(bytes: &[u8]) -> usize {
 /// Bitset filter over 4-grams present in old strings (LZ77_HASH_SIZE bits = 8 KiB).
 /// Bits are set when strings are added to `old` and never cleared, so the filter may
 /// have false positives from evicted strings but never false negatives from live ones.
-/// Cloning costs 8 KiB, which is far cheaper than scanning 25 KiB of old strings
-/// per chunk at O(MAX_CHAIN) depth.
-#[derive(Clone)]
-struct OldFilter(Box<[u64; LZ77_HASH_SIZE / 64]>);
-
-impl Default for OldFilter {
-    fn default() -> Self {
-        OldFilter(Box::new([0u64; LZ77_HASH_SIZE / 64]))
-    }
-}
+/// Those 8 KiB are far cheaper than scanning 25 KiB of old strings per chunk at
+/// O(MAX_CHAIN) depth.
+///
+/// Allocated when the first bit is set, so a decoder, which never reads it, never
+/// pays for it.
+#[derive(Default, Clone)]
+struct OldFilter(Option<Box<[u64; LZ77_HASH_SIZE / 64]>>);
 
 impl OldFilter {
     #[inline]
     fn set(&mut self, h: usize) {
-        self.0[h >> 6] |= 1u64 << (h & 63);
+        let bits = self
+            .0
+            .get_or_insert_with(|| Box::new([0u64; LZ77_HASH_SIZE / 64]));
+        bits[h >> 6] |= 1u64 << (h & 63);
     }
     #[inline]
     fn test(&self, h: usize) -> bool {
-        self.0[h >> 6] & (1u64 << (h & 63)) != 0
+        self.0
+            .as_ref()
+            .is_some_and(|bits| bits[h >> 6] & (1u64 << (h & 63)) != 0)
     }
 }
 
@@ -63,6 +65,25 @@ pub struct Lz77 {
     offset: <usize as Encode>::Context,
     self_offset: <usize as Encode>::Context,
     length: <u8 as Encode<Small>>::Context,
+}
+
+/// The context of a `Compressible` value: an [`Lz77`], built when the first value
+/// arrives.
+///
+/// An `Lz77` is over 6 KiB, and a type has one for every `Compressible` field,
+/// whether or not the field is ever set. A record's context is built afresh for
+/// each encode and decode of a single value, so a card with 32 such fields was
+/// paying for all of them, most of them on `None`. One word costs nothing to
+/// build, and a field that does hold a value pays the same as it did, plus an
+/// indirection that is nothing beside an Lz77 search.
+#[derive(Default, Clone)]
+pub struct LazyLz77(Option<Box<Lz77>>);
+
+impl LazyLz77 {
+    #[inline]
+    pub(super) fn get(&mut self) -> &mut Lz77 {
+        self.0.get_or_insert_with(Default::default)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -615,16 +636,16 @@ impl Encode for Chunk {
 }
 
 impl Encode<Compressible> for Vec<u8> {
-    type Context = Lz77;
+    type Context = LazyLz77;
     fn encode<E: super::EntropyCoder>(value: &Vec<u8>, writer: &mut E, ctx: &mut Self::Context) {
-        ctx.encode(value, writer)
+        ctx.get().encode(value, writer)
     }
 
     fn decode<D: super::EntropyDecoder>(
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
-        ctx.decode(reader)
+        ctx.get().decode(reader)
     }
 
     /// Length-driven: an arbitrary number of bytes.
@@ -634,8 +655,40 @@ impl Encode<Compressible> for Vec<u8> {
         reader: &mut D,
         ctx: &mut Self::Context,
     ) -> Result<Vec<u8>, std::io::Error> {
-        ctx.decode_async(reader).await
+        ctx.get().decode_async(reader).await
     }
+}
+
+/// The point of [`LazyLz77`]: a `Compressible` field that never holds a value
+/// costs a word of context, and decoding allocates no filter it will never read.
+#[test]
+fn an_unused_compressible_context_costs_nothing() {
+    use super::EntropyDecoder;
+    assert_eq!(
+        std::mem::size_of::<<Vec<u8> as Encode<Compressible>>::Context>(),
+        std::mem::size_of::<usize>()
+    );
+    assert!(LazyLz77::default().0.is_none());
+
+    let bytes = super::encode(&crate::Encoded::<Vec<u8>, Compressible>::new(
+        b"hello".to_vec(),
+    ));
+    let mut ctx = LazyLz77::default();
+    let decoded: Vec<u8> =
+        Compressible::decode(&mut super::arith::Decoder::new(&bytes), &mut ctx).unwrap();
+    assert_eq!(decoded, b"hello");
+    let lz77 = ctx.0.expect("decoding a value builds the context");
+    assert!(lz77.old_filter.0.is_none(), "decode never reads the filter");
+}
+
+/// A filter that has never been set holds nothing, so it rules everything out.
+#[test]
+fn an_unset_old_filter_holds_nothing() {
+    let mut filter = OldFilter::default();
+    assert!(!filter.test(5));
+    filter.set(5);
+    assert!(filter.test(5));
+    assert!(!filter.test(6));
 }
 
 #[test]

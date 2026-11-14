@@ -895,6 +895,47 @@ fn strategies_lift_through_option_and_box() {
     }
 }
 
+/// A `Compressible` field's context is built by its own first value, so the fields
+/// of a record get there at different times, or never, and the decoder has to agree
+/// on each. Once built a context has to stay built: rebuilt for every value it would
+/// still round-trip, and only the size would show it.
+#[test]
+fn compressible_fields_start_at_different_records() {
+    use compactly::v2::{decode, encode};
+
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode)]
+    struct Record {
+        #[compactly(Compressible)]
+        always: String,
+        #[compactly(Compressible)]
+        late: Option<String>,
+        #[compactly(Compressible)]
+        once: Option<Vec<u8>>,
+        #[compactly(Compressible)]
+        never: Option<String>,
+    }
+
+    let text = "the quick brown fox jumps over the lazy dog";
+    let records: Vec<Record> = (0..20)
+        .map(|i| Record {
+            always: format!("{text} {i}"),
+            late: (i >= 7).then(|| format!("{i} {text}")),
+            once: (i == 12).then(|| text.as_bytes().to_vec()),
+            never: None,
+        })
+        .collect();
+
+    let together = encode(&records);
+    assert_eq!(decode(&together).as_ref(), Some(&records));
+    let mut apart = 0;
+    for record in &records {
+        let encoded = encode(record);
+        assert_eq!(decode(&encoded).as_ref(), Some(record));
+        apart += encoded.len();
+    }
+    assert!(together.len() * 2 < apart, "{} {apart}", together.len());
+}
+
 /// A `Box<T>` costs nothing on the wire: it encodes exactly as the `T` inside,
 /// under the default strategy and under a named one alike.
 #[test]
