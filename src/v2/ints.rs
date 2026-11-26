@@ -646,9 +646,9 @@ impl Encode<Small> for u16 {
         if full_bytes > 0 {
             writer.encode_incompressible_bytes(&value_bytes[..full_bytes]);
         }
-        for i in 0..partial_bits {
+        for (i, bit_ctx) in ctx.partial[lz].iter_mut().enumerate().take(partial_bits) {
             let bit = (value_bytes[full_bytes] >> i) & 1 == 1;
-            Normal::encode(&bit, writer, &mut ctx.partial[lz][i]);
+            Normal::encode(&bit, writer, bit_ctx);
         }
     }
     #[inline]
@@ -676,8 +676,8 @@ impl Encode<Small> for u16 {
         if full_bytes > 0 {
             reader.decode_incompressible_bytes(&mut value_bytes[..full_bytes])?;
         }
-        for i in 0..partial_bits {
-            if <bool as Encode>::decode(reader, &mut ctx.partial[lz][i])? {
+        for (i, bit_ctx) in ctx.partial[lz].iter_mut().enumerate().take(partial_bits) {
+            if <bool as Encode>::decode(reader, bit_ctx)? {
                 value_bytes[full_bytes] |= 1 << i;
             }
         }
@@ -723,8 +723,8 @@ impl Encode<Small> for u16 {
                 .decode_incompressible_bytes(&mut value_bytes[..full_bytes])
                 .await?;
         }
-        for i in 0..partial_bits {
-            if <bool as Encode>::decode_async(reader, &mut ctx.partial[lz][i]).await? {
+        for (i, bit_ctx) in ctx.partial[lz].iter_mut().enumerate().take(partial_bits) {
+            if <bool as Encode>::decode_async(reader, bit_ctx).await? {
                 value_bytes[full_bytes] |= 1 << i;
             }
         }

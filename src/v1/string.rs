@@ -38,8 +38,8 @@ impl Encode for char {
             let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             n_chunks.encode(writer, &mut ctx.n_chunks)?;
             Bits::<32>::take_from(&mut x).encode(writer, &mut ctx.chunk1)?;
-            for i in 0_usize..1 + usize::from(n_chunks) {
-                Bits::<64>::take_from(&mut x).encode(writer, &mut ctx.chunks[i])?;
+            for chunk_ctx in ctx.chunks.iter_mut().take(1 + usize::from(n_chunks)) {
+                Bits::<64>::take_from(&mut x).encode(writer, chunk_ctx)?;
             }
             Ok(())
         }
@@ -61,8 +61,8 @@ impl Encode for char {
             let n_chunks = ULessThan::<3>::try_from(n_chunks).unwrap();
             tot += n_chunks.millibits(&mut ctx.n_chunks)?;
             tot += Bits::<32>::take_from(&mut x).millibits(&mut ctx.chunk1)?;
-            for i in 0_usize..1 + usize::from(n_chunks) {
-                tot += Bits::<64>::take_from(&mut x).millibits(&mut ctx.chunks[i])?;
+            for chunk_ctx in ctx.chunks.iter_mut().take(1 + usize::from(n_chunks)) {
+                tot += Bits::<64>::take_from(&mut x).millibits(chunk_ctx)?;
             }
             Some(tot)
         }
@@ -78,8 +78,13 @@ impl Encode for char {
         } else {
             let n_chunks = ULessThan::<3>::decode(reader, &mut ctx.n_chunks)?;
             let mut out: u32 = u8::from(Bits::<32>::decode(reader, &mut ctx.chunk1)?) as u32;
-            for i in 0_usize..1 + usize::from(n_chunks) {
-                let chunk = u8::from(Bits::<64>::decode(reader, &mut ctx.chunks[i])?) as u32;
+            for (i, chunk_ctx) in ctx
+                .chunks
+                .iter_mut()
+                .enumerate()
+                .take(1 + usize::from(n_chunks))
+            {
+                let chunk = u8::from(Bits::<64>::decode(reader, chunk_ctx)?) as u32;
                 out |= chunk << (5 + 6 * i);
             }
             char::from_u32(out).ok_or_else(|| std::io::Error::other("invalid char value"))
