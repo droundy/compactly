@@ -56,13 +56,21 @@ impl EncodingStrategy {
 fn strategy_or_normal(strategy: Option<&EncodingStrategy>) -> proc_macro2::TokenStream {
     match strategy {
         Some(EncodingStrategy(ty)) => quote! { #ty },
-        None => quote! { Normal },
+        None => quote! { compactly::Normal },
     }
 }
 
 /// `#[derive(EncodeV2)]`: the full `Encode` impl — `encode`/`decode` plus the
 /// async-decode members (`MAX_BYTES`, `decode_awaiting`) that `decode_stream`
 /// needs.
+///
+/// The expansion sits in the user's module, so every name it uses is either a
+/// path from a crate root (`compactly::v2::Encode`, `::core::result::Result`)
+/// or one chosen not to collide with the user's: field bindings avoid
+/// [`RESERVED_BINDING_NAMES`](crate::RESERVED_BINDING_NAMES), and the methods'
+/// type parameters avoid the type's own (see
+/// [`fresh_type_param`](crate::fresh_type_param)). Nothing is imported, since an
+/// import would shadow a user type of the same name throughout the expansion.
 ///
 /// There is only one derive. `Encode<S>` is a single trait with no opt-out, so
 /// every field's strategy must support decoding from a stream too — which
@@ -73,8 +81,10 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     if s.variants().is_empty() {
         return derive_uninhabited(s);
     }
-    let mut bound_names = BTreeSet::new();
-    bound_names.insert(Ident::new("discriminant", Span::call_site()));
+    let mut bound_names = crate::RESERVED_BINDING_NAMES
+        .iter()
+        .map(|name| Ident::new(name, Span::call_site()))
+        .collect::<BTreeSet<_>>();
     s.binding_name(|field, i| {
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
@@ -142,7 +152,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
         .collect::<Vec<_>>();
     let context_generics = {
-        let type_bounds = context_type_params.iter().map(|t| quote! { #t: Encode });
+        let type_bounds = context_type_params
+            .iter()
+            .map(|t| quote! { #t: compactly::v2::Encode });
         let const_defs = context_const_params
             .iter()
             .map(|(name, ty)| quote! { const #name: #ty });
@@ -218,7 +230,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             let name = &binding.binding;
             let strategy = strategy_or_normal(strategy.as_ref());
             quote! {
-                #name: <#ty as Encode<#strategy>>::Context
+                #name: <#ty as compactly::v2::Encode<#strategy>>::Context
             }
         })
         .collect::<Vec<_>>();
@@ -233,7 +245,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         let binding = &binding.binding;
         let strategy = strategy_or_normal(binding_strategies.get(binding).and_then(|s| s.as_ref()));
         quote! {
-            <#ty as Encode<#strategy>>::encode(&#binding, writer, &mut ctx.#binding);
+            <#ty as compactly::v2::Encode<#strategy>>::encode(&#binding, writer, &mut ctx.#binding);
         }
     });
     let num_variants = s.variants().len();
@@ -250,7 +262,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            Normal::encode(&compactly::v2::AtMost::<#max_discriminant>::new(#discriminant), writer, &mut ctx.discriminant);
+            <#discriminant_type as compactly::v2::Encode>::encode(&compactly::v2::AtMost::<#max_discriminant>::new(#discriminant), writer, &mut ctx.discriminant);
         }
     });
 
@@ -270,7 +282,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                     );
                     let name = &binding.binding;
                     quote! {
-                        <#ty as Encode<#strategy>>::decode(reader, &mut ctx.#name)?
+                        <#ty as compactly::v2::Encode<#strategy>>::decode(reader, &mut ctx.#name)?
                     }
                 })
                 .collect::<Vec<_>>();
@@ -279,9 +291,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .collect::<Vec<_>>();
     let discriminants = 0..s.variants().len();
     let decode = quote! {
-        Ok(match usize::from(discriminant) {
+        ::core::result::Result::Ok(match <usize as ::core::convert::From<#discriminant_type>>::from(discriminant) {
             #(#discriminants => #decode_variants,)*
-            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+            _ => return ::core::result::Result::Err(::std::io::Error::other("This discriminant should be impossible"))
         })
     };
 
@@ -303,7 +315,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                         .get(&binding.binding)
                         .and_then(|s| s.as_ref()),
                 );
-                quote! { <#ty as Encode<#strategy>>::MAX_BYTES }
+                quote! { <#ty as compactly::v2::Encode<#strategy>>::MAX_BYTES }
             });
             quote! { 0usize #(.saturating_add(#field_bounds))* }
         })
@@ -326,7 +338,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                             .and_then(|s| s.as_ref()),
                     );
                     quote! {
-                        <#ty as Encode<#strategy>>::decode_async(reader, &mut ctx.#binding).await?
+                        <#ty as compactly::v2::Encode<#strategy>>::decode_async(reader, &mut ctx.#binding).await?
                     }
                 })
                 .collect::<Vec<_>>();
@@ -334,6 +346,10 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
         .collect::<Vec<_>>();
     let discriminants_async = 0..s.variants().len();
+
+    // The coder and decoder type parameters of the generated methods.
+    let coder = crate::fresh_type_param(&s.ast().generics, "E");
+    let decoder = crate::fresh_type_param(&s.ast().generics, "D");
 
     let strategies_to_impl = EncodingStrategy::parse_attrs(&s.ast().attrs);
     let impl_strategies = if strategies_to_impl.is_empty() {
@@ -353,25 +369,25 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .map(|EncodingStrategy(strategy)| {
             let ty = binding.ast().ty.clone();
             let field_name = binding.ast().ident.as_ref().map(|i| i.to_token_stream()).unwrap_or(quote! {0});
-            let decoded = s.variants()[0].construct(|_, _| quote! { <#ty as Encode<#strategy>>::decode(reader, ctx)? });
-            let decoded_async = s.variants()[0].construct(|_, _| quote! { <#ty as Encode<#strategy>>::decode_async(reader, ctx).await? });
+            let decoded = s.variants()[0].construct(|_, _| quote! { <#ty as compactly::v2::Encode<#strategy>>::decode(reader, ctx)? });
+            let decoded_async = s.variants()[0].construct(|_, _| quote! { <#ty as compactly::v2::Encode<#strategy>>::decode_async(reader, ctx).await? });
             quote! {
-                impl Encode<#strategy> for #typename {
-                    type Context = <#ty as Encode<#strategy>>::Context;
-                    fn encode<E: EntropyCoder>(value: &#typename, writer: &mut E, ctx: &mut Self::Context) {
-                        <#ty as Encode<#strategy>>::encode(&value.#field_name, writer, ctx)
+                impl compactly::v2::Encode<#strategy> for #typename {
+                    type Context = <#ty as compactly::v2::Encode<#strategy>>::Context;
+                    fn encode<#coder: compactly::v2::EntropyCoder>(value: &#typename, writer: &mut #coder, ctx: &mut Self::Context) {
+                        <#ty as compactly::v2::Encode<#strategy>>::encode(&value.#field_name, writer, ctx)
                     }
-                    fn decode<D: EntropyDecoder>(reader: &mut D, ctx: &mut Self::Context) -> Result<#typename, std::io::Error> {
-                        Ok(#decoded)
+                    fn decode<#decoder: compactly::v2::EntropyDecoder>(reader: &mut #decoder, ctx: &mut Self::Context) -> ::core::result::Result<#typename, ::std::io::Error> {
+                        ::core::result::Result::Ok(#decoded)
                     }
 
-                    const MAX_BYTES: usize = <#ty as Encode<#strategy>>::MAX_BYTES;
+                    const MAX_BYTES: usize = <#ty as compactly::v2::Encode<#strategy>>::MAX_BYTES;
 
-                    fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
-                        reader: &mut D,
+                    fn decode_awaiting<#decoder: compactly::v2::AsyncEntropyDecoder>(
+                        reader: &mut #decoder,
                         ctx: &mut Self::Context,
-                    ) -> impl ::core::future::Future<Output = Result<#typename, std::io::Error>> {
-                        async move { Ok(#decoded_async) }
+                    ) -> impl ::core::future::Future<Output = ::core::result::Result<#typename, ::std::io::Error>> {
+                        async move { ::core::result::Result::Ok(#decoded_async) }
                     }
                 }
             }
@@ -381,46 +397,44 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
-        use compactly::{Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal, Sorted, Values};
 
         #(#antipattern_warnings)*
 
         pub struct DerivedContext #context_generics {
-            discriminant: <#discriminant_type as Encode>::Context,
+            discriminant: <#discriminant_type as compactly::v2::Encode>::Context,
             #(#context,)*
         }
-        impl #context_generics Default for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::default::Default for DerivedContext #context_generics_without_bound {
             fn default() -> Self {
                 Self {
-                    discriminant: Default::default(),
-                    #(#bindings: Default::default(),)*
+                    discriminant: ::core::default::Default::default(),
+                    #(#bindings: ::core::default::Default::default(),)*
                 }
             }
         }
-        impl #context_generics Clone for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::clone::Clone for DerivedContext #context_generics_without_bound {
             fn clone(&self) -> Self {
                 Self {
-                    discriminant: self.discriminant.clone(),
-                    #(#bindings: self.#bindings.clone(),)*
+                    discriminant: ::core::clone::Clone::clone(&self.discriminant),
+                    #(#bindings: ::core::clone::Clone::clone(&self.#bindings),)*
                 }
             }
         }
 
         #(#impl_strategies)*
 
-        gen impl Encode<Normal> for @Self {
+        gen impl compactly::v2::Encode<compactly::Normal> for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
             type Context = DerivedContext #context_generics_without_bound;
-            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+            fn encode<#coder: compactly::v2::EntropyCoder>(value: &Self, writer: &mut #coder, ctx: &mut Self::Context) {
                 match value { #encode_discriminant }
                 match value { #encode_fields }
             }
-            fn decode<D: EntropyDecoder>(
-                reader: &mut D,
+            fn decode<#decoder: compactly::v2::EntropyDecoder>(
+                reader: &mut #decoder,
                 ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                let discriminant: #discriminant_type = <#discriminant_type as Encode>::decode(reader, &mut ctx.discriminant)?;
+            ) -> ::core::result::Result<Self, ::std::io::Error> {
+                let discriminant: #discriminant_type = <#discriminant_type as compactly::v2::Encode>::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
 
@@ -440,13 +454,13 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                     }
                     i += 1;
                 }
-                <#discriminant_type as Encode>::MAX_BYTES.saturating_add(worst)
+                <#discriminant_type as compactly::v2::Encode>::MAX_BYTES.saturating_add(worst)
             };
 
-            fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
-                reader: &mut D,
+            fn decode_awaiting<#decoder: compactly::v2::AsyncEntropyDecoder>(
+                reader: &mut #decoder,
                 ctx: &mut Self::Context,
-            ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+            ) -> impl ::core::future::Future<Output = ::core::result::Result<Self, ::std::io::Error>> {
                 // Not boxed. A recursive user type would make this future
                 // infinitely sized, but no such type exists: a context holds
                 // one field per field, so `struct Tree { kids: Vec<Tree> }`
@@ -456,14 +470,14 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 // Boxing here would buy nothing and cost an allocation.
                 async move {
                     let discriminant: #discriminant_type =
-                        <#discriminant_type as Encode>::decode_async(
+                        <#discriminant_type as compactly::v2::Encode>::decode_async(
                             reader,
                             &mut ctx.discriminant,
                         )
                         .await?;
-                    Ok(match usize::from(discriminant) {
+                    ::core::result::Result::Ok(match <usize as ::core::convert::From<#discriminant_type>>::from(discriminant) {
                         #(#discriminants_async => #decode_variants_async,)*
-                        _ => return Err(std::io::Error::other(
+                        _ => return ::core::result::Result::Err(::std::io::Error::other(
                             "This discriminant should be impossible",
                         )),
                     })
@@ -483,32 +497,33 @@ fn derive_uninhabited(s: synstructure::Structure) -> proc_macro2::TokenStream {
         EncodingStrategy::parse_attrs(&s.ast().attrs).is_empty(),
         "Cannot derive strategy for an enum"
     );
+    // Named as in `derive_compactly`, whose doc says why.
+    let coder = crate::fresh_type_param(&s.ast().generics, "E");
+    let decoder = crate::fresh_type_param(&s.ast().generics, "D");
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::v2::{Encode, EntropyCoder, EntropyDecoder};
-        use compactly::Normal;
 
-        gen impl Encode<Normal> for @Self {
+        gen impl compactly::v2::Encode<compactly::Normal> for @Self {
             type Context = ();
-            fn encode<E: EntropyCoder>(value: &Self, writer: &mut E, ctx: &mut Self::Context) {
+            fn encode<#coder: compactly::v2::EntropyCoder>(value: &Self, writer: &mut #coder, ctx: &mut Self::Context) {
                 match *value {}
             }
-            fn decode<D: EntropyDecoder>(
-                reader: &mut D,
+            fn decode<#decoder: compactly::v2::EntropyDecoder>(
+                reader: &mut #decoder,
                 ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                Err(std::io::Error::other("an enum with no variants has no values to decode"))
+            ) -> ::core::result::Result<Self, ::std::io::Error> {
+                ::core::result::Result::Err(::std::io::Error::other("an enum with no variants has no values to decode"))
             }
 
             /// Never coded.
             const MAX_BYTES: usize = 0;
 
-            fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
-                reader: &mut D,
+            fn decode_awaiting<#decoder: compactly::v2::AsyncEntropyDecoder>(
+                reader: &mut #decoder,
                 ctx: &mut Self::Context,
-            ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+            ) -> impl ::core::future::Future<Output = ::core::result::Result<Self, ::std::io::Error>> {
                 async move {
-                    Err(std::io::Error::other("an enum with no variants has no values to decode"))
+                    ::core::result::Result::Err(::std::io::Error::other("an enum with no variants has no values to decode"))
                 }
             }
         }
@@ -541,7 +556,7 @@ fn const_generic_in_field_type_forwarded_to_context() {
         "expected DerivedContext to carry `const N: usize`:\n{output}"
     );
     assert!(
-        output.contains("<[u8; N] as Encode<Normal>>::Context"),
+        output.contains("<[u8; N] as compactly::v2::Encode<compactly::Normal>>::Context"),
         "expected field to reference N:\n{output}"
     );
 }
@@ -560,19 +575,59 @@ fn field_named_discriminant_is_renamed() {
     let s = synstructure::Structure::new(&di);
     let output = pretty(derive_compactly(s));
     assert!(
-        output.contains("discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,"),
+        output.contains(
+            "discriminant: <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::Context,"
+        ),
         "expected hardcoded discriminant field:\n{output}"
     );
     assert!(
-        output.contains("discriminant_0: <u32 as Encode<Normal>>::Context,"),
+        output.contains(
+            "discriminant_0: <u32 as compactly::v2::Encode<compactly::Normal>>::Context,"
+        ),
         "expected user field renamed to discriminant_0:\n{output}"
     );
     assert!(
         !output.contains(
-            "discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,\n        discriminant: <u32 as Encode<Normal>>::Context,"
+            "discriminant: <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::Context,\n        discriminant: <u32 as compactly::v2::Encode<compactly::Normal>>::Context,"
         ),
         "must not have duplicate discriminant fields:\n{output}"
     );
+}
+
+#[test]
+fn fields_named_like_encodes_parameters_are_renamed() {
+    // `encode`'s `match` binds every field, so a field bound as `writer` or `ctx`
+    // would shadow the parameter of that name in the code that uses it.
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Book {
+            writer: String,
+            ctx: u8,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+    for renamed in ["writer: ref writer_0", "ctx: ref ctx_0"] {
+        assert!(output.contains(renamed), "expected `{renamed}`:\n{output}");
+    }
+}
+
+#[test]
+fn method_type_parameters_avoid_the_types_own() {
+    let di: syn::DeriveInput = syn::parse_quote! {
+        pub struct Pair<E, D> {
+            e: E,
+            d: D,
+        }
+    };
+    let s = synstructure::Structure::new(&di);
+    let output = pretty(derive_compactly(s));
+    for needle in [
+        "fn encode<E0: compactly::v2::EntropyCoder>",
+        "fn decode<D0: compactly::v2::EntropyDecoder>",
+        "fn decode_awaiting<D0: compactly::v2::AsyncEntropyDecoder>",
+    ] {
+        assert!(output.contains(needle), "expected `{needle}`:\n{output}");
+    }
 }
 
 #[test]
@@ -649,92 +704,127 @@ fn impl_two_strategies() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
-            use compactly::{
-                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
-                Sorted, Values,
-            };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
-                __binding_0: <u32 as Encode<Normal>>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::Context,
+                __binding_0: <u32 as compactly::v2::Encode<compactly::Normal>>::Context,
             }
-            impl Default for DerivedContext {
+            impl ::core::default::Default for DerivedContext {
                 fn default() -> Self {
                     Self {
-                        discriminant: Default::default(),
-                        __binding_0: Default::default(),
+                        discriminant: ::core::default::Default::default(),
+                        __binding_0: ::core::default::Default::default(),
                     }
                 }
             }
-            impl Clone for DerivedContext {
+            impl ::core::clone::Clone for DerivedContext {
                 fn clone(&self) -> Self {
                     Self {
-                        discriminant: self.discriminant.clone(),
-                        __binding_0: self.__binding_0.clone(),
+                        discriminant: ::core::clone::Clone::clone(&self.discriminant),
+                        __binding_0: ::core::clone::Clone::clone(&self.__binding_0),
                     }
                 }
             }
-            impl Encode<Small> for NewType {
-                type Context = <u32 as Encode<Small>>::Context;
-                fn encode<E: EntropyCoder>(
+            impl compactly::v2::Encode<compactly::Small> for NewType {
+                type Context = <u32 as compactly::v2::Encode<compactly::Small>>::Context;
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &NewType,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    <u32 as Encode<Small>>::encode(&value.0, writer, ctx)
+                    <u32 as compactly::v2::Encode<
+                        compactly::Small,
+                    >>::encode(&value.0, writer, ctx)
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<NewType, std::io::Error> {
-                    Ok(NewType(<u32 as Encode<Small>>::decode(reader, ctx)?))
+                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                    ::core::result::Result::Ok(
+                        NewType(
+                            <u32 as compactly::v2::Encode<
+                                compactly::Small,
+                            >>::decode(reader, ctx)?,
+                        ),
+                    )
                 }
-                const MAX_BYTES: usize = <u32 as Encode<Small>>::MAX_BYTES;
+                const MAX_BYTES: usize = <u32 as compactly::v2::Encode<
+                    compactly::Small,
+                >>::MAX_BYTES;
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                > {
                     async move {
-                        Ok(NewType(<u32 as Encode<Small>>::decode_async(reader, ctx).await?))
+                        ::core::result::Result::Ok(
+                            NewType(
+                                <u32 as compactly::v2::Encode<
+                                    compactly::Small,
+                                >>::decode_async(reader, ctx)
+                                    .await?,
+                            ),
+                        )
                     }
                 }
             }
-            impl Encode<Sorted> for NewType {
-                type Context = <u32 as Encode<Sorted>>::Context;
-                fn encode<E: EntropyCoder>(
+            impl compactly::v2::Encode<compactly::Sorted> for NewType {
+                type Context = <u32 as compactly::v2::Encode<compactly::Sorted>>::Context;
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &NewType,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    <u32 as Encode<Sorted>>::encode(&value.0, writer, ctx)
+                    <u32 as compactly::v2::Encode<
+                        compactly::Sorted,
+                    >>::encode(&value.0, writer, ctx)
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<NewType, std::io::Error> {
-                    Ok(NewType(<u32 as Encode<Sorted>>::decode(reader, ctx)?))
+                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                    ::core::result::Result::Ok(
+                        NewType(
+                            <u32 as compactly::v2::Encode<
+                                compactly::Sorted,
+                            >>::decode(reader, ctx)?,
+                        ),
+                    )
                 }
-                const MAX_BYTES: usize = <u32 as Encode<Sorted>>::MAX_BYTES;
+                const MAX_BYTES: usize = <u32 as compactly::v2::Encode<
+                    compactly::Sorted,
+                >>::MAX_BYTES;
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                > {
                     async move {
-                        Ok(NewType(<u32 as Encode<Sorted>>::decode_async(reader, ctx).await?))
+                        ::core::result::Result::Ok(
+                            NewType(
+                                <u32 as compactly::v2::Encode<
+                                    compactly::Sorted,
+                                >>::decode_async(reader, ctx)
+                                    .await?,
+                            ),
+                        )
                     }
                 }
             }
-            impl Encode<Normal> for NewType {
+            impl compactly::v2::Encode<compactly::Normal> for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
                 type Context = DerivedContext;
-                fn encode<E: EntropyCoder>(
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            Normal::encode(
+                            <compactly::v2::AtMost<
+                                0usize,
+                            > as compactly::v2::Encode>::encode(
                                 &compactly::v2::AtMost::<0usize>::new(0usize),
                                 writer,
                                 &mut ctx.discriminant,
@@ -743,31 +833,33 @@ fn impl_two_strategies() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            <u32 as Encode<
-                                Normal,
+                            <u32 as compactly::v2::Encode<
+                                compactly::Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
                         }
                     }
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                         0usize,
-                    > as Encode>::decode(reader, &mut ctx.discriminant)?;
-                    Ok(
-                        match usize::from(discriminant) {
+                    > as compactly::v2::Encode>::decode(reader, &mut ctx.discriminant)?;
+                    ::core::result::Result::Ok(
+                        match <usize as ::core::convert::From<
+                            compactly::v2::AtMost<0usize>,
+                        >>::from(discriminant) {
                             0usize => {
                                 NewType(
-                                    <u32 as Encode<
-                                        Normal,
+                                    <u32 as compactly::v2::Encode<
+                                        compactly::Normal,
                                     >>::decode(reader, &mut ctx.__binding_0)?,
                                 )
                             }
                             _ => {
-                                return Err(
-                                    std::io::Error::other(
+                                return ::core::result::Result::Err(
+                                    ::std::io::Error::other(
                                         "This discriminant should be impossible",
                                     ),
                                 );
@@ -783,7 +875,10 @@ fn impl_two_strategies() {
                 /// never takes the async decoder's sync fast path.
                 const MAX_BYTES: usize = {
                     let variants: [usize; 1usize] = [
-                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                        0usize
+                            .saturating_add(
+                                <u32 as compactly::v2::Encode<compactly::Normal>>::MAX_BYTES,
+                            ),
                     ];
                     let mut worst = 0usize;
                     let mut i = 0;
@@ -793,30 +888,35 @@ fn impl_two_strategies() {
                         }
                         i += 1;
                     }
-                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                    <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::MAX_BYTES
+                        .saturating_add(worst)
                 };
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
+                > {
                     async move {
                         let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                             0usize,
-                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                        > as compactly::v2::Encode>::decode_async(reader, &mut ctx.discriminant)
                             .await?;
-                        Ok(
-                            match usize::from(discriminant) {
+                        ::core::result::Result::Ok(
+                            match <usize as ::core::convert::From<
+                                compactly::v2::AtMost<0usize>,
+                            >>::from(discriminant) {
                                 0usize => {
                                     NewType(
-                                        <u32 as Encode<
-                                            Normal,
+                                        <u32 as compactly::v2::Encode<
+                                            compactly::Normal,
                                         >>::decode_async(reader, &mut ctx.__binding_0)
                                             .await?,
                                     )
                                 }
                                 _ => {
-                                    return Err(
-                                        std::io::Error::other(
+                                    return ::core::result::Result::Err(
+                                        ::std::io::Error::other(
                                             "This discriminant should be impossible",
                                         ),
                                     );
@@ -842,67 +942,83 @@ fn impl_strategies() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
-            use compactly::{
-                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
-                Sorted, Values,
-            };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
-                __binding_0: <u32 as Encode<Normal>>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::Context,
+                __binding_0: <u32 as compactly::v2::Encode<compactly::Normal>>::Context,
             }
-            impl Default for DerivedContext {
+            impl ::core::default::Default for DerivedContext {
                 fn default() -> Self {
                     Self {
-                        discriminant: Default::default(),
-                        __binding_0: Default::default(),
+                        discriminant: ::core::default::Default::default(),
+                        __binding_0: ::core::default::Default::default(),
                     }
                 }
             }
-            impl Clone for DerivedContext {
+            impl ::core::clone::Clone for DerivedContext {
                 fn clone(&self) -> Self {
                     Self {
-                        discriminant: self.discriminant.clone(),
-                        __binding_0: self.__binding_0.clone(),
+                        discriminant: ::core::clone::Clone::clone(&self.discriminant),
+                        __binding_0: ::core::clone::Clone::clone(&self.__binding_0),
                     }
                 }
             }
-            impl Encode<Sorted> for NewType {
-                type Context = <u32 as Encode<Sorted>>::Context;
-                fn encode<E: EntropyCoder>(
+            impl compactly::v2::Encode<compactly::Sorted> for NewType {
+                type Context = <u32 as compactly::v2::Encode<compactly::Sorted>>::Context;
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &NewType,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
-                    <u32 as Encode<Sorted>>::encode(&value.0, writer, ctx)
+                    <u32 as compactly::v2::Encode<
+                        compactly::Sorted,
+                    >>::encode(&value.0, writer, ctx)
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<NewType, std::io::Error> {
-                    Ok(NewType(<u32 as Encode<Sorted>>::decode(reader, ctx)?))
+                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                    ::core::result::Result::Ok(
+                        NewType(
+                            <u32 as compactly::v2::Encode<
+                                compactly::Sorted,
+                            >>::decode(reader, ctx)?,
+                        ),
+                    )
                 }
-                const MAX_BYTES: usize = <u32 as Encode<Sorted>>::MAX_BYTES;
+                const MAX_BYTES: usize = <u32 as compactly::v2::Encode<
+                    compactly::Sorted,
+                >>::MAX_BYTES;
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<NewType, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                > {
                     async move {
-                        Ok(NewType(<u32 as Encode<Sorted>>::decode_async(reader, ctx).await?))
+                        ::core::result::Result::Ok(
+                            NewType(
+                                <u32 as compactly::v2::Encode<
+                                    compactly::Sorted,
+                                >>::decode_async(reader, ctx)
+                                    .await?,
+                            ),
+                        )
                     }
                 }
             }
-            impl Encode<Normal> for NewType {
+            impl compactly::v2::Encode<compactly::Normal> for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
                 type Context = DerivedContext;
-                fn encode<E: EntropyCoder>(
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            Normal::encode(
+                            <compactly::v2::AtMost<
+                                0usize,
+                            > as compactly::v2::Encode>::encode(
                                 &compactly::v2::AtMost::<0usize>::new(0usize),
                                 writer,
                                 &mut ctx.discriminant,
@@ -911,31 +1027,33 @@ fn impl_strategies() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            <u32 as Encode<
-                                Normal,
+                            <u32 as compactly::v2::Encode<
+                                compactly::Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
                         }
                     }
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                         0usize,
-                    > as Encode>::decode(reader, &mut ctx.discriminant)?;
-                    Ok(
-                        match usize::from(discriminant) {
+                    > as compactly::v2::Encode>::decode(reader, &mut ctx.discriminant)?;
+                    ::core::result::Result::Ok(
+                        match <usize as ::core::convert::From<
+                            compactly::v2::AtMost<0usize>,
+                        >>::from(discriminant) {
                             0usize => {
                                 NewType(
-                                    <u32 as Encode<
-                                        Normal,
+                                    <u32 as compactly::v2::Encode<
+                                        compactly::Normal,
                                     >>::decode(reader, &mut ctx.__binding_0)?,
                                 )
                             }
                             _ => {
-                                return Err(
-                                    std::io::Error::other(
+                                return ::core::result::Result::Err(
+                                    ::std::io::Error::other(
                                         "This discriminant should be impossible",
                                     ),
                                 );
@@ -951,7 +1069,10 @@ fn impl_strategies() {
                 /// never takes the async decoder's sync fast path.
                 const MAX_BYTES: usize = {
                     let variants: [usize; 1usize] = [
-                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                        0usize
+                            .saturating_add(
+                                <u32 as compactly::v2::Encode<compactly::Normal>>::MAX_BYTES,
+                            ),
                     ];
                     let mut worst = 0usize;
                     let mut i = 0;
@@ -961,30 +1082,35 @@ fn impl_strategies() {
                         }
                         i += 1;
                     }
-                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                    <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::MAX_BYTES
+                        .saturating_add(worst)
                 };
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
+                > {
                     async move {
                         let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                             0usize,
-                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                        > as compactly::v2::Encode>::decode_async(reader, &mut ctx.discriminant)
                             .await?;
-                        Ok(
-                            match usize::from(discriminant) {
+                        ::core::result::Result::Ok(
+                            match <usize as ::core::convert::From<
+                                compactly::v2::AtMost<0usize>,
+                            >>::from(discriminant) {
                                 0usize => {
                                     NewType(
-                                        <u32 as Encode<
-                                            Normal,
+                                        <u32 as compactly::v2::Encode<
+                                            compactly::Normal,
                                         >>::decode_async(reader, &mut ctx.__binding_0)
                                             .await?,
                                     )
                                 }
                                 _ => {
-                                    return Err(
-                                        std::io::Error::other(
+                                    return ::core::result::Result::Err(
+                                        ::std::io::Error::other(
                                             "This discriminant should be impossible",
                                         ),
                                     );
@@ -1012,9 +1138,9 @@ fn derive_always_includes_async_decode_members() {
 
     for needle in [
         "pub struct DerivedContext",
-        "impl Encode<Normal> for NewType",
-        "fn encode<E: EntropyCoder>",
-        "fn decode<D: EntropyDecoder>",
+        "impl compactly::v2::Encode<compactly::Normal> for NewType",
+        "fn encode<E: compactly::v2::EntropyCoder>",
+        "fn decode<D: compactly::v2::EntropyDecoder>",
         "const MAX_BYTES: usize",
         "fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>",
     ] {
@@ -1035,42 +1161,39 @@ fn impl_newtype() {
     expect_test::expect![[r#"
         const _: () = {
             extern crate compactly;
-            use compactly::v2::{Encode, EntropyCoder, EntropyDecoder, Strategy as _};
-            use compactly::{
-                Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal,
-                Sorted, Values,
-            };
             pub struct DerivedContext {
-                discriminant: <compactly::v2::AtMost<0usize> as Encode>::Context,
-                __binding_0: <u32 as Encode<Normal>>::Context,
+                discriminant: <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::Context,
+                __binding_0: <u32 as compactly::v2::Encode<compactly::Normal>>::Context,
             }
-            impl Default for DerivedContext {
+            impl ::core::default::Default for DerivedContext {
                 fn default() -> Self {
                     Self {
-                        discriminant: Default::default(),
-                        __binding_0: Default::default(),
+                        discriminant: ::core::default::Default::default(),
+                        __binding_0: ::core::default::Default::default(),
                     }
                 }
             }
-            impl Clone for DerivedContext {
+            impl ::core::clone::Clone for DerivedContext {
                 fn clone(&self) -> Self {
                     Self {
-                        discriminant: self.discriminant.clone(),
-                        __binding_0: self.__binding_0.clone(),
+                        discriminant: ::core::clone::Clone::clone(&self.discriminant),
+                        __binding_0: ::core::clone::Clone::clone(&self.__binding_0),
                     }
                 }
             }
-            impl Encode<Normal> for NewType {
+            impl compactly::v2::Encode<compactly::Normal> for NewType {
                 #![allow(unused_variables, non_shorthand_field_patterns)]
                 type Context = DerivedContext;
-                fn encode<E: EntropyCoder>(
+                fn encode<E: compactly::v2::EntropyCoder>(
                     value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
                     match value {
                         NewType(ref __binding_0) => {
-                            Normal::encode(
+                            <compactly::v2::AtMost<
+                                0usize,
+                            > as compactly::v2::Encode>::encode(
                                 &compactly::v2::AtMost::<0usize>::new(0usize),
                                 writer,
                                 &mut ctx.discriminant,
@@ -1079,31 +1202,33 @@ fn impl_newtype() {
                     }
                     match value {
                         NewType(ref __binding_0) => {
-                            <u32 as Encode<
-                                Normal,
+                            <u32 as compactly::v2::Encode<
+                                compactly::Normal,
                             >>::encode(&__binding_0, writer, &mut ctx.__binding_0);
                         }
                     }
                 }
-                fn decode<D: EntropyDecoder>(
+                fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> Result<Self, std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                         0usize,
-                    > as Encode>::decode(reader, &mut ctx.discriminant)?;
-                    Ok(
-                        match usize::from(discriminant) {
+                    > as compactly::v2::Encode>::decode(reader, &mut ctx.discriminant)?;
+                    ::core::result::Result::Ok(
+                        match <usize as ::core::convert::From<
+                            compactly::v2::AtMost<0usize>,
+                        >>::from(discriminant) {
                             0usize => {
                                 NewType(
-                                    <u32 as Encode<
-                                        Normal,
+                                    <u32 as compactly::v2::Encode<
+                                        compactly::Normal,
                                     >>::decode(reader, &mut ctx.__binding_0)?,
                                 )
                             }
                             _ => {
-                                return Err(
-                                    std::io::Error::other(
+                                return ::core::result::Result::Err(
+                                    ::std::io::Error::other(
                                         "This discriminant should be impossible",
                                     ),
                                 );
@@ -1119,7 +1244,10 @@ fn impl_newtype() {
                 /// never takes the async decoder's sync fast path.
                 const MAX_BYTES: usize = {
                     let variants: [usize; 1usize] = [
-                        0usize.saturating_add(<u32 as Encode<Normal>>::MAX_BYTES),
+                        0usize
+                            .saturating_add(
+                                <u32 as compactly::v2::Encode<compactly::Normal>>::MAX_BYTES,
+                            ),
                     ];
                     let mut worst = 0usize;
                     let mut i = 0;
@@ -1129,30 +1257,35 @@ fn impl_newtype() {
                         }
                         i += 1;
                     }
-                    <compactly::v2::AtMost<0usize> as Encode>::MAX_BYTES.saturating_add(worst)
+                    <compactly::v2::AtMost<0usize> as compactly::v2::Encode>::MAX_BYTES
+                        .saturating_add(worst)
                 };
                 fn decode_awaiting<D: compactly::v2::AsyncEntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> impl ::core::future::Future<Output = Result<Self, std::io::Error>> {
+                ) -> impl ::core::future::Future<
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
+                > {
                     async move {
                         let discriminant: compactly::v2::AtMost<0usize> = <compactly::v2::AtMost<
                             0usize,
-                        > as Encode>::decode_async(reader, &mut ctx.discriminant)
+                        > as compactly::v2::Encode>::decode_async(reader, &mut ctx.discriminant)
                             .await?;
-                        Ok(
-                            match usize::from(discriminant) {
+                        ::core::result::Result::Ok(
+                            match <usize as ::core::convert::From<
+                                compactly::v2::AtMost<0usize>,
+                            >>::from(discriminant) {
                                 0usize => {
                                     NewType(
-                                        <u32 as Encode<
-                                            Normal,
+                                        <u32 as compactly::v2::Encode<
+                                            compactly::Normal,
                                         >>::decode_async(reader, &mut ctx.__binding_0)
                                             .await?,
                                     )
                                 }
                                 _ => {
-                                    return Err(
-                                        std::io::Error::other(
+                                    return ::core::result::Result::Err(
+                                        ::std::io::Error::other(
                                             "This discriminant should be impossible",
                                         ),
                                     );
