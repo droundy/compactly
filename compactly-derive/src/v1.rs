@@ -15,9 +15,14 @@ impl EncodingStrategy {
     }
 }
 
+/// `#[derive(EncodeV1)]`. Like the v2 derive, the expansion names everything by
+/// a path from a crate root or by a name chosen not to collide with the user's,
+/// and imports nothing; see `v2::derive_compactly` for why.
 pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::TokenStream {
-    let mut bound_names = BTreeSet::new();
-    bound_names.insert(Ident::new("discriminant", Span::call_site()));
+    let mut bound_names = crate::RESERVED_BINDING_NAMES
+        .iter()
+        .map(|name| Ident::new(name, Span::call_site()))
+        .collect::<BTreeSet<_>>();
     s.binding_name(|field, i| {
         if let Some(name) = &field.ident {
             if bound_names.contains(name) {
@@ -85,7 +90,9 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
         .collect::<Vec<_>>();
     let context_generics = {
-        let type_bounds = context_type_params.iter().map(|t| quote! { #t: Encode });
+        let type_bounds = context_type_params
+            .iter()
+            .map(|t| quote! { #t: compactly::v1::Encode });
         let const_defs = context_const_params
             .iter()
             .map(|(name, ty)| quote! { const #name: #ty });
@@ -130,11 +137,11 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             if let Some(strategy) = strategy {
                 let strategy = strategy.0;
                 quote! {
-                    #name: <#strategy as EncodingStrategy<#ty>>::Context
+                    #name: <#strategy as compactly::v1::EncodingStrategy<#ty>>::Context
                 }
             } else {
                 quote! {
-                    #name: <#ty as Encode>::Context
+                    #name: <#ty as compactly::v1::Encode>::Context
                 }
             }
         })
@@ -151,11 +158,11 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         if let Some(Some(strategy)) = binding_strategies.get(binding) {
             let strategy = &strategy.0;
             quote! {
-                <#strategy as EncodingStrategy<#ty>>::encode(&#binding, writer, &mut ctx.#binding)?;
+                <#strategy as compactly::v1::EncodingStrategy<#ty>>::encode(&#binding, writer, &mut ctx.#binding)?;
             }
         } else {
             quote! {
-                #binding.encode(writer, &mut ctx.#binding)?;
+                <#ty as compactly::v1::Encode>::encode(#binding, writer, &mut ctx.#binding)?;
             }
         }
     });
@@ -172,7 +179,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
     let encode_discriminant = s.each_variant(|variant| {
         let discriminant = get_discriminant(variant);
         quote! {
-            compactly::v1::ULessThan::<#num_variants>::new(#discriminant).encode(writer, &mut ctx.discriminant)?;
+            <#discriminant_type as compactly::v1::Encode>::encode(&compactly::v1::ULessThan::<#num_variants>::new(#discriminant), writer, &mut ctx.discriminant)?;
         }
     });
 
@@ -184,15 +191,15 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 .bindings()
                 .iter()
                 .map(|binding| {
+                    let ty = &binding.ast().ty;
                     if let Some(Some(strategy)) = binding_strategies.get(&binding.binding) {
                         let strategy = &strategy.0;
-                        let ty = &binding.ast().ty;
                         quote! {
-                            <#strategy as EncodingStrategy<#ty>>::decode(reader, &mut ctx.#binding)?
+                            <#strategy as compactly::v1::EncodingStrategy<#ty>>::decode(reader, &mut ctx.#binding)?
                         }
                     } else {
                         quote! {
-                            Encode::decode(reader, &mut ctx.#binding)?
+                            <#ty as compactly::v1::Encode>::decode(reader, &mut ctx.#binding)?
                         }
                     }
                 })
@@ -202,56 +209,58 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         .collect::<Vec<_>>();
     let discriminants = 0..s.variants().len();
     let decode = quote! {
-        Ok(match usize::from(discriminant) {
+        ::core::result::Result::Ok(match <usize as ::core::convert::From<#discriminant_type>>::from(discriminant) {
             #(#discriminants => #decode_variants,)*
-            _ => return Err(std::io::Error::other("This discriminant should be impossible"))
+            _ => return ::core::result::Result::Err(::std::io::Error::other("This discriminant should be impossible"))
         })
     };
 
+    // The writer and reader type parameters of the generated methods.
+    let sink = crate::fresh_type_param(&s.ast().generics, "W");
+    let source = crate::fresh_type_param(&s.ast().generics, "R");
+
     s.gen_impl(quote! {
         extern crate compactly;
-        use compactly::v1::{Encode, EncodingStrategy};
-        use compactly::{Small, LowCardinality, Decimal, Compressible, Incompressible, Mapping, Normal, Sorted, Values};
 
         pub struct DerivedContext #context_generics {
-            discriminant: <#discriminant_type as Encode>::Context,
+            discriminant: <#discriminant_type as compactly::v1::Encode>::Context,
             #(#context,)*
         }
-        impl #context_generics Default for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::default::Default for DerivedContext #context_generics_without_bound {
             fn default() -> Self {
                 Self {
-                    discriminant: Default::default(),
-                    #(#bindings: Default::default(),)*
+                    discriminant: ::core::default::Default::default(),
+                    #(#bindings: ::core::default::Default::default(),)*
                 }
             }
         }
-        impl #context_generics Clone for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::clone::Clone for DerivedContext #context_generics_without_bound {
             fn clone(&self) -> Self {
                 Self {
-                    discriminant: self.discriminant.clone(),
-                    #(#bindings: self.#bindings.clone(),)*
+                    discriminant: ::core::clone::Clone::clone(&self.discriminant),
+                    #(#bindings: ::core::clone::Clone::clone(&self.#bindings),)*
                 }
             }
         }
 
 
-        gen impl Encode for @Self {
+        gen impl compactly::v1::Encode for @Self {
             #![allow(unused_variables,non_shorthand_field_patterns)]
             type Context = DerivedContext #context_generics_without_bound;
-            fn encode<W: std::io::Write>(
+            fn encode<#sink: ::std::io::Write>(
                 &self,
-                writer: &mut compactly::v1::Writer<W>,
+                writer: &mut compactly::v1::Writer<#sink>,
                 ctx: &mut Self::Context,
-            ) -> Result<(), std::io::Error> {
+            ) -> ::core::result::Result<(), ::std::io::Error> {
                 match self { #encode_discriminant }
                 match self { #encode_fields }
-                Ok(())
+                ::core::result::Result::Ok(())
             }
-            fn decode<R: std::io::Read>(
-                reader: &mut compactly::v1::Reader<R>,
+            fn decode<#source: ::std::io::Read>(
+                reader: &mut compactly::v1::Reader<#source>,
                 ctx: &mut Self::Context,
-            ) -> Result<Self, std::io::Error> {
-                let discriminant: #discriminant_type = Encode::decode(reader, &mut ctx.discriminant)?;
+            ) -> ::core::result::Result<Self, ::std::io::Error> {
+                let discriminant: #discriminant_type = <#discriminant_type as compactly::v1::Encode>::decode(reader, &mut ctx.discriminant)?;
                 #decode
             }
         }
