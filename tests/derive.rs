@@ -411,6 +411,240 @@ fn field_named_discriminant() {
     }
 }
 
+/// The expansion of a derive sits in the deriving type's own module, so it must
+/// mean the same thing whatever that module defines. Every type here failed to
+/// compile when the expansion named things the module could redefine.
+mod names_in_the_deriving_module {
+    fn round_trips<T>(values: &[T])
+    where
+        T: compactly::v2::Encode + compactly::v1::Encode + std::fmt::Debug + PartialEq,
+    {
+        for v in values {
+            let bytes = compactly::v2::encode(v);
+            assert_eq!(compactly::v2::decode::<T>(&bytes).as_ref(), Some(v), "v2");
+            let bytes = compactly::v1::encode(v);
+            assert_eq!(compactly::v1::decode::<T>(&bytes).as_ref(), Some(v), "v1");
+        }
+    }
+
+    /// A crate's own one-parameter `Result`, which the expansion's
+    /// `Result<Self, std::io::Error>` used to pick up.
+    mod result_alias {
+        #[allow(dead_code)]
+        type Result<T> = std::result::Result<T, String>;
+
+        #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub struct Record {
+            pub id: u32,
+            pub tag: Option<bool>,
+        }
+
+        #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub enum Event {
+            Start(Record),
+            Stop,
+        }
+
+        #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        #[compactly(Small)]
+        pub struct Count(pub u64);
+
+        #[derive(Debug, PartialEq, compactly::v2::Encode)]
+        pub enum Never {}
+    }
+
+    #[test]
+    fn a_result_alias() {
+        use result_alias::*;
+        round_trips(&[Event::Stop, Event::Start(Record { id: 7, tag: None })]);
+        round_trips(&[Count(5)]);
+        assert_eq!(
+            compactly::v2::encode_with(compactly::Small, &Count(5)).len(),
+            1
+        );
+        let none: Option<Never> = None;
+        assert_eq!(
+            compactly::v2::decode(&compactly::v2::encode(&none)),
+            Some(none)
+        );
+    }
+
+    /// Types named like the built-in strategies, which the expansion used to
+    /// import, so that each of these names meant `compactly`'s type there.
+    mod strategy_names {
+        #[derive(Clone, Copy, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub struct Small(pub u8);
+
+        #[derive(Clone, Copy, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub enum Sorted {
+            Ascending,
+            Descending,
+        }
+
+        #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub struct Values(pub Vec<Small>);
+
+        #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+        pub struct Mapping {
+            pub values: Values,
+            pub order: Sorted,
+            /// The attribute names `compactly`'s `Small`, as it always has,
+            /// although this module's `Small` is a different type.
+            #[compactly(Small)]
+            pub count: u64,
+        }
+
+        /// What `Mapping` must encode as: its `count` coded under
+        /// `compactly::Small`.
+        #[derive(compactly::v2::Encode)]
+        pub struct Spelled {
+            pub values: Values,
+            pub order: Sorted,
+            pub count: compactly::Encoded<u64, compactly::Small>,
+        }
+    }
+
+    #[test]
+    fn types_named_like_strategies() {
+        use strategy_names::*;
+        let mapping = Mapping {
+            values: Values(vec![Small(1), Small(200)]),
+            order: Sorted::Descending,
+            count: 300,
+        };
+        round_trips(std::slice::from_ref(&mapping));
+        let spelled = Spelled {
+            values: mapping.values.clone(),
+            order: mapping.order,
+            count: compactly::Encoded::new(mapping.count),
+        };
+        assert_eq!(
+            compactly::v2::encode(&mapping),
+            compactly::v2::encode(&spelled)
+        );
+    }
+
+    /// Fields named like the generated `encode`'s parameters, which its
+    /// bindings used to shadow.
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Book {
+        writer: String,
+        ctx: u8,
+        reader: u16,
+        value: bool,
+    }
+
+    /// Type parameters named like the generated methods' own.
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode, compactly::v1::Encode)]
+    struct Generic<E, D, W, R> {
+        e: E,
+        d: D,
+        w: W,
+        r: R,
+    }
+
+    #[test]
+    fn fields_and_type_parameters_named_like_the_expansions() {
+        round_trips(&[Book {
+            writer: "Austen".into(),
+            ctx: 3,
+            reader: 1813,
+            value: true,
+        }]);
+        round_trips(&[Generic {
+            e: 1u8,
+            d: true,
+            w: 2u16,
+            r: 3u32,
+        }]);
+    }
+
+    /// With no prelude at all, nothing left for the expansion to lean on.
+    mod no_prelude {
+        #![no_implicit_prelude]
+
+        #[derive(
+            ::core::clone::Clone,
+            ::core::fmt::Debug,
+            ::core::cmp::PartialEq,
+            ::compactly::v2::Encode,
+            ::compactly::v1::Encode,
+        )]
+        pub struct Pair {
+            pub left: u8,
+            pub right: ::std::vec::Vec<u16>,
+        }
+
+        #[derive(
+            ::core::clone::Clone,
+            ::core::fmt::Debug,
+            ::core::cmp::PartialEq,
+            ::compactly::v2::Encode,
+            ::compactly::v1::Encode,
+        )]
+        pub enum Either {
+            Left(Pair),
+            Right {
+                #[compactly(Small)]
+                count: u64,
+            },
+        }
+    }
+
+    #[test]
+    fn no_implicit_prelude() {
+        use no_prelude::*;
+        round_trips(&[
+            Either::Left(Pair {
+                left: 4,
+                right: vec![1, 2, 3],
+            }),
+            Either::Right { count: 99 },
+        ]);
+    }
+}
+
+/// A field whose type mentions a type parameter is bounded by the strategy it
+/// is coded with, so a generic field can carry a strategy.
+#[test]
+fn generic_fields_with_a_strategy() {
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode)]
+    struct Wrapper<T> {
+        #[compactly(Small)]
+        x: T,
+        #[compactly(Values<compactly::Small>)]
+        xs: Vec<T>,
+        plain: Option<T>,
+    }
+    let v = Wrapper {
+        x: 5u64,
+        xs: vec![1, 2, 3],
+        plain: Some(9),
+    };
+    let bytes = compactly::v2::encode(&v);
+    assert_eq!(compactly::v2::decode(&bytes), Some(v));
+}
+
+/// A strategy on a generic newtype is implemented for every `T` that its field
+/// can be coded with under that strategy.
+#[test]
+fn generic_newtype_with_a_strategy() {
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode)]
+    #[compactly(Small)]
+    struct Id<T>(T);
+
+    let bytes = compactly::v2::encode_with(compactly::Small, &Id(300u64));
+    assert_eq!(
+        bytes,
+        compactly::v2::encode_with(compactly::Small, &300u64),
+        "codes exactly as its field"
+    );
+    assert_eq!(
+        compactly::v2::decode_with(compactly::Small, &bytes),
+        Some(Id(300u64))
+    );
+}
+
 #[test]
 fn const_generic_independent() {
     // A struct with a const generic parameter that does NOT appear in any field type.

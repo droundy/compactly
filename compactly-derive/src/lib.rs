@@ -112,13 +112,95 @@ pub(crate) fn parse_compactly_attrs(attrs: &[syn::Attribute]) -> CompactlyAttrs 
                         "unknown compactly flag `{ident}`; expected an encoding strategy or one of {KNOWN_FLAGS:?}"
                     )
                 }
-                _ => strategies.push(item),
+                _ => {
+                    let mut strategy = item;
+                    qualify_builtin_strategies(&mut strategy);
+                    strategies.push(strategy);
+                }
             }
         }
     }
     CompactlyAttrs {
         strategies,
         allow_string,
+    }
+}
+
+/// The strategy types `compactly` defines, which a `#[compactly(...)]`
+/// attribute may name without importing them.
+const BUILTIN_STRATEGIES: &[&str] = &[
+    "Small",
+    "LowCardinality",
+    "Decimal",
+    "Compressible",
+    "Incompressible",
+    "Mapping",
+    "Normal",
+    "Sorted",
+    "Values",
+];
+
+/// Spell each built-in strategy that `ty` names bare as a path from the crate
+/// root, so that `Mapping<Small, Normal>` becomes
+/// `compactly::Mapping<compactly::Small, compactly::Normal>`.
+///
+/// This is what lets `#[compactly(Small)]` work without a `use`, without the
+/// generated code importing those names. An import would bring them into scope
+/// for the whole expansion, which holds the user's field types and the type's
+/// own name as well, so a type of the user's called `Values` or `Normal` would
+/// stop meaning itself there. Any other name, such as a strategy of the user's
+/// own, is left to resolve where the attribute was written.
+fn qualify_builtin_strategies(ty: &mut syn::Type) {
+    let syn::Type::Path(type_path) = ty else {
+        return;
+    };
+    let path = &mut type_path.path;
+    if type_path.qself.is_none() && path.leading_colon.is_none() && path.segments.len() == 1 {
+        let name = &path.segments[0].ident;
+        if BUILTIN_STRATEGIES.iter().any(|builtin| name == builtin) {
+            let krate = syn::Ident::new("compactly", name.span());
+            path.segments.insert(0, krate.into());
+        }
+    }
+    for segment in &mut path.segments {
+        if let syn::PathArguments::AngleBracketed(args) = &mut segment.arguments {
+            for arg in &mut args.args {
+                if let syn::GenericArgument::Type(inner) = arg {
+                    qualify_builtin_strategies(inner);
+                }
+            }
+        }
+    }
+}
+
+/// Names a field's binding must not take, because the generated code uses them
+/// where the bindings are in scope: `discriminant` is a field of the generated
+/// context, and `writer` and `ctx` are parameters of the `encode` method whose
+/// `match` binds every field. A field with one of these names is bound as
+/// `writer_0` and so on instead, which nothing outside the expansion sees.
+pub(crate) const RESERVED_BINDING_NAMES: &[&str] = &["discriminant", "writer", "ctx"];
+
+/// A name for a type parameter of the generated methods that none of the type's
+/// own generic parameters uses: `preferred` itself when it is free, and
+/// otherwise the first free one of `preferred0`, `preferred1`, ….
+///
+/// A method's generics share a scope with its impl's, so a type with a
+/// parameter `E` could not take a generated `fn encode<E: EntropyCoder>`.
+pub(crate) fn fresh_type_param(generics: &syn::Generics, preferred: &str) -> proc_macro2::Ident {
+    let taken = generics
+        .params
+        .iter()
+        .filter_map(|param| match param {
+            syn::GenericParam::Type(t) => Some(t.ident.clone()),
+            syn::GenericParam::Const(c) => Some(c.ident.clone()),
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let ident = proc_macro2::Ident::new(preferred, proc_macro2::Span::call_site());
+    if taken.contains(&ident) {
+        get_unique_name(&taken, preferred, u32::MAX)
+    } else {
+        ident
     }
 }
 
@@ -156,4 +238,18 @@ pub(crate) fn get_unique_name(
     panic!(
         "compactly does not currently support types with more than {tries} identical field names"
     );
+}
+
+#[test]
+fn builtin_strategies_are_spelled_from_the_crate_root() {
+    let attrs: Vec<syn::Attribute> = vec![syn::parse_quote! {
+        #[compactly(Mapping<Small, Values<Sorted>>, my::Small, Strategy)]
+    }];
+    let expected: [syn::Type; 3] = [
+        syn::parse_quote!(compactly::Mapping<compactly::Small, compactly::Values<compactly::Sorted>>),
+        // A path, or a name that is not compactly's, is the user's to resolve.
+        syn::parse_quote!(my::Small),
+        syn::parse_quote!(Strategy),
+    ];
+    assert_eq!(parse_compactly_attrs(&attrs).strategies, expected);
 }
