@@ -625,6 +625,26 @@ fn generic_fields_with_a_strategy() {
     assert_eq!(compactly::v2::decode(&bytes), Some(v));
 }
 
+/// A strategy on a generic newtype is implemented for every `T` that its field
+/// can be coded with under that strategy.
+#[test]
+fn generic_newtype_with_a_strategy() {
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode)]
+    #[compactly(Small)]
+    struct Id<T>(T);
+
+    let bytes = compactly::v2::encode_with(compactly::Small, &Id(300u64));
+    assert_eq!(
+        bytes,
+        compactly::v2::encode_with(compactly::Small, &300u64),
+        "codes exactly as its field"
+    );
+    assert_eq!(
+        compactly::v2::decode_with(compactly::Small, &bytes),
+        Some(Id(300u64))
+    );
+}
+
 #[test]
 fn const_generic_independent() {
     // A struct with a const generic parameter that does NOT appear in any field type.

@@ -395,13 +395,26 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
             let field_name = binding.ast().ident.as_ref().map(|i| i.to_token_stream()).unwrap_or(quote! {0});
             let decoded = s.variants()[0].construct(|_, _| quote! { <#ty as compactly::v2::Encode<#strategy>>::decode(reader, ctx)? });
             let decoded_async = s.variants()[0].construct(|_, _| quote! { <#ty as compactly::v2::Encode<#strategy>>::decode_async(reader, ctx).await? });
+            // The newtype's own generics, plus the bound its field needs to be
+            // coded with this strategy, as for a field of a derived type.
+            let (impl_generics, ty_generics, where_clause) = s.ast().generics.split_for_impl();
+            let mut where_clause = where_clause.cloned();
+            if !binding.referenced_ty_params().is_empty() {
+                where_clause
+                    .get_or_insert_with(|| syn::WhereClause {
+                        where_token: Default::default(),
+                        predicates: Default::default(),
+                    })
+                    .predicates
+                    .push(syn::parse_quote! { #ty: compactly::v2::Encode<#strategy> });
+            }
             quote! {
-                impl compactly::v2::Encode<#strategy> for #typename {
+                impl #impl_generics compactly::v2::Encode<#strategy> for #typename #ty_generics #where_clause {
                     type Context = <#ty as compactly::v2::Encode<#strategy>>::Context;
-                    fn encode<#coder: compactly::v2::EntropyCoder>(value: &#typename, writer: &mut #coder, ctx: &mut Self::Context) {
+                    fn encode<#coder: compactly::v2::EntropyCoder>(value: &Self, writer: &mut #coder, ctx: &mut Self::Context) {
                         <#ty as compactly::v2::Encode<#strategy>>::encode(&value.#field_name, writer, ctx)
                     }
-                    fn decode<#decoder: compactly::v2::EntropyDecoder>(reader: &mut #decoder, ctx: &mut Self::Context) -> ::core::result::Result<#typename, ::std::io::Error> {
+                    fn decode<#decoder: compactly::v2::EntropyDecoder>(reader: &mut #decoder, ctx: &mut Self::Context) -> ::core::result::Result<Self, ::std::io::Error> {
                         ::core::result::Result::Ok(#decoded)
                     }
 
@@ -410,7 +423,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                     fn decode_awaiting<#decoder: compactly::v2::AsyncEntropyDecoder>(
                         reader: &mut #decoder,
                         ctx: &mut Self::Context,
-                    ) -> impl ::core::future::Future<Output = ::core::result::Result<#typename, ::std::io::Error>> {
+                    ) -> impl ::core::future::Future<Output = ::core::result::Result<Self, ::std::io::Error>> {
                         async move { ::core::result::Result::Ok(#decoded_async) }
                     }
                 }
@@ -751,7 +764,7 @@ fn impl_two_strategies() {
             impl compactly::v2::Encode<compactly::Small> for NewType {
                 type Context = <u32 as compactly::v2::Encode<compactly::Small>>::Context;
                 fn encode<E: compactly::v2::EntropyCoder>(
-                    value: &NewType,
+                    value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
@@ -762,7 +775,7 @@ fn impl_two_strategies() {
                 fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     ::core::result::Result::Ok(
                         NewType(
                             <u32 as compactly::v2::Encode<
@@ -778,7 +791,7 @@ fn impl_two_strategies() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> impl ::core::future::Future<
-                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
                 > {
                     async move {
                         ::core::result::Result::Ok(
@@ -795,7 +808,7 @@ fn impl_two_strategies() {
             impl compactly::v2::Encode<compactly::Sorted> for NewType {
                 type Context = <u32 as compactly::v2::Encode<compactly::Sorted>>::Context;
                 fn encode<E: compactly::v2::EntropyCoder>(
-                    value: &NewType,
+                    value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
@@ -806,7 +819,7 @@ fn impl_two_strategies() {
                 fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     ::core::result::Result::Ok(
                         NewType(
                             <u32 as compactly::v2::Encode<
@@ -822,7 +835,7 @@ fn impl_two_strategies() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> impl ::core::future::Future<
-                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
                 > {
                     async move {
                         ::core::result::Result::Ok(
@@ -989,7 +1002,7 @@ fn impl_strategies() {
             impl compactly::v2::Encode<compactly::Sorted> for NewType {
                 type Context = <u32 as compactly::v2::Encode<compactly::Sorted>>::Context;
                 fn encode<E: compactly::v2::EntropyCoder>(
-                    value: &NewType,
+                    value: &Self,
                     writer: &mut E,
                     ctx: &mut Self::Context,
                 ) {
@@ -1000,7 +1013,7 @@ fn impl_strategies() {
                 fn decode<D: compactly::v2::EntropyDecoder>(
                     reader: &mut D,
                     ctx: &mut Self::Context,
-                ) -> ::core::result::Result<NewType, ::std::io::Error> {
+                ) -> ::core::result::Result<Self, ::std::io::Error> {
                     ::core::result::Result::Ok(
                         NewType(
                             <u32 as compactly::v2::Encode<
@@ -1016,7 +1029,7 @@ fn impl_strategies() {
                     reader: &mut D,
                     ctx: &mut Self::Context,
                 ) -> impl ::core::future::Future<
-                    Output = ::core::result::Result<NewType, ::std::io::Error>,
+                    Output = ::core::result::Result<Self, ::std::io::Error>,
                 > {
                     async move {
                         ::core::result::Result::Ok(
