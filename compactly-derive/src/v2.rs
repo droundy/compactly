@@ -152,9 +152,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         })
         .collect::<Vec<_>>();
     let context_generics = {
-        let type_bounds = context_type_params
-            .iter()
-            .map(|t| quote! { #t: compactly::v2::Encode });
+        let type_bounds = context_type_params.iter().map(|t| quote! { #t });
         let const_defs = context_const_params
             .iter()
             .map(|(name, ty)| quote! { const #name: #ty });
@@ -187,6 +185,32 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
         let strategy = EncodingStrategy::parse(binding);
         strategies.push(strategy.clone());
         binding_strategies.insert(binding.binding.clone(), strategy);
+    }
+
+    // Bound each field that mentions a type parameter by the strategy it is
+    // coded with, `FieldTy: Encode<Strategy>`. synstructure's own bounds would
+    // say `T: Encode<Normal>`, which a field like `#[compactly(Small)] x: T`
+    // does not use and cannot satisfy its `Encode<Small>` call with.
+    let field_bounds = s
+        .variants()
+        .iter()
+        .flat_map(|variant| variant.bindings().iter())
+        .zip(strategies.iter())
+        .filter(|(binding, _)| !binding.referenced_ty_params().is_empty())
+        .map(|(binding, strategy)| {
+            let ty = &binding.ast().ty;
+            let strategy = strategy_or_normal(strategy.as_ref());
+            syn::parse_quote! { #ty: compactly::v2::Encode<#strategy> }
+        })
+        .collect::<Vec<syn::WherePredicate>>();
+    let context_where = if field_bounds.is_empty() {
+        quote! {}
+    } else {
+        quote! { where #(#field_bounds),* }
+    };
+    s.add_bounds(synstructure::AddBounds::None);
+    for bound in &field_bounds {
+        s.add_where_predicate(bound.clone());
     }
 
     // Emit a deprecation-style compiler warning for the `LowCardinality<String>`
@@ -400,11 +424,11 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
 
         #(#antipattern_warnings)*
 
-        pub struct DerivedContext #context_generics {
+        pub struct DerivedContext #context_generics #context_where {
             discriminant: <#discriminant_type as compactly::v2::Encode>::Context,
             #(#context,)*
         }
-        impl #context_generics ::core::default::Default for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::default::Default for DerivedContext #context_generics_without_bound #context_where {
             fn default() -> Self {
                 Self {
                     discriminant: ::core::default::Default::default(),
@@ -412,7 +436,7 @@ pub(crate) fn derive_compactly(mut s: synstructure::Structure) -> proc_macro2::T
                 }
             }
         }
-        impl #context_generics ::core::clone::Clone for DerivedContext #context_generics_without_bound {
+        impl #context_generics ::core::clone::Clone for DerivedContext #context_generics_without_bound #context_where {
             fn clone(&self) -> Self {
                 Self {
                     discriminant: ::core::clone::Clone::clone(&self.discriminant),

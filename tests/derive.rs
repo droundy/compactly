@@ -604,6 +604,27 @@ mod names_in_the_deriving_module {
     }
 }
 
+/// A field whose type mentions a type parameter is bounded by the strategy it
+/// is coded with, so a generic field can carry a strategy.
+#[test]
+fn generic_fields_with_a_strategy() {
+    #[derive(Clone, Debug, PartialEq, compactly::v2::Encode)]
+    struct Wrapper<T> {
+        #[compactly(Small)]
+        x: T,
+        #[compactly(Values<compactly::Small>)]
+        xs: Vec<T>,
+        plain: Option<T>,
+    }
+    let v = Wrapper {
+        x: 5u64,
+        xs: vec![1, 2, 3],
+        plain: Some(9),
+    };
+    let bytes = compactly::v2::encode(&v);
+    assert_eq!(compactly::v2::decode(&bytes), Some(v));
+}
+
 #[test]
 fn const_generic_independent() {
     // A struct with a const generic parameter that does NOT appear in any field type.
